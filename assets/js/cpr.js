@@ -1,7 +1,7 @@
 // CPR Calculator — root-level adapter
 // Wraps websites/cpr/js/index.js with corrected image paths for root deployment
 
-import { ref, database, onValue } from "./assets/js/firebase-init.js";
+import { ref, database, onValue } from "./firebase-init-noauth.js";
 
 const phonesInDB = ref(database, "devices");
 

@@ -1,6 +1,6 @@
 // assets/js/catalog.js
 // Catalog logic for Smart Solutions
-import { app, auth, database, ref, onValue, get, off, onAuthStateChanged } from "./firebase-init.js";
+import { app, auth, database, ref, onValue, get, off, onAuthStateChanged } from "./firebase-init-noauth.js";
 
 const grid = document.getElementById("catalogGrid");
 const emptyState = document.getElementById("emptyState");

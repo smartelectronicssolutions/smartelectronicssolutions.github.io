@@ -5,7 +5,7 @@ import {
     ref,
     set,
     push
-} from '../../apps/assets/js/firebase-init.js';
+} from '../../apps/assets/js/firebase-init-noauth.js';
 
 export async function updateVisitCount() {
     const db = getDatabase();
