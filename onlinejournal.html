@@ -1,0 +1,735 @@
+<!doctype html>
+<html lang="en" class="theme-web">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Online Journal</title>
+
+  <link rel="stylesheet" href="assets/css/master.css"/>
+  <link rel="icon" href="assets/img/favicon.ico"/>
+
+  <style>
+    .journal-shell {
+      max-width: 1280px;
+      margin: auto;
+      padding: 24px;
+    }
+
+    .journal-layout {
+      display: grid;
+      grid-template-columns: 420px minmax(0, 1fr);
+      gap: 20px;
+      align-items: start;
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      min-width: 0;
+      width: 60vw;
+    }
+
+    .panel h2 {
+      margin-bottom: 12px;
+    }
+
+    label {
+      display: block;
+      font-size: 0.88rem;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    input,
+    textarea {
+      width: 100%;
+      margin-top: 4px;
+      margin-bottom: 12px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface2);
+      color: var(--text);
+      font: inherit;
+    }
+
+    textarea {
+      min-height: 90px;
+      resize: vertical;
+    }
+
+    .section-card {
+      border: 1px solid var(--border);
+      padding: 12px;
+      border-radius: 10px;
+      margin-bottom: 12px;
+      background: var(--surface2);
+    }
+
+    .section-card h4 {
+      margin: 0 0 8px;
+      font-size: 0.95rem;
+    }
+
+    .entry-card {
+      border: 1px solid var(--border);
+      padding: 14px;
+      border-radius: 10px;
+      margin-bottom: 12px;
+      cursor: pointer;
+      background: var(--surface2);
+      transition: background 0.2s ease, transform 0.2s ease;
+    }
+
+    .entry-card:hover {
+      background: var(--surface);
+      transform: translateY(-2px);
+    }
+
+    .entry-card small {
+      display: block;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .entry-card h3 {
+      margin: 0 0 8px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+
+    .btn {
+      padding: 8px 12px;
+      cursor: pointer;
+    }
+
+    .btn-outline {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    .status-line {
+      margin-top: 12px;
+      min-height: 22px;
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+
+    .muted-line {
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-bottom: 10px;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+    }
+
+    .article-meta {
+      margin-bottom: 14px;
+      color: var(--muted);
+    }
+
+    .article-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 12px 0 18px;
+    }
+
+    .tag {
+      display: inline-block;
+      font-size: 0.75rem;
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    .article-section {
+      border-top: 1px solid var(--border);
+      padding-top: 16px;
+      margin-top: 16px;
+    }
+
+    .article-section h3 {
+      margin-bottom: 8px;
+      color: var(--primary);
+    }
+
+    .article-section ul {
+      padding-left: 20px;
+      margin: 10px 0 0;
+    }
+
+    .article-section li {
+      margin-bottom: 8px;
+    }
+
+    .article-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 18px;
+    }
+
+    .empty-state {
+      color: var(--muted);
+      padding: 16px;
+      border: 1px dashed var(--border);
+      border-radius: 10px;
+      background: var(--surface2);
+    }
+
+    @media (max-width: 980px) {
+      .journal-layout {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div id="header-placeholder"></div>
+
+  <main>
+    <div class="journal-shell">
+      <div class="journal-layout">
+
+        <!-- LEFT: EDITOR -->
+        <section class="panel" style="display: none;">
+          <h2 id="editorTitle">Create Article</h2>
+          <p class="muted-line">
+            Build article-style entries with sections and step lists.
+          </p>
+
+          <label for="title">Title</label>
+          <input id="title" placeholder="Article title" />
+
+          <label for="description">Description</label>
+          <textarea id="description" placeholder="Short article summary"></textarea>
+
+          <label for="tags">Tags</label>
+          <input id="tags" placeholder="tag1, tag2, tag3" />
+
+          <div class="actions">
+            <button class="btn" id="addSection" type="button">Add Section</button>
+            <button class="btn" id="save" type="button">Save Article</button>
+            <button class="btn btn-outline" id="clearFormBtn" type="button">Clear</button>
+          </div>
+
+          <div id="sections"></div>
+
+          <div class="status-line" id="statusLine"></div>
+        </section>
+
+        <!-- RIGHT: VIEW -->
+        <section class="panel">
+          <div id="listView">
+            <div class="toolbar">
+              <button class="btn btn-outline" id="refreshListBtn" type="button">Refresh</button>
+            </div>
+            <h2>Articles</h2>
+            <div id="list"></div>
+          </div>
+
+          <div id="articleView" style="display:none;">
+            <div class="toolbar">
+              <button class="btn btn-outline" id="backToListBtn" type="button">Back to List</button>
+            </div>
+
+            <h2 id="articleTitle"></h2>
+            <div class="article-meta" id="articleDate"></div>
+            <p id="articleDescription"></p>
+            <div class="article-tags" id="articleTags"></div>
+            <div id="articleSections"></div>
+
+            <div class="article-actions">
+              <button class="btn" id="editArticleBtn" type="button">Edit Article</button>
+              <button class="btn btn-outline" id="deleteArticleBtn" type="button">Delete Article</button>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </main>
+
+  <div id="footer-placeholder"></div>
+
+  <script src="assets/js/main.js"></script>
+
+  <script type="module">
+    import { database } from "./assets/js/firebase-init-noauth.js";
+    import {
+      ref,
+      set,
+      get,
+      onValue,
+      remove
+    } from "https://www.gstatic.com/firebasejs/9.1.3/firebase-database.js";
+
+    const PATH = "share/journalArticles";
+
+    const params = new URLSearchParams(window.location.search);
+    const entryIdFromURL = params.get("id");
+
+    const titleInput = document.getElementById("title");
+    const descriptionInput = document.getElementById("description");
+    const tagsInput = document.getElementById("tags");
+    const sectionsContainer = document.getElementById("sections");
+    const statusLine = document.getElementById("statusLine");
+    const editorTitle = document.getElementById("editorTitle");
+
+    const addSectionBtn = document.getElementById("addSection");
+    const saveBtn = document.getElementById("save");
+    const clearFormBtn = document.getElementById("clearFormBtn");
+
+    const listView = document.getElementById("listView");
+    const articleView = document.getElementById("articleView");
+    const listEl = document.getElementById("list");
+
+    const articleTitle = document.getElementById("articleTitle");
+    const articleDate = document.getElementById("articleDate");
+    const articleDescription = document.getElementById("articleDescription");
+    const articleTags = document.getElementById("articleTags");
+    const articleSections = document.getElementById("articleSections");
+
+    const backToListBtn = document.getElementById("backToListBtn");
+    const refreshListBtn = document.getElementById("refreshListBtn");
+    const editArticleBtn = document.getElementById("editArticleBtn");
+    const deleteArticleBtn = document.getElementById("deleteArticleBtn");
+
+    let sections = [];
+    let allArticles = {};
+    let currentArticleId = null;
+    let editingId = null;
+    let isSaving = false;
+
+    function setStatus(message, isError = false) {
+      statusLine.textContent = message || "";
+      statusLine.style.color = isError ? "#ff8a8a" : "var(--muted)";
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function normalizeSection(section) {
+      return {
+        title: String(section?.title || "").trim(),
+        summary: String(section?.summary || "").trim(),
+        steps: Array.isArray(section?.steps)
+          ? section.steps.map(step => String(step || "").trim()).filter(Boolean)
+          : []
+      };
+    }
+
+    function getCleanTags() {
+      return tagsInput.value
+        .split(",")
+        .map(tag => tag.trim())
+        .filter(Boolean);
+    }
+
+    function getCleanSections() {
+      return (sections || []).map(normalizeSection).filter(sec => {
+        return sec.title || sec.summary || sec.steps.length;
+      });
+    }
+
+    function clearForm() {
+      titleInput.value = "";
+      descriptionInput.value = "";
+      tagsInput.value = "";
+      sections = [];
+      editingId = null;
+      editorTitle.textContent = "Create Article";
+      saveBtn.textContent = "Save Article";
+      renderSections();
+      setStatus("Form cleared.");
+    }
+
+    function loadArticleIntoEditor(id, article) {
+      editingId = id;
+      titleInput.value = article?.title || "";
+      descriptionInput.value = article?.description || "";
+      tagsInput.value = Array.isArray(article?.tags) ? article.tags.join(", ") : "";
+      sections = Array.isArray(article?.sections)
+        ? article.sections.map(normalizeSection)
+        : [];
+
+      editorTitle.textContent = "Edit Article";
+      saveBtn.textContent = "Update Article";
+      renderSections();
+      setStatus("Article loaded into editor.");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function addSection(section = { title: "", summary: "", steps: [] }) {
+      sections.push(normalizeSection(section));
+      renderSections();
+    }
+
+    function renderSections() {
+      sectionsContainer.innerHTML = "";
+
+      if (!sections.length) {
+        sectionsContainer.innerHTML = `
+          <div class="empty-state">
+            No sections yet. Click "Add Section" to start building the article.
+          </div>
+        `;
+        return;
+      }
+
+      sections.forEach((section, index) => {
+        const div = document.createElement("div");
+        div.className = "section-card";
+
+        div.innerHTML = `
+          <h4>Section ${index + 1}</h4>
+
+          <label>Section Title</label>
+          <input
+            type="text"
+            class="sec-title"
+            data-index="${index}"
+            value="${escapeHtml(section.title)}"
+            placeholder="Section title"
+          />
+
+          <label>Summary</label>
+          <textarea
+            class="sec-summary"
+            data-index="${index}"
+            placeholder="Section summary"
+          >${escapeHtml(section.summary)}</textarea>
+
+          <label>Steps (one per line)</label>
+          <textarea
+            class="sec-steps"
+            data-index="${index}"
+            placeholder="Step 1&#10;Step 2&#10;Step 3"
+          >${escapeHtml(section.steps.join("\n"))}</textarea>
+
+          <div class="actions">
+            <button class="btn btn-outline move-up" type="button" data-index="${index}">Move Up</button>
+            <button class="btn btn-outline move-down" type="button" data-index="${index}">Move Down</button>
+            <button class="btn btn-outline delete-sec" type="button" data-index="${index}">Remove</button>
+          </div>
+        `;
+
+        sectionsContainer.appendChild(div);
+      });
+
+      document.querySelectorAll(".sec-title").forEach(el => {
+        el.addEventListener("input", (e) => {
+          const i = Number(e.target.dataset.index);
+          if (!Number.isNaN(i) && sections[i]) {
+            sections[i].title = e.target.value;
+          }
+        });
+      });
+
+      document.querySelectorAll(".sec-summary").forEach(el => {
+        el.addEventListener("input", (e) => {
+          const i = Number(e.target.dataset.index);
+          if (!Number.isNaN(i) && sections[i]) {
+            sections[i].summary = e.target.value;
+          }
+        });
+      });
+
+      document.querySelectorAll(".sec-steps").forEach(el => {
+        el.addEventListener("input", (e) => {
+          const i = Number(e.target.dataset.index);
+          if (!Number.isNaN(i) && sections[i]) {
+            sections[i].steps = e.target.value
+              .split("\n")
+              .map(step => step.trim())
+              .filter(Boolean);
+          }
+        });
+      });
+
+      document.querySelectorAll(".delete-sec").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const i = Number(btn.dataset.index);
+          if (!Number.isNaN(i)) {
+            sections.splice(i, 1);
+            renderSections();
+            setStatus("Section removed.");
+          }
+        });
+      });
+
+      document.querySelectorAll(".move-up").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const i = Number(btn.dataset.index);
+          if (i > 0) {
+            [sections[i - 1], sections[i]] = [sections[i], sections[i - 1]];
+            renderSections();
+          }
+        });
+      });
+
+      document.querySelectorAll(".move-down").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const i = Number(btn.dataset.index);
+          if (i < sections.length - 1) {
+            [sections[i + 1], sections[i]] = [sections[i], sections[i + 1]];
+            renderSections();
+          }
+        });
+      });
+    }
+
+    async function saveArticle() {
+      if (isSaving) return;
+
+      try {
+        isSaving = true;
+        saveBtn.disabled = true;
+        setStatus("Saving article...");
+
+        const title = titleInput.value.trim();
+        const description = descriptionInput.value.trim();
+        const tags = getCleanTags();
+        const cleanSections = getCleanSections();
+
+        if (!title) {
+          setStatus("Title is required.", true);
+          return;
+        }
+
+        const id = editingId || Date.now().toString();
+        const existing = editingId && allArticles[editingId] ? allArticles[editingId] : null;
+
+        const payload = {
+          title,
+          description,
+          tags,
+          date: existing?.date || new Date().toISOString(),
+          updatedAt: Date.now(),
+          createdAt: existing?.createdAt || Date.now(),
+          sections: cleanSections
+        };
+
+        console.log("Saving article payload:", payload);
+        console.log("Payload JSON:", JSON.stringify(payload));
+
+        await set(ref(database, `${PATH}/${id}`), payload);
+
+        await loadArticles();
+
+        editingId = id;
+        currentArticleId = id;
+        setStatus("Article saved.");
+        alert("Saved");
+
+        const fresh = await get(ref(database, `${PATH}/${id}`));
+        if (fresh.exists()) {
+          renderArticle(id, fresh.val());
+        }
+      } catch (err) {
+        console.error("Save failed:", err);
+        setStatus(`Save failed: ${err.message || err}`, true);
+        alert(`Save failed: ${err.message || err}`);
+      } finally {
+        isSaving = false;
+        saveBtn.disabled = false;
+      }
+    }
+
+    function renderList(data) {
+      listEl.innerHTML = "";
+
+      const entries = Object.entries(data || {}).sort((a, b) => Number(b[0]) - Number(a[0]));
+
+      if (!entries.length) {
+        listEl.innerHTML = `
+          <div class="empty-state">
+            No articles saved yet.
+          </div>
+        `;
+        return;
+      }
+
+      entries.forEach(([id, article]) => {
+        const div = document.createElement("div");
+        div.className = "entry-card";
+
+        const preview =
+          article?.description ||
+          article?.sections?.[0]?.summary ||
+          "No preview available.";
+
+        div.innerHTML = `
+          <small>${escapeHtml(article?.date || "")}</small>
+          <h3>${escapeHtml(article?.title || "Untitled Article")}</h3>
+          <p>${escapeHtml(preview)}</p>
+        `;
+
+        div.addEventListener("click", () => {
+          window.location.href = `onlinejournal.html?id=${id}`;
+        });
+
+        listEl.appendChild(div);
+      });
+    }
+
+    function renderArticle(id, article) {
+      currentArticleId = id;
+
+      listView.style.display = "none";
+      articleView.style.display = "block";
+
+      articleTitle.textContent = article?.title || "Untitled Article";
+      articleDate.textContent = article?.date || "";
+      articleDescription.textContent = article?.description || "";
+
+      articleTags.innerHTML = "";
+      (article?.tags || []).forEach(tag => {
+        const span = document.createElement("span");
+        span.className = "tag";
+        span.textContent = tag;
+        articleTags.appendChild(span);
+      });
+
+      articleSections.innerHTML = "";
+
+      const sectionsToRender = Array.isArray(article?.sections) ? article.sections : [];
+
+      if (!sectionsToRender.length) {
+        articleSections.innerHTML = `
+          <div class="empty-state">
+            This article does not have any sections yet.
+          </div>
+        `;
+        return;
+      }
+
+      sectionsToRender.forEach(section => {
+        const div = document.createElement("div");
+        div.className = "article-section";
+
+        const titleHtml = escapeHtml(section?.title || "");
+        const summaryHtml = escapeHtml(section?.summary || "");
+        const steps = Array.isArray(section?.steps) ? section.steps : [];
+
+        div.innerHTML = `
+          ${titleHtml ? `<h3>${titleHtml}</h3>` : ""}
+          ${summaryHtml ? `<p>${summaryHtml}</p>` : ""}
+          ${steps.length ? `
+            <ul>
+              ${steps.map(step => `<li>${escapeHtml(step)}</li>`).join("")}
+            </ul>
+          ` : ""}
+        `;
+
+        articleSections.appendChild(div);
+      });
+    }
+
+    function showListView() {
+      articleView.style.display = "none";
+      listView.style.display = "block";
+      currentArticleId = null;
+    }
+
+    async function deleteCurrentArticle() {
+      if (!currentArticleId) return;
+
+      const confirmed = confirm("Delete this article?");
+      if (!confirmed) return;
+
+      try {
+        await remove(ref(database, `${PATH}/${currentArticleId}`));
+        setStatus("Article deleted.");
+
+        if (editingId === currentArticleId) {
+          clearForm();
+        }
+
+        currentArticleId = null;
+        showListView();
+
+        if (window.location.search.includes("id=")) {
+          history.replaceState({}, "", "onlinejournal.html");
+        }
+      } catch (err) {
+        console.error("Delete failed:", err);
+        setStatus(`Delete failed: ${err.message || err}`, true);
+      }
+    }
+
+    async function loadInitialView() {
+      const snap = await get(ref(database, PATH));
+      allArticles = snap.exists() ? snap.val() : {};
+
+      if (entryIdFromURL && allArticles[entryIdFromURL]) {
+        renderArticle(entryIdFromURL, allArticles[entryIdFromURL]);
+      } else {
+        showListView();
+        renderList(allArticles);
+      }
+    }
+
+async function loadArticles() {
+  const snap = await get(ref(database, PATH));
+  allArticles = snap.exists() ? snap.val() : {};
+
+  if (currentArticleId && allArticles[currentArticleId]) {
+    renderArticle(currentArticleId, allArticles[currentArticleId]);
+    return;
+  }
+
+  if (entryIdFromURL && allArticles[entryIdFromURL]) {
+    renderArticle(entryIdFromURL, allArticles[entryIdFromURL]);
+    return;
+  }
+
+  renderList(allArticles);
+}
+
+    addSectionBtn.addEventListener("click", () => addSection());
+    saveBtn.addEventListener("click", saveArticle);
+    clearFormBtn.addEventListener("click", clearForm);
+    backToListBtn.addEventListener("click", () => {
+      history.replaceState({}, "", "onlinejournal.html");
+      showListView();
+      renderList(allArticles);
+    });
+    refreshListBtn.addEventListener("click", () => renderList(allArticles));
+
+    editArticleBtn.addEventListener("click", () => {
+      if (currentArticleId && allArticles[currentArticleId]) {
+        loadArticleIntoEditor(currentArticleId, allArticles[currentArticleId]);
+      }
+    });
+
+    deleteArticleBtn.addEventListener("click", deleteCurrentArticle);
+
+    renderSections();
+    loadInitialView();
+  </script>
+</body>
+</html>
