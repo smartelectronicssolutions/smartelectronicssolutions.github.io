@@ -35,12 +35,6 @@ apps/
 
 ---
 
-### websites/
-
-- `websites/` contains separate project sites, each with its own folder, assets, and page structure  
-  (examples: `websites/aa`, `websites/bma`, `websites/cpr`, `websites/crypto`, `websites/game`, etc.)
-
----
 
 ## How to make changes
 
