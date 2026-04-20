@@ -1,0 +1,1490 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=no"
+    />
+    <title>Information Learning App</title>
+    <link
+      rel="stylesheet"
+      href="../../assets/css/app-styles.css"
+      id="stylesheet"
+    />
+    <link
+      rel="icon"
+      href="../assets/img/t_logo.png"
+      sizes="32x32"
+      type="image/png"
+    />
+    <script type="module" src="../assets/js/login.js" defer></script>
+    <script type="module" src="../assets/js/pdfs.js"></script>
+    <script src="../assets/js/search.js" defer></script>
+    <style>
+      #indexDropdown {
+        min-width: 220px;
+      }
+
+      .pdf-hidden {
+        display: none;
+      }
+
+      #newQuestion,
+      #options {
+        width: 100%;
+      }
+
+      #flashcard {
+        margin-bottom: 20px;
+      }
+
+      #quizSection,
+      #addQuestion {
+        font-family: "Verdana", sans-serif;
+        text-align: start;
+        background-color: var(--secondaryBackgroundColor);
+        padding: 4px 12px;
+        border-radius: 8px;
+        overflow-x: auto;
+      }
+
+      #descriptions {
+        display: none;
+        margin-top: 20px;
+        padding: 10px;
+        border: 1px solid #ccc;
+        background-color: #f9f9f9;
+      }
+    </style>
+  </head>
+
+  <body>
+    <header>
+      <h1>Quiz</h1>
+      <section id="login-section">
+        <form id="login-form">
+          <label for="username">Email:</label>
+          <input type="email" id="username" required />
+          <br />
+          <label for="password">Password:</label>
+          <input type="password" id="password" required />
+          <br />
+          <button type="submit">Login</button>
+        </form>
+        <button id="logout" style="display: none">Logout</button>
+      </section>
+
+      <section class="stats">
+        <div id="scoreDisplay">Learned: 0% (0 correct / 0 wrong)</div>
+        <div
+          id="timer"
+          style="cursor: pointer"
+          title="Click to start/pause/reset"
+        >
+          Time: <span id="timer-value">00:00:00</span>
+        </div>
+        <div style="display: none">
+          <button id="startTimerBtn">Start</button>
+          <button id="pauseTimerBtn">Pause</button>
+          <button id="resetTimerBtn">Reset</button>
+        </div>
+        <div>
+          <div id="highScore">High Scores:</div>
+        </div>
+      </section>
+    </header>
+
+    <main>
+      <section>
+        <div>
+          <input type="text" id="filterInput" placeholder="Filter questions" />
+          <button id="filterButton">Filter</button>
+          <select id="indexDropdown" aria-label="Filter by topic">
+            <option value="">All topics</option>
+          </select>
+        </div>
+
+        <label>
+          <input
+            type="radio"
+            name="questionType"
+            value="multipleChoice"
+            checked
+          />
+          Multiple Choice
+        </label>
+        <label>
+          <input type="radio" name="questionType" value="textInput" /> Text
+          Input
+        </label>
+        <label>
+          <input type="radio" name="questionType" value="flashcard" /> Flashcard
+        </label>
+
+        <div>
+          <div>
+            <input type="checkbox" id="showIncorrect" />
+            <label for="showIncorrect">Include Incorrect Questions</label>
+            <button id="loadIncorrectQuestionsButton">
+              Load Incorrect Questions
+            </button>
+          </div>
+
+          <div>
+            <input type="checkbox" id="showCorrect" />
+            <label for="showCorrect"
+              >Include Correctly Answered Questions</label
+            >
+            <button id="loadCorrectQuestionsButton">
+              Review Learned Questions
+            </button>
+          </div>
+
+          <div id="questionCounter">Questions Remaining: 0</div>
+
+          <div>
+            <input type="checkbox" id="saveQuestionCheckbox" />
+            <label for="saveQuestionCheckbox">Save Question</label>
+            <button id="loadSavedQuestionsButton">Load Saved Questions</button>
+          </div>
+
+          <div>
+            <input type="checkbox" id="shuffleToggle" checked />
+            <label for="shuffleToggle">Shuffle Questions</label>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div id="quizSection"></div>
+        <button id="previousQuestion" disabled>Previous Question</button>
+        <button id="submitAnswer">Submit Answer</button>
+        <button id="nextQuestion">Next Question</button>
+        <button id="showAnswerButton" style="display: none">Show Answer</button>
+      </section>
+
+      <button id="addNewQuestionButton">Add New Question</button>
+      <button id="editQuestionButton">Edit Current Question</button>
+
+      <section id="addQuestion" style="display: none">
+        <h2 id="formTitle">Add Question</h2>
+        <form>
+          <input
+            type="text"
+            id="newDescription"
+            placeholder="Enter Description"
+          />
+          <input type="text" id="newQuestion" placeholder="Enter Question" />
+          <input type="text" id="options" placeholder="Enter Options" />
+          <input type="text" id="correctAnswer" placeholder="Enter Answer" />
+          <textarea id="explanation" placeholder="Enter Explanation"></textarea>
+          <button id="addQuestionButton">Add Question</button>
+          <button id="deleteQuestionButton">Delete Current Question</button>
+          <button id="downloadData">Download Questions</button>
+        </form>
+      </section>
+
+      <section id="savedPdfsSection" class="pdf-hidden">
+        <h2>Saved PDFs</h2>
+        <div>
+          <input type="file" id="pdfFileInput" accept="application/pdf" />
+          <button id="uploadPdfBtn">Upload PDF</button>
+          <button id="refreshPdfListBtn">Refresh</button>
+        </div>
+        <div id="pdfList">Log in to view saved PDFs.</div>
+      </section>
+    </main>
+
+    <script type="module">
+      import {
+        getDatabase,
+        database,
+        ref,
+        onValue,
+        push,
+        get,
+        child,
+        set,
+        remove,
+        auth,
+        onAuthStateChanged,
+      } from "../assets/js/firebase-init.js";
+
+      let DATABASE_BASE_PATH = "public";
+      let currentQuestionIndex = 0;
+      let correctAnswersCount = 0;
+      let wrongAnswersCount = 0;
+      let questions = [];
+      let allQuestions = [];
+      let answeredQuestions = {};
+      let currentQuestionId = null;
+      let currentDescription = "";
+      let timerInterval;
+      let timeElapsed = 0;
+      let timerRunning = false;
+      let timerStartTime = null;
+      let appInitialized = false;
+      let domListenersRegistered = false;
+      let questionsUnsubscribe = null;
+      let currentViewMode = "normal";
+      const filterInput = document.getElementById("filterInput");
+      const questionSearchHelper = window.SearchEngine?.attachAuto
+        ? window.SearchEngine.attachAuto(filterInput, {
+            defaultFields: ["description", "id"],
+            placeholderAdvanced: '🔎... e.g. description:"ohms" id:123',
+          })
+        : null;
+
+      if (!questionSearchHelper && filterInput) {
+        filterInput.title =
+          "Basic search only. Load ./assets/js/search.js for operators.";
+      }
+
+      onAuthStateChanged(auth, (user) => {
+        DATABASE_BASE_PATH = user ? user.uid : "public";
+
+        if (!appInitialized) {
+          initializeApp();
+          appInitialized = true;
+        } else {
+          loadSavedData().then(() => {
+            fetchQuestions(true);
+          });
+        }
+      });
+
+      function initializeApp() {
+        if (!domListenersRegistered) {
+          registerEventListeners();
+          domListenersRegistered = true;
+        }
+
+        watchFirebase("highScores", [], (highScores) => {
+          displayHighScores(highScores);
+        });
+
+        loadSavedData().then(() => {
+          fetchQuestions(true);
+        });
+      }
+
+      function saveToFirebase(path, value) {
+        if (!DATABASE_BASE_PATH) {
+          console.error("Database path is not set.");
+          return Promise.resolve();
+        }
+
+        const dataRef = ref(database, `${DATABASE_BASE_PATH}/quizData/${path}`);
+        return set(dataRef, value);
+      }
+
+      function loadFromFirebaseOnce(path, defaultValue) {
+        if (!DATABASE_BASE_PATH) {
+          console.error("DATABASE_BASE_PATH is not set.");
+          return Promise.resolve(defaultValue);
+        }
+
+        const dataRef = ref(database, `${DATABASE_BASE_PATH}/quizData/${path}`);
+        return get(dataRef).then((snapshot) =>
+          snapshot.exists() ? snapshot.val() : defaultValue,
+        );
+      }
+
+      function watchFirebase(path, defaultValue, callback) {
+        if (!DATABASE_BASE_PATH) {
+          console.error("DATABASE_BASE_PATH is not set.");
+          return;
+        }
+
+        const dataRef = ref(database, `${DATABASE_BASE_PATH}/quizData/${path}`);
+        return onValue(dataRef, (snapshot) => {
+          const data = snapshot.val();
+          callback(data !== null ? data : defaultValue);
+        });
+      }
+
+      function startTimer() {
+        if (!timerRunning) {
+          timerStartTime = Date.now() - timeElapsed * 1000;
+          timerRunning = true;
+          runTimer();
+        }
+
+        document.getElementById("timer").title = timerRunning
+          ? "Click to pause timer. Double-click to reset."
+          : "Click to start timer. Double-click to reset.";
+      }
+
+      function stopTimer() {
+        timerRunning = false;
+        clearInterval(timerInterval);
+
+        document.getElementById("timer").title = timerRunning
+          ? "Click to pause timer. Double-click to reset."
+          : "Click to start timer. Double-click to reset.";
+      }
+
+      function runTimer() {
+        clearInterval(timerInterval);
+        timerInterval = setInterval(() => {
+          if (!timerRunning || !timerStartTime) return;
+
+          const currentTime = Date.now();
+          timeElapsed = Math.floor((currentTime - timerStartTime) / 1000);
+          document.getElementById("timer-value").textContent =
+            formatTime(timeElapsed);
+        }, 1000);
+      }
+
+      function resetTimer() {
+        stopTimer();
+        timeElapsed = 0;
+        document.getElementById("timer-value").textContent = formatTime(0);
+        timerStartTime = null;
+      }
+
+      let clickCount = 0;
+      let clickTimer = null;
+
+      document.getElementById("timer").addEventListener("click", () => {
+        clickCount++;
+
+        clearTimeout(clickTimer);
+        clickTimer = setTimeout(() => {
+          if (clickCount === 1) {
+            if (timerRunning) {
+              stopTimer();
+            } else {
+              startTimer();
+            }
+          } else if (clickCount === 2) {
+            resetTimer();
+          }
+          clickCount = 0;
+        }, 300);
+      });
+
+      function formatTime(seconds) {
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        const remainingSeconds = seconds % 60;
+        return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`;
+      }
+
+      function updateHighScore() {
+        const highScoresPath = "highScores";
+        const highScores = loadFromLocalStorage("highScores", "[]");
+
+        const totalQuestions = correctAnswersCount + wrongAnswersCount;
+        if (totalQuestions === 0) {
+          alert("No completed questions yet.");
+          return;
+        }
+
+        const percentage = Math.round(
+          (correctAnswersCount / totalQuestions) * 100,
+        );
+        const timeTaken = formatTime(timeElapsed);
+
+        let playerName = prompt("New high score! Enter your name:");
+        if (!playerName) return;
+
+        highScores.push({
+          name: playerName,
+          correctAnswers: correctAnswersCount,
+          totalQuestions,
+          percentage,
+          time: timeTaken,
+        });
+
+        saveToFirebase(highScoresPath, highScores);
+        saveToLocalStorage("highScores", highScores);
+        displayHighScores(highScores);
+      }
+
+      function displayHighScores(highScores) {
+        const highScoreElement = document.getElementById("highScore");
+        highScoreElement.innerHTML = "High Scores:<br>";
+
+        highScores.forEach((scoreEntry) => {
+          highScoreElement.innerHTML += `${scoreEntry.name}:  ${scoreEntry.percentage}% (${scoreEntry.correctAnswers} out of ${scoreEntry.totalQuestions}) ${scoreEntry.time}<br>`;
+        });
+      }
+
+      function saveToLocalStorage(key, value) {
+        localStorage.setItem(key, JSON.stringify(value));
+      }
+
+      function loadFromLocalStorage(key, defaultValue) {
+        const value = localStorage.getItem(key);
+        return value ? JSON.parse(value) : defaultValue;
+      }
+
+      function shuffleArray(array) {
+        const arr = [...array];
+
+        for (let i = arr.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [arr[i], arr[j]] = [arr[j], arr[i]];
+        }
+
+        return arr;
+      }
+
+      function isShuffleEnabled() {
+        return document.getElementById("shuffleToggle")?.checked === true;
+      }
+
+      function updateScoreDisplay() {
+        const totalAnswers = correctAnswersCount + wrongAnswersCount;
+        const scorePercentage =
+          totalAnswers === 0
+            ? 0
+            : Math.round((correctAnswersCount / totalAnswers) * 100);
+        document.getElementById("scoreDisplay").textContent =
+          `Learned: ${scorePercentage}% (${correctAnswersCount} correct / ${wrongAnswersCount} wrong)`;
+        saveToLocalStorage("correctAnswersCount", correctAnswersCount);
+        saveToLocalStorage("wrongAnswersCount", wrongAnswersCount);
+      }
+
+      function registerEventListeners() {
+        document
+          .getElementById("submitAnswer")
+          .addEventListener("click", submitAnswer);
+        document
+          .getElementById("previousQuestion")
+          .addEventListener("click", displayPreviousQuestion);
+        document
+          .getElementById("nextQuestion")
+          .addEventListener("click", displayNextQuestion);
+        document
+          .getElementById("filterButton")
+          .addEventListener("click", filterQuestions);
+        document
+          .getElementById("showAnswerButton")
+          .addEventListener("click", showAnswer);
+        document
+          .getElementById("addNewQuestionButton")
+          .addEventListener("click", showAddQuestionForm);
+        document
+          .getElementById("editQuestionButton")
+          .addEventListener("click", editCurrentQuestion);
+        document
+          .getElementById("addQuestionButton")
+          .addEventListener("click", handleAddOrUpdateQuestion);
+        document
+          .getElementById("downloadData")
+          .addEventListener("click", downloadQuestions);
+        document
+          .getElementById("deleteQuestionButton")
+          .addEventListener("click", deleteCurrentQuestion);
+        document
+          .getElementById("saveQuestionCheckbox")
+          .addEventListener("change", () => {
+            handleSaveQuestion(questions[currentQuestionIndex]);
+          });
+        document
+          .getElementById("loadSavedQuestionsButton")
+          .addEventListener("click", loadSavedQuestions);
+        document
+          .getElementById("loadIncorrectQuestionsButton")
+          .addEventListener("click", loadIncorrectQuestions);
+        document
+          .getElementById("showIncorrect")
+          .addEventListener("change", toggleShowIncorrect);
+        document
+          .getElementById("showCorrect")
+          .addEventListener("change", toggleShowIncorrect);
+        document
+          .querySelectorAll('input[name="questionType"]')
+          .forEach((radio) => {
+            radio.addEventListener("change", () => {
+              if (questions.length > 0)
+                displayQuestion(questions[currentQuestionIndex]);
+            });
+          });
+      }
+
+      function fetchQuestions(applyFilter = false) {
+        const showIncorrect = document.getElementById("showIncorrect").checked;
+        const filterText = String(
+          document.getElementById("filterInput").value || "",
+        ).trim();
+        const shuffleEnabled = document.getElementById("shuffleToggle").checked;
+        const questionsRef = ref(database, "share/questions");
+
+        if (questionsUnsubscribe) {
+          questionsUnsubscribe();
+        }
+
+        questionsUnsubscribe = onValue(questionsRef, (snapshot) => {
+          allQuestions = [];
+          const data = snapshot.val();
+
+          if (data) {
+            for (const [description, questionsData] of Object.entries(data)) {
+              for (const [key, value] of Object.entries(questionsData)) {
+                allQuestions.push({ id: key, description, ...value });
+              }
+            }
+          }
+
+          let filteredQuestions = filterQuestionsList(
+            allQuestions,
+            showIncorrect,
+          );
+
+          if (applyFilter && filterText) {
+            if (questionSearchHelper) {
+              filteredQuestions = questionSearchHelper.filter(
+                filteredQuestions,
+                filterText,
+              );
+            } else {
+              const lower = filterText.toLowerCase();
+              filteredQuestions = filteredQuestions.filter((q) =>
+                q.description.toLowerCase().includes(lower),
+              );
+            }
+          }
+
+          if (shuffleEnabled) {
+            filteredQuestions = shuffleArray([...filteredQuestions]);
+          }
+
+          questions = filteredQuestions;
+          currentQuestionIndex = 0;
+          currentViewMode = "normal";
+
+          displayQuestion(questions[currentQuestionIndex] || null);
+          updateQuestionCounter();
+          toggleNavigationButtons();
+        });
+      }
+
+      function displayQuestion(question) {
+        const quizSection = document.getElementById("quizSection");
+        if (!question) {
+          quizSection.innerHTML =
+            '<p>No more questions to display.</p> <button id="resetQuiz">Reset</button>';
+          document
+            .getElementById("resetQuiz")
+            .addEventListener("click", resetQuiz);
+          return;
+        }
+
+        currentQuestionId = question.id;
+        currentDescription = question.description;
+
+        quizSection.innerHTML = `<p><strong>${question.description}:</strong><br>${question.question}</p>`;
+
+        const questionType = document.querySelector(
+          'input[name="questionType"]:checked',
+        ).value;
+
+        if (questionType === "textInput") {
+          quizSection.innerHTML += `<input type="text" id="textInputAnswer" placeholder="Type your answer">`;
+        } else if (questionType === "multipleChoice" && question.options) {
+          let options = shuffleArray([...question.options]);
+          quizSection.innerHTML += generateOptionsHTML(
+            options,
+            question.correctAnswer,
+          );
+        } else if (questionType === "flashcard") {
+          const revealButton = document.createElement("button");
+          revealButton.textContent = "Show Answer";
+          revealButton.id = "revealAnswer";
+          revealButton.addEventListener("click", () =>
+            revealFlashcardAnswer(question),
+          );
+          quizSection.appendChild(revealButton);
+        }
+
+        document.getElementById("saveQuestionCheckbox").checked =
+          checkIfQuestionSaved(question.id);
+
+        const addQuestionSection = document.getElementById("addQuestion");
+        if (addQuestionSection.style.display === "block") {
+          populateEditForm(question);
+        }
+      }
+
+      function populateEditForm(question) {
+        document.getElementById("newDescription").value = question.description;
+        document.getElementById("newQuestion").value = question.question;
+        document.getElementById("options").value = question.options
+          ? question.options.join(", ")
+          : "";
+        document.getElementById("correctAnswer").value = Array.isArray(
+          question.correctAnswer,
+        )
+          ? question.correctAnswer.join(", ")
+          : question.correctAnswer;
+        document.getElementById("explanation").value =
+          question.explanation || "";
+
+        document.getElementById("formTitle").textContent =
+          `Edit ${question.id || "Question"}`;
+        document.getElementById("addQuestionButton").textContent =
+          "Update Question";
+      }
+
+      function displayNextQuestion() {
+        if (questions.length === 0) {
+          displayQuestion(null);
+          return;
+        }
+
+        if (currentViewMode !== "normal") {
+          if (currentQuestionIndex < questions.length - 1) {
+            currentQuestionIndex++;
+            displayQuestion(questions[currentQuestionIndex]);
+          } else {
+            alert("This is the last question.");
+          }
+
+          toggleNavigationButtons();
+          updateQuestionCounter();
+          return;
+        }
+
+        const total = questions.length;
+
+        for (let i = currentQuestionIndex + 1; i < total; i++) {
+          if (answeredQuestions[questions[i].id] !== "answered") {
+            currentQuestionIndex = i;
+            displayQuestion(questions[currentQuestionIndex]);
+            toggleNavigationButtons();
+            updateQuestionCounter();
+            return;
+          }
+        }
+
+        for (let i = 0; i <= currentQuestionIndex; i++) {
+          if (answeredQuestions[questions[i].id] !== "answered") {
+            currentQuestionIndex = i;
+            displayQuestion(questions[currentQuestionIndex]);
+            toggleNavigationButtons();
+            updateQuestionCounter();
+            return;
+          }
+        }
+
+        document.getElementById("quizSection").innerHTML =
+          '<p>No more questions to display.</p> <button id="resetQuiz">Reset</button>';
+        document
+          .getElementById("resetQuiz")
+          .addEventListener("click", resetQuiz);
+        toggleNavigationButtons();
+        updateQuestionCounter();
+      }
+
+      function displayPreviousQuestion() {
+        if (questions.length === 0) {
+          return;
+        }
+
+        if (currentViewMode !== "normal") {
+          if (currentQuestionIndex > 0) {
+            currentQuestionIndex--;
+            displayQuestion(questions[currentQuestionIndex]);
+            localStorage.setItem("currentQuestionIndex", currentQuestionIndex);
+          } else {
+            alert("This is the first question.");
+          }
+
+          toggleNavigationButtons();
+          updateQuestionCounter();
+          return;
+        }
+
+        if (currentQuestionIndex > 0) {
+          currentQuestionIndex--;
+          displayQuestion(questions[currentQuestionIndex]);
+          localStorage.setItem("currentQuestionIndex", currentQuestionIndex);
+        } else {
+          alert("This is the first question.");
+        }
+
+        toggleNavigationButtons();
+        updateQuestionCounter();
+      }
+
+      function showAnswer() {
+        const currentQuestion = questions[currentQuestionIndex];
+        const answerText = Array.isArray(currentQuestion.correctAnswer)
+          ? `Correct Answers: ${currentQuestion.correctAnswer.join(", ")}`
+          : `Correct Answer: ${currentQuestion.correctAnswer}`;
+        alert(answerText);
+      }
+
+      function editCurrentQuestion() {
+        const addQuestionSection = document.getElementById("addQuestion");
+
+        if (addQuestionSection.style.display === "block") {
+          addQuestionSection.style.display = "none";
+        } else {
+          const currentQuestion = questions[currentQuestionIndex];
+          if (currentQuestion) {
+            document.getElementById("newDescription").value =
+              currentQuestion.description;
+            document.getElementById("newQuestion").value =
+              currentQuestion.question;
+            document.getElementById("options").value = currentQuestion.options
+              ? currentQuestion.options.join(", ")
+              : "";
+            document.getElementById("correctAnswer").value = Array.isArray(
+              currentQuestion.correctAnswer,
+            )
+              ? currentQuestion.correctAnswer.join(", ")
+              : currentQuestion.correctAnswer;
+            document.getElementById("explanation").value =
+              currentQuestion.explanation || "";
+
+            const formTitle = document.getElementById("formTitle");
+            formTitle.textContent = `Edit ${currentQuestion.id || "Question"}`;
+
+            document.getElementById("addQuestionButton").textContent =
+              "Update Question";
+            addQuestionSection.style.display = "block";
+          }
+        }
+      }
+
+      function filterQuestions() {
+        const filterText = String(
+          document.getElementById("filterInput").value || "",
+        ).trim();
+        const shuffleEnabled = document.getElementById("shuffleToggle").checked;
+
+        questions = filterQuestionsList(allQuestions);
+
+        if (filterText) {
+          if (questionSearchHelper) {
+            questions = questionSearchHelper.filter(questions, filterText);
+          } else {
+            const lower = filterText.toLowerCase();
+            questions = questions.filter((q) =>
+              q.description.toLowerCase().includes(lower),
+            );
+          }
+        }
+
+        if (shuffleEnabled) {
+          questions = shuffleArray(questions);
+        }
+
+        updateQuestionCounter();
+        currentQuestionIndex = 0;
+        displayQuestion(questions[currentQuestionIndex]);
+        toggleNavigationButtons();
+      }
+
+      function filterQuestionsByDescription(description) {
+        const shuffleEnabled = document.getElementById("shuffleToggle").checked;
+        const target = String(description || "").toLowerCase();
+
+        questions = filterQuestionsList(allQuestions).filter((q) =>
+          String(q.description || "").toLowerCase() === target,
+        );
+
+        if (shuffleEnabled) {
+          questions = shuffleArray(questions);
+        }
+
+        updateQuestionCounter();
+        currentQuestionIndex = 0;
+        displayQuestion(questions[currentQuestionIndex]);
+        toggleNavigationButtons();
+      }
+
+      function filterQuestionsList(questionList) {
+        const showIncorrect = document.getElementById("showIncorrect")?.checked;
+        const showCorrect = document.getElementById("showCorrect")?.checked;
+
+        return questionList.filter((q) => {
+          const status = answeredQuestions[q.id];
+
+          if (status === "answered" && !showCorrect) return false;
+
+          if (status === "incorrect" && !showIncorrect) return false;
+
+          return true;
+        });
+      }
+
+      function generateOptionsHTML(options, correctAnswer) {
+        return options
+          .map((option) => {
+            const inputType = Array.isArray(correctAnswer)
+              ? "checkbox"
+              : "radio";
+            return `<label><input type="${inputType}" name="question" value="${option}">${option}</label>`;
+          })
+          .join("<br>");
+      }
+
+      function revealFlashcardAnswer(question) {
+        const quizSection = document.getElementById("quizSection");
+        const optionsHTML = (question.options || [])
+          .map((option) => {
+            const isCorrect = Array.isArray(question.correctAnswer)
+              ? question.correctAnswer.includes(option)
+              : question.correctAnswer === option;
+            return isCorrect ? `<strong>${option}</strong>` : option;
+          })
+          .join("<br>");
+
+        quizSection.innerHTML += `<div>${optionsHTML}</div>`;
+      }
+
+      function submitAnswer() {
+        const questionType = document.querySelector(
+          'input[name="questionType"]:checked',
+        ).value;
+        const currentQuestion = questions[currentQuestionIndex];
+        let isCorrect = false;
+
+        if (questionType === "multipleChoice") {
+          const selected = document.querySelectorAll(
+            'input[name="question"]:checked',
+          );
+          if (selected.length === 0) {
+            alert("Please select an answer.");
+            return;
+          }
+        }
+
+        if (questionType === "textInput") {
+          const input = document.getElementById("textInputAnswer");
+          if (!input.value.trim()) {
+            alert("Please enter an answer.");
+            return;
+          }
+        }
+
+        if (questionType === "textInput") {
+          const userAnswer = document
+            .getElementById("textInputAnswer")
+            .value.trim()
+            .toLowerCase();
+          isCorrect =
+            userAnswer === currentQuestion.correctAnswer.toLowerCase();
+        } else {
+          isCorrect = checkAnswer(questionType, currentQuestion);
+        }
+
+        if (isCorrect) {
+          if (answeredQuestions[currentQuestion.id] === "incorrect") {
+            wrongAnswersCount = Math.max(0, wrongAnswersCount - 1);
+          }
+          answeredQuestions[currentQuestion.id] = "answered";
+          correctAnswersCount++;
+
+          saveToFirebase("answeredQuestions", answeredQuestions);
+          saveToFirebase("correctAnswersCount", correctAnswersCount);
+          saveToFirebase("wrongAnswersCount", wrongAnswersCount);
+
+          const explanationText = currentQuestion.explanation
+            ? `\nExplanation: ${currentQuestion.explanation}`
+            : "";
+          alert(`Correct!${explanationText}`);
+        } else {
+          const continueToNext = confirm(
+            "Incorrect! Continue to the next question?",
+          );
+          if (!continueToNext) {
+            displayQuestion(currentQuestion);
+            updateScoreDisplay();
+            updateQuestionCounter();
+            return;
+          }
+
+          if (answeredQuestions[currentQuestion.id] !== "answered") {
+            answeredQuestions[currentQuestion.id] = "incorrect";
+            wrongAnswersCount++;
+          }
+
+          saveToFirebase("answeredQuestions", answeredQuestions);
+          saveToFirebase("correctAnswersCount", correctAnswersCount);
+          saveToFirebase("wrongAnswersCount", wrongAnswersCount);
+
+          const showIncorrect =
+            document.getElementById("showIncorrect").checked;
+          if (!showIncorrect) {
+            questions.splice(currentQuestionIndex, 1);
+            displayQuestion(questions[currentQuestionIndex] || null);
+            updateScoreDisplay();
+            updateQuestionCounter();
+            return;
+          }
+        }
+
+        updateScoreDisplay();
+        updateQuestionCounter();
+
+        if (isCorrect || document.getElementById("showIncorrect").checked) {
+          displayNextQuestion();
+        }
+      }
+
+      function checkAnswer(questionType, currentQuestion) {
+        if (questionType === "multipleChoice") {
+          const correctAnswer = currentQuestion.correctAnswer;
+
+          if (Array.isArray(correctAnswer)) {
+            const selectedOptions = Array.from(
+              document.querySelectorAll('input[name="question"]:checked'),
+            ).map((input) => input.value);
+            return checkAnswers(selectedOptions, correctAnswer);
+          } else {
+            const selectedOption = document.querySelector(
+              'input[name="question"]:checked',
+            );
+            const userAnswer = selectedOption ? selectedOption.value : null;
+            return userAnswer === correctAnswer;
+          }
+        } else if (questionType === "textInput") {
+          const userAnswer = document
+            .getElementById("textInputAnswer")
+            .value.trim()
+            .toLowerCase();
+          return userAnswer === currentQuestion.correctAnswer.toLowerCase();
+        } else if (questionType === "flashcard") {
+          return true;
+        }
+        return false;
+      }
+
+      function checkAnswers(userAnswers, correctAnswers) {
+        return (
+          userAnswers.length === correctAnswers.length &&
+          userAnswers.every((val) => correctAnswers.includes(val))
+        );
+      }
+
+      function handleAddOrUpdateQuestion(event) {
+        event.preventDefault();
+
+        const newQuestion = document.getElementById("newQuestion").value;
+        const newDescription = document.getElementById("newDescription").value;
+        const options = document
+          .getElementById("options")
+          .value.split(",")
+          .map((option) => option.trim());
+        const correctAnswer = document
+          .getElementById("correctAnswer")
+          .value.includes(",")
+          ? document
+              .getElementById("correctAnswer")
+              .value.split(",")
+              .map((answer) => answer.trim())
+          : document.getElementById("correctAnswer").value.trim();
+        const explanation = document.getElementById("explanation").value.trim();
+
+        if (
+          newQuestion &&
+          newDescription &&
+          options.every((option) => option) &&
+          correctAnswer
+        ) {
+          if (
+            document.getElementById("addQuestionButton").textContent ===
+            "Update Question"
+          ) {
+            updateQuestionInFirebase(
+              currentQuestionId,
+              newQuestion,
+              newDescription,
+              options,
+              correctAnswer,
+              explanation,
+            );
+          } else {
+            addQuestionToFirebase(
+              newQuestion,
+              newDescription,
+              options,
+              correctAnswer,
+              explanation,
+            );
+          }
+        } else {
+          alert("Please fill in all fields.");
+        }
+      }
+
+      function addQuestionToFirebase(
+        question,
+        description,
+        options,
+        correctAnswer,
+        explanation,
+      ) {
+        const questionsRef = ref(database, `share/questions/${description}`);
+        const newQuestionRef = push(questionsRef);
+
+        set(newQuestionRef, {
+          question,
+          options,
+          correctAnswer,
+          explanation,
+        }).then(() => {
+          alert("Question added to the database.");
+          resetAddQuestionForm();
+          fetchQuestions(true);
+        });
+      }
+
+      function updateQuestionInFirebase(
+        questionId,
+        newQuestion,
+        newDescription,
+        options,
+        correctAnswer,
+        explanation,
+      ) {
+        const oldRef = ref(
+          database,
+          `share/questions/${currentDescription}/${questionId}`,
+        );
+        const newRef = ref(
+          database,
+          `share/questions/${newDescription}/${questionId}`,
+        );
+
+        const payload = {
+          question: newQuestion,
+          options,
+          correctAnswer,
+          explanation,
+        };
+
+        const writeNew = set(newRef, payload);
+
+        if (newDescription !== currentDescription) {
+          writeNew
+            .then(() => remove(oldRef))
+            .then(() => {
+              alert("Question updated successfully.");
+              currentDescription = newDescription;
+              resetAddQuestionForm();
+              fetchQuestions(true);
+            })
+            .catch((error) => {
+              alert("Error updating question: " + error.message);
+            });
+        } else {
+          writeNew
+            .then(() => {
+              alert("Question updated successfully.");
+              resetAddQuestionForm();
+              fetchQuestions(true);
+            })
+            .catch((error) => {
+              alert("Error updating question: " + error.message);
+            });
+        }
+      }
+
+      function handleSaveQuestion(question) {
+        if (!question) return;
+
+        const isChecked = document.getElementById(
+          "saveQuestionCheckbox",
+        ).checked;
+
+        if (!DATABASE_BASE_PATH) {
+          console.error("DATABASE_BASE_PATH is not set.");
+          return;
+        }
+
+        const questionRef = ref(
+          database,
+          `${DATABASE_BASE_PATH}/quizData/savedQuestions/${question.id}`,
+        );
+
+        if (isChecked) {
+          set(questionRef, question)
+            .then(() => {
+              const savedQuestions = loadFromLocalStorage(
+                "savedQuestions",
+                "[]",
+              );
+              const exists = savedQuestions.some((q) => q.id === question.id);
+              if (!exists) {
+                savedQuestions.push(question);
+                saveToLocalStorage("savedQuestions", savedQuestions);
+              }
+            })
+            .catch((error) => {
+              console.error(`Error saving question: ${error.message}`);
+            });
+        } else {
+          remove(questionRef)
+            .then(() => {
+              const savedQuestions = loadFromLocalStorage(
+                "savedQuestions",
+                "[]",
+              ).filter((q) => q.id !== question.id);
+              saveToLocalStorage("savedQuestions", savedQuestions);
+            })
+            .catch((error) => {
+              console.error(`Error removing question: ${error.message}`);
+            });
+        }
+      }
+
+      function checkIfQuestionSaved(questionId) {
+        const savedQuestions = loadFromLocalStorage("savedQuestions", "[]");
+        return savedQuestions.some((q) => q.id === questionId);
+      }
+
+      function loadSavedQuestions() {
+        loadFromFirebaseOnce("savedQuestions", {}).then((data) => {
+          if (data && Object.keys(data).length) {
+            const savedQuestions = Object.values(data);
+
+            const filterText = document
+              .getElementById("filterInput")
+              .value.toLowerCase();
+
+            const filtered = savedQuestions.filter((q) => {
+              if (answeredQuestions[q.id] === "answered") return false;
+
+              if (
+                filterText &&
+                !q.description.toLowerCase().includes(filterText)
+              )
+                return false;
+
+              return true;
+            });
+
+            questions = document.getElementById("shuffleToggle").checked
+              ? shuffleArray(filtered)
+              : filtered;
+
+            currentQuestionIndex = 0;
+            currentViewMode = "savedReview";
+
+            displayQuestion(questions[currentQuestionIndex]);
+            updateQuestionCounter();
+            toggleNavigationButtons();
+          } else {
+            alert("No saved questions found.");
+          }
+        });
+      }
+
+      function showAddQuestionForm() {
+        const addQuestionSection = document.getElementById("addQuestion");
+
+        if (addQuestionSection.style.display === "block") {
+          addQuestionSection.style.display = "none";
+        } else {
+          addQuestionSection.style.display = "block";
+          resetAddQuestionForm();
+
+          document.getElementById("formTitle").textContent = "Add Question";
+          document.getElementById("addQuestionButton").textContent =
+            "Add Question";
+        }
+      }
+
+      function resetAddQuestionForm() {
+        document.getElementById("newDescription").value = "";
+        document.getElementById("newQuestion").value = "";
+        document.getElementById("options").value = "";
+        document.getElementById("correctAnswer").value = "";
+        document.getElementById("formTitle").textContent = "Add Question";
+        document.getElementById("explanation").value = "";
+        document.getElementById("addQuestionButton").textContent =
+          "Add Question";
+      }
+
+      function updateQuestionCounter() {
+        if (questions.length === 0) {
+          document.getElementById("questionCounter").textContent =
+            `Questions Remaining: 0`;
+          return;
+        }
+
+        if (currentViewMode === "normal") {
+          const remaining = questions.filter(
+            (q) => answeredQuestions[q.id] !== "answered",
+          ).length;
+
+          document.getElementById("questionCounter").textContent =
+            `Questions Remaining: ${remaining}`;
+        } else {
+          document.getElementById("questionCounter").textContent =
+            `Reviewing ${currentQuestionIndex + 1} / ${questions.length}`;
+        }
+      }
+
+      function resetQuiz() {
+        stopTimer();
+
+        correctAnswersCount = 0;
+        wrongAnswersCount = 0;
+        currentQuestionIndex = 0;
+        answeredQuestions = {};
+        timeElapsed = 0;
+
+        if (!DATABASE_BASE_PATH) {
+          console.error("DATABASE_BASE_PATH is not set.");
+          return;
+        }
+
+        saveToFirebase("startTime", null);
+        saveToFirebase("correctAnswersCount", correctAnswersCount);
+        saveToFirebase("wrongAnswersCount", wrongAnswersCount);
+        saveToFirebase("answeredQuestions", answeredQuestions);
+
+        localStorage.removeItem("correctAnswersCount");
+        localStorage.removeItem("wrongAnswersCount");
+        localStorage.removeItem("answeredQuestions");
+        localStorage.removeItem("savedQuestions");
+        localStorage.removeItem("currentQuestionIndex");
+
+        fetchQuestions();
+        updateQuestionCounter();
+        updateScoreDisplay();
+        startTimer();
+      }
+
+      function downloadQuestions() {
+        const dataStr =
+          "data:text/json;charset=utf-8," +
+          encodeURIComponent(JSON.stringify(questions));
+        const downloadAnchorNode = document.createElement("a");
+        downloadAnchorNode.setAttribute("href", dataStr);
+        downloadAnchorNode.setAttribute("download", "questions.json");
+        document.body.appendChild(downloadAnchorNode);
+        downloadAnchorNode.click();
+        downloadAnchorNode.remove();
+      }
+
+      function deleteCurrentQuestion() {
+        if (!currentQuestionId) return;
+
+        if (confirm("Are you sure you want to delete this question?")) {
+          const questionRef = ref(
+            database,
+            `share/questions/${currentDescription}/${currentQuestionId}`,
+          );
+          remove(questionRef)
+            .then(() => {
+              alert("Question deleted successfully.");
+            })
+            .catch((error) => {
+              alert("Error deleting the question: " + error.message);
+            });
+        } else {
+          alert("Deletion cancelled.");
+        }
+      }
+
+      function toggleShowIncorrect() {
+        fetchQuestions(true);
+      }
+
+      function loadSavedData() {
+        return Promise.all([
+          loadFromFirebaseOnce("answeredQuestions", {}),
+          loadFromFirebaseOnce("correctAnswersCount", 0),
+          loadFromFirebaseOnce("wrongAnswersCount", 0),
+          loadFromFirebaseOnce("savedQuestions", {}),
+        ]).then(([answered, correct, wrong, saved]) => {
+          answeredQuestions = answered;
+          correctAnswersCount = correct;
+          wrongAnswersCount = wrong;
+          saveToLocalStorage("savedQuestions", Object.values(saved || {}));
+          updateScoreDisplay();
+        });
+      }
+
+      function populateIndexKey() {
+        const indexDropdown = document.getElementById("indexDropdown");
+        if (!indexDropdown) return;
+
+        if (!indexDropdown.dataset.bound) {
+          indexDropdown.dataset.bound = "true";
+          indexDropdown.addEventListener("change", () => {
+            const value = indexDropdown.value;
+            document.getElementById("filterInput").value = value;
+            if (!value) {
+              filterQuestions();
+              return;
+            }
+            filterQuestionsByDescription(value);
+          });
+        }
+
+        indexDropdown.innerHTML = '<option value="">All topics</option>';
+
+        const questionsRef = ref(database, "share/questions");
+
+        get(questionsRef).then(
+          (snapshot) => {
+            const data = snapshot.val();
+            if (!data) {
+              indexDropdown.innerHTML = '<option value="">No topics available</option>';
+              return;
+            }
+
+            const descriptions = new Set();
+            for (const description in data) {
+              descriptions.add(description);
+            }
+
+            Array.from(descriptions)
+              .sort((a, b) => a.localeCompare(b))
+              .forEach((description) => {
+                indexDropdown.appendChild(new Option(description, description));
+              });
+          },
+          {
+            onlyOnce: true,
+          },
+        );
+      }
+
+      function loadIncorrectQuestions() {
+        const filterText = document
+          .getElementById("filterInput")
+          .value.toLowerCase();
+
+        const incorrectQuestions = allQuestions.filter((q) => {
+          if (answeredQuestions[q.id] !== "incorrect") return false;
+
+          if (filterText && !q.description.toLowerCase().includes(filterText))
+            return false;
+
+          return true;
+        });
+
+        if (incorrectQuestions.length === 0) {
+          alert("No incorrectly answered questions found.");
+          return;
+        }
+
+        const shuffleEnabled = document.getElementById("shuffleToggle").checked;
+
+        questions = shuffleEnabled
+          ? shuffleArray(incorrectQuestions)
+          : incorrectQuestions;
+        currentQuestionIndex = 0;
+        currentViewMode = "incorrectReview";
+
+        displayQuestion(questions[currentQuestionIndex]);
+        updateQuestionCounter();
+        toggleNavigationButtons();
+      }
+
+      function loadCorrectQuestions() {
+        const filterText = document
+          .getElementById("filterInput")
+          .value.toLowerCase();
+
+        const correctQuestions = allQuestions.filter((q) => {
+          if (answeredQuestions[q.id] !== "answered") return false;
+
+          if (filterText && !q.description.toLowerCase().includes(filterText))
+            return false;
+
+          return true;
+        });
+
+        if (correctQuestions.length === 0) {
+          alert("No correctly answered questions.");
+          return;
+        }
+
+        const shuffleEnabled = document.getElementById("shuffleToggle").checked;
+
+        questions = shuffleEnabled
+          ? shuffleArray(correctQuestions)
+          : correctQuestions;
+        currentQuestionIndex = 0;
+        currentViewMode = "correctReview";
+
+        displayQuestion(questions[currentQuestionIndex]);
+        updateQuestionCounter();
+        toggleNavigationButtons();
+      }
+
+      document
+        .getElementById("loadCorrectQuestionsButton")
+        .addEventListener("click", loadCorrectQuestions);
+
+      document
+        .getElementById("shuffleToggle")
+        .addEventListener("change", () => {
+          const shuffleEnabled =
+            document.getElementById("shuffleToggle").checked;
+          localStorage.setItem("shuffleEnabled", shuffleEnabled);
+          fetchQuestions(true);
+          toggleNavigationButtons();
+        });
+
+      document.addEventListener("DOMContentLoaded", () => {
+        populateIndexKey();
+        toggleNavigationButtons();
+
+        const savedShuffleState =
+          localStorage.getItem("shuffleEnabled") === "true";
+        document.getElementById("shuffleToggle").checked = savedShuffleState;
+      });
+
+      function toggleNavigationButtons() {
+        const prevBtn = document.getElementById("previousQuestion");
+        const nextBtn = document.getElementById("nextQuestion");
+
+        if (questions.length === 0) {
+          prevBtn.disabled = true;
+          nextBtn.disabled = true;
+          return;
+        }
+
+        if (currentViewMode !== "normal") {
+          prevBtn.disabled = currentQuestionIndex === 0;
+          nextBtn.disabled = currentQuestionIndex >= questions.length - 1;
+          return;
+        }
+
+        prevBtn.disabled = currentQuestionIndex === 0;
+
+        const hasAnotherUnanswered = questions.some(
+          (q, index) =>
+            index > currentQuestionIndex &&
+            answeredQuestions[q.id] !== "answered",
+        );
+
+        nextBtn.disabled = !hasAnotherUnanswered;
+      }
+
+      document.addEventListener("keydown", (event) => {
+        if (event.shiftKey && event.key === "ArrowLeft") {
+          displayPreviousQuestion();
+        } else if (event.shiftKey && event.key === "ArrowRight") {
+          displayNextQuestion();
+        } else if (event.key === "Enter") {
+          const active = document.activeElement;
+
+          if (
+            active &&
+            (active.id === "textInputAnswer" ||
+              active.type === "radio" ||
+              active.type === "checkbox")
+          ) {
+            event.preventDefault();
+            submitAnswer();
+          }
+        }
+      });
+    </script>
+  </body>
+</html>

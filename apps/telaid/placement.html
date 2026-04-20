@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sensor Placement Verifier (ft/in)</title>
+    <style>
+        body {
+            font-family: system-ui, Arial;
+            margin: 16px;
+        }
+
+        .row {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: end;
+        }
+
+        .card {
+            border: 1px solid #ddd;
+            border-radius: 12px;
+            padding: 12px;
+            margin: 12px 0;
+        }
+
+        label {
+            display: block;
+            font-size: .9rem;
+            opacity: .85;
+            margin-bottom: 4px;
+        }
+
+        input,
+        button {
+            padding: 10px;
+            border-radius: 10px;
+            border: 1px solid #ccc;
+        }
+
+        button {
+            cursor: pointer;
+        }
+
+        button:disabled {
+            opacity: .6;
+            cursor: not-allowed;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 12px;
+        }
+
+        th,
+        td {
+            border: 1px solid #e6e6e6;
+            padding: 6px 8px;
+            font-size: .9rem;
+            vertical-align: top;
+        }
+
+        th {
+            background: #fafafa;
+            position: sticky;
+            top: 0;
+            z-index: 2;
+        }
+
+        .mono {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        }
+
+        .ok {
+            color: #0a7a2f;
+            font-weight: 700;
+        }
+
+        .bad {
+            color: #b00020;
+            font-weight: 700;
+        }
+
+        .warn {
+            color: #b36b00;
+            font-weight: 700;
+        }
+
+        .small {
+            font-size: .86rem;
+            opacity: .85;
+        }
+
+        .pill {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 999px;
+            border: 1px solid #ddd;
+        }
+
+        .pill.ok {
+            border-color: #0a7a2f33;
+            background: #0a7a2f10;
+        }
+
+        .pill.bad {
+            border-color: #b0002033;
+            background: #b0002010;
+        }
+
+        .pill.warn {
+            border-color: #b36b0033;
+            background: #b36b0010;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Sensor Placement Verifier — Feet/Inches</h1>
+    <p class="small">
+        Upload your <b>Install Accuracy CSV</b>. This app uses:
+        <b>location_number</b> as the device number,
+        <b>designed_position_m</b> as planned,
+        and <b>laser_installed_position_m</b> as actual (fallback lidar/depth).
+        <br>All displayed values are <b>feet + inches</b>.
+    </p>
+
+    <div class="card">
+        <div class="row">
+            <div>
+                <label>Install Accuracy CSV</label>
+                <input id="fileInstall" type="file" accept=".csv" />
+            </div>
+            <div>
+                <label>Placement Tolerance (inches)</label>
+                <input id="tolIn" type="number" min="0" step="0.1" value="8" />
+            </div>
+            <button id="generate">Generate Report</button>
+            <button id="export" disabled>Export Report CSV</button>
+        </div>
+        <div class="small" style="margin-top:10px">
+            Note: CSV positions are in meters; this tool converts meters → inches, then renders ft/in.
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>Output</h3>
+        <div id="output"></div>
+    </div>
+
+    <script>
+        const norm = s => String(s || "").trim().toLowerCase().replace(/\s+/g, "_");
+        const toNum = v => {
+            const s = String(v ?? "").trim();
+            if (!s) return null;
+            const n = Number(s.replace(/[^\d.\-]/g, ""));
+            return Number.isFinite(n) ? n : null;
+        };
+
+        function escapeHtml(s) {
+            return String(s ?? "").replace(/[&<>"']/g, m => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[m]));
+        }
+
+        function parseCSV(text) {
+            const rows = [];
+            let i = 0, field = "", row = [], inQuotes = false;
+
+            while (i < text.length) {
+                const c = text[i], next = text[i + 1];
+                if (inQuotes) {
+                    if (c === '"' && next === '"') { field += '"'; i += 2; continue; }
+                    if (c === '"') { inQuotes = false; i++; continue; }
+                    field += c; i++; continue;
+                } else {
+                    if (c === '"') { inQuotes = true; i++; continue; }
+                    if (c === ",") { row.push(field); field = ""; i++; continue; }
+                    if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; i++; continue; }
+                    if (c === "\r") { i++; continue; }
+                    field += c; i++; continue;
+                }
+            }
+            row.push(field); rows.push(row);
+
+            const header = (rows.shift() || []).map(h => norm(h));
+            return rows
+                .filter(r => r.some(x => String(x || "").trim() !== ""))
+                .map(r => {
+                    const obj = {};
+                    header.forEach((h, idx) => obj[h] = r[idx] ?? "");
+                    return obj;
+                });
+        }
+
+        function findKey(obj, candidates) {
+            for (const c of candidates) {
+                const k = norm(c);
+                if (k in obj) return k;
+            }
+            return null;
+        }
+
+        function parseVector(str) {
+            const s = String(str ?? "").trim();
+            if (!s) return null;
+
+            // Handles: "[x, y, z]"  OR  "([x, y, z],)"
+            const cleaned = s.replace(/[\[\]\(\)]/g, "");
+            const parts = cleaned
+                .split(/[\s,]+/)
+                .map(p => toNum(p))
+                .filter(v => v !== null);
+
+            if (parts.length >= 3) return { x: parts[0], y: parts[1], z: parts[2] };
+            return null;
+        }
+
+        // --- Units helpers ---
+        function metersToInches(m) { return (typeof m === "number") ? (m * 39.37007874) : null; }
+
+        function fmtFtIn(inches, decimals = 2) {
+            if (inches === null) return "";
+            const sign = inches < 0 ? "-" : "";
+            const abs = Math.abs(inches);
+            const ft = Math.floor(abs / 12);
+            const inch = abs - ft * 12;
+            return `${sign}${ft}ft ${inch.toFixed(decimals)}in`;
+        }
+
+        // Position formatting (meters → inches → ft/in)
+        function fmtPosFtIn(vec) {
+            if (!vec) return "";
+            const xi = metersToInches(vec.x);
+            const yi = metersToInches(vec.y);
+            const zi = metersToInches(vec.z);
+            return `X ${fmtFtIn(xi)}  |  Y ${fmtFtIn(yi)}  |  Z ${fmtFtIn(zi)}`;
+        }
+
+        function dirX(dxIn) { if (dxIn === null) return ""; return dxIn < 0 ? "LEFT" : dxIn > 0 ? "RIGHT" : "ON"; }
+        function dirY(dyIn) { if (dyIn === null) return ""; return dyIn < 0 ? "DOWN" : dyIn > 0 ? "UP" : "ON"; }
+        function dirZ(dzIn) { if (dzIn === null) return ""; return dzIn < 0 ? "LOW" : dzIn > 0 ? "HIGH" : "ON"; }
+
+        function placementStatus(dxIn, dyIn, dzIn, tolIn) {
+            if (dxIn === null || dyIn === null || dzIn === null) return "MISSING DATA";
+            const ok = (Math.abs(dxIn) <= tolIn) && (Math.abs(dyIn) <= tolIn) && (Math.abs(dzIn) <= tolIn);
+            return ok ? "PASS" : "FAIL";
+        }
+
+        function pill(text, kind) {
+            const cls = kind === "ok" ? "pill ok" : kind === "bad" ? "pill bad" : "pill warn";
+            return `<span class="${cls}">${escapeHtml(text)}</span>`;
+        }
+
+        function getPlannedActualFromRow(r) {
+            // --- Planned position candidates ---
+            const plannedKey = findKey(r, [
+                "designed_position_m",
+                "planned_position_m",
+                "design_xyz",
+                "expected_position_m"
+            ]);
+
+            const planned = plannedKey ? parseVector(r[plannedKey]) : null;
+
+            // --- Actual position candidates (priority order) ---
+            const actualSources = [
+                { key: "laser_installed_position_m", label: "laser" },
+                { key: "lidar_installed_position_m", label: "lidar" },
+                { key: "depth_capture_installed_position_m", label: "depth_capture" },
+                { key: "actual_position_m", label: "actual" },
+                { key: "installed_position_m", label: "installed" }
+            ];
+
+            let actual = null;
+            let actualSource = "";
+
+            for (const src of actualSources) {
+                const k = findKey(r, [src.key]);
+                if (!k) continue;
+
+                const v = parseVector(r[k]);
+                if (v) {
+                    actual = v;
+                    actualSource = src.label;
+                    break;
+                }
+            }
+
+            return { planned, actual, actualSource };
+        }
+
+        function getDeviceNumber(r) {
+            // Your file uses location_number
+            const idKey = findKey(r, ["location_number", "sensor_id", "sensor", "device_number", "sensor_number", "id"]);
+            if (!idKey) return null;
+            const raw = String(r[idKey]).trim();
+            if (!raw) return null;
+            const m = raw.match(/(\d+)/);
+            return m ? Number(m[1]) : null;
+        }
+
+        async function readFileText(fileInput) {
+            const f = fileInput.files?.[0];
+            if (!f) return null;
+            return await f.text();
+        }
+
+        let lastReport = null;
+
+        async function generateReport() {
+            const tolIn = Number(document.getElementById("tolIn").value) || 0;
+            const installText = await readFileText(document.getElementById("fileInstall"));
+            if (!installText) {
+                alert("Upload the Install Accuracy CSV first.");
+                return;
+            }
+
+            const rows = parseCSV(installText);
+
+            const report = [];
+            for (const r of rows) {
+                const device = getDeviceNumber(r);
+                if (!Number.isFinite(device)) continue;
+
+                const { planned, actual, actualSource } = getPlannedActualFromRow(r);
+
+                // Δ in inches (actual - planned)
+                const dxIn = (planned?.x != null && actual?.x != null) ? metersToInches(actual.x - planned.x) : null;
+                const dyIn = (planned?.y != null && actual?.y != null) ? metersToInches(actual.y - planned.y) : null;
+                const dzIn = (planned?.z != null && actual?.z != null) ? metersToInches(actual.z - planned.z) : null;
+
+                report.push({
+                    device,
+                    planned,
+                    actual,
+                    actualSource,
+                    dxIn, dyIn, dzIn,
+                    placement: placementStatus(dxIn, dyIn, dzIn, tolIn)
+                });
+            }
+
+            report.sort((a, b) => a.device - b.device);
+            lastReport = report;
+            renderReport(report, tolIn);
+            document.getElementById("export").disabled = !report.length;
+        }
+
+        function renderReport(report, tolIn) {
+            const out = document.getElementById("output");
+            if (!report.length) {
+                out.innerHTML = `<div class="warn">No device rows found. Check the CSV header.</div>`;
+                return;
+            }
+
+            const pass = report.filter(r => r.placement === "PASS").length;
+            const fail = report.filter(r => r.placement === "FAIL").length;
+            const missing = report.filter(r => r.placement === "MISSING DATA").length;
+
+            let html = `
+        <div class="small">
+          Tolerance: <b>${tolIn}"</b> •
+          ${pill(`PASS ${pass}`, "ok")} •
+          ${pill(`FAIL ${fail}`, "bad")} •
+          ${pill(`MISSING ${missing}`, "warn")}
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Device</th>
+              <th>Planned (ft/in)</th>
+              <th>Actual (ft/in)</th>
+              <th>Actual Source</th>
+              <th>ΔX (ft/in)</th><th>X Dir</th>
+              <th>ΔY (ft/in)</th><th>Y Dir</th>
+              <th>ΔZ (ft/in)</th><th>Z Dir</th>
+              <th>Placement</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+
+            for (const r of report) {
+                const statusClass = r.placement === "PASS" ? "ok" : (r.placement === "FAIL" ? "bad" : "warn");
+
+                html += `
+          <tr>
+            <td class="mono">${String(r.device).padStart(2, "0")}</td>
+            <td class="mono">${escapeHtml(fmtPosFtIn(r.planned))}</td>
+            <td class="mono">${escapeHtml(fmtPosFtIn(r.actual))}</td>
+            <td>${escapeHtml(r.actualSource || "")}</td>
+
+            <td class="mono">${r.dxIn == null ? "" : fmtFtIn(r.dxIn)}</td>
+            <td>${dirX(r.dxIn)}</td>
+
+            <td class="mono">${r.dyIn == null ? "" : fmtFtIn(r.dyIn)}</td>
+            <td>${dirY(r.dyIn)}</td>
+
+            <td class="mono">${r.dzIn == null ? "" : fmtFtIn(r.dzIn)}</td>
+            <td>${dirZ(r.dzIn)}</td>
+
+            <td class="${statusClass}">${escapeHtml(r.placement)}</td>
+          </tr>
+        `;
+            }
+
+            html += `</tbody></table>`;
+            out.innerHTML = html;
+        }
+
+        function exportReportCSV() {
+            if (!lastReport?.length) return;
+
+            const headers = [
+                "Device #",
+                "Planned X (ft/in)", "Planned Y (ft/in)", "Planned Z (ft/in)",
+                "Actual X (ft/in)", "Actual Y (ft/in)", "Actual Z (ft/in)",
+                "Actual Source",
+                "Delta X (ft/in)", "Delta Y (ft/in)", "Delta Z (ft/in)",
+                "X Direction", "Y Direction", "Z Direction",
+                "Placement"
+            ];
+
+            const rows = [headers];
+
+            for (const r of lastReport) {
+                const pX = r.planned ? fmtFtIn(metersToInches(r.planned.x)) : "";
+                const pY = r.planned ? fmtFtIn(metersToInches(r.planned.y)) : "";
+                const pZ = r.planned ? fmtFtIn(metersToInches(r.planned.z)) : "";
+
+                const aX = r.actual ? fmtFtIn(metersToInches(r.actual.x)) : "";
+                const aY = r.actual ? fmtFtIn(metersToInches(r.actual.y)) : "";
+                const aZ = r.actual ? fmtFtIn(metersToInches(r.actual.z)) : "";
+
+                rows.push([
+                    r.device,
+                    pX, pY, pZ,
+                    aX, aY, aZ,
+                    r.actualSource ?? "",
+                    r.dxIn == null ? "" : fmtFtIn(r.dxIn),
+                    r.dyIn == null ? "" : fmtFtIn(r.dyIn),
+                    r.dzIn == null ? "" : fmtFtIn(r.dzIn),
+                    dirX(r.dxIn), dirY(r.dyIn), dirZ(r.dzIn),
+                    r.placement
+                ]);
+            }
+
+            const csv = rows
+                .map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(","))
+                .join("\n");
+
+            const blob = new Blob([csv], { type: "text/csv" });
+            const url = URL.createObjectURL(blob);
+
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `sensor_placement_report_ftin_${Date.now()}.csv`;
+            a.click();
+
+            URL.revokeObjectURL(url);
+        }
+
+        document.getElementById("generate").addEventListener("click", generateReport);
+        document.getElementById("export").addEventListener("click", exportReportCSV);
+    </script>
+</body>
+
+</html>

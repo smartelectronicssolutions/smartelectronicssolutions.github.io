@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>QC App</title>
+    <link rel="stylesheet" href="../../assets/css/app-styles.css" id="stylesheet">
+    <script type="module" src="../assets/js/login.js" defer></script>
+
+    <style>
+        body {
+            font-family: Arial;
+            padding: 20px;
+        }
+
+        .section {
+            border: 1px solid #ccc;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .checkItem {
+            margin: 5px 0;
+        }
+
+        label {
+            display: block;
+            margin-top: 10px;
+        }
+
+        input,
+        textarea {
+            padding: 8px;
+            margin-top: 4px;
+        }
+
+        .row {
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <h1>Standardized Checklist + Evaluation</h1>
+
+        <span id="login-section" class="logins-section">
+            <section>
+                <form id="login-form">
+                    <label for="username">Email:</label>
+                    <input type="email" id="username" required>
+                    <br>
+                    <label for="password">Password:</label>
+                    <input type="password" id="password" required>
+                    <br>
+                    <button type="submit">Sign in</button>
+                </form>
+                <button id="logout" style="display:none;">Logout</button>
+            </section>
+
+            <div class="ms">
+                <br>
+                <button id="loginButton">Login to MS</button>
+                <button id="logoutButton">Logout of MS</button>
+                <p id="loginStatus">Login status...</p>
+            </div>
+        </span>
+    </header>
+
+    <input type="file" id="configFile">
+
+    <main id="app"></main>
+
+    <script>
+        let config = null;
+
+        function el(id) { return document.getElementById(id); }
+
+        // ================= LOAD CONFIG =================
+        document.getElementById("configFile").addEventListener("change", async e => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            config = JSON.parse(await file.text());
+            buildApp();
+
+            // AUTO LOAD AFTER UI BUILDS
+            setTimeout(() => {
+                const raw = localStorage.getItem(KEY);
+                if (raw) {
+                    applyData(JSON.parse(raw));
+                }
+            }, 100);
+        });
+
+        // ================= BUILD =================
+        function buildApp() {
+            const app = el("app");
+            app.innerHTML = "";
+
+            config.sections.forEach((section, i) => {
+                const div = document.createElement("div");
+                div.className = "section";
+
+                div.innerHTML = `<h2>${section.title || "Section " + (i + 1)}</h2>
+                     <div id="section_${section.id}"></div>`;
+
+                app.appendChild(div);
+                renderSection(section);
+            });
+        }
+
+        // ================= RENDER =================
+        function renderSection(section) {
+            const container = el(`section_${section.id}`);
+            container.innerHTML = "";
+
+            // CHECKLIST
+            if (section.type === "checklist") {
+                section.items.forEach((item, i) => {
+                    const text = typeof item === "object" ? item.text : item;
+
+                    container.innerHTML += `
+        <div class="checkItem">
+          <label>
+            <input type="checkbox" id="${section.id}_${i}">
+            ${text}
+          </label>
+        </div>
+      `;
+                });
+
+                if (section.notes) {
+                    container.innerHTML += `<label>Notes</label>
+                              <textarea id="notes_${section.id}"></textarea>`;
+                }
+            }
+
+            // FIELDS
+            if (section.type === "fields") {
+                section.fields.forEach(f => {
+                    container.innerHTML += `
+        <label>${f.label}</label>
+        <input id="field_${f.id}" type="${f.type || "text"}">
+      `;
+                });
+            }
+
+            // COUNTER
+            if (section.type === "counter") {
+                section.fields.forEach(f => {
+                    container.innerHTML += `
+        <label>${f.label}</label>
+        <div>
+          <input id="field_${f.id}" type="number" placeholder="Done">
+          /
+          <input id="field_${f.targetId}" type="number" placeholder="Total">
+        </div>
+      `;
+                });
+            }
+
+            // MATRIX
+            if (section.type === "matrix") {
+                section.rows.forEach((row, r) => {
+                    const rowDiv = document.createElement("div");
+                    rowDiv.className = "row";
+
+                    rowDiv.innerHTML = `<strong>${row}</strong><br>`;
+
+                    section.columns.forEach((col, c) => {
+                        rowDiv.innerHTML += `
+          <label style="display:inline-block;margin-right:10px;">
+            <input type="radio" name="${section.id}_${r}" id="${section.id}_${r}_${c}">
+            ${col}
+          </label>
+        `;
+                    });
+
+                    container.appendChild(rowDiv);
+                });
+            }
+
+            // SCORING
+            if (section.type === "scoring") {
+                section.fields.forEach(f => {
+                    container.innerHTML += `
+        <label>${f.label} (0-${f.max})</label>
+        <input id="score_${f.id}" type="number" max="${f.max}">
+      `;
+                });
+
+                container.innerHTML += `
+      <label>Total</label>
+      <input id="score_total" readonly>
+    `;
+            }
+
+            // SINGLE SELECT
+            if (section.type === "singleSelect") {
+                section.options.forEach((opt, i) => {
+                    container.innerHTML += `
+        <label>
+          <input type="radio" name="${section.id}" id="${section.id}_${i}">
+          ${opt}
+        </label>
+      `;
+                });
+            }
+        }
+
+        // ================= DATA =================
+        function collectData() {
+            const data = { sections: {} };
+
+            config.sections.forEach(section => {
+                const sec = {};
+
+                // checklist
+                if (section.type === "checklist") {
+                    sec.items = section.items.map((_, i) => el(`${section.id}_${i}`)?.checked);
+                    if (section.notes) sec.notes = el(`notes_${section.id}`)?.value;
+                }
+
+                // fields
+                if (section.type === "fields") {
+                    sec.fields = {};
+                    section.fields.forEach(f => {
+                        sec.fields[f.id] = el(`field_${f.id}`)?.value;
+                    });
+                }
+
+                // scoring
+                if (section.type === "scoring") {
+                    sec.scores = {};
+                    let total = 0;
+
+                    section.fields.forEach(f => {
+                        const val = Number(el(`score_${f.id}`)?.value || 0);
+                        sec.scores[f.id] = val;
+                        total += val;
+                    });
+
+                    sec.total = total;
+                }
+
+                data.sections[section.id] = sec;
+            });
+
+            return data;
+        }
+
+        // ================= APPLY =================
+        function applyData(data) {
+            Object.entries(data.sections).forEach(([id, sec]) => {
+
+                if (sec.items) {
+                    sec.items.forEach((v, i) => {
+                        el(`${id}_${i}`).checked = v;
+                    });
+                }
+
+                if (sec.notes !== undefined) {
+                    el(`notes_${id}`).value = sec.notes;
+                }
+
+                if (sec.fields) {
+                    Object.entries(sec.fields).forEach(([k, v]) => {
+                        el(`field_${k}`).value = v;
+                    });
+                }
+
+                if (sec.scores) {
+                    Object.entries(sec.scores).forEach(([k, v]) => {
+                        el(`score_${k}`).value = v;
+                    });
+                }
+
+            });
+        }
+
+        // ================= SAVE =================
+        const KEY = "qc_app";
+
+        function saveLocal() {
+            localStorage.setItem(KEY, JSON.stringify(collectData()));
+            alert("Saved");
+        }
+
+        function loadLocal() {
+            const raw = localStorage.getItem(KEY);
+            if (!raw) return alert("No save");
+
+            applyData(JSON.parse(raw));
+        }
+
+        // ================= AUTOSAVE =================
+        let t;
+        document.addEventListener("input", () => {
+            clearTimeout(t);
+            t = setTimeout(() => localStorage.setItem(KEY, JSON.stringify(collectData())), 300);
+        });
+
+        // ================= SCORE AUTO UPDATE =================
+        document.addEventListener("input", () => {
+            if (!config) return;
+
+            config.sections.forEach(section => {
+                if (section.type === "scoring") {
+                    let total = 0;
+                    section.fields.forEach(f => {
+                        total += Number(el(`score_${f.id}`)?.value || 0);
+                    });
+                    el("score_total").value = total;
+                }
+            });
+        });
+
+        window.addEventListener("load", () => {
+            const raw = localStorage.getItem(KEY);
+            if (raw && config) {
+                applyData(JSON.parse(raw));
+            }
+        });
+    </script>
+
+</body>
+
+</html>

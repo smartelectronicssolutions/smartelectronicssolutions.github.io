@@ -1,0 +1,156 @@
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Inventory</title>
+  <link rel="stylesheet" href="../websites/kamehouse/css/styles.css">
+</head>
+
+<body>
+
+  <main>
+    <header>
+      <h1>Inventory</h1>
+      </div>
+    </header>
+    <section>
+      <div class="radios">
+        <label for="brand">Select Category:</label>
+      </div>
+      <label for="modelSelect">Select Model:</label>
+      <select id="modelSelect"></select>
+    </section>
+    <section>
+      <img id="phoneImage" src="" alt="Phone Image" onerror="this.src='../assets/img/default.png'">
+      <div id="repairOptions"></div>
+      <h3>Total Items: <span id="totalPrice">0</span></h3>
+      <div id="selectedItemsImages"></div>
+    </section>
+  </main>
+
+  <script type="module">
+    const modelSelect = document.getElementById('modelSelect');
+    const repairOptions = document.getElementById('repairOptions');
+    const phoneImage = document.getElementById('phoneImage');
+    const totalPriceElement = document.getElementById('totalPrice');
+    const categoryContainer = document.querySelector('.radios');
+
+    let data;
+
+    async function loadData() {
+      const response = await fetch('./assets/js/inventory_data.json');
+      data = await response.json();
+      createRadioButtons();
+      modelSelect.dispatchEvent(new Event('change'));
+    }
+
+    document.querySelectorAll('input[name="brand"]').forEach(radio => {
+      radio.addEventListener('change', loadDataFromJSON);
+    });
+
+    function loadDataFromJSON() {
+      modelSelect.innerHTML = '';
+      phoneImage.src = '';
+      phoneImage.alt = '';
+      repairOptions.innerHTML = '';
+      totalPriceElement.textContent = '0';
+
+      const brand = document.querySelector('input[name="brand"]:checked').value;
+      const hardwareData = data.Hardware[brand];
+
+      const keys = Object.keys(hardwareData).sort();
+
+      modelSelect.innerHTML = keys.map(key => `<option value="${key}">${key}</option>`).join('');
+
+      modelSelect.dispatchEvent(new Event('change'));
+    }
+
+    modelSelect.addEventListener('change', () => {
+      const brand = document.querySelector('input[name="brand"]:checked').value;
+      const selectedModel = modelSelect.value;
+      const modelData = data.Hardware[brand][selectedModel];
+
+      if (modelData) {
+        phoneImage.src = `../assets/img/database/${selectedModel}.png`;
+        phoneImage.alt = selectedModel;
+
+        repairOptions.innerHTML = '';
+
+        Object.keys(modelData).sort().forEach(repair => {
+          const repairLabel = document.createElement('label');
+          repairLabel.textContent = `${repair}: ${modelData[repair]}`;
+          repairLabel.style.display = 'block';
+
+          const repairCheckbox = document.createElement('input');
+          repairCheckbox.type = 'checkbox';
+          repairCheckbox.dataset.price = modelData[repair];
+
+          repairCheckbox.addEventListener('change', updateTotalPriceWithDiscount);
+
+          repairLabel.prepend(repairCheckbox);
+          repairOptions.appendChild(repairLabel);
+        });
+      }
+    });
+
+    function updateTotalPriceWithDiscount() {
+      const selectedRepairs = Array.from(repairOptions.querySelectorAll('input[type="checkbox"]:checked'));
+      const total = selectedRepairs.reduce((acc, curr) => acc + parseFloat(curr.dataset.price), 0);
+
+      totalPriceElement.textContent = total.toFixed(2);
+
+      const selectedItemsImages = document.getElementById('selectedItemsImages');
+      selectedItemsImages.innerHTML = '';
+
+      selectedRepairs.forEach(selectedCheckbox => {
+        const selectedModel = modelSelect.value;
+        const brand = document.querySelector('input[name="brand"]:checked').value;
+        const modelData = data.Hardware[brand][selectedModel];
+        const repair = selectedCheckbox.nextSibling.textContent.split(':')[0].trim();
+
+        if (modelData && modelData[repair]) {
+          const imageName = repair;
+          const imageUrl = `../assets/img/database/${imageName}.png`;
+
+          const imageElement = document.createElement('img');
+          imageElement.src = imageUrl;
+          imageElement.alt = repair;
+          imageElement.onerror = function () {
+            this.src = './assets/img/default.png';
+          };
+
+          selectedItemsImages.appendChild(imageElement);
+        }
+      });
+    }
+
+    function createRadioButtons() {
+      const categories = Object.keys(data.Hardware);
+
+      categories.forEach(category => {
+        const radioBtn = document.createElement('input');
+        radioBtn.type = 'radio';
+        radioBtn.name = 'brand';
+        radioBtn.value = category;
+        radioBtn.id = category;
+
+        const label = document.createElement('label');
+        label.textContent = category;
+        label.setAttribute('for', category);
+
+        categoryContainer.appendChild(radioBtn);
+        categoryContainer.appendChild(label);
+      });
+
+      // Add event listener to each radio button
+      document.querySelectorAll('input[name="brand"]').forEach(radio => {
+        radio.addEventListener('change', loadDataFromJSON);
+      });
+    }
+
+    loadData();
+
+  </script>
+</body>
+
+</html>

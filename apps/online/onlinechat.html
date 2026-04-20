@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Live Chat</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="../../assets/css/app-styles.css" id="stylesheet">
+    <style>
+      .chat-app {
+        height: 100%;
+      }
+
+      #chat-window {
+        overflow-y: auto;
+        text-align: start;
+        font-family: 'Courier New', monospace;
+        font-size: larger;
+      }
+
+      #messages-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        font-size: small;
+      }
+
+      #messages-list li {
+        margin-bottom: 5px;
+        border-radius: 5px;
+      }
+
+      #message-form {
+        text-align: start;
+      }
+
+      #message-form input {
+        width: 100%;
+      }
+
+      #message-form button {
+        color: #fff;
+        border: none;
+        cursor: pointer;
+        border-radius: 5px;
+      }
+
+      #message-form button:hover {
+        background-color: var(--primaryColor);
+      }
+    </style>
+</head>
+
+<body>
+    <header>
+        <h2>Online Chat</h2>
+    </header>
+    <main>
+        <div class="chat-app">
+            <section id="chat-window">
+                <ul id="messages-list">
+                    <!-- Messages will be displayed here -->
+                </ul>
+            </section>
+            <form id="message-form">
+                <input type="text" id="username-input" placeholder="Your Username">
+                <input type="text" id="message-input" placeholder="Type a message">
+                <br>
+                <button type="submit">Send</button>
+            </form>
+            <button style="display: none;" id="clear-button">Clear All Messages</button>
+        </div>
+    </main>
+    <script type="module">
+        import { database, ref, onValue, push, query, limitToLast, set, remove } from '../assets/js/firebase-init.js';
+
+        const messagesList = document.getElementById('messages-list');
+        const messageForm = document.getElementById('message-form');
+        const messageInput = document.getElementById('message-input');
+        const usernameInput = document.getElementById('username-input');
+        const clearButton = document.getElementById('clear-button');
+
+        function sendMessage(username, text) {
+            const messagesRef = ref(database, 'public/messages');
+            push(messagesRef, { username, text });
+        }
+
+        function displayMessages(snapshot) {
+            const messages = snapshot.val();
+            messagesList.innerHTML = '';
+            if (messages) {
+                Object.values(messages).forEach(msg => {
+                    const msgElement = document.createElement('li');
+                    msgElement.innerHTML = `<strong>${msg.username}</strong>: ${msg.text}`;
+                    messagesList.appendChild(msgElement);
+                });
+            }
+        }
+
+        function listenForMessages() {
+            const messagesRef = ref(database, 'public/messages');
+            const lastMessagesQuery = query(messagesRef, limitToLast(10));
+            onValue(lastMessagesQuery, displayMessages);
+        }
+
+        function clearMessages() {
+            const messagesRef = ref(database, 'public/messages');
+            remove(messagesRef).then(() => {
+                messagesList.innerHTML = '';
+            }).catch(error => {
+                console.error("Error clearing messages:", error);
+            });
+        }
+
+        messageForm.addEventListener('submit', event => {
+            event.preventDefault();
+            const username = usernameInput.value.trim() || 'Anonymous';
+            const text = messageInput.value.trim();
+
+            if (text) {
+                sendMessage(username, text);
+                messageInput.value = '';
+            }
+        });
+
+        clearButton.addEventListener('click', () => {
+            clearMessages();
+        });
+
+        document.addEventListener("DOMContentLoaded", () => {
+            listenForMessages();
+        });
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mileage Tracker</title>
+    <link rel="stylesheet" href="../../assets/css/app-styles.css" />
+</head>
+
+<body>
+    <header>
+        <h1>Online Mileage Tracker</h1>
+    </header>
+    <main>
+        <section>
+            <form id="mileage-form">
+                <label><input type="radio" name="trip-type" value="start" checked> Start Trip</label>
+                <label><input type="radio" name="trip-type" value="end"> End Trip</label><br>
+
+                <label for="vehicle">Vehicle:</label>
+                <input type="text" id="vehicle" required>
+
+                <label for="client">Client:</label>
+                <input type="text" id="client" required>
+
+                <div id="start-fields">
+                    <label for="start-time">Start Time:</label>
+                    <input type="datetime-local" id="start-time">
+
+                    <label for="start-odometer">Start Odometer:</label>
+                    <input type="number" id="start-odometer" min="0">
+                </div>
+
+                <div id="end-fields" style="display:none">
+                    <label for="end-time">End Time:</label>
+                    <input type="datetime-local" id="end-time">
+
+                    <label for="end-odometer">End Odometer:</label>
+                    <input type="number" id="end-odometer" min="0">
+                </div>
+
+                <button type="submit">Save</button>
+            </form>
+
+            <div class="table">
+                <table id="mileage-table">
+                    <thead>
+                        <tr>
+                            <th>Vehicle</th>
+                            <th>Client</th>
+                            <th>Start Time</th>
+                            <th>Start Odometer</th>
+                            <th>End Time</th>
+                            <th>End Odometer</th>
+                            <th>Distance</th>
+                            <th>Duration</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+
+        </section>
+    </main>
+
+    <script type="module">
+        import { auth, onAuthStateChanged, database, ref, set, update, onValue } from '../assets/js/firebase-init.js';
+
+        let DATABASE_BASE_PATH = 'public';
+        let mileageData = [];
+
+        onAuthStateChanged(auth, user => {
+            DATABASE_BASE_PATH = user ? user.uid : 'public';
+            loadData();
+        });
+
+        function loadData() {
+            const dbRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
+            onValue(dbRef, snapshot => {
+                mileageData = [];
+                const tbody = document.querySelector('#mileage-table tbody');
+                tbody.innerHTML = '';
+                if (snapshot.exists()) {
+                    snapshot.forEach(child => {
+                        mileageData.push(child.val());
+                    });
+
+                    mileageData.sort((a, b) => {
+                        const aTime = a.startTime ? new Date(a.startTime) : 0;
+                        const bTime = b.startTime ? new Date(b.startTime) : 0;
+                        return bTime - aTime;
+                    });
+
+                    mileageData.forEach(data => {
+                        const row = renderRow(data);
+                        tbody.appendChild(row);
+                    });
+                }
+            });
+        }
+
+        function renderRow(data) {
+            const row = document.createElement('tr');
+
+            const vehicle = row.insertCell();
+            vehicle.contentEditable = true;
+            vehicle.innerText = data.vehicle || '';
+            vehicle.addEventListener('blur', () => updateField(data.id, 'vehicle', vehicle.innerText.trim()));
+
+            const client = row.insertCell();
+            client.textContent = data.customerName;
+
+            const startTime = row.insertCell();
+            startTime.contentEditable = true;
+            startTime.innerText = formatDate(data.startTime);
+            startTime.addEventListener('blur', () => updateField(data.id, 'startTime', toISOString(startTime.innerText)));
+
+            const startOdometer = row.insertCell();
+            startOdometer.contentEditable = true;
+            startOdometer.innerText = data.startOdometer;
+            startOdometer.addEventListener('blur', () => updateField(data.id, 'startOdometer', startOdometer.innerText));
+
+            const endTime = row.insertCell();
+            endTime.contentEditable = true;
+            endTime.innerText = data.endTime ? formatDate(data.endTime) : '';
+            endTime.addEventListener('blur', () => updateField(data.id, 'endTime', toISOString(endTime.innerText)));
+
+            const endOdometer = row.insertCell();
+            endOdometer.contentEditable = true;
+            endOdometer.innerText = data.endOdometer;
+            endOdometer.addEventListener('blur', () => updateField(data.id, 'endOdometer', endOdometer.innerText));
+
+            const distance = row.insertCell();
+            const dist = (data.endOdometer && data.startOdometer)
+                ? (parseFloat(data.endOdometer) - parseFloat(data.startOdometer)).toFixed(1)
+                : '0.0';
+            distance.innerText = `${dist} mi`;
+
+            const duration = row.insertCell();
+            if (data.startTime && data.endTime) {
+                const mins = Math.round((new Date(data.endTime) - new Date(data.startTime)) / 60000);
+                duration.innerText = `${mins} mins`;
+            } else {
+                duration.innerText = 'N/A';
+            }
+
+            return row;
+        }
+
+        document.getElementById('mileage-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const tripType = document.querySelector('input[name="trip-type"]:checked').value;
+            const vehicle = document.getElementById('vehicle').value.trim();
+            const customerName = document.getElementById('client').value.trim();
+            const id = Date.now().toString();
+
+            if (!vehicle || !customerName) {
+                alert('Please fill in both vehicle and client fields.');
+                return;
+            }
+
+            if (tripType === 'start') {
+                const startTimeInput = document.getElementById('start-time').value;
+                const startOdometer = document.getElementById('start-odometer').value;
+
+                if (!startTimeInput || !startOdometer) {
+                    alert('Please fill in both start time and start odometer.');
+                    return;
+                }
+
+                const startTime = new Date(startTimeInput);
+                if (isNaN(startTime)) {
+                    alert('Invalid start time.');
+                    return;
+                }
+
+                await set(ref(database, `${DATABASE_BASE_PATH}/tasks/${id}`), {
+                    id, vehicle, customerName,
+                    startTime: startTime.toISOString(),
+                    startOdometer,
+                    endTime: '', endOdometer: ''
+                });
+
+            } else {
+                const endTimeInput = document.getElementById('end-time').value;
+                const endOdometer = document.getElementById('end-odometer').value;
+
+                if (!endTimeInput || !endOdometer) {
+                    alert('Please fill in both end time and end odometer.');
+                    return;
+                }
+
+                const endTime = new Date(endTimeInput);
+                if (isNaN(endTime)) {
+                    alert('Invalid end time.');
+                    return;
+                }
+
+                const match = mileageData.find(d => d.vehicle === vehicle && d.customerName === customerName && !d.endTime);
+                if (match) {
+                    await update(ref(database, `${DATABASE_BASE_PATH}/tasks/${match.id}`), {
+                        endTime: endTime.toISOString(),
+                        endOdometer
+                    });
+                } else {
+                    alert('No matching start trip found.');
+                }
+            }
+
+            e.target.reset();
+        });
+
+        document.querySelectorAll('input[name="trip-type"]').forEach(input => {
+            input.addEventListener('change', toggleFields);
+        });
+
+        function toggleFields() {
+            const type = document.querySelector('input[name="trip-type"]:checked').value;
+            document.getElementById('start-fields').style.display = type === 'start' ? 'block' : 'none';
+            document.getElementById('end-fields').style.display = type === 'end' ? 'block' : 'none';
+        }
+
+        function updateField(id, field, value) {
+            const dbRef = ref(database, `${DATABASE_BASE_PATH}/tasks/${id}`);
+            update(dbRef, { [field]: value });
+        }
+
+        function formatDate(str) {
+            const d = new Date(str);
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+        }
+
+        function toISOString(dateStr) {
+            const parts = dateStr.split(/[- :]/);
+            const date = new Date(parts[0], parts[1] - 1, parts[2], parts[3], parts[4]);
+            return date.toISOString();
+        }
+    </script>
+</body>
+
+</html>

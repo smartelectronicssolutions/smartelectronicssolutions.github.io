@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mileage Tracker</title>
+    <link rel="stylesheet" href="../../assets/css/app-styles.css" id="stylesheet">
+</head>
+
+<body>
+    <header>
+        <h1>Mileage Tracker</h1>
+        <section id="login-section">
+            <form id="login-form">
+                <label for="username">Email:</label>
+                <input type="email" id="username" required>
+                <br>
+                <label for="password">Password:</label>
+                <input type="password" id="password" required>
+                <br>
+                <button type="submit">Login</button>
+            </form>
+        </section>
+        <button id="logout" style="display: none;">Logout</button>
+    </header>
+    <main>
+        <section>
+            <form id="mileage-form">
+                <label for="vehicle">Vehicle:</label>
+                <input type="text" id="vehicle" name="vehicle" required>
+                <label for="client">Client:</label>
+                <input type="text" id="client" name="client" required>
+                <div>
+                    <label for="trip-type-start">Start Trip</label>
+                    <input type="radio" id="trip-type-start" name="trip-type" value="start" checked>
+                    <br>
+                    <label for="trip-type-end">End Trip</label>
+                    <input type="radio" id="trip-type-end" name="trip-type" value="end">
+                </div>
+                <div id="start-trip-fields">
+                    <label for="start-date">Start Date:</label>
+                    <input type="date" id="start-date" name="start-date" required>
+                    <br>
+                    <label for="start-time">Start Time:</label>
+                    <input type="time" id="start-time" name="start-time" required>
+                    <br>
+                    <label for="start-odometer">Start Odometer Reading:</label>
+                    <input type="number" id="start-odometer" name="start-odometer" min="0" step="1" required>
+                    <br>
+                    <label for="start-location">Start Location:</label>
+                    <input type="text" id="start-location" name="start-location" required>
+                    <br>
+                </div>
+                <div id="end-trip-fields" style="display: none;">
+                    <label for="end-date">End Date:</label>
+                    <input type="date" id="end-date" name="end-date" required>
+                    <br>
+                    <label for="end-time">End Time:</label>
+                    <input type="time" id="end-time" name="end-time" required>
+                    <br>
+                    <label for="end-odometer">End Odometer Reading:</label>
+                    <input type="number" id="end-odometer" name="end-odometer" min="0" step="1" required>
+                    <br>
+                    <label for="end-location">End Location:</label>
+                    <input type="text" id="end-location" name="end-location" required>
+                    <br>
+                </div>
+                <label for="distance-unit" style="display: none;">Distance Unit:</label>
+                <select id="distance-unit" name="distance-unit" style="display: none;">
+                    <option value="miles">Miles</option>
+                    <option value="kilometers">Kilometers</option>
+                </select>
+                <br>
+                <button type="submit" id="add-mileage-button">Add Mileage</button>
+            </form>
+            <br>
+            <div class="table">
+                <table id="mileage-table">
+                    <tr>
+                        <th>Vehicle</th>
+                        <th>Client</th>
+                        <th>Start Date</th>
+                        <th>Start Time</th>
+                        <th>Start Odometer Reading</th>
+                        <th>Start Location</th>
+                        <th>End Date</th>
+                        <th>End Time</th>
+                        <th>End Odometer Reading</th>
+                        <th>End Location</th>
+                        <th>Distance Unit</th>
+                        <th>Distance</th>
+                        <th>Duration</th>
+                        <th>Type</th>
+                        <th>Actions</th>
+                    </tr>
+                </table>
+            </div>
+            <button type="button" id="export-data-button">Export Data</button>
+            <br>
+        </section>
+        <h2>Total Trips: <span id="total-trips">0</span></h2>
+    </main>
+    <script type="module">
+        import { database, ref, onValue, set, remove, push, auth } from '../assets/js/firebase-init.js';
+        import { initializeAuth } from '../assets/js/auth.js';
+
+        class MileageApp {
+            constructor() {
+                this.mileageData = [];
+                this.totalTrips = 0;
+                this.online = navigator.onLine;
+                this.isAuthenticated = false;
+                this.dbRef = null;
+
+                this.setEventListeners();
+                this.updateTripFieldsVisibility();
+                this.loadLocalData();
+
+                window.addEventListener('online', this.syncData.bind(this));
+                window.addEventListener('offline', this.updateOnlineStatus.bind(this));
+            }
+
+            initializeFirebase() {
+                const user = auth.currentUser;
+                if (user) {
+                    const uid = user.uid;
+                    this.dbRef = ref(database, `${uid}/mileageData`);
+                    this.listenForDataChanges();
+                }
+            }
+
+            setEventListeners() {
+                document.getElementById('mileage-form').addEventListener('submit', this.addMileage.bind(this));
+                document.getElementById('export-data-button').addEventListener('click', this.exportData.bind(this));
+                document.querySelectorAll('input[name="trip-type"]').forEach(element => {
+                    element.addEventListener('change', this.updateTripFieldsVisibility.bind(this));
+                });
+
+                initializeAuth(this);
+            }
+
+            updateTripFieldsVisibility() {
+                const tripType = document.querySelector('input[name="trip-type"]:checked').value;
+                const startTripFields = document.getElementById('start-trip-fields');
+                const endTripFields = document.getElementById('end-trip-fields');
+
+                if (tripType === 'start') {
+                    startTripFields.style.display = 'block';
+                    endTripFields.style.display = 'none';
+                    this.toggleRequiredFields(startTripFields, true);
+                    this.toggleRequiredFields(endTripFields, false);
+                } else {
+                    startTripFields.style.display = 'none';
+                    endTripFields.style.display = 'block';
+                    this.toggleRequiredFields(startTripFields, false);
+                    this.toggleRequiredFields(endTripFields, true);
+                }
+            }
+
+            toggleRequiredFields(container, isRequired) {
+                const inputs = container.querySelectorAll('input');
+                inputs.forEach(input => {
+                    if (isRequired) {
+                        input.setAttribute('required', 'required');
+                    } else {
+                        input.removeAttribute('required');
+                    }
+                });
+            }
+
+            listenForDataChanges() {
+                if (!this.dbRef) return;
+                onValue(this.dbRef, snapshot => {
+                    const data = snapshot.val();
+                    if (data) {
+                        this.mileageData = Object.entries(data).map(([key, value]) => ({ key, ...value }));
+                        this.totalTrips = this.mileageData.length;
+                    } else {
+                        this.mileageData = [];
+                        this.totalTrips = 0;
+                    }
+                    document.getElementById('total-trips').textContent = this.totalTrips;
+                    this.updateMileageTable();
+                });
+            }
+
+            updateMileageTable() {
+                const table = document.getElementById('mileage-table');
+                while (table.rows.length > 1) {
+                    table.deleteRow(1);
+                }
+
+                this.mileageData.forEach((entry, index) => {
+                    const row = table.insertRow();
+                    row.insertCell().textContent = entry.vehicle;
+                    row.insertCell().textContent = entry.client;
+                    row.insertCell().textContent = entry.startDate || "";
+                    row.insertCell().textContent = entry.startTime || "";
+                    row.insertCell().textContent = entry.startOdometer || "";
+                    row.insertCell().textContent = entry.startLocation || "";
+                    row.insertCell().textContent = entry.endDate || "";
+                    row.insertCell().textContent = entry.endTime || "";
+                    row.insertCell().textContent = entry.endOdometer || "";
+                    row.insertCell().textContent = entry.endLocation || "";
+                    row.insertCell().textContent = entry.distanceUnit || "";
+                    row.insertCell().textContent = this.calculateDistance(entry) || "";
+                    row.insertCell().textContent = this.calculateDuration(entry) || "";
+                    row.insertCell().textContent = entry.tripType;
+
+                    const deleteButton = document.createElement('button');
+                    deleteButton.classList.add('clear-button');
+                    deleteButton.textContent = 'Delete';
+                    deleteButton.addEventListener('click', this.deleteMileage.bind(this, index));
+                    row.insertCell().appendChild(deleteButton);
+                });
+            }
+
+            addMileage(event) {
+                event.preventDefault();
+
+                const tripType = document.querySelector('input[name="trip-type"]:checked').value;
+
+                const mileageEntry = {
+                    vehicle: document.getElementById('vehicle').value,
+                    client: document.getElementById('client').value,
+                    tripType: tripType,
+                    distanceUnit: document.getElementById('distance-unit').value,
+                };
+
+                if (tripType === 'start') {
+                    mileageEntry.startDate = document.getElementById('start-date').value;
+                    mileageEntry.startTime = document.getElementById('start-time').value;
+                    mileageEntry.startOdometer = document.getElementById('start-odometer').value;
+                    mileageEntry.startLocation = document.getElementById('start-location').value;
+
+                    if (this.isAuthenticated) {
+                        push(this.dbRef, mileageEntry);
+                    } else {
+                        this.saveToLocal(null, mileageEntry);
+                    }
+                } else if (tripType === 'end') {
+                    mileageEntry.endDate = document.getElementById('end-date').value;
+                    mileageEntry.endTime = document.getElementById('end-time').value;
+                    mileageEntry.endOdometer = document.getElementById('end-odometer').value;
+                    mileageEntry.endLocation = document.getElementById('end-location').value;
+
+                    const lastStartEntryIndex = this.mileageData.slice().reverse().findIndex(entry =>
+                        entry.client === mileageEntry.client &&
+                        entry.vehicle === mileageEntry.vehicle &&
+                        entry.tripType === 'start' &&
+                        !entry.endDate
+                    );
+
+                    const actualLastIndex = this.mileageData.length - 1;
+                    const lastEntry = this.mileageData[actualLastIndex];
+
+                    if (
+                        lastStartEntryIndex !== -1 &&
+                        this.mileageData.length - 1 - lastStartEntryIndex === actualLastIndex &&
+                        lastEntry.client === mileageEntry.client &&
+                        lastEntry.vehicle === mileageEntry.vehicle &&
+                        lastEntry.tripType === 'start' &&
+                        !lastEntry.endDate
+                    ) {
+                        const keyToUpdate = lastEntry.key;
+                        const updates = {
+                            endDate: mileageEntry.endDate,
+                            endTime: mileageEntry.endTime,
+                            endOdometer: mileageEntry.endOdometer,
+                            endLocation: mileageEntry.endLocation,
+                            tripType: 'completed'
+                        };
+                        if (this.isAuthenticated) {
+                            set(ref(database, `${auth.currentUser.uid}/mileageData/${keyToUpdate}`), {
+                                ...lastEntry,
+                                ...updates
+                            });
+                        } else {
+                            this.saveToLocal(keyToUpdate, updates);
+                        }
+                    } else {
+                        mileageEntry.startDate = "";
+                        mileageEntry.startTime = "";
+                        mileageEntry.startOdometer = "";
+                        mileageEntry.startLocation = "";
+                        if (this.isAuthenticated) {
+                            push(this.dbRef, mileageEntry);
+                        } else {
+                            this.saveToLocal(null, mileageEntry);
+                        }
+                    }
+                }
+
+                this.clearFormFields();
+            }
+
+            deleteMileage(index) {
+                const keyToDelete = this.mileageData[index].key;
+                if (this.isAuthenticated) {
+                    remove(ref(database, `${auth.currentUser.uid}/mileageData/${keyToDelete}`));
+                } else {
+                    this.deleteFromLocal(keyToDelete);
+                }
+            }
+
+            exportData() {
+                const csvHeaders = ['Vehicle', 'Client', 'Start Date', 'Start Time', 'Start Odometer Reading', 'Start Location', 'End Date', 'End Time', 'End Odometer Reading', 'End Location', 'Distance Unit', 'Distance', 'Duration', 'Type'];
+                const csvRows = this.mileageData.map(entry => [
+                    entry.vehicle,
+                    entry.client,
+                    entry.startDate || '',
+                    entry.startTime || '',
+                    entry.startOdometer || '',
+                    entry.startLocation || '',
+                    entry.endDate || '',
+                    entry.endTime || '',
+                    entry.endOdometer || '',
+                    entry.endLocation || '',
+                    entry.distanceUnit || '',
+                    this.calculateDistance(entry) || '',
+                    this.calculateDuration(entry) || '',
+                    entry.tripType
+                ]);
+
+                let csvContent = 'data:text/csv;charset=utf-8,' + csvHeaders.join(',') + '\n' + csvRows.map(e => e.join(',')).join('\n');
+                const encodedUri = encodeURI(csvContent);
+                const link = document.createElement('a');
+                link.setAttribute('href', encodedUri);
+                link.setAttribute('download', 'mileage_data.csv');
+                document.body.appendChild(link);
+
+                link.click();
+            }
+
+            calculateDistance(entry) {
+                if (entry.startOdometer && entry.endOdometer) {
+                    return Math.abs(entry.endOdometer - entry.startOdometer);
+                }
+                return '';
+            }
+
+            calculateDuration(entry) {
+                if (entry.startDate && entry.startTime && entry.endDate && entry.endTime) {
+                    const startDateTime = new Date(`${entry.startDate}T${entry.startTime}`);
+                    const endDateTime = new Date(`${entry.endDate}T${entry.endTime}`);
+                    const durationMs = endDateTime - startDateTime;
+                    const durationMinutes = Math.floor(durationMs / 60000);
+                    const hours = Math.floor(durationMinutes / 60);
+                    const minutes = durationMinutes % 60;
+                    return `${hours}h ${minutes}m`;
+                }
+                return '';
+            }
+
+            clearFormFields() {
+                document.getElementById('start-date').value = '';
+                document.getElementById('start-time').value = '';
+                document.getElementById('start-odometer').value = '';
+                document.getElementById('start-location').value = '';
+                document.getElementById('end-date').value = '';
+                document.getElementById('end-time').value = '';
+                document.getElementById('end-odometer').value = '';
+                document.getElementById('end-location').value = '';
+                document.getElementById('distance-unit').value = 'miles';
+            }
+
+            saveToLocal(key, data) {
+                let offlineData = JSON.parse(localStorage.getItem('offlineMileageData')) || {};
+                if (key) {
+                    offlineData[key] = { ...offlineData[key], ...data };
+                } else {
+                    const newKey = `offline-${Date.now()}`;
+                    offlineData[newKey] = data;
+                }
+                localStorage.setItem('offlineMileageData', JSON.stringify(offlineData));
+                this.loadLocalData();
+            }
+
+            deleteFromLocal(key) {
+                let offlineData = JSON.parse(localStorage.getItem('offlineMileageData')) || {};
+                delete offlineData[key];
+                localStorage.setItem('offlineMileageData', JSON.stringify(offlineData));
+                this.loadLocalData();
+            }
+
+            loadLocalData() {
+                const offlineData = JSON.parse(localStorage.getItem('offlineMileageData')) || {};
+                this.mileageData = Object.entries(offlineData).map(([key, value]) => ({ key, ...value }));
+                this.totalTrips = this.mileageData.length;
+                document.getElementById('total-trips').textContent = this.totalTrips;
+                this.updateMileageTable();
+            }
+
+            syncData() {
+                if (this.isAuthenticated) {
+                    const offlineData = JSON.parse(localStorage.getItem('offlineMileageData')) || {};
+                    for (const [key, data] of Object.entries(offlineData)) {
+                        if (key.startsWith('offline-')) {
+                            push(this.dbRef, data);
+                        } else {
+                            set(ref(database, `mileageData/${key}`), data);
+                        }
+                    }
+                    localStorage.removeItem('offlineMileageData');
+                    this.loadLocalData();
+                }
+            }
+
+            updateOnlineStatus() {
+                this.online = navigator.onLine;
+                if (this.online) {
+                    this.syncData();
+                }
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            new MileageApp();
+        });
+    </script>
+</body>
+
+</html>

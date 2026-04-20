@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Live Notes</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <link rel="stylesheet" href="../../assets/css/app-styles.css" id="stylesheet">
+</head>
+
+<body>
+    <header>
+        <h1>Notes</h1>
+        <section id="login-section">
+            <form id="login-form">
+                <label for="username">Email:</label>
+                <input type="email" id="username" required>
+                <br>
+                <label for="password">Password:</label>
+                <input type="password" id="password" required>
+                <br>
+                <button type="submit">Login</button>
+            </form>
+        </section>
+        <button id="logout" style="display: none;">Logout</button>
+    </header>
+
+    <main>
+        <section id="main-window">
+            <form class="notes">
+                <label for="input-name">Name</label>
+                <input required type="text" id="input-name" name="input-name" placeholder="Name">
+                <label for="notes">Notes</label>
+                <textarea name="notes" id="notes" cols="30" rows="10"></textarea>
+            </form>
+            <button id="copy-btn">📰</button>
+            <button id="paste-btn">📋</button>
+            <button id="save-btn">💾</button>
+            <button class="clear-button" id="delete-btn">❌</button>
+            <button id="undo-btn">↩️</button>
+            <label for="autosave-checkbox">Auto-💾:</label>
+            <input type="checkbox" id="autosave-checkbox" checked>
+            <section id="note-list"></section>
+            <button class="clear-button" id="clear-btn">Clear</button>
+        </section>
+    </main>
+
+    <script type="module">
+        import { database, ref, onValue, set, get, remove, initializeAuth, auth } from '../assets/js/firebase-init.js';
+
+        class LiveNotesApp {
+            constructor() {
+                this.nameInput = document.getElementById('input-name');
+                this.notesTextarea = document.getElementById('notes');
+                this.noteList = document.getElementById('note-list');
+                this.deletedNotes = [];
+                this.dbRef = null;
+                this.uid = null;
+                this.isAuthenticated = false;
+                this.autosaveInterval = null;
+
+                this.setupEventListeners();
+                initializeAuth(this);
+            }
+
+            initializeFirebase() {
+                const user = auth.currentUser;
+                if (user) {
+                    this.isAuthenticated = true;
+                    this.uid = user.uid;
+                    this.dbRef = ref(database, `${this.uid}/notesData`);
+                    this.populateNoteList();
+                    this.startAutosave();
+                } else {
+                    this.uid = null;
+                    this.isAuthenticated = false;
+                    this.loadLocalData();
+                }
+            }
+
+            setupEventListeners() {
+                document.getElementById('copy-btn').addEventListener('click', this.copyNote.bind(this));
+                document.getElementById('paste-btn').addEventListener('click', this.pasteNote.bind(this));
+                document.getElementById('save-btn').addEventListener('click', this.saveNote.bind(this));
+                document.getElementById('delete-btn').addEventListener('click', this.deleteNote.bind(this));
+                document.getElementById('clear-btn').addEventListener('click', this.clearNoteInputs.bind(this));
+                document.getElementById('undo-btn').addEventListener('click', this.undoDelete.bind(this));
+                document.addEventListener("keydown", this.handleKeyboardShortcuts.bind(this));
+                this.notesTextarea.addEventListener('input', () => this.autoResizeTextarea('notes'));
+            }
+
+            startAutosave() {
+                this.autosaveInterval = setInterval(async () => {
+                    if (document.getElementById('autosave-checkbox').checked && this.nameInput.value.trim()) {
+                        await this.saveNote();
+                    }
+                }, 15000);
+            }
+
+            stopAutosave() {
+                if (this.autosaveInterval) {
+                    clearInterval(this.autosaveInterval);
+                    this.autosaveInterval = null;
+                }
+            }
+
+            toggleAutosave(event) {
+                if (event.target.checked) {
+                    this.startAutosave();
+                } else {
+                    this.stopAutosave();
+                }
+            }
+
+            loadLocalData() {
+                const offlineData = JSON.parse(localStorage.getItem('offlineNotesData')) || {};
+                this.displayNotes(offlineData);
+            }
+
+            async saveNote() {
+                const nameToSave = this.nameInput.value.trim();
+                const noteToSave = this.notesTextarea.value.trim();
+                const saveBtn = document.getElementById('save-btn');
+                const currentTimestamp = new Date().toISOString();
+
+                if (nameToSave && noteToSave) {
+                    const noteData = { name: nameToSave, note: noteToSave, timestamp: currentTimestamp };
+
+                    if (!this.lastSavedNoteData) {
+                        this.lastSavedNoteData = noteData;
+                    }
+
+                    if (this.isAuthenticated && this.uid) {
+                        const notesRef = ref(database, `${this.uid}/notesData/${nameToSave}`);
+
+                        try {
+                            const snapshot = await get(notesRef);
+                            const remoteNote = snapshot.val();
+
+                            if (remoteNote) {
+                                const remoteTimestamp = new Date(remoteNote.timestamp);
+                                const localTimestamp = new Date(this.lastSavedNoteData?.timestamp || currentTimestamp);
+
+                                if (remoteTimestamp > localTimestamp) {
+                                    const userConfirmed = confirm(`A newer version of this note exists. Do you want to overwrite it with your current changes?`);
+                                    if (!userConfirmed) {
+                                        console.log('Autosave canceled due to newer remote version.');
+                                        return;
+                                    }
+                                }
+                            }
+
+                            await set(notesRef, noteData);
+                            console.log('Note saved to Firebase successfully');
+                        } catch (error) {
+                            console.error('Failed to save the note to Firebase:', error);
+                        }
+                    } else {
+                        this.saveToLocal(nameToSave, noteData);
+                        console.log('Note saved to localStorage successfully');
+                    }
+
+                    this.lastSavedNoteData = noteData;
+                    this.updateSaveButton(saveBtn);
+
+                    // Immediately update the note list after saving the note
+                    this.populateNoteList();  // This will now refresh the note list
+                } else {
+                    console.log('Please enter both the name and note before saving');
+                }
+            }
+
+            saveToLocal(key, data) {
+                let offlineData = JSON.parse(localStorage.getItem('offlineNotesData')) || {};
+                offlineData[key] = data;
+                localStorage.setItem('offlineNotesData', JSON.stringify(offlineData));
+
+                // After saving to localStorage, immediately update the note list
+                this.populateNoteList();  // This will now refresh the note list
+            }
+
+            displayNotes(notes) {
+                this.noteList.innerHTML = '';
+
+                if (notes) {
+                    const notesArray = Object.values(notes).filter(note => note && note.timestamp);
+                    const sortedNotes = notesArray.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+                    sortedNotes.forEach(note => this.createNoteListItem(note));
+                } else {
+                    this.noteList.innerHTML = '<li>No notes found</li>';
+                }
+            }
+
+            async deleteNote() {
+                const nameToDelete = this.nameInput.value.trim();
+
+                if (nameToDelete) {
+                    const userConfirmed = confirm(`Are you sure you want to delete the note with name: ${nameToDelete}?`);
+                    if (!userConfirmed) {
+                        console.log('Note deletion cancelled.');
+                        return;
+                    }
+
+                    if (this.isAuthenticated && this.uid) {
+                        const notesRef = ref(database, `${this.uid}/notesData/${nameToDelete}`);
+                        try {
+                            const snapshot = await get(notesRef);
+                            const note = snapshot.val();
+                            if (note) {
+                                this.storeDeletedNote(note);
+                                await remove(notesRef);
+                                console.log(`Deleted the note with name: ${nameToDelete}`);
+                            } else {
+                                console.log('Note not found.');
+                            }
+                        } catch (error) {
+                            console.error('Failed to delete the note from Firebase:', error);
+                        }
+                    } else {
+                        let offlineData = JSON.parse(localStorage.getItem('offlineNotesData')) || {};
+                        if (offlineData[nameToDelete]) {
+                            const deletedNote = offlineData[nameToDelete];
+                            this.storeDeletedNote(deletedNote);
+                            delete offlineData[nameToDelete];
+                            localStorage.setItem('offlineNotesData', JSON.stringify(offlineData));
+                            console.log(`Deleted the note with name: ${nameToDelete} from localStorage`);
+                        } else {
+                            console.log('Note not found in localStorage.');
+                        }
+                    }
+                    this.clearNoteInputs();
+                    this.loadLocalData();
+                    this.populateNoteList();
+                } else {
+                    console.log('Please enter the name of the note to delete.');
+                }
+            }
+
+            storeDeletedNote(note) {
+                this.deletedNotes.push(note);
+            }
+
+            async undoDelete() {
+                if (this.deletedNotes.length > 0) {
+                    const lastDeletedNote = this.deletedNotes.pop();
+                    const { name, note, timestamp } = lastDeletedNote;
+
+                    if (this.isAuthenticated && this.uid) {
+                        const notesRef = ref(database, `${this.uid}/notesData/${name}`);
+                        try {
+                            await set(notesRef, { name, note, timestamp });
+                            console.log(`Undone the deletion of the note with name: ${name}`);
+                            this.populateNoteList();
+                        } catch (error) {
+                            console.error('Failed to undo the deletion:', error);
+                        }
+                    } else {
+                        this.saveToLocal(name, { name, note, timestamp });
+                        this.populateNoteList();
+                        console.log(`Undone the deletion of the note with name: ${name} in localStorage`);
+                    }
+                } else {
+                    console.log('No deleted notes to undo');
+                }
+            }
+
+            async copyNote() {
+                this.notesTextarea.select();
+                document.execCommand('copy');
+                console.log('Copied to clipboard');
+            }
+
+            async pasteNote() {
+                const clipboardData = await navigator.clipboard.readText();
+                this.notesTextarea.value += clipboardData;
+            }
+
+            updateSaveButton(button) {
+                button.textContent = 'Saved';
+                button.style.backgroundColor = 'lightblue';
+                setTimeout(() => {
+                    button.textContent = '💾';
+                    button.style.backgroundColor = '';
+                }, 2000);
+            }
+
+            clearNoteInputs() {
+                this.nameInput.value = '';
+                this.notesTextarea.value = '';
+            }
+
+            async populateNoteList() {
+                if (this.uid) {
+                    const notesRef = ref(database, `${this.uid}/notesData`);
+                    onValue(notesRef, snapshot => {
+                        const notes = snapshot.val();
+                        this.displayNotes(notes);
+                    });
+                } else {
+                    this.loadLocalData();
+                }
+            }
+
+            createNoteListItem(note) {
+                const listItem = document.createElement('li');
+
+                const nameSpan = document.createElement('span');
+                nameSpan.style.fontWeight = 'bold';
+                nameSpan.textContent = note.name;
+
+                const timestampSpan = document.createElement('span');
+                timestampSpan.style.fontWeight = 'normal';
+                timestampSpan.style.marginLeft = '10px';
+
+                const date = new Date(note.timestamp);
+                timestampSpan.textContent = date.toString() !== 'Invalid Date' ? ` (${date.toLocaleString()})` : ' (Invalid Date)';
+
+                listItem.appendChild(nameSpan);
+                listItem.appendChild(timestampSpan);
+
+                listItem.addEventListener('click', () => {
+                    this.nameInput.value = note.name;
+                    this.notesTextarea.value = note.note;
+                });
+
+                this.noteList.appendChild(listItem);
+            }
+
+            autoResizeTextarea(id) {
+                const textarea = document.getElementById(id);
+                const savedScrollTop = window.pageYOffset || document.documentElement.scrollTop;
+
+                textarea.style.height = 'auto';
+                textarea.style.height = textarea.scrollHeight + 'px';
+
+                window.scrollTo(0, savedScrollTop);
+            }
+
+            handleKeyboardShortcuts(event) {
+                if (event.ctrlKey && event.key === "s") {
+                    event.preventDefault();
+                    document.getElementById("save-btn").click();
+                }
+            }
+
+            updateSaveButton(button) {
+                button.textContent = 'Saved';
+                button.style.backgroundColor = 'lightblue';
+                setTimeout(() => {
+                    button.textContent = '💾';
+                    button.style.backgroundColor = '';
+                }, 2000);
+            }
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+            new LiveNotesApp();
+        });
+    </script>
+</body>
+
+</html>

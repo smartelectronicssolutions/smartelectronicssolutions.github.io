@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=no"
+    />
+    <title>Saved Links</title>
+    <link
+      rel="stylesheet"
+      href="../../assets/css/app-styles.css"
+      id="stylesheet"
+    />
+    <link
+      rel="icon"
+      type="image/png"
+      href="../assets/img/t_logo.png"
+      sizes="32x32"
+    />
+    <link
+      rel="icon"
+      type="image/png"
+      href="../assets/img/t_logo.png"
+      sizes="16x16"
+    />
+    <script type="module" src="../assets/js/login.js" defer></script>
+    <script src="../assets/js/search.js" defer></script>
+    <style>
+      #linksList {
+        display: flex;
+        flex-direction: column;
+        padding: 0;
+        list-style-type: none;
+      }
+
+      #linksList li {
+        display: flex;
+        width: 100%;
+      }
+
+      #linksList a {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      #updateLinkButton,
+      #saveLinkButton {
+        margin: 0 auto;
+      }
+    </style>
+  </head>
+
+  <body>
+    <header>
+      <h1>Saved Links</h1>
+
+      <section id="login-section">
+        <form id="login-form">
+          <label for="username">Email:</label>
+          <input type="email" id="username" required />
+          <br />
+          <label for="password">Password:</label>
+          <input type="password" id="password" required />
+          <br />
+          <button type="submit">Sign in</button>
+        </form>
+        <button id="logout" style="display: none">Logout</button>
+      </section>
+    </header>
+
+    <main>
+      <div>
+        <input type="text" placeholder="Insert link" id="linkInput" />
+        <input type="text" placeholder="Title" id="titleInput" />
+        <input type="text" placeholder="categories" id="categoryInput" />
+        <br />
+        <button id="saveLinkButton">Save</button>
+        <button id="updateLinkButton" style="display: none">Update</button>
+        <button
+          id="deleteCurrentLink"
+          class="clear-button"
+          style="display: none"
+        >
+          Delete
+        </button>
+      </div>
+      <br />
+      <div>
+        <input id="searchInput" type="text" />
+      </div>
+      <div>
+        <br />
+        <select id="categoryFilter">
+          <option value="">All Categories</option>
+        </select>
+      </div>
+      <ul id="linksList"></ul>
+    </main>
+
+    <script type="module">
+      import {
+        auth,
+        onAuthStateChanged,
+        getAuth,
+        getDatabase,
+        get,
+        ref,
+        push,
+        set,
+        onValue,
+        remove,
+        update,
+      } from "../assets/js/firebase-init.js";
+
+      document.addEventListener("DOMContentLoaded", () => {
+        const auth = getAuth();
+        const database = getDatabase();
+
+        // UI nodes
+        const linkInput = document.getElementById("linkInput");
+        const categoryInput = document.getElementById("categoryInput");
+        const saveLinkButton = document.getElementById("saveLinkButton");
+        const updateLinkButton = document.getElementById("updateLinkButton");
+        const deleteCurrentButton =
+          document.getElementById("deleteCurrentLink");
+        const linksList = document.getElementById("linksList");
+        const categoryFilter = document.getElementById("categoryFilter");
+        const titleInput = document.getElementById("titleInput");
+        const searchInput = document.getElementById("searchInput");
+        const searchHelpBtn = document.getElementById("searchHelpBtn");
+        const searchHelp = document.getElementById("searchHelp");
+
+        let editingLinkKey = null;
+        let DATABASE_BASE_PATH = "public";
+
+        // cache of records for searching/sorting without refetch
+        /** @type {{key:string, url:string, title?:string|null, categories?:string[]}|[]} */
+        let CACHED_LINKS = [];
+
+        const searchHelper = window.SearchEngine?.attachAuto
+          ? window.SearchEngine.attachAuto(searchInput, {
+              defaultFields: ["title", "url", "category"],
+              placeholderAdvanced:
+                'Search (e.g. title:"github" url:docs -personal)',
+            })
+          : null;
+
+        const queryEngine = searchHelper ? searchHelper.engine : null;
+
+        if (!searchHelper && searchInput) {
+          searchInput.title =
+            "Basic search only. Load ./assets/js/search.js for operators.";
+        }
+
+        onAuthStateChanged(auth, (user) => {
+          DATABASE_BASE_PATH = user ? `${user.uid}` : "public";
+          linksList.innerHTML = "";
+          fetchLinksFromFirebase();
+        });
+
+        // ---- Create / Update ----
+        saveLinkButton.addEventListener("click", () => {
+          const linkUrl = (linkInput.value || "").trim();
+          const title = (titleInput.value || "").trim();
+          const categoryInputValue = categoryInput.value || "";
+
+          if (!linkUrl) {
+            alert("Please enter a link.");
+            return;
+          }
+
+          const categories = categoryInputValue
+            .split(",")
+            .map((cat) => cat.trim())
+            .filter(Boolean);
+          const newLinkRef = push(ref(database, `${DATABASE_BASE_PATH}/links`));
+          const linkData = {
+            url: linkUrl,
+            title: title || null,
+            categories: categories.length > 0 ? categories : null,
+          };
+
+          set(newLinkRef, linkData)
+            .then(() => {
+              clearForm();
+            })
+            .catch((error) => console.error("Error saving link:", error));
+        });
+
+        updateLinkButton.addEventListener("click", () => {
+          const linkUrl = (linkInput.value || "").trim();
+          const title = (titleInput.value || "").trim();
+          const categoryInputValue = categoryInput.value || "";
+
+          if (!linkUrl) {
+            alert("Please enter a link.");
+            return;
+          }
+
+          const categories = categoryInputValue
+            .split(",")
+            .map((cat) => cat.trim())
+            .filter(Boolean);
+          const linkData = {
+            url: linkUrl,
+            title: title || null,
+            categories: categories.length > 0 ? categories : null,
+          };
+
+          const linkRef = ref(
+            database,
+            `${DATABASE_BASE_PATH}/links/${editingLinkKey}`,
+          );
+          update(linkRef, linkData)
+            .then(() => {
+              clearForm();
+            })
+            .catch((error) => console.error("Error updating link:", error));
+        });
+
+        // ---- Delete ----
+        deleteCurrentButton.addEventListener("click", () => {
+          if (!editingLinkKey) return;
+          if (!confirm("Are you sure you want to delete this link?")) return;
+
+          const linkRef = ref(
+            database,
+            `${DATABASE_BASE_PATH}/links/${editingLinkKey}`,
+          );
+          remove(linkRef)
+            .then(() => clearForm())
+            .catch((error) => console.error("Error deleting link:", error));
+        });
+
+        // ---- Filters (category + search) ----
+        categoryFilter.addEventListener("change", () => {
+          const selectedCategory = categoryFilter.value;
+          // Mirror category filter into the input (your original behavior)
+          categoryInput.value = selectedCategory;
+          renderList();
+        });
+
+        if (searchInput) {
+          searchInput.addEventListener("input", () => {
+            renderList();
+          });
+        }
+
+        if (searchHelpBtn && searchHelp) {
+          searchHelpBtn.addEventListener("click", () => {
+            if (!window.SearchEngine) {
+              searchHelp.textContent =
+                "Search engine not loaded. Basic contains search only.";
+              searchHelp.style.display =
+                searchHelp.style.display === "none" ? "block" : "none";
+              return;
+            }
+            searchHelp.textContent =
+              window.SearchEngine.create().operatorsHelp();
+            searchHelp.style.display =
+              searchHelp.style.display === "none" ? "block" : "none";
+          });
+        }
+
+        // ---- Fetch & render ----
+        function fetchLinksFromFirebase() {
+          const linksRef = ref(database, `${DATABASE_BASE_PATH}/links`);
+          onValue(
+            linksRef,
+            (snapshot) => {
+              const data = snapshot.val();
+              if (data) {
+                // Cache as array for easier search/sort
+                CACHED_LINKS = Object.entries(data).map(([key, val]) => ({
+                  key,
+                  url: val?.url || "",
+                  title: (val?.title ?? "") || "",
+                  categories: Array.isArray(val?.categories)
+                    ? val.categories
+                    : val?.categories
+                      ? [val.categories]
+                      : [],
+                }));
+                populateCategoryFilter(data);
+                renderList();
+              } else {
+                CACHED_LINKS = [];
+                linksList.innerHTML = "<li>No saved links</li>";
+                categoryFilter.innerHTML =
+                  '<option value="">All Categories</option>';
+              }
+            },
+            (error) => console.error("Error fetching links:", error),
+          );
+        }
+
+        function renderList() {
+          linksList.innerHTML = "";
+
+          const selectedCategory = categoryFilter.value; // '' means "All"
+          const q = (searchInput?.value || "").trim();
+
+          // Start from cache
+          let rows = [...CACHED_LINKS];
+
+          // Category filter first
+          if (selectedCategory) {
+            rows = rows.filter((r) =>
+              (r.categories || []).includes(selectedCategory),
+            );
+          }
+
+          // Search filter next (use engine if present, else simple contains)
+          if (q) {
+            if (queryEngine) {
+              rows = queryEngine.filter(rows, q);
+            } else {
+              const needle = q.toLowerCase();
+              rows = rows.filter(
+                (r) =>
+                  (r.title || "").toLowerCase().includes(needle) ||
+                  (r.url || "").toLowerCase().includes(needle) ||
+                  (r.categories || []).some((c) =>
+                    (c || "").toLowerCase().includes(needle),
+                  ),
+              );
+            }
+          }
+
+          // Sort by title (fallback to url), case-insensitive
+          rows.sort((a, b) => {
+            const textA =
+              a.title && a.title.trim() !== ""
+                ? a.title.trim().toLowerCase()
+                : (a.url || "").toLowerCase();
+            const textB =
+              b.title && b.title.trim() !== ""
+                ? b.title.trim().toLowerCase()
+                : (b.url || "").toLowerCase();
+            return textA.localeCompare(textB);
+          });
+
+          // Render
+          if (rows.length === 0) {
+            linksList.innerHTML = "<li>No matching links</li>";
+            return;
+          }
+
+          for (const rec of rows) {
+            const listItem = document.createElement("li");
+            const aTag = document.createElement("a");
+
+            aTag.href = rec.url;
+            aTag.textContent =
+              rec.title && rec.title.trim() !== "" ? rec.title : rec.url;
+            aTag.target = "_blank";
+            aTag.rel = "noopener noreferrer";
+
+            const editButton = document.createElement("button");
+            editButton.classList.add("edit-button");
+            editButton.textContent = "✏";
+            editButton.onclick = () => editLink(rec.key, rec);
+
+            listItem.appendChild(aTag);
+            listItem.appendChild(editButton);
+            linksList.appendChild(listItem);
+          }
+        }
+
+        function populateCategoryFilter(linksObj) {
+          const categories = new Set(["All Categories"]);
+          Object.keys(linksObj).forEach((key) => {
+            const raw = linksObj[key]?.categories;
+            const arr = Array.isArray(raw) ? raw : raw ? [raw] : [];
+            arr.forEach((category) => {
+              if (category) categories.add(category);
+            });
+          });
+
+          const currentSelection = categoryFilter.value;
+          categoryFilter.innerHTML = "";
+          categories.forEach((category) => {
+            const option = document.createElement("option");
+            option.value = category === "All Categories" ? "" : category;
+            option.textContent = category;
+            categoryFilter.appendChild(option);
+          });
+
+          // restore selection if still present
+          categoryFilter.value = currentSelection;
+        }
+
+        function editLink(key, link) {
+          editingLinkKey = key;
+          linkInput.value = link.url || "";
+          titleInput.value = link.title || "";
+          categoryInput.value = (link.categories || []).join(", ");
+
+          saveLinkButton.style.display = "none";
+          updateLinkButton.style.display = "inline-block";
+          deleteCurrentButton.style.display = "inline-block";
+
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }
+
+        function clearForm() {
+          linkInput.value = "";
+          titleInput.value = "";
+          categoryInput.value = "";
+          saveLinkButton.style.display = "block";
+          updateLinkButton.style.display = "none";
+          deleteCurrentButton.style.display = "none";
+          editingLinkKey = null;
+        }
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Daily Journal</title>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="../../assets/css/app-styles.css" id="stylesheet" />
+    <script type="module" src="../assets/js/login.js"></script>
+    <style>
+      .journal-section { margin-bottom: 1.5rem; }
+      .journal-section h2 { font-size: 1rem; margin-bottom: 0.5rem; border-bottom: 1px solid #ccc; padding-bottom: 0.25rem; }
+      .block-card { border: 1px solid #ddd; border-radius: 6px; padding: 0.75rem; margin-bottom: 0.75rem; background: #fafafa; }
+      .block-card label { display: block; font-size: 0.85rem; margin-bottom: 0.25rem; }
+      .block-card input, .block-card select, .block-card textarea { width: 100%; margin-bottom: 0.5rem; box-sizing: border-box; }
+      .drift-flag { color: #c0392b; font-weight: bold; }
+      .tag-pill { display: inline-block; background: #e0e0e0; border-radius: 12px; padding: 2px 10px; margin: 2px; font-size: 0.8rem; cursor: pointer; }
+      .tag-pill.active { background: #3498db; color: white; }
+      #entryList .entry-row { padding: 0.5rem; border-bottom: 1px solid #eee; cursor: pointer; }
+      #entryList .entry-row:hover { background: #f0f4ff; }
+      .rating-row { display: flex; gap: 0.5rem; align-items: center; }
+      .gsb-select { width: auto; }
+      @media (max-width: 768px) {
+        input, button, textarea, select { width: 95%; }
+      }
+    </style>
+  </head>
+
+  <body>
+    <header>
+      <h1>Daily Journal</h1>
+      <section id="login-section">
+        <form id="login-form">
+          <label for="username">Email:</label>
+          <input type="email" id="username" required />
+          <label for="password">Password:</label>
+          <input type="password" id="password" required />
+          <button type="submit">Login</button>
+        </form>
+        <button id="logout" style="display:none">Logout</button>
+      </section>
+      <div id="wbutton">
+        <button id="goToBottomBtn">⤓</button>
+      </div>
+    </header>
+
+    <main>
+      <section id="journal-app" class="app-section">
+
+        <!-- Date + Type -->
+        <div class="journal-section">
+          <h2>📅 Entry</h2>
+          <label>Date</label>
+          <input type="date" id="entryDate" />
+          <label>Type</label>
+          <select id="entryType">
+            <option value="personal">Personal</option>
+            <option value="business">Business</option>
+          </select>
+        </div>
+
+        <!-- Day Start -->
+        <div class="journal-section">
+          <h2>🌅 Day Start</h2>
+          <label>Start Time</label>
+          <input type="time" id="dayStartTime" />
+          <label>Primary Objective</label>
+          <input type="text" id="primaryObjective" placeholder="What is the one thing you are doing today?" maxlength="120" />
+          <label>Energy Level (1–5)</label>
+          <input type="range" id="energyLevel" min="1" max="5" value="3" />
+          <span id="energyDisplay">3</span>
+          <label>Notes</label>
+          <textarea id="startNotes" rows="2" placeholder="Anything worth noting before you begin..."></textarea>
+        </div>
+
+        <!-- Focus Blocks -->
+        <div class="journal-section">
+          <h2>⏱ Focus Blocks</h2>
+          <div id="blocksContainer"></div>
+          <button id="addBlockBtn">+ Add Block</button>
+        </div>
+
+        <!-- Recurring -->
+        <div class="journal-section">
+          <h2>🔁 Recurring Tasks</h2>
+          <div id="recurringList"></div>
+        </div>
+
+        <!-- Day End -->
+        <div class="journal-section">
+          <h2>🌙 Day End</h2>
+          <label>End Time</label>
+          <input type="time" id="dayEndTime" />
+          <label>Primary Objective Met?</label>
+          <select id="objectiveMet">
+            <option value="true">Yes</option>
+            <option value="false">No</option>
+            <option value="partial">Partial</option>
+          </select>
+          <label>What Worked</label>
+          <textarea id="whatWorked" rows="2" placeholder="What went well today?"></textarea>
+          <label>What Drifted</label>
+          <textarea id="whatDrifted" rows="2" placeholder="Where did you lose focus or deviate?"></textarea>
+          <label>Key Insight (one sentence)</label>
+          <input type="text" id="keyInsight" placeholder="What is the one thing you are taking from today?" maxlength="200" />
+          <label>Next Priority</label>
+          <input type="text" id="nextPriority" placeholder="What is the first thing you will do tomorrow?" maxlength="120" />
+        </div>
+
+        <!-- Tags -->
+        <div class="journal-section">
+          <h2>🏷 Tags</h2>
+          <div id="tagCloud">
+            <span class="tag-pill" data-tag="work">work</span>
+            <span class="tag-pill" data-tag="learning">learning</span>
+            <span class="tag-pill" data-tag="health">health</span>
+            <span class="tag-pill" data-tag="personal">personal</span>
+            <span class="tag-pill" data-tag="admin">admin</span>
+            <span class="tag-pill" data-tag="telaid">telaid</span>
+            <span class="tag-pill" data-tag="build">build</span>
+            <span class="tag-pill" data-tag="finance">finance</span>
+          </div>
+          <input type="text" id="customTag" placeholder="Add custom tag..." maxlength="30" style="margin-top:0.5rem" />
+          <button id="addTagBtn">Add Tag</button>
+        </div>
+
+        <!-- Mood + GSB -->
+        <div class="journal-section">
+          <h2>📊 Rating</h2>
+          <div class="rating-row">
+            <label>Mood (1–5)</label>
+            <input type="range" id="moodLevel" min="1" max="5" value="3" style="width:120px" />
+            <span id="moodDisplay">3</span>
+            <label style="margin-left:1rem">GSB</label>
+            <select id="gsbRating" class="gsb-select">
+              <option value="G10">G10</option>
+              <option value="G9">G9</option>
+              <option value="G8">G8</option>
+              <option value="G7">G7</option>
+              <option value="S9">S9</option>
+              <option value="S8">S8</option>
+              <option value="S7" selected>S7</option>
+              <option value="S6">S6</option>
+              <option value="S5">S5</option>
+              <option value="B5">B5</option>
+              <option value="B-10">B-10</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="journal-section">
+          <button id="saveEntryBtn">💾 Save Entry</button>
+          <button id="exportEntryBtn">📤 Export JSON</button>
+          <button id="newEntryBtn">+ New Entry</button>
+        </div>
+
+        <!-- Past Entries -->
+        <div class="journal-section">
+          <h2>📚 Past Entries</h2>
+          <input type="text" id="searchEntries" placeholder="Search entries..." />
+          <div id="entryList"></div>
+        </div>
+
+        <button id="goToTopBtn">Go to Top ⤒</button>
+
+      </section>
+    </main>
+
+    <script type="module">
+      import {
+        auth,
+        onAuthStateChanged,
+        database,
+        ref,
+        set,
+        get,
+        push,
+        onValue,
+        remove,
+        update,
+      } from "../assets/js/firebase-init.js";
+
+      let DATABASE_BASE_PATH = "public";
+      let activeTags = new Set();
+      let blockCount = 0;
+      let currentEntryId = null;
+
+      const RECURRING_DEFAULTS = [
+        { task: "Submit work hours", due: "Sunday EOD" },
+        { task: "Laundry", due: "Saturday morning" },
+      ];
+
+      onAuthStateChanged(auth, (user) => {
+        DATABASE_BASE_PATH = user ? `${user.uid}` : "public";
+        loadEntries();
+      });
+
+      // --- Init ---
+
+      function init() {
+        const today = new Date().toISOString().split("T")[0];
+        document.getElementById("entryDate").value = today;
+        document.getElementById("dayStartTime").value = new Date().toTimeString().slice(0, 5);
+        buildRecurringList();
+        buildTagCloud();
+      }
+
+      // --- Energy + Mood sliders ---
+
+      document.getElementById("energyLevel").addEventListener("input", (e) => {
+        document.getElementById("energyDisplay").textContent = e.target.value;
+      });
+
+      document.getElementById("moodLevel").addEventListener("input", (e) => {
+        document.getElementById("moodDisplay").textContent = e.target.value;
+      });
+
+      // --- Recurring tasks ---
+
+      function buildRecurringList() {
+        const container = document.getElementById("recurringList");
+        container.innerHTML = "";
+        RECURRING_DEFAULTS.forEach((item, i) => {
+          const div = document.createElement("div");
+          div.innerHTML = `
+            <label>
+              <input type="checkbox" class="recurring-check" data-index="${i}" />
+              ${item.task} <small>(${item.due})</small>
+            </label>`;
+          container.appendChild(div);
+        });
+      }
+
+      // --- Focus blocks ---
+
+      function createBlock() {
+        blockCount++;
+        const id = `block_${blockCount}`;
+        const div = document.createElement("div");
+        div.className = "block-card";
+        div.dataset.blockId = id;
+        div.innerHTML = `
+          <label>Start</label>
+          <input type="time" class="block-start" />
+          <label>End</label>
+          <input type="time" class="block-end" />
+          <label>Category</label>
+          <select class="block-category">
+            <option value="work">Work</option>
+            <option value="learning">Learning</option>
+            <option value="health">Health</option>
+            <option value="personal">Personal</option>
+            <option value="admin">Admin</option>
+          </select>
+          <label>Focus (what you planned)</label>
+          <input type="text" class="block-focus" placeholder="What were you supposed to be doing?" maxlength="100" />
+          <label>Output (what you produced)</label>
+          <input type="text" class="block-output" placeholder="What did you actually produce?" maxlength="100" />
+          <label>
+            <input type="checkbox" class="block-drift" />
+            <span class="drift-flag">Drift occurred</span>
+          </label>
+          <textarea class="block-drift-note" rows="1" placeholder="Describe the drift (if any)..."></textarea>
+          <button class="remove-block-btn" data-id="${id}">Remove block</button>
+        `;
+        div.querySelector(".remove-block-btn").addEventListener("click", () => div.remove());
+        document.getElementById("blocksContainer").appendChild(div);
+      }
+
+      document.getElementById("addBlockBtn").addEventListener("click", createBlock);
+
+      // --- Tags ---
+
+      function buildTagCloud() {
+        document.querySelectorAll(".tag-pill").forEach(pill => {
+          pill.addEventListener("click", () => {
+            const tag = pill.dataset.tag;
+            if (activeTags.has(tag)) {
+              activeTags.delete(tag);
+              pill.classList.remove("active");
+            } else {
+              activeTags.add(tag);
+              pill.classList.add("active");
+            }
+          });
+        });
+      }
+
+      document.getElementById("addTagBtn").addEventListener("click", () => {
+        const input = document.getElementById("customTag");
+        const tag = input.value.trim().toLowerCase().replace(/\s+/g, "-");
+        if (!tag) return;
+        if (!document.querySelector(`[data-tag="${tag}"]`)) {
+          const pill = document.createElement("span");
+          pill.className = "tag-pill active";
+          pill.dataset.tag = tag;
+          pill.textContent = tag;
+          pill.addEventListener("click", () => {
+            activeTags.delete(tag);
+            pill.remove();
+          });
+          document.getElementById("tagCloud").appendChild(pill);
+        }
+        activeTags.add(tag);
+        document.querySelector(`[data-tag="${tag}"]`)?.classList.add("active");
+        input.value = "";
+      });
+
+      // --- Collect entry ---
+
+      function collectEntry() {
+        const blocks = [];
+        document.querySelectorAll(".block-card").forEach((card, i) => {
+          blocks.push({
+            id: `block_${String(i + 1).padStart(3, "0")}`,
+            start: card.querySelector(".block-start").value,
+            end: card.querySelector(".block-end").value,
+            category: card.querySelector(".block-category").value,
+            focus: card.querySelector(".block-focus").value,
+            output: card.querySelector(".block-output").value,
+            drift: card.querySelector(".block-drift").checked,
+            drift_note: card.querySelector(".block-drift-note").value,
+          });
+        });
+
+        const recurring = RECURRING_DEFAULTS.map((item, i) => ({
+          task: item.task,
+          due: item.due,
+          completed: document.querySelector(`.recurring-check[data-index="${i}"]`)?.checked || false,
+        }));
+
+        return {
+          date: document.getElementById("entryDate").value,
+          type: document.getElementById("entryType").value,
+          version: "1.0",
+          day_start: {
+            time: document.getElementById("dayStartTime").value,
+            primary_objective: document.getElementById("primaryObjective").value,
+            energy_level: parseInt(document.getElementById("energyLevel").value),
+            notes: document.getElementById("startNotes").value,
+          },
+          blocks,
+          recurring: { items: recurring },
+          day_end: {
+            time: document.getElementById("dayEndTime").value,
+            primary_objective_met: document.getElementById("objectiveMet").value,
+            what_worked: document.getElementById("whatWorked").value,
+            what_drifted: document.getElementById("whatDrifted").value,
+            key_insight: document.getElementById("keyInsight").value,
+            next_priority: document.getElementById("nextPriority").value,
+          },
+          tags: [...activeTags],
+          linked_tasks: [],
+          mood: parseInt(document.getElementById("moodLevel").value),
+          gsb: document.getElementById("gsbRating").value,
+          saved_at: new Date().toISOString(),
+        };
+      }
+
+      // --- Save ---
+
+      document.getElementById("saveEntryBtn").addEventListener("click", () => {
+        const entry = collectEntry();
+        const entryKey = currentEntryId || entry.date.replace(/-/g, "_");
+        const entryRef = ref(database, `${DATABASE_BASE_PATH}/journal/${entryKey}`);
+        set(entryRef, entry).then(() => {
+          alert("Entry saved.");
+          loadEntries();
+        }).catch(err => console.error("Save error:", err));
+      });
+
+      // --- Export JSON ---
+
+      document.getElementById("exportEntryBtn").addEventListener("click", () => {
+        const entry = collectEntry();
+        const blob = new Blob([JSON.stringify(entry, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `journal_${entry.date}.json`;
+        a.click();
+      });
+
+      // --- New entry ---
+
+      document.getElementById("newEntryBtn").addEventListener("click", () => {
+        currentEntryId = null;
+        document.getElementById("primaryObjective").value = "";
+        document.getElementById("startNotes").value = "";
+        document.getElementById("whatWorked").value = "";
+        document.getElementById("whatDrifted").value = "";
+        document.getElementById("keyInsight").value = "";
+        document.getElementById("nextPriority").value = "";
+        document.getElementById("dayEndTime").value = "";
+        document.getElementById("blocksContainer").innerHTML = "";
+        activeTags.clear();
+        document.querySelectorAll(".tag-pill").forEach(p => p.classList.remove("active"));
+        buildRecurringList();
+        blockCount = 0;
+        const today = new Date().toISOString().split("T")[0];
+        document.getElementById("entryDate").value = today;
+        document.getElementById("dayStartTime").value = new Date().toTimeString().slice(0, 5);
+      });
+
+      // --- Load + display past entries ---
+
+      function loadEntries() {
+        const journalRef = ref(database, `${DATABASE_BASE_PATH}/journal`);
+        onValue(journalRef, (snapshot) => {
+          const list = document.getElementById("entryList");
+          list.innerHTML = "";
+          if (!snapshot.exists()) return;
+          const entries = [];
+          snapshot.forEach(child => entries.push({ key: child.key, ...child.val() }));
+          entries.sort((a, b) => b.date.localeCompare(a.date));
+          entries.forEach(entry => {
+            const row = document.createElement("div");
+            row.className = "entry-row";
+            row.innerHTML = `<strong>${entry.date}</strong> [${entry.type}] — ${entry.day_start?.primary_objective || "No objective"} <small>${entry.gsb || ""}</small>`;
+            row.addEventListener("click", () => loadEntryIntoForm(entry));
+            list.appendChild(row);
+          });
+        });
+      }
+
+      function loadEntryIntoForm(entry) {
+        currentEntryId = entry.key;
+        document.getElementById("entryDate").value = entry.date || "";
+        document.getElementById("entryType").value = entry.type || "personal";
+        document.getElementById("dayStartTime").value = entry.day_start?.time || "";
+        document.getElementById("primaryObjective").value = entry.day_start?.primary_objective || "";
+        document.getElementById("energyLevel").value = entry.day_start?.energy_level || 3;
+        document.getElementById("energyDisplay").textContent = entry.day_start?.energy_level || 3;
+        document.getElementById("startNotes").value = entry.day_start?.notes || "";
+
+        document.getElementById("blocksContainer").innerHTML = "";
+        blockCount = 0;
+        (entry.blocks || []).forEach(block => {
+          createBlock();
+          const card = document.querySelectorAll(".block-card");
+          const last = card[card.length - 1];
+          last.querySelector(".block-start").value = block.start || "";
+          last.querySelector(".block-end").value = block.end || "";
+          last.querySelector(".block-category").value = block.category || "work";
+          last.querySelector(".block-focus").value = block.focus || "";
+          last.querySelector(".block-output").value = block.output || "";
+          last.querySelector(".block-drift").checked = block.drift || false;
+          last.querySelector(".block-drift-note").value = block.drift_note || "";
+        });
+
+        buildRecurringList();
+        (entry.recurring?.items || []).forEach((item, i) => {
+          const check = document.querySelector(`.recurring-check[data-index="${i}"]`);
+          if (check) check.checked = item.completed || false;
+        });
+
+        document.getElementById("dayEndTime").value = entry.day_end?.time || "";
+        document.getElementById("objectiveMet").value = entry.day_end?.primary_objective_met || "true";
+        document.getElementById("whatWorked").value = entry.day_end?.what_worked || "";
+        document.getElementById("whatDrifted").value = entry.day_end?.what_drifted || "";
+        document.getElementById("keyInsight").value = entry.day_end?.key_insight || "";
+        document.getElementById("nextPriority").value = entry.day_end?.next_priority || "";
+
+        activeTags.clear();
+        document.querySelectorAll(".tag-pill").forEach(p => p.classList.remove("active"));
+        (entry.tags || []).forEach(tag => {
+          activeTags.add(tag);
+          const pill = document.querySelector(`[data-tag="${tag}"]`);
+          if (pill) pill.classList.add("active");
+        });
+
+        document.getElementById("moodLevel").value = entry.mood || 3;
+        document.getElementById("moodDisplay").textContent = entry.mood || 3;
+        document.getElementById("gsbRating").value = entry.gsb || "S7";
+
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+
+      // --- Search ---
+
+      document.getElementById("searchEntries").addEventListener("input", (e) => {
+        const q = e.target.value.toLowerCase();
+        document.querySelectorAll("#entryList .entry-row").forEach(row => {
+          row.style.display = row.textContent.toLowerCase().includes(q) ? "" : "none";
+        });
+      });
+
+      // --- Nav ---
+
+      document.getElementById("goToTopBtn").addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }));
+      document.getElementById("goToBottomBtn").addEventListener("click", () => window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }));
+
+      // --- Start ---
+
+      init();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,2897 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Finance Ledger</title>
+    <link rel="icon" href="../assets/img/financial_logo.png" />
+
+    <link
+      rel="stylesheet"
+      href="../../assets/css/excel-styles.css"
+      id="stylesheet"
+    />
+    <script type="module" src="../assets/js/login.js" defer></script>
+    <script src="../assets/js/search.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+
+    <style>
+      /* tiny modal for image view */
+      #imgModal {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.75);
+        z-index: 999;
+        padding: 24px;
+      }
+
+      #imgModal .box {
+        max-width: 980px;
+        margin: 0 auto;
+        background: var(--backgroundColor);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 14px;
+        padding: 12px;
+      }
+
+      #imgModal .top {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 10px;
+      }
+
+      #imgModal .close {
+        cursor: pointer;
+        font-size: 22px;
+        padding: 6px 10px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(255, 255, 255, 0.06);
+      }
+
+      #imgModal img {
+        width: 100%;
+        height: auto;
+        border-radius: 12px;
+        display: block;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+      }
+
+      .mini {
+        font-size: 0.9rem;
+        opacity: 0.85;
+      }
+
+      /* Tabs */
+      .tabs {
+        display: flex;
+        gap: 8px;
+        margin: 8px 0 16px;
+        flex-wrap: wrap;
+      }
+
+      .tabs button.active {
+        border: 1px solid #a7c4ff;
+      }
+
+      section[data-tab] {
+        margin-top: 12px;
+      }
+
+      .small {
+        font-size: 0.9rem;
+        opacity: 0.8;
+      }
+
+      .card {
+        border: 1px solid #ddd;
+        border-radius: 10px;
+        padding: 12px;
+        margin-top: 12px;
+      }
+
+      textarea#standardText,
+      textarea#shorthandText {
+        width: 90%;
+        height: auto;
+        overflow-y: hidden;
+        margin: 10px;
+        padding: 10px;
+        font-size: 16px;
+      }
+
+      .modal {
+        margin-top: 80px;
+        overflow-x: auto;
+      }
+
+      .transaction-row select,
+      .transaction-row button {
+        padding-bottom: 3px;
+        padding-top: 3px;
+        margin-bottom: 0;
+      }
+
+      .visuals canvas {
+        height: auto;
+        width: 80%;
+        margin: 0 auto;
+      }
+
+      .transaction-row td[data-key="tags"],
+      #modalContent td[data-key="tags"] {
+        white-space: pre-wrap;
+      }
+
+      .tag-bar {
+        margin: 8px 0 12px;
+      }
+
+      .tag-chip {
+        padding: 4px 10px;
+        border-radius: 999px;
+        border: 1px solid #ccc;
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .to-top {
+        position: fixed;
+        right: 16px;
+        bottom: 16px;
+        width: 44px;
+        height: 44px;
+        border-radius: 999px;
+        background: lightblue;
+        text-decoration: none;
+        display: grid;
+        place-items: center;
+        font-size: 22px;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+        z-index: 99;
+        opacity: 0.7;
+      }
+
+      #modalContent {
+        display: inline-block;
+      }
+
+      .chart-carousel {
+        width: 80%;
+        margin: 0 auto;
+        outline: none;
+      }
+
+      .chart-carousel-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+
+      .chart-carousel-top button {
+        padding: 6px 10px;
+        border-radius: 10px;
+      }
+
+      body {
+        font-size: large;
+      }
+
+      nav {
+        display: flex;
+        width: auto;
+      }
+
+      .year-grid {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 5px;
+        margin: 20px auto;
+      }
+
+      .day-block {
+        height: 40px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        border: 1px solid var(--backgroundColor);
+        border-radius: 15px;
+        cursor: pointer;
+      }
+
+      .day-block.today {
+        background-color: lightgreen;
+        font-weight: bold;
+      }
+
+      .day-block.has-data {
+        background-color: lightblue;
+      }
+
+      .day-block.expenses-higher {
+        background-color: lightcoral;
+      }
+
+      #detailsModal {
+        display: none;
+        position: fixed;
+        z-index: 1;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        overflow: auto;
+        background-color: rgba(0, 0, 0, 0.4);
+      }
+
+      #load-data {
+        width: 195px;
+      }
+    </style>
+  </head>
+
+  <body>
+    <header>
+      <h1>Finance Dashboard</h1>
+
+      <section id="login-section">
+        <form id="login-form">
+          <label for="username">Email:</label>
+          <input type="email" id="username" required />
+          <br />
+          <label for="password">Password:</label>
+          <input type="password" id="password" required />
+          <br />
+          <button type="submit">Sign in</button>
+        </form>
+        <button id="logout" style="display: none">Logout</button>
+      </section>
+
+      <nav>
+        <div>
+          <a href="onlinebudget.html"><button>Budget</button></a>
+          <a href="onlineinventory.html"><button>Inventory</button></a>
+        </div>
+      </nav>
+    </header>
+
+    <main id="top">
+      <!-- TAB: Transactions -->
+      <section data-tab="transactions">
+        <div>
+          <label for="yearSelect">Year</label>
+          <select id="yearSelect"></select>
+        </div>
+
+        <div id="tag-bar" class="tag-bar" aria-label="Tag filters"></div>
+        <p id="filtered-total">Filtered Total: $0.00</p>
+
+        <section id="all-transactions">
+          <div>
+            <input
+              type="text"
+              id="global-search"
+              oninput="filterGlobalEntries()"
+              disabled
+              title="Load ./assets/js/search.js to enable advanced search"
+            />
+          </div>
+
+          <div id="column-toggles" class="tag-bar small">
+            <label
+              ><input type="checkbox" data-col="date" checked /> Date</label
+            >
+            <label
+              ><input type="checkbox" data-col="postedDate" checked /> Posted
+              Date</label
+            >
+            <label
+              ><input type="checkbox" data-col="name" checked /> Name</label
+            >
+            <label
+              ><input type="checkbox" data-col="type" checked /> Type</label
+            >
+            <label
+              ><input type="checkbox" data-col="amount" checked /> Amount</label
+            >
+            <label
+              ><input type="checkbox" data-col="tags" checked /> Tags</label
+            >
+            <label
+              ><input type="checkbox" data-col="actions" checked />
+              Actions</label
+            >
+          </div>
+
+          <div class="table">
+            <table id="transactions-table">
+              <thead>
+                <tr>
+                  <th id="tx-sort-date" style="cursor: pointer">Date ▲▼</th>
+                  <th>Posted Date</th>
+                  <th>Name</th>
+                  <th>Type</th>
+                  <th id="tx-sort-amount" style="cursor: pointer">Amount ▲▼</th>
+                  <th>Tags</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+
+          <div>
+            <button id="toggle-show-all" type="button">Show all</button>
+            <span id="shown-count" class="small" style="opacity: 0.8"></span>
+          </div>
+        </section>
+
+        <section id="yearly-budget-calculator">
+          <h2>Summary Graphs</h2>
+          <div class="visuals">
+            <div class="pie-controls">
+              <label
+                >Group by:
+                <select id="pie-breakdown">
+                  <option value="months" selected>By Month</option>
+                  <option value="tags">By Tag</option>
+                  <option value="years">By Year</option>
+                </select>
+              </label>
+
+              <label
+                >Show:
+                <select id="pie-metric">
+                  <option value="expense" selected>Spending</option>
+                  <option value="income">Income</option>
+                </select>
+              </label>
+
+              <div
+                id="chartCarousel"
+                class="chart-carousel"
+                tabindex="0"
+                aria-label="Charts carousel"
+              >
+                <div class="chart-carousel-top">
+                  <button id="chartPrev" type="button">←</button>
+                  <div id="chartTitle" style="font-weight: 700">Chart</div>
+                  <button id="chartNext" type="button">→</button>
+                </div>
+                <canvas id="chartCanvas"></canvas>
+                <div class="small" style="margin-top: 6px; opacity: 0.8">
+                  Tip: use Left/Right arrow keys to switch charts.
+                </div>
+              </div>
+            </div>
+
+            <div class="table">
+              <table id="months-container">
+                <thead>
+                  <tr>
+                    <th>Month</th>
+                    <th>Income</th>
+                    <th>Spending</th>
+                    <th>Net</th>
+                    <th>+ Income</th>
+                    <th>+ Expense</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <h2>Year Totals</h2>
+          <table id="yearly-totals-table">
+            <thead>
+              <tr>
+                <th>Transactions</th>
+                <th>Income</th>
+                <th>Spending</th>
+                <th>Net</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td id="total-transactions">0</td>
+                <td id="total-income">0</td>
+                <td id="total-expenses">0</td>
+                <td id="yearly-balance">0</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h2>All-Time Totals</h2>
+          <table id="overall-totals-table">
+            <thead>
+              <tr>
+                <th>All-Time Income</th>
+                <th>All-Time Spending</th>
+                <th>All-Time Net</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td id="overall-income">0</td>
+                <td id="overall-expenses">0</td>
+                <td id="overall-balance">0</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <br />
+        </section>
+
+        <section>
+          <div id="detailsModal">
+            <div class="modal">
+              <span id="closeModal">&times;</span>
+              <h2><span id="date-selected"></span></h2>
+              <div id="modalContent"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="daily-tracker">
+          <h2>Daily Activity</h2>
+          <div id="date-toggle" class="tag-bar small">
+            <label>
+              <input type="checkbox" id="use-posted-date" />
+              Use Posted Date for Daily Activity
+            </label>
+          </div>
+          <div id="year-grid" class="year-grid"></div>
+        </section>
+
+        <button id="export-tags-csv">Export Tag Summary (CSV)</button>
+        <button id="export-tx-csv">Export Transactions (CSV)</button>
+        <button id="export-monthly-csv">Export Monthly Summary (CSV)</button>
+
+        <button id="export-details">Download Backup (JSON)</button>
+        <button id="trigger-import">Restore Backup (Overwrite)</button>
+        <input
+          type="file"
+          id="load-data"
+          accept=".json"
+          style="display: none"
+        />
+        <button data-tab-target="import">Import & Cleanup</button>
+        <button class="clear-button" id="clear-details">Delete All Data</button>
+
+        <a href="#top" class="to-top" aria-label="Back to top">↑</a>
+      </section>
+
+      <!-- TAB: Import -->
+      <section data-tab="import" hidden>
+        <h2>Import & Cleanup</h2>
+        <p class="small">
+          Paste bank or card exports. Preview first, then add with duplicate
+          protection.
+        </p>
+
+        <label
+          >Year:
+          <input
+            id="import-year"
+            type="number"
+            min="2000"
+            max="2100"
+            value="2026"
+          />
+        </label>
+
+        <label
+          ><input type="radio" name="importMode" value="bankCredit" checked />
+          Credit card export (two dates)</label
+        >
+        <label
+          ><input type="radio" name="importMode" value="bankDebit" />
+          Bank/Checking export (amounts with $)</label
+        >
+
+        <textarea
+          id="import-raw"
+          placeholder="Paste statement lines or CSV here…"
+        ></textarea>
+
+        <label>
+          <input id="import-dedupe-enabled" type="checkbox" checked />
+          Skip duplicates
+        </label>
+
+        <select id="import-dedupe-mode">
+          <option value="loose" selected>Loose (date + amount)</option>
+          <option value="strict">
+            Strict (date + amount + description + type)
+          </option>
+        </select>
+
+        <button id="import-parse">Preview Import</button>
+        <button id="import-merge" disabled>Add to Transactions</button>
+        <div id="import-preview"></div>
+      </section>
+    </main>
+
+    <!-- Image Modal -->
+    <div id="imgModal">
+      <div class="box">
+        <div class="top">
+          <div>
+            <div id="imgTitle" style="font-weight: 700"></div>
+            <div id="imgSub" class="mini"></div>
+          </div>
+          <button id="imgClose" class="close" type="button">✕</button>
+        </div>
+        <img id="imgEl" alt="Transaction image" />
+      </div>
+    </div>
+
+    <!-- ======= CORE SCRIPT (Year TX Model + Images) ======= -->
+    <script type="module">
+      import {
+        auth,
+        onAuthStateChanged,
+        database,
+        ref,
+        onValue,
+        set,
+        storage,
+        storageRef,
+        uploadBytes,
+        getDownloadURL,
+        deleteObject,
+      } from "../../assets/js/firebase-init.js";
+
+      /* =========================
+       Constants & Helpers
+    ========================== */
+      const MONTHS_ABBR = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+      ];
+      const MONTHS_FULL = [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+      ];
+      const YEAR_STORAGE_KEY = "financeLedger.selectedYear.v1";
+
+      function loadSavedYear() {
+        const v = parseInt(localStorage.getItem(YEAR_STORAGE_KEY) || "", 10);
+        return Number.isFinite(v) ? v : null;
+      }
+
+      function saveSelectedYear(y) {
+        try {
+          localStorage.setItem(YEAR_STORAGE_KEY, String(y));
+        } catch {}
+      }
+
+      function pad2(n) {
+        return String(n).padStart(2, "0");
+      }
+
+      function ymdFromUtcTS(ts) {
+        const dt = new Date(Number(ts));
+        if (Number.isNaN(dt.getTime())) return "";
+        return `${dt.getUTCFullYear()}-${pad2(dt.getUTCMonth() + 1)}-${pad2(dt.getUTCDate())}`;
+      }
+
+      function utcNoonTSFromYMD(ymd) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return Date.now();
+        const y = +ymd.slice(0, 4);
+        const m = +ymd.slice(5, 7) - 1;
+        const d = +ymd.slice(8, 10);
+        return Date.UTC(y, m, d, 12, 0, 0);
+      }
+
+      function utcNoonTS(year, monthIndex, day) {
+        return Date.UTC(year, monthIndex, day, 12, 0, 0);
+      }
+
+      function yearFromTS(ts) {
+        return new Date(Number(ts)).getUTCFullYear();
+      }
+
+      function fmtUSD(n) {
+        return new Intl.NumberFormat(undefined, {
+          style: "currency",
+          currency: "USD",
+        }).format(Number(n) || 0);
+      }
+
+      function csvEscape(v) {
+        const s = String(v ?? "");
+        return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      }
+
+      function slugifyFilename(s) {
+        return (
+          String(s || "")
+            .normalize("NFKD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .replace(/[^a-zA-Z0-9]+/g, "_")
+            .replace(/^_+|_+$/g, "")
+            .slice(0, 60) || "item"
+        );
+      }
+
+      async function fileToJpegMaxWidth(file, maxW = 2048, quality = 0.9) {
+        // Not an image? return original
+        if (!file?.type?.startsWith("image/")) {
+          return {
+            blob: file,
+            contentType: file?.type || "application/octet-stream",
+            didResize: false,
+          };
+        }
+
+        // Decode
+        const bmp = await createImageBitmap(file);
+
+        // If already within max width, keep original bytes
+        if (bmp.width <= maxW) {
+          bmp.close?.();
+          return {
+            blob: file,
+            contentType: file.type || "image/*",
+            didResize: false,
+          };
+        }
+
+        const scale = maxW / bmp.width;
+        const w = Math.round(bmp.width * scale);
+        const h = Math.round(bmp.height * scale);
+
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(bmp, 0, 0, w, h);
+        bmp.close?.();
+
+        const blob = await new Promise((resolve) =>
+          canvas.toBlob(resolve, "image/jpeg", quality),
+        );
+        return { blob, contentType: "image/jpeg", didResize: true };
+      }
+
+      /* =========================
+       App State
+    ========================== */
+      let currentYear = new Date().getUTCFullYear();
+      let DATABASE_BASE_PATH = "public";
+
+      // ✅ keep node name consistent with your other finance apps
+      const TX_NODE = "ledgerTx";
+
+      let ledgerUnsub = null;
+      let handlersBound = false;
+      let tabsInited = false;
+
+      let _allTx = []; // contains ALL years for current base path
+      let _engine = null;
+      let _txSortAsc = true;
+      let _amtSortAsc = true;
+      let carouselChart = null;
+      let chartSlideIndex = 0; // 0 = Monthly Bar, 1 = Pie
+      const CHART_SLIDES = ["monthly", "pie"];
+      let _openDayYMD = null;
+      let _isRefreshingModal = false;
+      let _sortBy = "date";
+
+      let _showAllTx = false;
+      const TX_PAGE_SIZE = 20;
+
+      /* =========================
+       Paths
+    ========================== */
+      function ledgerBasePath() {
+        return `${DATABASE_BASE_PATH}/${TX_NODE}`;
+      }
+      function txYearPath(year) {
+        return `${ledgerBasePath()}/${year}`;
+      }
+      function txItemPath(year, id) {
+        return `${txYearPath(year)}/${id}`;
+      }
+      function imgBasePath() {
+        return `${DATABASE_BASE_PATH}/images`;
+      }
+
+      /* =========================
+       Normalize / Save shape
+    ========================== */
+      function normalizeTx(id, v) {
+        if (!v || typeof v !== "object") return null;
+
+        const dateTS = Number(v.date);
+        const postedDateTS = Number(v.postedDate);
+        const validDate = Number.isFinite(dateTS) ? dateTS : null;
+        const validPosted = Number.isFinite(postedDateTS) ? postedDateTS : null;
+
+        const dt = new Date(validPosted ?? validDate);
+        if (Number.isNaN(dt.getTime())) return null;
+
+        const type = String(v.type || "").toLowerCase();
+        const normType = type === "income" ? "income" : "expense";
+
+        const tags = Array.isArray(v.tags)
+          ? v.tags.map((t) => String(t).trim()).filter(Boolean)
+          : [];
+
+        const img = typeof v.img === "string" ? v.img : v.img?.url || "";
+        const imgPath =
+          typeof v.imgPath === "string" ? v.imgPath : v.img?.path || "";
+
+        return {
+          id: String(id),
+          amt: Number(v.amt ?? 0),
+          cat: String(v.cat ?? ""),
+          sub: String(v.sub ?? ""),
+          sku: String(v.sku ?? ""),
+          link: String(v.link ?? ""),
+          img: String(img || ""),
+          imgPath: String(imgPath || ""),
+          desc: String(v.desc ?? ""),
+          name: String(v.name ?? ""),
+          tags,
+          type: normType,
+          date: validDate,
+          postedDate: validPosted,
+          _dt: dt,
+        };
+      }
+
+      function stripTxForSave(t) {
+        const obj = {
+          amt: Number(t.amt ?? 0),
+          cat: String(t.cat ?? ""),
+          sub: String(t.sub ?? ""),
+          sku: String(t.sku ?? ""),
+          link: String(t.link ?? ""),
+          img: String(t.img ?? ""),
+          imgPath: String(t.imgPath ?? ""),
+          desc: String(t.desc ?? ""),
+          name: String(t.name ?? ""),
+          tags: Array.isArray(t.tags) ? t.tags : [],
+          type:
+            String(t.type || "").toLowerCase() === "income"
+              ? "income"
+              : "expense",
+          date: Number(t.date ?? Date.now()),
+        };
+
+        // ✅ Only include postedDate if it's a valid number
+        if (Number.isFinite(t.postedDate)) {
+          obj.postedDate = Number(t.postedDate);
+        }
+
+        return obj;
+      }
+
+      /* =========================
+       Database operations (Year-aware)
+    ========================== */
+      async function upsertTx(prevTx, nextTx) {
+        const next = stripTxForSave(nextTx);
+        const nextYear = yearFromTS(next.date);
+
+        // if date moved across years, delete old location first
+        if (prevTx) {
+          const prevYear = yearFromTS(prevTx.date);
+          if (prevYear !== nextYear) {
+            await set(ref(database, txItemPath(prevYear, prevTx.id)), null);
+          }
+        }
+
+        await set(ref(database, txItemPath(nextYear, nextTx.id)), next);
+      }
+
+      async function deleteTxFull(tx) {
+        const y = yearFromTS(tx.date);
+        await set(ref(database, txItemPath(y, tx.id)), null);
+
+        // try delete image too (best-effort)
+        if (tx.imgPath) {
+          try {
+            await deleteObject(storageRef(storage, tx.imgPath));
+          } catch (err) {
+            console.warn("Storage delete failed:", err);
+          }
+        }
+      }
+
+      /* =========================
+       Image modal
+    ========================== */
+      function openImgModal(title, subtitle, url) {
+        const modal = document.getElementById("imgModal");
+        const img = document.getElementById("imgEl");
+        document.getElementById("imgTitle").textContent = title || "Image";
+        document.getElementById("imgSub").textContent = subtitle || "";
+        img.src = url;
+        modal.style.display = "block";
+      }
+      function closeImgModal() {
+        const modal = document.getElementById("imgModal");
+        const img = document.getElementById("imgEl");
+        img.src = "";
+        modal.style.display = "none";
+      }
+      document
+        .getElementById("imgClose")
+        ?.addEventListener("click", closeImgModal);
+      document.getElementById("imgModal")?.addEventListener("click", (e) => {
+        if (e.target === document.getElementById("imgModal")) closeImgModal();
+      });
+
+      // ✅ Adapter for THIS app (ledger) so uploadImage can stay identical across apps
+      async function saveItemWithImage(item, url, path) {
+        // item is a tx in this ledger file
+        await upsertTx(item, { ...item, img: url, imgPath: path });
+      }
+
+      // ✅ Unified upload used by BOTH apps (same exact body)
+      async function uploadImage(item, kind) {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = "image/*";
+        input.style.display = "none";
+        document.body.appendChild(input);
+
+        input.addEventListener("change", async () => {
+          const file = input.files?.[0];
+          input.remove();
+          if (!file) return;
+
+          try {
+            // ✅ resize only if wider than 2048
+            const { blob, contentType } = await fileToJpegMaxWidth(
+              file,
+              2048,
+              0.9,
+            );
+
+            // ✅ filename: simplified name then date
+            const namePart = slugifyFilename(item.name);
+            const datePart = item.date
+              ? new Date(Number(item.date)).toISOString().slice(0, 10)
+              : new Date().toISOString().slice(0, 10);
+
+            const y = new Date(
+              Number(item.date || Date.now()),
+            ).getUTCFullYear();
+            const storagePath = `${imgBasePath()}/${y}/${namePart}_${datePart}_${Date.now()}.jpg`;
+
+            // ✅ if there is an old image, delete it FIRST (keeps storage clean)
+            if (item.imgPath) {
+              try {
+                await deleteObject(storageRef(storage, item.imgPath));
+              } catch (e) {
+                console.warn("Old image delete failed (continuing):", e);
+              }
+            }
+
+            // ✅ upload new
+            const sref = storageRef(storage, storagePath);
+            await uploadBytes(sref, blob, {
+              contentType: contentType || "image/jpeg",
+            });
+            const url = await getDownloadURL(sref);
+
+            // ✅ save url/path back to DB
+            await saveItemWithImage(item, url, storagePath);
+          } catch (err) {
+            console.error(err);
+            alert("❌ Image upload failed.");
+          }
+        });
+
+        input.click();
+      }
+
+      // ✅ Keep your existing buttons unchanged (they call uploadTxImage(t))
+      function uploadTxImage(tx) {
+        return uploadImage(tx, "ledger");
+      }
+
+      async function deleteTxImage(tx) {
+        if (
+          !confirm(
+            "Delete this image? (Clears fields and deletes file if possible)",
+          )
+        )
+          return;
+
+        try {
+          if (tx.imgPath) {
+            await deleteObject(storageRef(storage, tx.imgPath));
+          }
+        } catch (err) {
+          console.warn("Storage delete failed (still clearing fields):", err);
+        }
+
+        await upsertTx(tx, { ...tx, img: "", imgPath: "" });
+      }
+
+      /* =========================
+       Tabs
+    ========================== */
+      function initTabsOnce() {
+        if (tabsInited) return;
+        tabsInited = true;
+
+        const tabs = document.querySelectorAll("button[data-tab-target]");
+        const panes = document.querySelectorAll("section[data-tab]");
+        const show = (which) => {
+          tabs.forEach((b) =>
+            b.classList.toggle("active", b.dataset.tabTarget === which),
+          );
+          panes.forEach((p) => (p.hidden = p.dataset.tab !== which));
+          if (which === "transactions") renderCharts();
+        };
+        tabs.forEach((btn) =>
+          btn.addEventListener("click", () => show(btn.dataset.tabTarget)),
+        );
+        show("transactions");
+      }
+
+      /* =========================
+       Auth -> base path + listener
+    ========================== */
+      onAuthStateChanged(auth, (user) => {
+        DATABASE_BASE_PATH = user ? `${user.uid}` : "public";
+
+        const saved = loadSavedYear();
+        if (saved) currentYear = saved;
+
+        if (typeof ledgerUnsub === "function") {
+          ledgerUnsub();
+          ledgerUnsub = null;
+        }
+
+        setupEventListenersOnce();
+        wireSearchEngine();
+        attachLedgerListener();
+        initTabsOnce();
+      });
+
+      function attachLedgerListener() {
+        const r = ref(database, ledgerBasePath());
+        ledgerUnsub = onValue(
+          r,
+          (snap) => {
+            const root = snap.exists() ? snap.val() : {};
+            const out = [];
+
+            // root is { "2026": {id:{...}}, "2025": {...}, ... }
+            for (const [yearKey, yearObj] of Object.entries(root || {})) {
+              if (!yearObj || typeof yearObj !== "object") continue;
+              for (const [id, v] of Object.entries(yearObj || {})) {
+                const n = normalizeTx(id, v);
+                if (n) out.push(n);
+              }
+            }
+
+            _allTx = out;
+            renderAll();
+            refreshOpenDayModalIfNeeded();
+          },
+          (err) => console.error("❌ ledger onValue error:", err),
+        );
+      }
+
+      /* =========================
+       Render orchestration
+    ========================== */
+      function renderAll() {
+        populateYearDropdown();
+        renderTagBar();
+        displayAllTransactions();
+        populateMonths();
+        calculateYearlyTotals();
+        renderOverallTotals();
+        generateYearGrid();
+        renderCharts();
+      }
+
+      function refreshOpenDayModalIfNeeded() {
+        const modal = document.getElementById("detailsModal");
+        if (!modal) return;
+
+        const isOpen = modal.style.display === "block";
+        if (!isOpen) return;
+
+        if (!_openDayYMD) return;
+
+        // prevent re-entrant refresh loops
+        if (_isRefreshingModal) return;
+        _isRefreshingModal = true;
+
+        try {
+          showDayModal(_openDayYMD); // ✅ rebuild modal with latest _allTx
+        } finally {
+          _isRefreshingModal = false;
+        }
+      }
+
+      /* =========================
+       Search (optional engine)
+    ========================== */
+      function wireSearchEngine() {
+        const input = document.getElementById("global-search");
+        if (!input) return;
+
+        const searchHelper = window.SearchEngine?.attachAuto
+          ? window.SearchEngine.attachAuto(input, {
+              defaultFields: ["name", "type", "tags"],
+              placeholderAdvanced:
+                '🔎... e.g. tag:"rent", name:"gas", amount:>200',
+            })
+          : null;
+
+        if (searchHelper) {
+          _engine = searchHelper.engine;
+          input.disabled = false;
+          return;
+        }
+
+        input.disabled = false;
+        input.placeholder = "Search... (basic: tags:food, text match)";
+        input.title = "Basic search enabled";
+      }
+
+      /* =========================
+       Events
+    ========================== */
+      function setupEventListenersOnce() {
+        if (handlersBound) return;
+        handlersBound = true;
+
+        document
+          .getElementById("export-tags-csv")
+          ?.addEventListener("click", exportTagsCSV);
+        document
+          .getElementById("export-tx-csv")
+          ?.addEventListener("click", exportTransactionsCSV);
+        document
+          .getElementById("export-monthly-csv")
+          ?.addEventListener("click", exportMonthlySummaryCSV);
+
+        document
+          .getElementById("export-details")
+          ?.addEventListener("click", exportBackupJSON);
+        document
+          .getElementById("trigger-import")
+          ?.addEventListener("click", () =>
+            document.getElementById("load-data")?.click(),
+          );
+        document
+          .getElementById("load-data")
+          ?.addEventListener("change", restoreBackupOverwrite);
+        document
+          .getElementById("clear-details")
+          ?.addEventListener("click", clearAllTx);
+
+        document
+          .getElementById("yearSelect")
+          ?.addEventListener("change", handleYearChange);
+
+        document
+          .getElementById("closeModal")
+          ?.addEventListener("click", closeModal);
+        document
+          .getElementById("chartNext")
+          ?.addEventListener("click", nextChartSlide);
+        document
+          .getElementById("chartPrev")
+          ?.addEventListener("click", prevChartSlide);
+
+        window.addEventListener("keydown", (e) => {
+          // don’t hijack arrows while user is editing fields
+          if (isTypingTarget(e.target)) return;
+
+          if (e.key === "ArrowRight") {
+            e.preventDefault();
+            nextChartSlide();
+          } else if (e.key === "ArrowLeft") {
+            e.preventDefault();
+            prevChartSlide();
+          }
+        });
+
+        window.addEventListener("click", (e) => {
+          if (e.target === document.getElementById("detailsModal"))
+            closeModal();
+        });
+
+        document
+          .getElementById("pie-breakdown")
+          ?.addEventListener("change", () => {
+            if (CHART_SLIDES[chartSlideIndex] === "pie")
+              renderChartSlide(chartSlideIndex);
+          });
+        document
+          .getElementById("pie-metric")
+          ?.addEventListener("change", () => {
+            if (CHART_SLIDES[chartSlideIndex] === "pie")
+              renderChartSlide(chartSlideIndex);
+          });
+
+        document
+          .getElementById("toggle-show-all")
+          ?.addEventListener("click", () => {
+            _showAllTx = !_showAllTx;
+            displayAllTransactions();
+          });
+
+        document
+          .getElementById("tx-sort-date")
+          ?.addEventListener("dblclick", () => {
+            _sortBy = "date";
+            _txSortAsc = !_txSortAsc;
+            displayAllTransactions();
+          });
+
+        document
+          .getElementById("tx-sort-amount")
+          ?.addEventListener("dblclick", () => {
+            _sortBy = "amount";
+            _amtSortAsc = !_amtSortAsc;
+            displayAllTransactions();
+          });
+
+        wireImportTab();
+        setupPostedDateToggle();
+      }
+
+      /* =========================
+       Year handling
+    ========================== */
+      function populateYearDropdown() {
+        const sel = document.getElementById("yearSelect");
+        if (!sel) return;
+
+        const years = new Set(_allTx.map((t) => yearFromTS(t.date)));
+        years.add(new Date().getUTCFullYear());
+
+        const arr = Array.from(years)
+          .filter((n) => Number.isFinite(n))
+          .sort((a, b) => a - b);
+
+        // ✅ pick saved year if it exists in the list
+        const saved = loadSavedYear();
+        if (saved && arr.includes(saved)) currentYear = saved;
+
+        sel.innerHTML = arr
+          .map(
+            (y) =>
+              `<option value="${y}" ${y === currentYear ? "selected" : ""}>${y}</option>`,
+          )
+          .join("");
+      }
+
+      function handleYearChange() {
+        currentYear = parseInt(
+          document.getElementById("yearSelect")?.value || String(currentYear),
+          10,
+        );
+        saveSelectedYear(currentYear);
+        renderAll();
+        refreshOpenDayModalIfNeeded();
+      }
+
+      function txInCurrentYear() {
+        return _allTx.filter(
+          (t) =>
+            yearFromTS(t.date) === currentYear &&
+            !(t.tags || []).includes("invonly"),
+        );
+      }
+
+      /* =========================
+       Tag bar
+    ========================== */
+      function parseTags(input) {
+        if (!input) return [];
+        return String(input)
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean)
+          .slice(0, 20);
+      }
+
+      function renderTagBar() {
+        const bar = document.getElementById("tag-bar");
+        if (!bar) return;
+        bar.innerHTML = "";
+
+        const map = new Map();
+        for (const t of txInCurrentYear()) {
+          for (const raw of t.tags || []) {
+            const tag = String(raw || "").trim();
+            if (!tag) continue;
+            const key = tag.toLowerCase();
+            const prev = map.get(key);
+            if (prev) prev.count += 1;
+            else map.set(key, { label: tag, count: 1 });
+          }
+        }
+
+        const tags = Array.from(map.values()).sort(
+          (a, b) => b.count - a.count || a.label.localeCompare(b.label),
+        );
+        if (!tags.length) {
+          const s = document.createElement("span");
+          s.textContent = "No tags for this year.";
+          s.style.opacity = ".7";
+          bar.appendChild(s);
+          return;
+        }
+
+        const clear = document.createElement("button");
+        clear.type = "button";
+        clear.className = "tag-chip";
+        clear.textContent = "Clear";
+        clear.addEventListener("click", () => {
+          const input = document.getElementById("global-search");
+          if (input) input.value = "";
+          filterGlobalEntries();
+          bar
+            .querySelectorAll(".tag-chip")
+            .forEach((el) => el.classList.remove("active"));
+        });
+        bar.appendChild(clear);
+
+        for (const { label, count } of tags) {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "tag-chip";
+          btn.textContent = `${label} (${count})`;
+          btn.title = `Filter by tag: ${label}`;
+          btn.addEventListener("click", () => {
+            const input = document.getElementById("global-search");
+            if (!input) return;
+            input.value = `tags:${label.includes(" ") ? `"${label.replace(/"/g, '\\"')}"` : label}`;
+            filterGlobalEntries();
+            bar
+              .querySelectorAll(".tag-chip")
+              .forEach((el) => el.classList.remove("active"));
+            btn.classList.add("active");
+          });
+          bar.appendChild(btn);
+        }
+      }
+
+      /* =========================
+       Transactions table
+    ========================== */
+      window.filterGlobalEntries = function () {
+        displayAllTransactions();
+      };
+
+      function basicFilter(records, query) {
+        const q = String(query || "").trim();
+        if (!q) return records;
+
+        const m = q.match(/tags\s*:\s*(?:"([^"]+)"|([^\s]+))/i);
+        if (m) {
+          const want = (m[1] || m[2] || "").toLowerCase();
+          return records.filter((r) =>
+            (r.tags || []).some((t) => String(t).toLowerCase() === want),
+          );
+        }
+
+        const low = q.toLowerCase();
+        return records.filter((r) => {
+          const name = String(r.name || "").toLowerCase();
+          const tags = (r.tags || []).join(" ").toLowerCase();
+          return name.includes(low) || tags.includes(low);
+        });
+      }
+
+      function createTypeSelect(currentType, onChange) {
+        const sel = document.createElement("select");
+        ["income", "expense"].forEach((v) => {
+          const opt = document.createElement("option");
+          opt.value = v;
+          opt.textContent = v;
+          if ((currentType || "").toLowerCase() === v) opt.selected = true;
+          sel.appendChild(opt);
+        });
+        sel.addEventListener("change", (e) => onChange(e.target.value));
+        return sel;
+      }
+
+      function updateFilteredTotal(txArr) {
+        let inc = 0,
+          exp = 0;
+        for (const t of txArr) {
+          const v = Math.abs(Number(t.amt) || 0);
+          if (t.type === "income") inc += v;
+          else exp += v;
+        }
+        const net = inc - exp;
+        const el = document.getElementById("filtered-total");
+        if (el)
+          el.textContent = `Filtered Total: ${fmtUSD(net)} (Income: ${fmtUSD(inc)} • Expenses: ${fmtUSD(exp)})`;
+      }
+
+      async function displayAllTransactions() {
+        const tbody = document.querySelector("#transactions-table tbody");
+        const thead = document.querySelector("#transactions-table thead");
+        if (!tbody || !thead) return;
+
+        tbody.innerHTML = "";
+
+        const input = document.getElementById("global-search");
+        const query = input ? (input.value ?? "") : "";
+
+        let records = txInCurrentYear();
+        const filtered = _engine
+          ? _engine.filter(records, query)
+          : basicFilter(records, query);
+
+        updateFilteredTotal(filtered);
+
+        if (_sortBy === "amount") {
+          filtered.sort((a, b) => {
+            const av = Number(a.amt) || 0;
+            const bv = Number(b.amt) || 0;
+            return _amtSortAsc ? av - bv : bv - av;
+          });
+        } else {
+          filtered.sort((a, b) => {
+            const ad = Number(a.date) || 0;
+            const bd = Number(b.date) || 0;
+            return _txSortAsc ? ad - bd : bd - ad;
+          });
+        }
+
+        // ✅ limit render
+        const total = filtered.length;
+        const slice = _showAllTx ? filtered : filtered.slice(0, TX_PAGE_SIZE);
+
+        const btn = document.getElementById("toggle-show-all");
+        if (btn)
+          btn.textContent = _showAllTx
+            ? `Show first ${TX_PAGE_SIZE}`
+            : "Show all";
+
+        const shown = document.getElementById("shown-count");
+        if (shown) {
+          shown.textContent =
+            total <= TX_PAGE_SIZE
+              ? `${total} shown`
+              : _showAllTx
+                ? `${total} shown`
+                : `${slice.length} of ${total} shown`;
+        }
+
+        // ✅ Update table header if missing Posted Date column
+        const headers = thead.querySelectorAll("th");
+        if (headers.length === 6) {
+          const postedHeader = document.createElement("th");
+          postedHeader.textContent = "Posted Date";
+          postedHeader.style.cursor = "default";
+          thead.querySelector("tr").insertBefore(postedHeader, headers[1]); // Insert after Date
+        }
+
+        for (const t of slice) {
+          const tr = document.createElement("tr");
+          tr.classList.add("transaction-row");
+
+          // Date
+          const tdDate = document.createElement("td");
+          const dateInput = document.createElement("input");
+          dateInput.type = "date";
+          dateInput.value = ymdFromUtcTS(t.date);
+          dateInput.style.minWidth = "130px";
+          dateInput.title = "Change effective date (UTC)";
+          dateInput.addEventListener("change", async (e) => {
+            const ymd = e.target.value;
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
+              e.target.value = ymdFromUtcTS(t.date);
+              return;
+            }
+            const nextTS = utcNoonTSFromYMD(ymd);
+            await upsertTx(t, { ...t, date: nextTS });
+          });
+          tdDate.appendChild(dateInput);
+
+          // ✅ Posted Date
+          const tdPostedDate = document.createElement("td");
+          const postedInput = document.createElement("input");
+          postedInput.type = "date";
+          postedInput.value = ymdFromUtcTS(t.postedDate ?? t.date);
+          postedInput.style.minWidth = "130px";
+          postedInput.title = "Posted Date (preferred display if set)";
+          postedInput.addEventListener("change", async (e) => {
+            const ymd = e.target.value;
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
+              e.target.value = ymdFromUtcTS(t.postedDate ?? t.date);
+              return;
+            }
+            const ts = utcNoonTSFromYMD(ymd);
+            await upsertTx(t, { ...t, postedDate: ts });
+          });
+          tdPostedDate.appendChild(postedInput);
+
+          // Name
+          const tdName = document.createElement("td");
+          tdName.contentEditable = "true";
+          tdName.textContent = t.name || "";
+          tdName.addEventListener("focus", (e) => {
+            e.target.dataset.original = e.target.innerText.trim();
+          });
+          tdName.addEventListener("blur", async (e) => {
+            const next = e.target.innerText.trim();
+            const prev = (e.target.dataset.original || "").trim();
+            if (next === prev) return;
+            await upsertTx(t, { ...t, name: next });
+          });
+
+          // Type
+          const tdType = document.createElement("td");
+          tdType.appendChild(
+            createTypeSelect(t.type, async (v) => {
+              await upsertTx(t, { ...t, type: v });
+            }),
+          );
+
+          // Amount
+          const tdAmt = document.createElement("td");
+          tdAmt.contentEditable = "true";
+          tdAmt.textContent = Number(t.amt || 0).toFixed(2);
+          tdAmt.addEventListener("focus", (e) => {
+            e.target.dataset.original = String(t.amt ?? 0);
+          });
+          tdAmt.addEventListener("blur", async (e) => {
+            const raw = e.target.innerText.replace(/[^\d.-]/g, "");
+            const v = parseFloat(raw);
+            if (Number.isNaN(v)) {
+              e.target.textContent = Number(t.amt || 0).toFixed(2);
+              return;
+            }
+            const prev = parseFloat(e.target.dataset.original || "NaN");
+            if (!Number.isNaN(prev) && v === prev) {
+              e.target.textContent = prev.toFixed(2);
+              return;
+            }
+            e.target.textContent = v.toFixed(2);
+            await upsertTx(t, { ...t, amt: v });
+          });
+
+          // Tags
+          const tdTags = document.createElement("td");
+          tdTags.contentEditable = "true";
+          tdTags.textContent = (t.tags || []).join(", ");
+          tdTags.addEventListener("focus", (e) => {
+            e.target.dataset.original = e.target.innerText.trim();
+          });
+          tdTags.addEventListener("blur", async (e) => {
+            const next = e.target.innerText.trim();
+            const prev = (e.target.dataset.original || "").trim();
+            if (next === prev) return;
+            const tags = parseTags(next);
+            await upsertTx(t, { ...t, tags });
+            renderTagBar();
+          });
+
+          // Actions
+          const tdActions = document.createElement("td");
+          const btnRow = document.createElement("div");
+          btnRow.className = "btnrow";
+
+          const imgBtn = document.createElement("button");
+          imgBtn.textContent = t.img ? "Replace Img" : "Add Img";
+          imgBtn.title = "Upload/Replace image";
+          imgBtn.addEventListener("click", () => uploadTxImage(t));
+
+          let rmBtn = null;
+          if (t.img || t.imgPath) {
+            rmBtn = document.createElement("button");
+            rmBtn.textContent = "Del Img";
+            rmBtn.className = "clear-button";
+            rmBtn.addEventListener("click", () => deleteTxImage(t));
+          }
+
+          let viewBtn = null;
+          if (t.img) {
+            viewBtn = document.createElement("button");
+            viewBtn.textContent = "View";
+            viewBtn.addEventListener("click", () => {
+              const sep = t.img.includes("?") ? "&" : "?";
+              window.open(`${t.img}${sep}t=${Date.now()}`, "_blank", "noopener");
+            });
+          }
+
+          const delBtn = document.createElement("button");
+          delBtn.className = "clear-button";
+          delBtn.textContent = "Delete";
+          delBtn.title = "Delete transaction";
+          delBtn.addEventListener("click", async () => {
+            if (!confirm("Delete this entry?")) return;
+            await deleteTxFull(t);
+          });
+
+          btnRow.append(imgBtn);
+          if (viewBtn) btnRow.append(viewBtn);
+          btnRow.append(delBtn);
+          if (rmBtn) btnRow.append(rmBtn);
+          tdActions.appendChild(btnRow);
+
+          // ✅ Append cells (with Posted Date)
+          tr.append(
+            tdDate,
+            tdPostedDate,
+            tdName,
+            tdType,
+            tdAmt,
+            tdTags,
+            tdActions,
+          );
+          tbody.appendChild(tr);
+        }
+
+        populateMonths(filtered);
+
+        // ✅ Apply column toggle logic
+        setupColumnToggleCheckboxes();
+        updateTableColumnVisibility();
+      }
+
+      /* =========================
+       Months table + add entry
+    ========================== */
+      function createButton(className, text, dataMonth, onClick) {
+        const b = document.createElement("button");
+        if (className) b.className = className;
+        b.textContent = text;
+        if (dataMonth) b.dataset.month = dataMonth;
+        b.addEventListener("click", onClick);
+        return b;
+      }
+
+      function populateMonths(txArr = null) {
+        const tbody = document.querySelector("#months-container tbody");
+        if (!tbody) return;
+        tbody.innerHTML = "";
+
+        const sums = Array.from({ length: 12 }, () => ({
+          income: 0,
+          expense: 0,
+        }));
+        const list = txArr || txInCurrentYear();
+
+        for (const t of list) {
+          const dt = new Date(t.date);
+          if (dt.getUTCFullYear() !== currentYear) continue;
+          const mi = dt.getUTCMonth();
+          const v = Math.abs(Number(t.amt) || 0);
+          if (t.type === "income") sums[mi].income += v;
+          else sums[mi].expense += v;
+        }
+
+        MONTHS_ABBR.forEach((m, i) => {
+          const income = sums[i].income;
+          const expense = sums[i].expense;
+          const net = income - expense;
+          const row = tbody.insertRow();
+          row.innerHTML = `
+          <td>${m}</td>
+          <td>${income.toFixed(2)}</td>
+          <td>${expense.toFixed(2)}</td>
+          <td>${net.toFixed(2)}</td>
+          <td></td>
+          <td></td>
+        `;
+          row.cells[4].appendChild(
+            createButton("add-income", "Add Income", m, () =>
+              addEntry("income", i),
+            ),
+          );
+          row.cells[5].appendChild(
+            createButton("add-expense", "Add Expense", m, () =>
+              addEntry("expense", i),
+            ),
+          );
+        });
+      }
+
+      async function addEntry(type, monthIndex) {
+        const name = prompt(`Enter a name for this ${type}:`);
+        if (!name) return;
+
+        const amt = parseFloat(prompt(`Enter ${type} amount:`));
+        if (Number.isNaN(amt)) return;
+
+        let day = parseInt(prompt(`Enter day of month (1-31):`), 10);
+        if (Number.isNaN(day) || day < 1 || day > 31)
+          day = new Date().getUTCDate();
+
+        const tags = parseTags(prompt("Add tags (comma-separated), optional:"));
+
+        const id = String(Date.now());
+        const dateTS = utcNoonTS(currentYear, monthIndex, day);
+
+        const tx = {
+          id,
+          amt: Math.abs(amt),
+          cat: "",
+          sub: "",
+          sku: "",
+          link: "",
+          img: "",
+          imgPath: "",
+          desc: "",
+          name,
+          tags,
+          type: type === "income" ? "income" : "expense",
+          date: dateTS,
+          postedDate: dateTS,
+        };
+
+        await upsertTx(null, tx);
+      }
+
+      /* =========================
+       Totals
+    ========================== */
+      function calculateYearlyTotals() {
+        const list = txInCurrentYear();
+        let income = 0,
+          expense = 0;
+        for (const t of list) {
+          const v = Math.abs(Number(t.amt) || 0);
+          if (t.type === "income") income += v;
+          else expense += v;
+        }
+        document.getElementById("total-income").textContent = income.toFixed(2);
+        document.getElementById("total-expenses").textContent =
+          expense.toFixed(2);
+        document.getElementById("yearly-balance").textContent = (
+          income - expense
+        ).toFixed(2);
+        document.getElementById("total-transactions").textContent = String(
+          list.length,
+        );
+      }
+
+      function renderOverallTotals() {
+        let income = 0,
+          expense = 0;
+        for (const t of _allTx) {
+          const v = Math.abs(Number(t.amt) || 0);
+          if (t.type === "income") income += v;
+          else expense += v;
+        }
+        document.getElementById("overall-income").textContent =
+          income.toFixed(2);
+        document.getElementById("overall-expenses").textContent =
+          expense.toFixed(2);
+        document.getElementById("overall-balance").textContent = (
+          income - expense
+        ).toFixed(2);
+      }
+
+      /* =========================
+       Daily grid + modal
+    ========================== */
+      function generateYearGrid() {
+        const grid = document.getElementById("year-grid");
+        if (!grid) return;
+
+        grid.innerHTML = "";
+        const start = new Date(Date.UTC(currentYear, 0, 1, 12, 0, 0));
+        const end = new Date(Date.UTC(currentYear, 11, 31, 12, 0, 0));
+        // Use LOCAL date for highlighting "today"
+        const now = new Date();
+        const todayUTC = new Date(
+          Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0),
+        );
+
+        const map = new Map();
+        for (const t of txInCurrentYear()) {
+          const usePosted = loadUsePostedDate();
+          const key = ymdFromUtcTS(
+            usePosted ? (t.postedDate ?? t.date) : t.date,
+          );
+          if (!map.has(key)) map.set(key, []);
+          map.get(key).push(t);
+        }
+
+        for (
+          let d = new Date(start);
+          d <= end;
+          d = new Date(d.getTime() + 86400000)
+        ) {
+          const ymd = `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
+
+          if (d.getUTCDate() === 1) {
+            const label = document.createElement("div");
+            label.textContent = MONTHS_ABBR[d.getUTCMonth()];
+            label.style.gridColumn = "1 / -1";
+            label.style.opacity = ".85";
+            label.style.fontWeight = "600";
+            grid.appendChild(label);
+          }
+
+          const items = map.get(ymd) || [];
+          const income = items
+            .filter((x) => x.type === "income")
+            .reduce((s, x) => s + Math.abs(Number(x.amt) || 0), 0);
+          const expense = items
+            .filter((x) => x.type !== "income")
+            .reduce((s, x) => s + Math.abs(Number(x.amt) || 0), 0);
+
+          const block = document.createElement("div");
+          block.className = "day-block";
+          block.textContent = String(d.getUTCDate());
+          block.dataset.ymd = ymd;
+
+          if (items.length) {
+            if (expense > income) block.classList.add("expenses-higher");
+            else block.classList.add("has-data");
+          }
+
+          if (d.getTime() === todayUTC.getTime()) block.classList.add("today");
+
+          block.addEventListener("click", () => showDayModal(ymd));
+          grid.appendChild(block);
+        }
+      }
+
+      function showDayModal(ymd) {
+        _openDayYMD = ymd;
+        const modal = document.getElementById("detailsModal");
+        const content = document.getElementById("modalContent");
+        content.innerHTML = "";
+
+        const dt = new Date(utcNoonTSFromYMD(ymd));
+        const monthName = MONTHS_ABBR[dt.getUTCMonth()];
+        const day = dt.getUTCDate();
+        document.getElementById("date-selected").textContent =
+          `${monthName} ${day}, ${currentYear}`;
+
+        const usePosted = loadUsePostedDate();
+        const items = txInCurrentYear().filter(
+          (t) =>
+            ymdFromUtcTS(usePosted ? (t.postedDate ?? t.date) : t.date) === ymd,
+        );
+
+        if (items.length) {
+          const table = document.createElement("table");
+          table.innerHTML = `
+          <thead>
+            <tr>
+              <th>Name</th><th>Type</th><th>Amount</th><th>Tags</th><th>Image</th><th>Action</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        `;
+          const tbody = table.querySelector("tbody");
+
+          for (const t of items) {
+            const tr = document.createElement("tr");
+
+            const tdName = document.createElement("td");
+            tdName.contentEditable = "true";
+            tdName.textContent = t.name || "";
+            tdName.addEventListener("blur", async (e) => {
+              await upsertTx(t, { ...t, name: e.target.innerText.trim() });
+            });
+
+            const tdType = document.createElement("td");
+            tdType.appendChild(
+              createTypeSelect(t.type, async (v) => {
+                await upsertTx(t, { ...t, type: v });
+              }),
+            );
+
+            const tdAmt = document.createElement("td");
+            tdAmt.contentEditable = "true";
+            tdAmt.textContent = Number(t.amt || 0).toFixed(2);
+            tdAmt.addEventListener("blur", async (e) => {
+              const v = parseFloat(
+                String(e.target.innerText).replace(/[^\d.-]/g, ""),
+              );
+              if (Number.isNaN(v)) {
+                e.target.textContent = Number(t.amt || 0).toFixed(2);
+                return;
+              }
+              e.target.textContent = v.toFixed(2);
+              await upsertTx(t, { ...t, amt: v });
+            });
+
+            const tdTags = document.createElement("td");
+            tdTags.contentEditable = "true";
+            tdTags.textContent = (t.tags || []).join(", ");
+            tdTags.addEventListener("blur", async (e) => {
+              const tags = parseTags(e.target.innerText);
+              await upsertTx(t, { ...t, tags });
+              renderTagBar();
+            });
+
+            const tdImg = document.createElement("td");
+            const row = document.createElement("div");
+            row.className = "btnrow";
+
+            const up = document.createElement("button");
+            up.textContent = t.img ? "Replace Img" : "Add Img";
+            up.addEventListener("click", () => uploadTxImage(t));
+
+            let view = null;
+            if (t.img) {
+              view = document.createElement("button");
+              view.textContent = "View";
+              view.addEventListener("click", () => {
+                const sep = t.img.includes("?") ? "&" : "?";
+                window.open(
+                  `${t.img}${sep}t=${Date.now()}`,
+                  "_blank",
+                  "noopener",
+                );
+              });
+            }
+
+            let rm = null;
+            if (t.img || t.imgPath) {
+              rm = document.createElement("button");
+              rm.textContent = "Remove";
+              rm.className = "clear-button";
+              rm.addEventListener("click", () => deleteTxImage(t));
+            }
+
+            row.append(up);
+            if (view) row.append(view);
+            if (rm) row.append(rm);
+
+            tdImg.appendChild(row);
+
+            const tdId = document.createElement("td");
+            tdId.textContent = t.id;
+
+            const tdManage = document.createElement("td");
+            const del = document.createElement("button");
+            del.className = "clear-button";
+            del.textContent = "Delete";
+            del.addEventListener("click", async () => {
+              if (!confirm("Delete this entry?")) return;
+              await deleteTxFull(t);
+            });
+            tdManage.appendChild(del);
+
+            tr.append(tdName, tdType, tdAmt, tdTags, tdImg, tdManage);
+            tbody.appendChild(tr);
+          }
+
+          content.appendChild(table);
+        } else {
+          content.innerHTML = "<p>No entries for this date.</p>";
+        }
+
+        const addWrap = document.createElement("div");
+        addWrap.style.marginTop = "10px";
+        addWrap.appendChild(
+          createButton("", "Add Income", null, () =>
+            addEntryOnDate(ymd, "income"),
+          ),
+        );
+        addWrap.appendChild(
+          createButton("", "Add Expense", null, () =>
+            addEntryOnDate(ymd, "expense"),
+          ),
+        );
+        addWrap.style.display = "flex";
+        addWrap.style.gap = "10px";
+        content.appendChild(addWrap);
+
+        modal.style.display = "block";
+      }
+
+      async function addEntryOnDate(ymd, type) {
+        const name = prompt(`Enter a name for this ${type}:`);
+        if (!name) return;
+        const amt = parseFloat(prompt(`Enter ${type} amount:`));
+        if (Number.isNaN(amt)) return;
+        const tags = parseTags(prompt("Add tags (comma-separated), optional:"));
+
+        const id = String(Date.now());
+        const dateTS = utcNoonTSFromYMD(ymd);
+
+        const tx = {
+          id,
+          amt: Math.abs(amt),
+          cat: "",
+          sub: "",
+          sku: "",
+          link: "",
+          img: "",
+          imgPath: "",
+          desc: "",
+          name,
+          tags,
+          type: type === "income" ? "income" : "expense",
+          date: dateTS,
+          postedDate: dateTS,
+        };
+
+        await upsertTx(null, tx);
+        showDayModal(ymd);
+      }
+
+      function closeModal() {
+        const el = document.getElementById("detailsModal");
+        if (el) el.style.display = "none";
+        _openDayYMD = null;
+      }
+
+      /* =========================
+       Charts (monthly bar + pie)
+    ========================== */
+      function getMonthlyIncomeExpense() {
+        const income = Array(12).fill(0);
+        const expense = Array(12).fill(0);
+        for (const t of txInCurrentYear()) {
+          const dt = new Date(t.date);
+          const mi = dt.getUTCMonth();
+          const v = Math.abs(Number(t.amt) || 0);
+          if (t.type === "income") income[mi] += v;
+          else expense[mi] += v;
+        }
+        return { income, expense };
+      }
+
+      function renderCharts() {
+        // Always re-render the *current* slide
+        renderChartSlide(chartSlideIndex);
+      }
+
+      function renderChartSlide(idx) {
+        const canvas = document.getElementById("chartCanvas");
+        const titleEl = document.getElementById("chartTitle");
+        if (!canvas || typeof Chart === "undefined") return;
+
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+
+        // Kill previous instance (important)
+        if (carouselChart) {
+          carouselChart.destroy();
+          carouselChart = null;
+        }
+
+        const slide = CHART_SLIDES[idx] || "monthly";
+
+        if (slide === "monthly") {
+          const { income, expense } = getMonthlyIncomeExpense();
+
+          if (titleEl)
+            titleEl.textContent = `Income vs Expenses — ${currentYear}`;
+
+          carouselChart = new Chart(ctx, {
+            type: "bar",
+            data: {
+              labels: MONTHS_ABBR,
+              datasets: [
+                { label: "Income", data: income },
+                { label: "Expenses", data: expense },
+              ],
+            },
+            options: {
+              responsive: true,
+              plugins: {
+                title: {
+                  display: true,
+                  text: `Income vs Expenses by Month — ${currentYear}`,
+                },
+                tooltip: { mode: "index", intersect: false },
+                legend: { position: "top" },
+              },
+              scales: {
+                x: { stacked: true },
+                y: { stacked: true, beginAtZero: true },
+              },
+            },
+          });
+
+          return;
+        }
+
+        const { breakdown, metric } = currentPieControls();
+
+        let labels = [],
+          values = [];
+        if (breakdown === "months") ({ labels, values } = pieByMonths(metric));
+        else if (breakdown === "tags")
+          ({ labels, values } = pieByTags(metric, 12));
+        else ({ labels, values } = pieByYears(metric));
+
+        const title =
+          breakdown === "months"
+            ? `${metric.toUpperCase()} by Month — ${currentYear}`
+            : breakdown === "tags"
+              ? `${metric.toUpperCase()} by Tag — ${currentYear}`
+              : `${metric.toUpperCase()} by Year`;
+
+        if (titleEl) titleEl.textContent = title;
+
+        carouselChart = new Chart(ctx, {
+          type: "pie",
+          data: { labels, datasets: [{ label: title, data: values }] },
+          options: {
+            responsive: true,
+            plugins: {
+              title: { display: true, text: title },
+              legend: { position: "right" },
+              tooltip: {
+                callbacks: {
+                  label: (tt) =>
+                    `${tt.label ?? ""}: ${fmtUSD(Number(tt.raw ?? 0))}`,
+                },
+              },
+            },
+          },
+        });
+      }
+
+      function currentPieControls() {
+        const breakdown = (
+          document.getElementById("pie-breakdown")?.value || "months"
+        ).toLowerCase();
+        const metric = (
+          document.getElementById("pie-metric")?.value || "expense"
+        ).toLowerCase();
+        return { breakdown, metric };
+      }
+
+      function isTypingTarget(el) {
+        if (!el) return false;
+        const tag = (el.tagName || "").toLowerCase();
+        return (
+          tag === "input" ||
+          tag === "textarea" ||
+          tag === "select" ||
+          el.isContentEditable
+        );
+      }
+
+      function setChartSlide(nextIdx) {
+        const n = CHART_SLIDES.length;
+        chartSlideIndex = ((nextIdx % n) + n) % n; // loop
+        renderChartSlide(chartSlideIndex);
+      }
+
+      function nextChartSlide() {
+        setChartSlide(chartSlideIndex + 1);
+      }
+      function prevChartSlide() {
+        setChartSlide(chartSlideIndex - 1);
+      }
+
+      function pieByMonths(metric) {
+        const totals = Array(12).fill(0);
+        for (const t of txInCurrentYear()) {
+          if (t.type !== metric) continue;
+          const dt = new Date(t.date);
+          totals[dt.getUTCMonth()] += Math.abs(Number(t.amt) || 0);
+        }
+        return { labels: MONTHS_ABBR.slice(), values: totals };
+      }
+
+      function pieByTags(metric, topN = 12) {
+        const map = new Map();
+        for (const t of txInCurrentYear()) {
+          if (t.type !== metric) continue;
+          const v = Math.abs(Number(t.amt) || 0);
+          const tags = t.tags && t.tags.length ? t.tags : ["(No tag)"];
+          for (const raw of tags) {
+            const key = String(raw || "").trim() || "(No tag)";
+            map.set(key, (map.get(key) || 0) + v);
+          }
+        }
+        const entries = Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
+        const top = entries.slice(0, topN);
+        const rest = entries.slice(topN);
+        const other = rest.reduce((s, [, v]) => s + v, 0);
+
+        const labels = top.map(([k]) => k);
+        const values = top.map(([, v]) => v);
+        if (other > 0) {
+          labels.push("Other");
+          values.push(other);
+        }
+        if (!labels.length) return { labels: ["(No data)"], values: [0] };
+        return { labels, values };
+      }
+
+      function pieByYears(metric) {
+        const map = new Map();
+        for (const t of _allTx) {
+          if (t.type !== metric) continue;
+          const y = yearFromTS(t.date);
+          map.set(y, (map.get(y) || 0) + Math.abs(Number(t.amt) || 0));
+        }
+        const years = Array.from(map.keys()).sort((a, b) => a - b);
+        const values = years.map((y) => map.get(y));
+        if (!years.length) return { labels: ["(No data)"], values: [0] };
+        return { labels: years.map(String), values };
+      }
+
+      /* =========================
+       CSV Exports
+    ========================== */
+      function exportTransactionsCSV() {
+        const rows = [
+          ["Date", "Name", "Type", "Amount", "Tags", "ID", "ImgURL", "ImgPath"],
+        ];
+        for (const t of txInCurrentYear()) {
+          rows.push([
+            ymdFromUtcTS(t.date),
+            t.name ?? "",
+            t.type,
+            Number(t.amt || 0).toFixed(2),
+            (t.tags || []).join("|"),
+            t.id,
+            t.img || "",
+            t.imgPath || "",
+          ]);
+        }
+        if (rows.length === 1) {
+          alert(`No transactions found for ${currentYear}.`);
+          return;
+        }
+        downloadCSV(`transactions_${currentYear}.csv`, rows);
+      }
+
+      function exportMonthlySummaryCSV() {
+        const sums = Array.from({ length: 12 }, () => ({
+          income: 0,
+          expense: 0,
+        }));
+        for (const t of txInCurrentYear()) {
+          const mi = new Date(t.date).getUTCMonth();
+          const v = Math.abs(Number(t.amt) || 0);
+          if (t.type === "income") sums[mi].income += v;
+          else sums[mi].expense += v;
+        }
+        const rows = [["Month", "Income", "Expenses", "Net"]];
+        for (let i = 0; i < 12; i++) {
+          const inc = sums[i].income,
+            exp = sums[i].expense;
+          rows.push([
+            MONTHS_ABBR[i],
+            inc.toFixed(2),
+            exp.toFixed(2),
+            (inc - exp).toFixed(2),
+          ]);
+        }
+        downloadCSV(`monthly_summary_${currentYear}.csv`, rows);
+      }
+
+      function exportTagsCSV() {
+        const MULTI_TAG_MODE = "split";
+        const EPS = 1e-9;
+
+        const tagMonth = new Map();
+        const monthTotals = Array(12).fill(0);
+
+        function addTo(tag, mi, delta) {
+          if (!tagMonth.has(tag)) tagMonth.set(tag, Array(12).fill(0));
+          tagMonth.get(tag)[mi] += delta;
+          monthTotals[mi] += delta;
+        }
+
+        for (const t of txInCurrentYear()) {
+          const dt = new Date(t.date);
+          const mi = dt.getUTCMonth();
+          const amt = Math.abs(Number(t.amt) || 0);
+          if (amt < EPS) continue;
+
+          // expenses positive, income negative (net spending by tag)
+          const net = t.type === "expense" ? amt : -amt;
+
+          let tags = (t.tags || [])
+            .map((x) => String(x || "").trim())
+            .filter(Boolean);
+          if (!tags.length) tags = ["(No tag)"];
+
+          const share =
+            MULTI_TAG_MODE === "split" && tags.length ? net / tags.length : net;
+          for (const tag of tags) addTo(tag, mi, share);
+        }
+
+        if (!tagMonth.size) {
+          alert(`No tagged transactions found for ${currentYear}.`);
+          return;
+        }
+
+        const rows = [];
+        rows.push(["Tags", ...MONTHS_FULL, "Total Annually"]);
+
+        const tagRows = Array.from(tagMonth.entries())
+          .map(([tag, arr]) => {
+            const annual = arr.reduce((s, v) => s + v, 0);
+            return { tag, arr, annual };
+          })
+          .sort(
+            (a, b) =>
+              Math.abs(b.annual) - Math.abs(a.annual) ||
+              a.tag.localeCompare(b.tag),
+          );
+
+        for (const r of tagRows) {
+          rows.push([
+            r.tag,
+            ...r.arr.map((v) => Number(v.toFixed(2))),
+            Number(r.annual.toFixed(2)),
+          ]);
+        }
+
+        const annualTotal = monthTotals.reduce((s, v) => s + v, 0);
+        rows.push([
+          "Total Monthly",
+          ...monthTotals.map((v) => Number(v.toFixed(2))),
+          Number(annualTotal.toFixed(2)),
+        ]);
+
+        downloadCSV(`tags_by_month_${currentYear}.csv`, rows);
+      }
+
+      function downloadCSV(filename, rows) {
+        const csv = rows.map((r) => r.map(csvEscape).join(",")).join("\r\n");
+        const blob = new Blob(["\uFEFF" + csv], {
+          type: "text/csv;charset=utf-8;",
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+
+      /* =========================
+       Backup / Restore (year-bucketed)
+    ========================== */
+      function exportBackupJSON() {
+        const years = {};
+        for (const t of _allTx) {
+          const y = yearFromTS(t.date);
+          years[y] ||= {};
+          years[y][t.id] = stripTxForSave(t);
+        }
+        const payload = {
+          schema: "ledgerTx.v2",
+          exportedAt: new Date().toISOString(),
+          years,
+        };
+
+        const dataStr =
+          "data:text/json;charset=utf-8," +
+          encodeURIComponent(JSON.stringify(payload, null, 2));
+        const a = document.createElement("a");
+        a.href = dataStr;
+        a.download = `ledgerTx_backup_${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      }
+
+      async function restoreBackupOverwrite(e) {
+        const file = e.target.files?.[0];
+        e.target.value = "";
+        if (!file) return;
+
+        const warned = confirm(
+          "⚠️ WARNING: Restore will OVERWRITE all current transactions.\n\nExport a backup first.\n\nClick OK to continue.",
+        );
+        if (!warned) return;
+
+        let parsed;
+        try {
+          parsed = JSON.parse(await file.text());
+        } catch {
+          alert("❌ Invalid JSON file.");
+          return;
+        }
+
+        const yearsObj =
+          parsed?.years && typeof parsed.years === "object"
+            ? parsed.years
+            : null;
+        if (!yearsObj) {
+          alert(
+            '❌ Invalid format. Expected: { schema, exportedAt, years: { "2026": { "id": {...} } } }',
+          );
+          return;
+        }
+
+        const out = {};
+        let count = 0;
+
+        for (const [yearKey, items] of Object.entries(yearsObj)) {
+          if (!items || typeof items !== "object") continue;
+          out[yearKey] ||= {};
+          for (const [id, v] of Object.entries(items)) {
+            const n = normalizeTx(id, v);
+            if (!n) continue;
+            out[yearKey][id] = stripTxForSave(n);
+            count++;
+          }
+        }
+
+        const ok = confirm(
+          `About to overwrite with ${count} transaction(s) at:\n${ledgerBasePath()}\n\nProceed?`,
+        );
+        if (!ok) return;
+
+        try {
+          await set(ref(database, ledgerBasePath()), out);
+          alert("✅ Restore complete.");
+        } catch (err) {
+          console.error(err);
+          alert("❌ Restore failed.");
+        }
+      }
+
+      async function clearAllTx() {
+        if (!confirm("Delete ALL transactions? This cannot be undone.")) return;
+        await set(ref(database, ledgerBasePath()), {});
+        alert("All transactions cleared.");
+      }
+
+      /* =========================
+       Import tab
+    ========================== */
+      let _importParsed = [];
+
+      function makeSignature(tx, mode = "strict") {
+        const ymd = ymdFromUtcTS(tx.date);
+        const amt = Math.round((Number(tx.amt) || 0) * 100);
+        if (mode === "loose") return `${ymd}|${amt}`;
+        const nm = String(tx.name || "")
+          .trim()
+          .toLowerCase();
+        const tp = String(tx.type || "")
+          .trim()
+          .toLowerCase();
+        return `${ymd}|${amt}|${nm}|${tp}`;
+      }
+
+      function importDedupeEnabled() {
+        return !!document.getElementById("import-dedupe-enabled")?.checked;
+      }
+      function currentImportDedupeMode() {
+        return document.getElementById("import-dedupe-mode")?.value || "loose";
+      }
+
+      function parseCSVLine(line) {
+        const out = [];
+        let cur = "",
+          inQuotes = false;
+        for (let i = 0; i < line.length; i++) {
+          const ch = line[i];
+          if (ch === '"') {
+            if (inQuotes && line[i + 1] === '"') {
+              cur += '"';
+              i++;
+            } else inQuotes = !inQuotes;
+          } else if (ch === "," && !inQuotes) {
+            out.push(cur);
+            cur = "";
+          } else cur += ch;
+        }
+        out.push(cur);
+        return out.map((s) => s.trim());
+      }
+
+      function importParse(rawText, mode, year) {
+        const raw = String(rawText || "").trim();
+        if (!raw) return [];
+
+        const lines = raw
+          .split(/\r?\n/)
+          .map((s) => s.trim())
+          .filter(Boolean);
+        if (!lines.length) return [];
+
+        const looksCSV = lines[0].includes(",") && lines.length >= 2;
+        const out = [];
+
+        // --- Helpers (local to importParse) ---
+        function parseCSVLine(line) {
+          const out = [];
+          let cur = "",
+            inQuotes = false;
+          for (let i = 0; i < line.length; i++) {
+            const ch = line[i];
+            if (ch === '"') {
+              if (inQuotes && line[i + 1] === '"') {
+                cur += '"';
+                i++;
+              } else inQuotes = !inQuotes;
+            } else if (ch === "," && !inQuotes) {
+              out.push(cur);
+              cur = "";
+            } else cur += ch;
+          }
+          out.push(cur);
+          return out.map((s) => s.trim());
+        }
+
+        function toNum(v) {
+          const n = parseFloat(
+            String(v ?? "")
+              .replace(/[$,]/g, "")
+              .trim(),
+          );
+          return Number.isFinite(n) ? n : NaN;
+        }
+
+        // CSV date parser -> returns UTC noon timestamp or null
+        function dateToTS(dateStr, fallbackYear) {
+          const s = String(dateStr || "").trim();
+          if (!s) return null;
+
+          // YYYY-MM-DD
+          let m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+          if (m) {
+            const yy = +m[1],
+              mm = +m[2],
+              dd = +m[3];
+            return utcNoonTS(yy, mm - 1, dd);
+          }
+
+          // MM/DD/YYYY or MM/DD/YY
+          m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+          if (m) {
+            const mm = +m[1],
+              dd = +m[2];
+            let yy = +m[3];
+            if (yy < 100) yy += 2000;
+            return utcNoonTS(yy, mm - 1, dd);
+          }
+
+          // MM/DD (no year) -> use provided year
+          m = s.match(/^(\d{1,2})\/(\d{1,2})$/);
+          if (m) {
+            const mm = +m[1],
+              dd = +m[2];
+            return utcNoonTS(fallbackYear, mm - 1, dd);
+          }
+
+          // fallback: try Date.parse (last resort)
+          const d = new Date(s);
+          if (!Number.isNaN(d.getTime())) {
+            return Date.UTC(
+              d.getUTCFullYear(),
+              d.getUTCMonth(),
+              d.getUTCDate(),
+              12,
+              0,
+              0,
+            );
+          }
+
+          return null;
+        }
+
+        // Infer type from sign + type text
+        function inferType(amountRaw, typeText) {
+          const t = String(typeText || "").toLowerCase();
+
+          // If bank uses sign, trust it
+          if (amountRaw < 0) return "expense";
+          if (amountRaw > 0) {
+            // Use type text when provided
+            if (/(credit|payment|refund|reversal|return|deposit)/.test(t))
+              return "income";
+            if (/(debit|purchase|charge|withdrawal|fee)/.test(t))
+              return "expense";
+
+            // Common CSV pattern: positive amounts are expenses
+            return "expense";
+          }
+
+          // Amount is 0: fall back to text
+          if (/(credit|payment|refund|reversal|return|deposit)/.test(t))
+            return "income";
+          return "expense";
+        }
+
+        // =========================
+        // CSV import
+        // =========================
+        if (looksCSV) {
+          const header = parseCSVLine(lines[0]).map((h) =>
+            h
+              .replace(/^"+|"+$/g, "")
+              .trim()
+              .toLowerCase(),
+          );
+
+          const idx = {
+            date: header.findIndex((h) =>
+              ["transaction date", "date"].includes(h),
+            ),
+            post: header.findIndex((h) =>
+              ["posting date", "posted date", "post date"].includes(h),
+            ),
+            desc: header.findIndex((h) =>
+              ["description", "name", "memo", "payee", "merchant"].includes(h),
+            ),
+            type: header.findIndex((h) =>
+              [
+                "type",
+                "transaction type",
+                "credit/debit",
+                "debit/credit",
+              ].includes(h),
+            ),
+            amt: header.findIndex((h) =>
+              ["amount", "transaction amount", "amt"].includes(h),
+            ),
+            debit: header.findIndex((h) => ["debit"].includes(h)),
+            credit: header.findIndex((h) => ["credit"].includes(h)),
+          };
+
+          const safe = (i, fallback) => (i >= 0 ? i : fallback);
+
+          // Fallback positions if header names aren't recognized
+          const iDate = safe(idx.date, 0);
+          const iPost = safe(idx.post, 1);
+          const iDesc = safe(idx.desc, 2);
+          const iType = safe(idx.type, 3);
+          const iAmt = idx.amt; // only used if found
+          const iDebit = idx.debit; // optional
+          const iCredit = idx.credit; // optional
+
+          for (let r = 1; r < lines.length; r++) {
+            const parts = parseCSVLine(lines[r]).map((s) =>
+              s.replace(/^"+|"+$/g, "").trim(),
+            );
+            if (parts.length < 3) continue;
+
+            const dateStr = parts[iPost] || parts[iDate] || "";
+            const name = parts[iDesc] || "";
+            const typeStr = parts[iType] || "";
+
+            // Amount: supports either a single Amount column OR separate Debit/Credit columns
+            let amtRaw = NaN;
+
+            if (iAmt != null && iAmt >= 0 && iAmt < parts.length) {
+              amtRaw = toNum(parts[iAmt]);
+            } else {
+              // Try debit/credit columns
+              const debitVal =
+                iDebit != null && iDebit >= 0 && iDebit < parts.length
+                  ? toNum(parts[iDebit])
+                  : NaN;
+              const creditVal =
+                iCredit != null && iCredit >= 0 && iCredit < parts.length
+                  ? toNum(parts[iCredit])
+                  : NaN;
+
+              if (Number.isFinite(debitVal) && debitVal !== 0)
+                amtRaw = -Math.abs(debitVal);
+              else if (Number.isFinite(creditVal) && creditVal !== 0)
+                amtRaw = Math.abs(creditVal);
+            }
+
+            if (!Number.isFinite(amtRaw)) continue;
+
+            const dateTS = dateToTS(dateStr, year);
+            if (!dateTS) continue;
+
+            const type = inferType(amtRaw, typeStr);
+
+            out.push({
+              amt: Math.abs(amtRaw),
+              name,
+              type,
+              date: dateTS,
+              tags: [],
+            });
+          }
+
+          return out;
+        }
+
+        // =========================
+        // Non-CSV: Credit card export (two dates)
+        // =========================
+        if (mode === "bankCredit") {
+          for (const line of lines) {
+            const m = line.match(
+              /^(\d{2})\/(\d{2})\s+(\d{2})\/(\d{2})\s+(.+?)\s+([\d.-]+)$/,
+            );
+            if (!m) continue;
+
+            const postMonth = parseInt(m[3], 10);
+            const postDay = parseInt(m[4], 10);
+            const name = m[5].trim();
+            const amount = parseFloat(m[6]);
+            if (Number.isNaN(amount)) continue;
+
+            const dateTS = utcNoonTS(year, postMonth - 1, postDay);
+
+            // In your credit-card text format, negative is usually a payment/credit
+            const type = amount < 0 ? "income" : "expense";
+
+            out.push({
+              amt: Math.abs(amount),
+              name,
+              type,
+              date: dateTS,
+              tags: [],
+            });
+          }
+          return out;
+        }
+
+        // =========================
+        // Non-CSV: Bank/Checking export (amounts with $)
+        // =========================
+        for (const line of lines) {
+          const m = line.match(
+            /^(\d{2})\/(\d{2})\s+(.+?)\s+(-?\$[\d,.]+)\s+(\$[\d,.]+)?$/,
+          );
+          if (!m) continue;
+
+          const month = parseInt(m[1], 10);
+          const day = parseInt(m[2], 10);
+          const name = m[3].trim();
+          const amt = parseFloat(String(m[4]).replace(/[$,]/g, ""));
+          if (Number.isNaN(amt)) continue;
+
+          const dateTS = utcNoonTS(year, month - 1, day);
+
+          // In this text format, negative is expense, positive is income
+          const type = amt < 0 ? "expense" : "income";
+
+          out.push({ amt: Math.abs(amt), name, type, date: dateTS, tags: [] });
+        }
+
+        return out;
+      }
+
+      function collapseParsedDuplicates(list, mode = "strict") {
+        const seen = new Set();
+        const out = [];
+        for (const t of list) {
+          const sig = makeSignature(t, mode);
+          if (seen.has(sig)) continue;
+          seen.add(sig);
+          out.push(t);
+        }
+        return out;
+      }
+
+      async function mergeParsed(list, mode = "strict") {
+        const sigs = new Set(_allTx.map((t) => makeSignature(t, mode)));
+
+        let added = 0;
+        for (const t of list) {
+          const sig = makeSignature(t, mode);
+          if (sigs.has(sig)) continue;
+          sigs.add(sig);
+
+          const id = String(Date.now() + Math.floor(Math.random() * 1000));
+          const tx = {
+            id,
+            amt: Number(t.amt) || 0,
+            cat: "",
+            sub: "",
+            sku: "",
+            link: "",
+            img: "",
+            imgPath: "",
+            desc: "",
+            name: String(t.name || ""),
+            tags: Array.isArray(t.tags) ? t.tags : [],
+            type:
+              String(t.type).toLowerCase() === "income" ? "income" : "expense",
+            date: Number(t.date) || Date.now(),
+          };
+
+          await upsertTx(null, tx);
+          added++;
+        }
+        return added;
+      }
+
+      function wireImportTab() {
+        const btnParse = document.getElementById("import-parse");
+        const btnMerge = document.getElementById("import-merge");
+        const preview = document.getElementById("import-preview");
+        if (!btnParse) return;
+
+        btnParse.addEventListener("click", () => {
+          const year =
+            Number(document.getElementById("import-year")?.value) ||
+            new Date().getUTCFullYear();
+          const mode =
+            document.querySelector('input[name="importMode"]:checked')?.value ||
+            "bankCredit";
+          const raw = document.getElementById("import-raw")?.value || "";
+
+          let parsed = importParse(raw, mode, year);
+
+          if (importDedupeEnabled()) {
+            parsed = collapseParsedDuplicates(
+              parsed,
+              currentImportDedupeMode(),
+            );
+          }
+
+          _importParsed = parsed;
+
+          const count = parsed.length;
+          const sample = parsed.slice(0, 50).map((t) => ({
+            date: ymdFromUtcTS(t.date),
+            amt: Number(t.amt || 0),
+            type: t.type,
+            name: t.name,
+          }));
+
+          preview.innerHTML = `
+          <div class="card">
+            <b>Preview:</b> ${count} row(s) parsed${importDedupeEnabled() ? " (deduped)" : ""}
+            <div class="small">Showing up to 50 rows below.</div>
+          </div>
+          <pre style="white-space:pre-wrap">${JSON.stringify(sample, null, 2)}</pre>
+        `;
+
+          if (btnMerge) btnMerge.disabled = count === 0;
+        });
+
+        btnMerge?.addEventListener("click", async () => {
+          if (!_importParsed?.length) return;
+          const mode = currentImportDedupeMode();
+          const added = await mergeParsed(_importParsed, mode);
+          alert(
+            `Imported ${added} new entr${added === 1 ? "y" : "ies"} (duplicates skipped by ${mode}).`,
+          );
+          _importParsed = [];
+          btnMerge.disabled = true;
+        });
+      }
+
+      const COLUMN_VISIBILITY_KEY = "financeLedger.columnVisibility.v1";
+
+      function loadColumnVisibility() {
+        const raw = localStorage.getItem(COLUMN_VISIBILITY_KEY);
+        const defaults = {
+          date: true,
+          postedDate: false,
+          name: true,
+          type: true,
+          amount: true,
+          tags: true,
+          actions: true,
+        };
+        try {
+          const saved = JSON.parse(raw);
+          return { ...defaults, ...(saved || {}) };
+        } catch {
+          return defaults;
+        }
+      }
+
+      function saveColumnVisibility(map) {
+        try {
+          localStorage.setItem(COLUMN_VISIBILITY_KEY, JSON.stringify(map));
+        } catch {}
+      }
+
+      function updateTableColumnVisibility() {
+        const colMap = loadColumnVisibility();
+        const table = document.getElementById("transactions-table");
+        if (!table) return;
+
+        const headers = table.querySelectorAll("thead th");
+        const rows = table.querySelectorAll("tbody tr");
+
+        const colNames = [
+          "date",
+          "postedDate",
+          "name",
+          "type",
+          "amount",
+          "tags",
+          "actions",
+        ];
+        colNames.forEach((key, index) => {
+          const visible = colMap[key] !== false; // default to visible
+          if (headers[index])
+            headers[index].style.display = visible ? "" : "none";
+          rows.forEach((r) => {
+            const cells = r.children;
+            if (cells[index])
+              cells[index].style.display = visible ? "" : "none";
+          });
+        });
+      }
+
+      function setupColumnToggleCheckboxes() {
+        const toggles = document.querySelectorAll(
+          '#column-toggles input[type="checkbox"]',
+        );
+        const colMap = loadColumnVisibility();
+
+        toggles.forEach((input) => {
+          const col = input.dataset.col;
+          input.checked = colMap[col] !== false;
+
+          input.addEventListener("change", () => {
+            colMap[col] = input.checked;
+            saveColumnVisibility(colMap);
+            updateTableColumnVisibility();
+          });
+        });
+      }
+
+      const USE_POSTED_DATE_KEY = "financeLedger.usePostedDate.v1";
+
+      function saveUsePostedDate(v) {
+        localStorage.setItem(USE_POSTED_DATE_KEY, JSON.stringify(!!v));
+      }
+
+      function loadUsePostedDate() {
+        try {
+          return JSON.parse(localStorage.getItem(USE_POSTED_DATE_KEY)) === true;
+        } catch {
+          return false;
+        }
+      }
+
+      function setupPostedDateToggle() {
+        const checkbox = document.getElementById("use-posted-date");
+        if (!checkbox) return;
+
+        // Set initial checked state
+        checkbox.checked = loadUsePostedDate();
+
+        // React to toggle
+        checkbox.addEventListener("change", () => {
+          saveUsePostedDate(checkbox.checked);
+          generateYearGrid(); // rerender heatmap
+          refreshOpenDayModalIfNeeded(); // rerender modal if open
+        });
+      }
+    </script>
+  </body>
+</html>
