@@ -62,14 +62,13 @@ document.addEventListener("DOMContentLoaded", () => {
       const userCredential = await signInWithEmailAndPassword(
         auth,
         emailInput.value,
-        passwordInput.value
+        passwordInput.value,
       );
 
       currentUserUID = userCredential.user.uid;
       localStorage.setItem("currentUserUID", currentUserUID);
 
       if (loginBox) loginBox.style.display = "none";
-
     } catch (error) {
       alert("Invalid login. Please check your email and password.");
       console.log(error);
