@@ -192,6 +192,28 @@
             color: steelblue;
         }
 
+        .article-img {
+  width: 100%;
+  max-width: 700px;
+  margin: 12px auto;
+  display: block;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.code-block {
+  background: #0b0f1f;
+  border: 1px solid #273158;
+  border-radius: 10px;
+  padding: 12px;
+  overflow-x: auto;
+}
+
+.code-block code {
+  font-family: monospace;
+  color: #e9f1ff;
+}
+
         @media (max-width:768px) {
             .division {
                 border-right: none;
@@ -320,29 +342,75 @@
             }
         }
 
-        function renderArticles(data) {
-            const entries = Object.entries(data)
-                .sort((a, b) => b[0] - a[0])
-                .slice(0, 6);
+function renderArticle(id) {
+  const a = allArticles[id];
+  if (!a) return;
 
-            entries.forEach(([id, article]) => {
-                const div = document.createElement("div");
-                div.className = "post";
+  currentArticleId = id;
 
-                div.innerHTML = `
-                    <small>${article.date || ""}</small>
-                    <h3>${article.title || "Update"}</h3>
-                    <p>${article.description || ""}</p>
-                `;
+  listView.style.display = "none";
+  articleView.style.display = "block";
 
-                div.style.cursor = "pointer";
-                div.onclick = () => {
-                    window.location.href = `onlinejournal.html?id=${id}`;
-                };
+  articleTitle.textContent = a.title;
+  articleDescription.textContent = a.description || "";
 
-                updatesGrid.appendChild(div);
-            });
-        }
+  articleSections.innerHTML = "";
+
+  (a.sections || []).forEach(section => {
+    const div = document.createElement("div");
+    div.className = "article-section";
+
+    let html = "";
+
+    if (section.title) {
+      html += `<h3>${escapeHtml(section.title)}</h3>`;
+    }
+
+    if (section.summary) {
+      html += `<p>${escapeHtml(section.summary)}</p>`;
+    }
+
+    // 🔥 NEW: flexible content rendering
+    (section.content || []).forEach(item => {
+      if (item.type === "text") {
+        html += `<p>${escapeHtml(item.value)}</p>`;
+      }
+
+      if (item.type === "image") {
+        html += `<img src="${item.src}" class="article-img">`;
+      }
+
+      if (item.type === "list") {
+        html += `<ul>${item.items.map(i => `<li>${escapeHtml(i)}</li>`).join("")}</ul>`;
+      }
+
+      if (item.type === "code") {
+        html += `
+          <div class="code-block">
+            <pre><code>${escapeHtml(item.value)}</code></pre>
+          </div>
+        `;
+      }
+    });
+
+    // fallback for old data (steps)
+    if (section.steps) {
+      html += `<ul>${section.steps.map(s => `<li>${escapeHtml(s)}</li>`).join("")}</ul>`;
+    }
+
+    div.innerHTML = html;
+    articleSections.appendChild(div);
+  });
+
+  // auth buttons
+  if (currentUser) {
+    editArticleBtn.style.display = "inline-block";
+    deleteArticleBtn.style.display = "inline-block";
+  } else {
+    editArticleBtn.style.display = "none";
+    deleteArticleBtn.style.display = "none";
+  }
+}
     </script>
 </body>
 
