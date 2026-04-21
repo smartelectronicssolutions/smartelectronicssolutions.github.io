@@ -1,7 +1,7 @@
 # Copilot Instructions for Smart Solutions Platform
 
 ## Big Picture
-This is a **unified static HTML/CSS/JS platform** — not React, not a framework. One site, five navigation sections (Home · Electronics · Workspace · Shop · Contact). All pages share a single master.css file and component-based header/footer.
+This is a **unified static HTML/CSS/JS platform** — not React, not a framework. One site, six navigation sections (Home · Electronics · Workspace · Shop · Contact · Journal). All pages share a single master.css file and component-based header/footer.
 
 **Architecture Philosophy:** Right-sized tech for the problem. Clean, maintainable vanilla JS with modern patterns (event delegation, CSS variables, semantic HTML). No build step, no bundler, no framework bloat.
 
@@ -9,7 +9,7 @@ This is a **unified static HTML/CSS/JS platform** — not React, not a framework
 
 ## Repository Structure (v4.1 — April 2026)
 
-### Root Pages (5 Main Sections)
+### Root Pages (6 Main Sections + Support Pages)
 ```
 smartelectronicssolutions.github.io/
 ├── index.html          ← Home (hero, divisions, updates, CTA)
@@ -17,6 +17,7 @@ smartelectronicssolutions.github.io/
 ├── workspace.html      ← Portfolio sites/apps, iframe viewer, auth
 ├── shop.html          ← The Emporium (tools/gear for pros)
 ├── contact.html       ← Contact form with FormSubmit
+├── onlinejournal.html ← Journal system with auth-based visibility
 ├── connect.html       ← Remote support landing
 ├── repair.html        ← Legacy redirect (if exists)
 ```
@@ -43,17 +44,16 @@ assets/
 │   ├── contact.js               ← Email copy helper
 │   ├── cpr.js                   ← Repair calculator
 │   ├── catalog.js               ← Catalog functionality
-│   └── projects.js              ← Projects data
+│   ├── projects.js              ← Projects data
+│   └── onlinejournal.js         ← Journal article rendering (if separated)
 └── img/                 ← Unified image directory
-    ├── ai/
-    ├── database/
-    ├── cpr/
-    ├── ses/
+    ├── ai/              ← AI-generated imagery
+    ├── database/        ← Tool/device images
+    ├── cpr/             ← Repair calculator assets
+    ├── ses/             ← Service photos
+    ├── oeguide/         ← OpenEye guide screenshots
     └── [various shared images]
 ```
-
-### Apps (Separate Repository)
-The `apps/` folder still exists but is treated as a **separate repository/project**. It's linked from workspace.html but maintained independently. Do not modify `apps/` structure unless explicitly requested.
 
 ---
 
@@ -140,6 +140,7 @@ export const firebaseConfig = {
 **4. firebase-init-noauth.js**
 - Simple re-export alias for `firebase-init.js`
 - Used by apps that only need database access
+- **Note:** "noauth" is a misnomer - it actually includes auth, just provides an alias for backward compatibility
 
 **5. auth.js**
 - Re-exports Firebase auth from `firebase-init.js`
@@ -166,6 +167,10 @@ export const firebaseConfig = {
 - Projects data array
 - Used for portfolio display
 
+**11. onlinejournal.js** (optional - may be inline in onlinejournal.html)
+- Journal article rendering logic
+- Handles article display, sections, rich content
+
 ---
 
 ## Firebase Integration
@@ -180,20 +185,68 @@ playground-e3690/
 │   ├── log/
 │   │   ├── visitCount       ← incremented on each visit
 │   │   └── visits/          ← individual visit logs
-│   └── inventory/           ← shop products (public view)
+│   ├── inventory/           ← shop products (public view)
+│   └── journalArticles/      ← public journal articles (NEW)
 └── [user-id]/
-    └── inventory/           ← user-specific workspace view
+    ├── inventory/           ← user-specific workspace view
+    └── journalArticles/      ← user-specific private journal (NEW)
+```
+
+**Journal Article Structure:**
+```javascript
+{
+  "[timestamp]": {
+    title: "Article Title",
+    description: "Short description",
+    date: "2026-04-20",
+    imageUrl: "https://...",  // Optional header image
+    tags: ["tag1", "tag2"],
+    sections: [
+      {
+        title: "Section Title",
+        summary: "Section summary",
+        steps: ["step 1", "step 2"],  // Backward compatible
+        content: [                     // Rich content support
+          { type: "text", value: "..." },
+          { type: "image", src: "..." },
+          { type: "link", href: "...", label: "..." },
+          { type: "list", items: ["..."] },
+          { type: "code", value: "..." }
+        ]
+      }
+    ],
+    relatedLinks: [              // Optional related resources
+      { title: "Link Title", url: "https://..." }
+    ],
+    createdAt: timestamp,
+    updatedAt: timestamp
+  }
+}
 ```
 
 **Usage:**
 - `visitLogger.js` → writes to `public/log/`
 - `shop.html` → reads from `inventory/`
 - `workspace.html` → auth-gated features
+- `onlinejournal.html` → reads/writes to `journalArticles/` (auth-based path switching)
+- `index.html` → displays recent articles from `journalArticles/`
+
+**Path Switching Logic (onlinejournal.html & index.html):**
+```javascript
+// Not logged in
+PATH = "share/journalArticles";  // Public articles
+
+// Logged in  
+PATH = `${user.uid}/journalArticles`;  // User's private journal
+
+// Fallback: If user journal empty, show public articles
+```
 
 **Rules:**
 - Do NOT rename keys or restructure without explicit instruction
 - Assume frontend depends on exact key names
 - Prefer adding new fields over modifying existing ones
+- Journal articles support both `steps` array (backward compatible) and `content` array (rich content)
 
 ---
 
@@ -225,6 +278,31 @@ playground-e3690/
 ---
 
 ## Page-Specific Patterns
+
+### index.html — Home Page
+**Features:**
+- Hero section with value proposition
+- Divisions grid (Electronics, Workspace, Shop)
+- **Latest Updates section** — displays recent journal articles
+- CTA section
+
+**NEW: Journal Article Integration**
+```javascript
+// Auth-based article loading
+import { auth, database } from "./assets/js/firebase-init.js";
+import { onAuthStateChanged } from "firebase/auth";
+import { ref, get } from "firebase/database";
+
+let PATH = "share/journalArticles";  // Default to public
+
+onAuthStateChanged(auth, async (user) => {
+  PATH = user ? `${user.uid}/journalArticles` : "share/journalArticles";
+  await loadArticles();
+});
+
+// Display 6 most recent articles in Latest Updates section
+// Click article → navigate to onlinejournal.html?id=[timestamp]
+```
 
 ### electronics.html
 **Features:**
@@ -296,6 +374,74 @@ onValue(inventoryRef, (snapshot) => {
 
 **FormSubmit URL:** `https://formsubmit.co/ajax/luis@smartelectronicssolutions.com`
 
+### onlinejournal.html — Journal System (NEW)
+**Features:**
+- Auth-based article creation and viewing
+- Rich content editor with sections
+- Image and link support in articles
+- Visibility indicator (public vs personal journal)
+- Dynamic PATH switching based on auth state
+
+**Auth Integration:**
+```javascript
+import { auth, database } from "./assets/js/firebase-init.js";
+
+// PATH switches based on auth state
+onAuthStateChanged(auth, async (user) => {
+  if (user) {
+    PATH = `${user.uid}/journalArticles`;  // Personal journal
+    // Show editor + edit/delete buttons
+  } else {
+    PATH = "share/journalArticles";  // Public articles
+    // Hide editor, read-only mode
+  }
+  await loadArticles(true);
+});
+```
+
+**Article Rendering:**
+```javascript
+function renderArticle(id) {
+  const article = allArticles[id];
+  
+  // Display header image (if exists and not placeholder)
+  if (article.imageUrl && !article.imageUrl.includes('PLACEHOLDER')) {
+    // Render image
+  }
+  
+  // Render sections with rich content support
+  article.sections.forEach(section => {
+    // Supports both steps[] and content[] arrays
+    section.content?.forEach(item => {
+      // Render: text, image, link, list, code
+    });
+    section.steps?.forEach(step => {
+      // Backward compatibility
+    });
+  });
+  
+  // Display related links (if exists)
+  if (article.relatedLinks?.length > 0) {
+    // Render links section at bottom
+  }
+}
+```
+
+**CSS Additions for Journal:**
+```css
+.article-header-image { /* Full-width header image */ }
+.related-links { /* Related resources section */ }
+.article-img { /* Inline images */ }
+.article-link { /* Styled links */ }
+```
+
+**Rules:**
+- Logged-in users can create/edit/delete articles in their personal journal
+- Anonymous users can only view public articles
+- Path automatically switches: `share/journalArticles` ↔ `[uid]/journalArticles`
+- Articles support both legacy format (steps array) and new format (content array)
+- Images/links are filtered (skip if contains "PLACEHOLDER")
+
 ---
 
 ## How to Make Changes
@@ -306,23 +452,27 @@ Ask yourself:
 - Is this a change to **master.css** (affects all pages)?
 - Is this a change to **one specific page**?
 - Is this a change to **Firebase data structure**?
+- Is this a change to **journal system**?
 
 ### Step 2: Locate the Relevant Files
 - Shared nav/footer → `components/header.html` or `components/footer.html`
 - Styles → `assets/css/master.css`
 - Page-specific JS → `<script>` block in that page or relevant `assets/js/` file
 - Firebase config → `assets/js/firebase-config.js` ONLY
+- Journal system → `onlinejournal.html` and `index.html`
 
 ### Step 3: Make the Edit
 - **Prefer editing existing files** over creating new ones
 - **Keep changes scoped** to the relevant area
 - **Preserve existing patterns** (event delegation, CSS variables, etc.)
 - **Test across pages** if changing shared components
+- **Respect Firebase path structure** for journal articles
 
 ### Step 4: Verify
 - Check that the change works on all affected pages
 - Verify responsive behavior (mobile/desktop)
 - Test theme toggle if CSS was changed
+- **Test auth flow** if changing journal system (sign in/out)
 
 ---
 
@@ -336,6 +486,7 @@ Ask yourself:
 - Modify Firebase data structure without approval
 - Break existing relative paths
 - Over-engineer solutions
+- Change journal article Firebase paths without coordination
 
 ✅ **Do:**
 - Use vanilla JS with modern patterns
@@ -343,6 +494,7 @@ Ask yourself:
 - Use event delegation for dynamic content
 - Maintain the CSS variable system
 - Keep code clean and readable
+- Respect auth-based path switching for journal system
 
 ---
 
@@ -371,6 +523,7 @@ Ask yourself:
 - Test database reads/writes in development first
 - Preserve existing data structure
 - Add new fields, don't rename existing ones
+- **Journal system:** Respect path structure (`share/journalArticles` and `[uid]/journalArticles`)
 
 ---
 
@@ -392,6 +545,15 @@ firebase-config.js → firebase-init.js → auth.js
 components/header.html → theme toggle JS → html.light class → master.css
 ```
 
+### Journal System Flow
+```
+onlinejournal.html → firebase-init.js → auth → PATH switch
+                                             → journalArticles/[timestamp]
+
+index.html → firebase-init.js → auth → PATH switch
+                                     → display 6 recent articles
+```
+
 ---
 
 ## Common Tasks
@@ -406,7 +568,7 @@ components/header.html → theme toggle JS → html.light class → master.css
 ### Updating Shared Navigation
 1. Edit `components/header.html`
 2. Verify auto-active state logic handles new link
-3. Test on all 5 main pages
+3. Test on all main pages
 
 ### Changing Theme Colors
 1. Edit color values in `master.css` under appropriate theme selector
@@ -418,6 +580,13 @@ components/header.html → theme toggle JS → html.light class → master.css
 2. Import from `firebase-init.js` or `firebase-init-noauth.js`
 3. Structure data writes to match existing patterns
 4. Test with actual Firebase database
+
+### Modifying Journal System
+1. Understand current path structure (`share/` vs `[uid]/`)
+2. Test with both logged-in and logged-out states
+3. Verify article structure matches schema
+4. Test image/link rendering (skip placeholders)
+5. Check backward compatibility with legacy format
 
 ---
 
@@ -453,6 +622,9 @@ Before considering any change complete:
 - [ ] Active nav state is correct
 - [ ] No console errors
 - [ ] Responsive at 768px breakpoint
+- [ ] **Journal system:** Auth flow works (sign in/out)
+- [ ] **Journal system:** Articles load from correct path
+- [ ] **Journal system:** Images and links render properly
 
 ---
 
@@ -461,10 +633,10 @@ Before considering any change complete:
 **Version:** 4.1  
 **Status:** Production-ready  
 **Firebase:** playground-e3690  
-**Pages:** 5 main sections + support pages  
+**Pages:** 6 main sections (+ onlinejournal.html) + support pages  
 **Components:** Shared header/footer  
 **CSS:** Unified master.css with 6 themes  
-**JS:** 10 active files, zero dead code  
+**JS:** 11 active files, zero dead code  
 
 **Code Quality:**
 - Zero inline event handlers
@@ -472,6 +644,12 @@ Before considering any change complete:
 - Event delegation pattern throughout
 - Proper separation of concerns
 - CSP-ready
+
+**NEW Features (Session 4):**
+- Journal system with auth-based visibility
+- Rich content support (images, links, code blocks)
+- Dynamic PATH switching based on login state
+- Article display on homepage (Latest Updates)
 
 ---
 
@@ -489,4 +667,5 @@ If a change makes the codebase harder to understand, reconsider the approach.
 ---
 
 *Last Updated: April 20, 2026*  
-*Platform Version: 4.1*
+*Platform Version: 4.1*  
+*Major Updates: Journal system integration, auth-based article visibility*
