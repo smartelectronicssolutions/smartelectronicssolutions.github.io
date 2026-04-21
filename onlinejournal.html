@@ -417,6 +417,7 @@
 
             <div class="article-actions" style="display: none;">
               <button class="btn" id="editArticleBtn" type="button">Edit Article</button>
+              <button class="btn btn-outline" id="moveArticleBtn" type="button">Move Article</button>
               <button class="btn btn-outline" id="deleteArticleBtn" type="button">Delete Article</button>
             </div>
           </div>
@@ -486,8 +487,8 @@
     const backToListBtn = document.getElementById("backToListBtn");
     const refreshListBtn = document.getElementById("refreshListBtn");
     const editArticleBtn = document.getElementById("editArticleBtn");
+    const moveArticleBtn = document.getElementById("moveArticleBtn");
     const deleteArticleBtn = document.getElementById("deleteArticleBtn");
-
     /* =========================
        AUTH HANDLING
     ========================= */
@@ -784,16 +785,16 @@
       articleView.style.display = "block";
 
       articleTitle.textContent = a.title;
-      
+
       const dateStr = new Date(a.createdAt || Date.now()).toLocaleDateString('en-US', {
         year: 'numeric',
         month: 'long',
         day: 'numeric'
       });
       articleDate.textContent = dateStr;
-      
+
       articleDescription.textContent = a.description || "";
-      
+
       articleTags.innerHTML = "";
       if (a.tags && a.tags.length > 0) {
         a.tags.forEach(tag => {
@@ -803,19 +804,25 @@
           articleTags.appendChild(span);
         });
       }
-      
+
       let headerImageHtml = "";
       if (a.imageUrl && !a.imageUrl.includes('PLACEHOLDER')) {
         headerImageHtml = `<img src="${a.imageUrl}" class="article-header-image" onerror="this.style.display='none'">`;
       }
-      
+
       articleSections.innerHTML = headerImageHtml + renderArticleContent(a);
 
       if (currentUser) {
         editArticleBtn.style.display = "inline-block";
+        moveArticleBtn.style.display = "inline-block";
         deleteArticleBtn.style.display = "inline-block";
+
+        moveArticleBtn.textContent = a.__scope === "public"
+          ? "Move to Private"
+          : "Move to Public";
       } else {
         editArticleBtn.style.display = "none";
+        moveArticleBtn.style.display = "none";
         deleteArticleBtn.style.display = "none";
       }
     }
@@ -839,6 +846,53 @@
       location.search = "";
     }
 
+    async function moveArticle() {
+      if (!currentUser || !currentArticleId || !allArticles[currentArticleId]) return;
+
+      const article = allArticles[currentArticleId];
+      const realId = article.__id;
+
+      const fromPath = article.__path;
+      const toPath = article.__scope === "public"
+        ? `${currentUser.uid}/journalArticles`
+        : "share/journalArticles";
+
+      const nextScope = article.__scope === "public" ? "private" : "public";
+      const confirmMsg = article.__scope === "public"
+        ? "Move this article to your private journal?"
+        : "Move this article to the public journal?";
+
+      if (!confirm(confirmMsg)) return;
+
+      try {
+        moveArticleBtn.disabled = true;
+        moveArticleBtn.textContent = "Moving...";
+
+        const payload = { ...article };
+        delete payload.__id;
+        delete payload.__path;
+        delete payload.__scope;
+
+        payload.updatedAt = Date.now();
+
+        await set(ref(database, `${toPath}/${realId}`), payload);
+        await remove(ref(database, `${fromPath}/${realId}`));
+
+        await loadArticles();
+
+        const newRowKey = `${nextScope}__${realId}`;
+        currentArticleId = newRowKey;
+        renderArticle(newRowKey);
+
+        setStatus(`Moved to ${nextScope} ✓`);
+      } catch (err) {
+        console.error(err);
+        setStatus("Move failed", true);
+      } finally {
+        moveArticleBtn.disabled = false;
+        moveArticleBtn.textContent = "Move Article";
+      }
+    }
     /* =========================
        EVENTS
     ========================= */
@@ -871,15 +925,15 @@
           content: section.content || []
         };
       });
-      
+
       renderSections();
-      
+
       // Scroll to editor
       document.getElementById("editorPanel").scrollIntoView({ behavior: "smooth" });
     };
 
     deleteArticleBtn.onclick = deleteArticle;
-
+    moveArticleBtn.onclick = moveArticle;
     renderSections();
   </script>
   <script type="module" src="assets/js/auth.js"></script>
