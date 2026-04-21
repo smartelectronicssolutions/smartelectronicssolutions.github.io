@@ -273,19 +273,54 @@
 
     <script src="assets/js/main.js"></script>
     <script type="module">
-        import { database } from "./assets/js/firebase-init-noauth.js";
-        import { ref, onValue } from "https://www.gstatic.com/firebasejs/9.1.3/firebase-database.js";
+        import { auth, database } from "./assets/js/firebase-init-noauth.js";
+        import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.1.3/firebase-auth.js";
+        import { ref, get } from "https://www.gstatic.com/firebasejs/9.1.3/firebase-database.js";
 
         const updatesGrid = document.getElementById("updatesGrid");
+        let PATH = "share/journalArticles"; // Default to public
 
-        const journalRef = ref(database, "share/journalArticles");
+        // Auth state listener - updates PATH dynamically
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                // Logged in → try user's journal first, fallback to share
+                PATH = `${user.uid}/journalArticles`;
+            } else {
+                // Not logged in → public share folder
+                PATH = "share/journalArticles";
+            }
 
-        onValue(journalRef, (snapshot) => {
-            const data = snapshot.val();
-            if (!data || !updatesGrid) return;
+            await loadArticles();
+        });
 
-            updatesGrid.innerHTML = "";
+        async function loadArticles() {
+            try {
+                const snapshot = await get(ref(database, PATH));
+                const data = snapshot.val();
 
+                if (!updatesGrid) return;
+
+                updatesGrid.innerHTML = "";
+
+                if (!data || Object.keys(data).length === 0) {
+                    // If user's journal is empty, show public articles
+                    if (PATH.includes('/')) {
+                        const publicSnapshot = await get(ref(database, "share/journalArticles"));
+                        const publicData = publicSnapshot.val();
+                        if (publicData) {
+                            renderArticles(publicData);
+                        }
+                    }
+                    return;
+                }
+
+                renderArticles(data);
+            } catch (error) {
+                console.error("Error loading articles:", error);
+            }
+        }
+
+        function renderArticles(data) {
             const entries = Object.entries(data)
                 .sort((a, b) => b[0] - a[0])
                 .slice(0, 6);
@@ -300,16 +335,14 @@
                     <p>${article.description || ""}</p>
                 `;
 
-                /*
                 div.style.cursor = "pointer";
                 div.onclick = () => {
                     window.location.href = `onlinejournal.html?id=${id}`;
                 };
-                */
-               
+
                 updatesGrid.appendChild(div);
             });
-        });
+        }
     </script>
 </body>
 

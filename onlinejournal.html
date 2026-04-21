@@ -194,6 +194,16 @@
       background: var(--surface2);
     }
 
+    .auth-indicator {
+      padding: 8px 12px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
     @media (max-width: 980px) {
       .journal-layout {
         grid-template-columns: 1fr;
@@ -207,6 +217,8 @@
 
   <main>
     <div class="journal-shell">
+      <div class="auth-indicator" id="authIndicator">Loading...</div>
+
       <div class="journal-layout">
 
         <!-- LEFT: EDITOR -->
@@ -273,19 +285,36 @@
   <script src="assets/js/main.js"></script>
 
   <script type="module">
-    import { database } from "./assets/js/firebase-init-noauth.js";
+    import { auth, database } from "./assets/js/firebase-init-noauth.js";
     import {
       ref,
       set,
       get,
-      onValue,
       remove
     } from "https://www.gstatic.com/firebasejs/9.1.3/firebase-database.js";
 
-    const PATH = "share/journalArticles";
+    import {
+      onAuthStateChanged
+    } from "https://www.gstatic.com/firebasejs/9.1.3/firebase-auth.js";
 
-    const params = new URLSearchParams(window.location.search);
-    const entryIdFromURL = params.get("id");
+    /* =========================
+       GLOBAL STATE
+    ========================= */
+
+    let PATH = "share/journalArticles";
+    let currentUser = null;
+
+    let sections = [];
+    let allArticles = {};
+    let currentArticleId = null;
+    let editingId = null;
+    let isSaving = false;
+
+    /* =========================
+       ELEMENTS
+    ========================= */
+
+    const authIndicator = document.getElementById("authIndicator");
 
     const titleInput = document.getElementById("title");
     const descriptionInput = document.getElementById("description");
@@ -313,79 +342,65 @@
     const editArticleBtn = document.getElementById("editArticleBtn");
     const deleteArticleBtn = document.getElementById("deleteArticleBtn");
 
-    let sections = [];
-    let allArticles = {};
-    let currentArticleId = null;
-    let editingId = null;
-    let isSaving = false;
+    /* =========================
+       AUTH HANDLING
+    ========================= */
 
-    function setStatus(message, isError = false) {
-      statusLine.textContent = message || "";
-      statusLine.style.color = isError ? "#ff8a8a" : "var(--muted)";
+    onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        PATH = `${user.uid}/journalArticles`;
+        currentUser = user;
+
+        authIndicator.textContent = `Personal Journal (${user.email})`;
+        authIndicator.style.background = "var(--primary)";
+        authIndicator.style.color = "#000";
+
+      } else {
+        PATH = "share/journalArticles";
+        currentUser = null;
+
+        authIndicator.textContent = "Public Shared Journal";
+        authIndicator.style.background = "var(--surface2)";
+        authIndicator.style.color = "var(--muted)";
+      }
+
+      await loadArticles(true);
+    });
+
+    /* =========================
+       HELPERS
+    ========================= */
+
+    function setStatus(msg, err = false) {
+      statusLine.textContent = msg || "";
+      statusLine.style.color = err ? "#ff6b6b" : "var(--muted)";
     }
 
-    function escapeHtml(value) {
-      return String(value ?? "")
+    function escapeHtml(v) {
+      return String(v ?? "")
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;");
+        .replace(/>/g, "&gt;");
     }
 
-    function normalizeSection(section) {
-      return {
-        title: String(section?.title || "").trim(),
-        summary: String(section?.summary || "").trim(),
-        steps: Array.isArray(section?.steps)
-          ? section.steps.map(step => String(step || "").trim()).filter(Boolean)
-          : []
-      };
+    function getTags() {
+      return tagsInput.value.split(",").map(t => t.trim()).filter(Boolean);
     }
 
-    function getCleanTags() {
-      return tagsInput.value
-        .split(",")
-        .map(tag => tag.trim())
-        .filter(Boolean);
+    function getSections() {
+      return sections.map(s => ({
+        title: s.title.trim(),
+        summary: s.summary.trim(),
+        steps: s.steps.map(x => x.trim()).filter(Boolean)
+      })).filter(s => s.title || s.summary || s.steps.length);
     }
 
-    function getCleanSections() {
-      return (sections || []).map(normalizeSection).filter(sec => {
-        return sec.title || sec.summary || sec.steps.length;
-      });
-    }
+    /* =========================
+       SECTIONS
+    ========================= */
 
-    function clearForm() {
-      titleInput.value = "";
-      descriptionInput.value = "";
-      tagsInput.value = "";
-      sections = [];
-      editingId = null;
-      editorTitle.textContent = "Create Article";
-      saveBtn.textContent = "Save Article";
-      renderSections();
-      setStatus("Form cleared.");
-    }
-
-    function loadArticleIntoEditor(id, article) {
-      editingId = id;
-      titleInput.value = article?.title || "";
-      descriptionInput.value = article?.description || "";
-      tagsInput.value = Array.isArray(article?.tags) ? article.tags.join(", ") : "";
-      sections = Array.isArray(article?.sections)
-        ? article.sections.map(normalizeSection)
-        : [];
-
-      editorTitle.textContent = "Edit Article";
-      saveBtn.textContent = "Update Article";
-      renderSections();
-      setStatus("Article loaded into editor.");
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }
-
-    function addSection(section = { title: "", summary: "", steps: [] }) {
-      sections.push(normalizeSection(section));
+    function addSection(sec = { title: "", summary: "", steps: [] }) {
+      sections.push(sec);
       renderSections();
     }
 
@@ -393,344 +408,217 @@
       sectionsContainer.innerHTML = "";
 
       if (!sections.length) {
-        sectionsContainer.innerHTML = `
-          <div class="empty-state">
-            No sections yet. Click "Add Section" to start building the article.
-          </div>
-        `;
+        sectionsContainer.innerHTML = `<div class="empty-state">No sections yet</div>`;
         return;
       }
 
-      sections.forEach((section, index) => {
+      sections.forEach((s, i) => {
         const div = document.createElement("div");
         div.className = "section-card";
 
         div.innerHTML = `
-          <h4>Section ${index + 1}</h4>
-
-          <label>Section Title</label>
-          <input
-            type="text"
-            class="sec-title"
-            data-index="${index}"
-            value="${escapeHtml(section.title)}"
-            placeholder="Section title"
-          />
-
-          <label>Summary</label>
-          <textarea
-            class="sec-summary"
-            data-index="${index}"
-            placeholder="Section summary"
-          >${escapeHtml(section.summary)}</textarea>
-
-          <label>Steps (one per line)</label>
-          <textarea
-            class="sec-steps"
-            data-index="${index}"
-            placeholder="Step 1&#10;Step 2&#10;Step 3"
-          >${escapeHtml(section.steps.join("\n"))}</textarea>
-
-          <div class="actions">
-            <button class="btn btn-outline move-up" type="button" data-index="${index}">Move Up</button>
-            <button class="btn btn-outline move-down" type="button" data-index="${index}">Move Down</button>
-            <button class="btn btn-outline delete-sec" type="button" data-index="${index}">Remove</button>
-          </div>
-        `;
+      <h4>Section ${i + 1}</h4>
+      <input data-i="${i}" class="title" value="${escapeHtml(s.title)}" placeholder="Title"/>
+      <textarea data-i="${i}" class="summary">${escapeHtml(s.summary)}</textarea>
+      <textarea data-i="${i}" class="steps">${escapeHtml(s.steps.join("\n"))}</textarea>
+      <div class="actions">
+        <button data-i="${i}" class="up">↑</button>
+        <button data-i="${i}" class="down">↓</button>
+        <button data-i="${i}" class="del">Remove</button>
+      </div>
+    `;
 
         sectionsContainer.appendChild(div);
       });
 
-      document.querySelectorAll(".sec-title").forEach(el => {
-        el.addEventListener("input", (e) => {
-          const i = Number(e.target.dataset.index);
-          if (!Number.isNaN(i) && sections[i]) {
-            sections[i].title = e.target.value;
-          }
-        });
+      document.querySelectorAll(".title").forEach(el => {
+        el.oninput = e => sections[e.target.dataset.i].title = e.target.value;
       });
 
-      document.querySelectorAll(".sec-summary").forEach(el => {
-        el.addEventListener("input", (e) => {
-          const i = Number(e.target.dataset.index);
-          if (!Number.isNaN(i) && sections[i]) {
-            sections[i].summary = e.target.value;
-          }
-        });
+      document.querySelectorAll(".summary").forEach(el => {
+        el.oninput = e => sections[e.target.dataset.i].summary = e.target.value;
       });
 
-      document.querySelectorAll(".sec-steps").forEach(el => {
-        el.addEventListener("input", (e) => {
-          const i = Number(e.target.dataset.index);
-          if (!Number.isNaN(i) && sections[i]) {
-            sections[i].steps = e.target.value
-              .split("\n")
-              .map(step => step.trim())
-              .filter(Boolean);
-          }
-        });
+      document.querySelectorAll(".steps").forEach(el => {
+        el.oninput = e => {
+          sections[e.target.dataset.i].steps = e.target.value.split("\n");
+        };
       });
 
-      document.querySelectorAll(".delete-sec").forEach(btn => {
-        btn.addEventListener("click", () => {
-          const i = Number(btn.dataset.index);
-          if (!Number.isNaN(i)) {
-            sections.splice(i, 1);
-            renderSections();
-            setStatus("Section removed.");
-          }
-        });
-      });
-
-      document.querySelectorAll(".move-up").forEach(btn => {
-        btn.addEventListener("click", () => {
-          const i = Number(btn.dataset.index);
-          if (i > 0) {
-            [sections[i - 1], sections[i]] = [sections[i], sections[i - 1]];
-            renderSections();
-          }
-        });
-      });
-
-      document.querySelectorAll(".move-down").forEach(btn => {
-        btn.addEventListener("click", () => {
-          const i = Number(btn.dataset.index);
-          if (i < sections.length - 1) {
-            [sections[i + 1], sections[i]] = [sections[i], sections[i + 1]];
-            renderSections();
-          }
-        });
+      document.querySelectorAll(".del").forEach(btn => {
+        btn.onclick = () => {
+          sections.splice(btn.dataset.i, 1);
+          renderSections();
+        };
       });
     }
+
+    /* =========================
+       SAVE
+    ========================= */
 
     async function saveArticle() {
       if (isSaving) return;
 
+      const title = titleInput.value.trim();
+      if (!title) return setStatus("Title required", true);
+
       try {
         isSaving = true;
         saveBtn.disabled = true;
-        setStatus("Saving article...");
-
-        const title = titleInput.value.trim();
-        const description = descriptionInput.value.trim();
-        const tags = getCleanTags();
-        const cleanSections = getCleanSections();
-
-        if (!title) {
-          setStatus("Title is required.", true);
-          return;
-        }
 
         const id = editingId || Date.now().toString();
-        const existing = editingId && allArticles[editingId] ? allArticles[editingId] : null;
 
         const payload = {
           title,
-          description,
-          tags,
-          date: existing?.date || new Date().toISOString(),
+          description: descriptionInput.value.trim(),
+          tags: getTags(),
+          sections: getSections(),
           updatedAt: Date.now(),
-          createdAt: existing?.createdAt || Date.now(),
-          sections: cleanSections
+          createdAt: editingId ? allArticles[id].createdAt : Date.now()
         };
-
-        console.log("Saving article payload:", payload);
-        console.log("Payload JSON:", JSON.stringify(payload));
 
         await set(ref(database, `${PATH}/${id}`), payload);
 
-        await loadArticles();
-
         editingId = id;
         currentArticleId = id;
-        setStatus("Article saved.");
-        alert("Saved");
 
-        const fresh = await get(ref(database, `${PATH}/${id}`));
-        if (fresh.exists()) {
-          renderArticle(id, fresh.val());
-        }
-      } catch (err) {
-        console.error("Save failed:", err);
-        setStatus(`Save failed: ${err.message || err}`, true);
-        alert(`Save failed: ${err.message || err}`);
-      } finally {
-        isSaving = false;
-        saveBtn.disabled = false;
+        await loadArticles();
+
+        setStatus("Saved ✓");
+
+      } catch (e) {
+        console.error(e);
+        setStatus("Save failed", true);
+      }
+
+      isSaving = false;
+      saveBtn.disabled = false;
+    }
+
+    /* =========================
+       LOAD / LIST
+    ========================= */
+
+    async function loadArticles(initial = false) {
+      const snap = await get(ref(database, PATH));
+      allArticles = snap.exists() ? snap.val() : {};
+
+      renderList();
+
+      if (initial) {
+        const params = new URLSearchParams(location.search);
+        const id = params.get("id");
+        if (id && allArticles[id]) renderArticle(id);
       }
     }
 
-    function renderList(data) {
+    function renderList() {
       listEl.innerHTML = "";
 
-      const entries = Object.entries(data || {}).sort((a, b) => Number(b[0]) - Number(a[0]));
+      Object.entries(allArticles)
+        .sort((a, b) => b[0] - a[0])
+        .forEach(([id, a]) => {
 
-      if (!entries.length) {
-        listEl.innerHTML = `
-          <div class="empty-state">
-            No articles saved yet.
-          </div>
-        `;
-        return;
-      }
+          const div = document.createElement("div");
+          div.className = "entry-card";
 
-      entries.forEach(([id, article]) => {
-        const div = document.createElement("div");
-        div.className = "entry-card";
+          div.innerHTML = `
+        <h3>${escapeHtml(a.title)}</h3>
+        <p>${escapeHtml(a.description || "")}</p>
+      `;
 
-        const preview =
-          article?.description ||
-          article?.sections?.[0]?.summary ||
-          "No preview available.";
+          div.onclick = () => {
+            location.search = `?id=${id}`;
+          };
 
-        div.innerHTML = `
-          <small>${escapeHtml(article?.date || "")}</small>
-          <h3>${escapeHtml(article?.title || "Untitled Article")}</h3>
-          <p>${escapeHtml(preview)}</p>
-        `;
-
-        div.addEventListener("click", () => {
-          window.location.href = `onlinejournal.html?id=${id}`;
+          listEl.appendChild(div);
         });
-
-        listEl.appendChild(div);
-      });
     }
 
-    function renderArticle(id, article) {
+    /* =========================
+       VIEW
+    ========================= */
+
+    function renderArticle(id) {
+      const a = allArticles[id];
+      if (!a) return;
+
       currentArticleId = id;
 
       listView.style.display = "none";
       articleView.style.display = "block";
 
-      articleTitle.textContent = article?.title || "Untitled Article";
-      articleDate.textContent = article?.date || "";
-      articleDescription.textContent = article?.description || "";
-
-      articleTags.innerHTML = "";
-      (article?.tags || []).forEach(tag => {
-        const span = document.createElement("span");
-        span.className = "tag";
-        span.textContent = tag;
-        articleTags.appendChild(span);
-      });
+      articleTitle.textContent = a.title;
+      articleDescription.textContent = a.description || "";
 
       articleSections.innerHTML = "";
 
-      const sectionsToRender = Array.isArray(article?.sections) ? article.sections : [];
-
-      if (!sectionsToRender.length) {
-        articleSections.innerHTML = `
-          <div class="empty-state">
-            This article does not have any sections yet.
-          </div>
-        `;
-        return;
-      }
-
-      sectionsToRender.forEach(section => {
+      (a.sections || []).forEach(s => {
         const div = document.createElement("div");
-        div.className = "article-section";
-
-        const titleHtml = escapeHtml(section?.title || "");
-        const summaryHtml = escapeHtml(section?.summary || "");
-        const steps = Array.isArray(section?.steps) ? section.steps : [];
 
         div.innerHTML = `
-          ${titleHtml ? `<h3>${titleHtml}</h3>` : ""}
-          ${summaryHtml ? `<p>${summaryHtml}</p>` : ""}
-          ${steps.length ? `
-            <ul>
-              ${steps.map(step => `<li>${escapeHtml(step)}</li>`).join("")}
-            </ul>
-          ` : ""}
-        `;
+      <h3>${escapeHtml(s.title)}</h3>
+      <p>${escapeHtml(s.summary)}</p>
+      <ul>${(s.steps || []).map(x => `<li>${escapeHtml(x)}</li>`).join("")}</ul>
+    `;
 
         articleSections.appendChild(div);
       });
+
+      // SHOW edit/delete ONLY if user owns data
+      if (currentUser) {
+        editArticleBtn.style.display = "inline-block";
+        deleteArticleBtn.style.display = "inline-block";
+      }
     }
 
-    function showListView() {
-      articleView.style.display = "none";
-      listView.style.display = "block";
-      currentArticleId = null;
-    }
+    /* =========================
+       DELETE
+    ========================= */
 
-    async function deleteCurrentArticle() {
+    async function deleteArticle() {
       if (!currentArticleId) return;
 
-      const confirmed = confirm("Delete this article?");
-      if (!confirmed) return;
+      if (!confirm("Delete?")) return;
 
-      try {
-        await remove(ref(database, `${PATH}/${currentArticleId}`));
-        setStatus("Article deleted.");
+      await remove(ref(database, `${PATH}/${currentArticleId}`));
 
-        if (editingId === currentArticleId) {
-          clearForm();
-        }
-
-        currentArticleId = null;
-        showListView();
-
-        if (window.location.search.includes("id=")) {
-          history.replaceState({}, "", "onlinejournal.html");
-        }
-      } catch (err) {
-        console.error("Delete failed:", err);
-        setStatus(`Delete failed: ${err.message || err}`, true);
-      }
+      currentArticleId = null;
+      location.search = "";
     }
 
-    async function loadInitialView() {
-      const snap = await get(ref(database, PATH));
-      allArticles = snap.exists() ? snap.val() : {};
+    /* =========================
+       EVENTS
+    ========================= */
 
-      if (entryIdFromURL && allArticles[entryIdFromURL]) {
-        renderArticle(entryIdFromURL, allArticles[entryIdFromURL]);
-      } else {
-        showListView();
-        renderList(allArticles);
-      }
-    }
+    addSectionBtn.onclick = () => addSection();
+    saveBtn.onclick = saveArticle;
+    clearFormBtn.onclick = () => location.reload();
 
-    async function loadArticles() {
-      const snap = await get(ref(database, PATH));
-      allArticles = snap.exists() ? snap.val() : {};
+    backToListBtn.onclick = () => {
+      location.search = "";
+    };
 
-      if (currentArticleId && allArticles[currentArticleId]) {
-        renderArticle(currentArticleId, allArticles[currentArticleId]);
-        return;
-      }
+    refreshListBtn.onclick = () => loadArticles();
 
-      if (entryIdFromURL && allArticles[entryIdFromURL]) {
-        renderArticle(entryIdFromURL, allArticles[entryIdFromURL]);
-        return;
-      }
+    editArticleBtn.onclick = () => {
+      const a = allArticles[currentArticleId];
+      if (!a) return;
 
-      renderList(allArticles);
-    }
+      editingId = currentArticleId;
 
-    addSectionBtn.addEventListener("click", () => addSection());
-    saveBtn.addEventListener("click", saveArticle);
-    clearFormBtn.addEventListener("click", clearForm);
-    backToListBtn.addEventListener("click", () => {
-      history.replaceState({}, "", "onlinejournal.html");
-      showListView();
-      renderList(allArticles);
-    });
-    refreshListBtn.addEventListener("click", () => renderList(allArticles));
+      titleInput.value = a.title;
+      descriptionInput.value = a.description;
+      tagsInput.value = (a.tags || []).join(", ");
 
-    editArticleBtn.addEventListener("click", () => {
-      if (currentArticleId && allArticles[currentArticleId]) {
-        loadArticleIntoEditor(currentArticleId, allArticles[currentArticleId]);
-      }
-    });
+      sections = a.sections || [];
+      renderSections();
+    };
 
-    deleteArticleBtn.addEventListener("click", deleteCurrentArticle);
+    deleteArticleBtn.onclick = deleteArticle;
 
     renderSections();
-    loadInitialView();
   </script>
 </body>
 
