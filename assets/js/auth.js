@@ -16,6 +16,18 @@ let currentUserUID = null;
 let authBtn, authLabel, loginBox;
 let emailInput, passwordInput, doLogin;
 
+// 🔔 GLOBAL AUTH LISTENERS
+window.__authListeners = [];
+
+export function onUserReady(callback) {
+  window.__authListeners.push(callback);
+
+  // If already logged in, fire immediately
+  if (window.currentUser !== undefined) {
+    callback(window.currentUser);
+  }
+}
+
 // 🔐 AUTH STATE LISTENER
 if (!window.authListenerAttached) {
   window.authListenerAttached = true;
@@ -43,6 +55,9 @@ if (!window.authListenerAttached) {
 
       console.log("No user");
     }
+
+    // 🔥 NEW: notify all listeners
+    window.__authListeners.forEach((cb) => cb(user));
   });
 }
 

@@ -237,19 +237,17 @@
       background: var(--surface2);
     }
 
-    /* ===== AUTH BAR ===== */
-
-    .auth-indicator {
-      padding: 8px 12px;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      font-size: 0.85rem;
-      color: var(--muted);
-      margin-bottom: 12px;
-    }
-
     /* ===== RICH CONTENT ===== */
+
+    /* Article header image */
+    .article-header-image {
+      width: 100%;
+      max-height: 400px;
+      object-fit: cover;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      border: 1px solid var(--border);
+    }
 
     .article-img {
       width: 100%;
@@ -285,6 +283,45 @@
       text-decoration: underline;
     }
 
+    /* Related links section */
+    .related-links {
+      margin-top: 32px;
+      padding-top: 24px;
+      border-top: 2px solid var(--border);
+    }
+
+    .related-links h4 {
+      margin-bottom: 12px;
+      color: var(--primary);
+      font-size: 1rem;
+    }
+
+    .related-links ul {
+      list-style: none;
+      padding: 0;
+    }
+
+    .related-links li {
+      margin-bottom: 8px;
+    }
+
+    .related-links a {
+      color: var(--primary);
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .related-links a:hover {
+      text-decoration: underline;
+    }
+
+    .related-links a::before {
+      content: "→";
+      font-weight: bold;
+    }
+
     /* ===== MOBILE ===== */
 
     @media (max-width: 980px) {
@@ -304,6 +341,28 @@
 
   <main>
     <div class="journal-shell">
+
+      <div class="auth-bar">
+        <div style="display: flex; align-items: center; gap: 8px">
+          <span id="auth-label">Not signed in</span>
+          <button class="btn" id="auth-btn">Sign In</button>
+        </div>
+      </div>
+
+      <div id="login-inline">
+        <h3>Sign In</h3>
+        <input type="email" id="email-in" placeholder="Email" />
+        <input type="password" id="pass-in" placeholder="Password" />
+        <button class="btn" style="width: 100%; margin: 4px 0 0" id="do-login">
+          Sign In
+        </button>
+        <p id="auth-err" style="
+                color: #e05a5a;
+                font-size: 0.78rem;
+                display: none;
+                margin-top: 6px;
+              "></p>
+      </div>
       <div class="auth-indicator" id="authIndicator">Loading...</div>
 
       <div class="journal-layout">
@@ -380,13 +439,13 @@
       remove
     } from "https://www.gstatic.com/firebasejs/9.1.3/firebase-database.js";
 
-    import {
-      onAuthStateChanged
-    } from "https://www.gstatic.com/firebasejs/9.1.3/firebase-auth.js";
+    import { onUserReady } from "./assets/js/auth.js";
+
+    import { renderArticleContent } from "./assets/js/onlinejournal.js";
 
     /* =========================
-       GLOBAL STATE
-    ========================= */
+           GLOBAL STATE
+        ========================= */
 
     let PATH = "share/journalArticles";
     let currentUser = null;
@@ -433,7 +492,7 @@
        AUTH HANDLING
     ========================= */
 
-    onAuthStateChanged(auth, async (user) => {
+    onUserReady(async (user) => {
       const editorPanel = document.getElementById("editorPanel");
       const articleActions = document.querySelector(".article-actions");
 
@@ -445,7 +504,6 @@
         authIndicator.style.background = "var(--primary)";
         authIndicator.style.color = "#000";
 
-        // ✅ SHOW editor + actions
         if (editorPanel) editorPanel.style.display = "block";
         if (articleActions) articleActions.style.display = "flex";
 
@@ -457,7 +515,6 @@
         authIndicator.style.background = "var(--surface2)";
         authIndicator.style.color = "var(--muted)";
 
-        // ❌ HIDE editor + actions
         if (editorPanel) editorPanel.style.display = "none";
         if (articleActions) articleActions.style.display = "none";
       }
@@ -489,11 +546,7 @@
       return sections.map(s => ({
         title: s.title.trim(),
         summary: s.summary.trim(),
-
-        // KEEP BOTH systems
         steps: s.steps.map(x => x.trim()).filter(Boolean),
-
-        // 🔥 NEW: preserve rich content
         content: s.content || []
       })).filter(s => s.title || s.summary || s.steps.length || (s.content && s.content.length));
     }
@@ -567,11 +620,8 @@
           if (!sections[i]) return;
 
           sections[i].content = sections[i].content || [];
-
-          // remove old image
           sections[i].content = sections[i].content.filter(c => c.type !== "image");
 
-          // add new image
           if (e.target.value.trim()) {
             sections[i].content.push({
               type: "image",
@@ -603,7 +653,19 @@
         isSaving = true;
         saveBtn.disabled = true;
 
-        const id = editingId || Date.now().toString();
+        // Existing article saves back to where it came from.
+        // New article saves to current PATH.
+        const sourcePath = editingId && allArticles[editingId]
+          ? allArticles[editingId].__path
+          : PATH;
+
+        const realId = editingId && allArticles[editingId]
+          ? allArticles[editingId].__id
+          : Date.now().toString();
+
+        const existing = editingId && allArticles[editingId]
+          ? allArticles[editingId]
+          : null;
 
         const payload = {
           title,
@@ -611,18 +673,17 @@
           tags: getTags(),
           sections: getSections(),
           updatedAt: Date.now(),
-          createdAt: editingId ? allArticles[id].createdAt : Date.now()
+          createdAt: existing?.createdAt || Date.now()
         };
 
-        await set(ref(database, `${PATH}/${id}`), payload);
+        await set(ref(database, `${sourcePath}/${realId}`), payload);
 
-        editingId = id;
-        currentArticleId = id;
+        editingId = null;
+        currentArticleId = null;
 
         await loadArticles();
 
         setStatus("Saved ✓");
-
       } catch (e) {
         console.error(e);
         setStatus("Save failed", true);
@@ -637,8 +698,39 @@
     ========================= */
 
     async function loadArticles(initial = false) {
-      const snap = await get(ref(database, PATH));
-      allArticles = snap.exists() ? snap.val() : {};
+      const combined = {};
+
+      // Always load public
+      const publicPath = "share/journalArticles";
+      const publicSnap = await get(ref(database, publicPath));
+      const publicData = publicSnap.exists() ? publicSnap.val() : {};
+
+      Object.entries(publicData).forEach(([id, article]) => {
+        combined[`public__${id}`] = {
+          ...article,
+          __id: id,
+          __path: publicPath,
+          __scope: "public"
+        };
+      });
+
+      // Only load private when logged in
+      if (currentUser) {
+        const privatePath = `${currentUser.uid}/journalArticles`;
+        const privateSnap = await get(ref(database, privatePath));
+        const privateData = privateSnap.exists() ? privateSnap.val() : {};
+
+        Object.entries(privateData).forEach(([id, article]) => {
+          combined[`private__${id}`] = {
+            ...article,
+            __id: id,
+            __path: privatePath,
+            __scope: "private"
+          };
+        });
+      }
+
+      allArticles = combined;
 
       renderList();
 
@@ -653,19 +745,25 @@
       listEl.innerHTML = "";
 
       Object.entries(allArticles)
-        .sort((a, b) => b[0] - a[0])
-        .forEach(([id, a]) => {
-
+        .sort((a, b) => {
+          const aTime = a[1].updatedAt || a[1].createdAt || 0;
+          const bTime = b[1].updatedAt || b[1].createdAt || 0;
+          return bTime - aTime;
+        })
+        .forEach(([rowKey, a]) => {
           const div = document.createElement("div");
           div.className = "entry-card";
 
+          const scopeLabel = a.__scope === "private" ? "Private" : "Public";
+
           div.innerHTML = `
+        <small>${scopeLabel}</small>
         <h3>${escapeHtml(a.title)}</h3>
         <p>${escapeHtml(a.description || "")}</p>
       `;
 
           div.onclick = () => {
-            location.search = `?id=${id}`;
+            location.search = `?id=${encodeURIComponent(rowKey)}`;
           };
 
           listEl.appendChild(div);
@@ -687,70 +785,8 @@
 
       articleTitle.textContent = a.title;
       articleDescription.textContent = a.description || "";
+      articleSections.innerHTML = renderArticleContent(a);
 
-      articleSections.innerHTML = "";
-
-      (a.sections || []).forEach(section => {
-        const div = document.createElement("div");
-        div.className = "article-section";
-
-        let html = "";
-
-        // Section title
-        if (section.title) {
-          html += `<h3>${escapeHtml(section.title)}</h3>`;
-        }
-
-        // Section summary
-        if (section.summary) {
-          html += `<p>${escapeHtml(section.summary)}</p>`;
-        }
-
-        // 🔥 NEW: rich content support
-        (section.content || []).forEach(item => {
-          if (item.type === "text") {
-            html += `<p>${escapeHtml(item.value)}</p>`;
-          }
-
-          if (item.type === "link") {
-            html += `
-    <p>
-      <a href="${item.href}" target="_blank" class="article-link">
-        ${escapeHtml(item.label || item.href)}
-      </a>
-    </p>
-  `;
-          }
-
-          if (item.type === "image") {
-            html += `<img src="${item.src}" class="article-img">`;
-          }
-
-          if (item.type === "list") {
-            html += `<ul>${item.items.map(i => `<li>${escapeHtml(i)}</li>`).join("")}</ul>`;
-          }
-
-          renderArticle
-
-          if (item.type === "code") {
-            html += `
-          <div class="code-block">
-            <pre><code>${escapeHtml(item.value)}</code></pre>
-          </div>
-        `;
-          }
-        });
-
-        // 🔁 BACKWARD COMPATIBILITY (your existing data still works)
-        if (section.steps) {
-          html += `<ul>${section.steps.map(s => `<li>${escapeHtml(s)}</li>`).join("")}</ul>`;
-        }
-
-        div.innerHTML = html;
-        articleSections.appendChild(div);
-      });
-
-      // Show/hide edit/delete
       if (currentUser) {
         editArticleBtn.style.display = "inline-block";
         deleteArticleBtn.style.display = "inline-block";
@@ -759,18 +795,23 @@
         deleteArticleBtn.style.display = "none";
       }
     }
+
     /* =========================
        DELETE
     ========================= */
 
     async function deleteArticle() {
-      if (!currentArticleId) return;
+      if (!currentArticleId || !allArticles[currentArticleId]) return;
 
       if (!confirm("Delete?")) return;
 
-      await remove(ref(database, `${PATH}/${currentArticleId}`));
+      const sourcePath = allArticles[currentArticleId].__path;
+      const realId = allArticles[currentArticleId].__id;
+
+      await remove(ref(database, `${sourcePath}/${realId}`));
 
       currentArticleId = null;
+      editingId = null;
       location.search = "";
     }
 
@@ -806,6 +847,8 @@
 
     renderSections();
   </script>
+  <script type="module" src="assets/js/auth.js"></script>
+
 </body>
 
 </html>
