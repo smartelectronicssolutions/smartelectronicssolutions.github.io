@@ -5,6 +5,41 @@ document.addEventListener("DOMContentLoaded", () => {
     "components/header.html",
     "../components/header.html",
   ).then(() => {
+    // Theme toggle — AFTER header loads
+    const html = document.documentElement;
+    const btn = document.getElementById("theme-toggle");
+
+    if (btn) {
+      const saved = localStorage.getItem("ss-theme");
+
+      function applyTheme(theme) {
+        if (theme === "light") {
+          html.classList.add("light");
+          btn.textContent = "🌙";
+          btn.title = "Switch to dark";
+        } else {
+          html.classList.remove("light");
+          btn.textContent = "☀️";
+          btn.title = "Switch to light";
+        }
+      }
+
+      // Initial load
+      if (saved) {
+        applyTheme(saved);
+      } else if (window.matchMedia("(prefers-color-scheme: light)").matches) {
+        applyTheme("light");
+      }
+
+      // Click handler
+      btn.addEventListener("click", () => {
+        const isLight = html.classList.contains("light");
+        const next = isLight ? "dark" : "light";
+        localStorage.setItem("ss-theme", next);
+        applyTheme(next);
+      });
+    }
+
     // Hamburger menu toggle — runs after header is injected into the DOM
     const hamburger = document.querySelector(".hamburger");
     const navLinks = document.querySelector(".nav-links");
