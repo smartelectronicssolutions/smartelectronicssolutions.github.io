@@ -114,7 +114,7 @@ export function renderArticleCards(data, container) {
 
   Object.entries(data)
     .sort((a, b) => b[0] - a[0])
-    .slice(0, 6)
+    .slice(0, 4)
     .forEach(([id, article]) => {
 
       const div = document.createElement("div");
