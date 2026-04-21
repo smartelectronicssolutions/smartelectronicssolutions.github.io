@@ -322,20 +322,38 @@
 
                 updatesGrid.innerHTML = "";
 
-                if (!data || Object.keys(data).length === 0) {
-                    // fallback to public
-                    if (PATH.includes('/')) {
-                        const publicSnapshot = await get(ref(database, "share/journalArticles"));
-                        const publicData = publicSnapshot.val();
+                let finalData = {};
 
-                        if (publicData) {
-                            renderArticleCards(publicData, updatesGrid);
-                        }
-                    }
-                    return;
+                // If user data exists, normalize it
+                if (data) {
+                    Object.entries(data).forEach(([id, article]) => {
+                        finalData[`public__${id}`] = {
+                            ...article,
+                            __id: id,
+                            __path: "share/journalArticles",
+                            __scope: "public"
+                        };
+                    });
                 }
 
-                renderArticleCards(data, updatesGrid);
+                // fallback to public if empty
+                if (Object.keys(finalData).length === 0) {
+                    const publicSnapshot = await get(ref(database, "share/journalArticles"));
+                    const publicData = publicSnapshot.val();
+
+                    if (publicData) {
+                        Object.entries(publicData).forEach(([id, article]) => {
+                            finalData[`public__${id}`] = {
+                                ...article,
+                                __id: id,
+                                __path: "share/journalArticles",
+                                __scope: "public"
+                            };
+                        });
+                    }
+                }
+
+                renderArticleCards(finalData, updatesGrid);
 
             } catch (error) {
                 console.error("Error loading articles:", error);
