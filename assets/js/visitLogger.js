@@ -1,16 +1,14 @@
-// visitLogger.js — simplified visit logging (no IP fetch)
-import { getDatabase, get, ref, set, push } from "./firebase-init.js";
+import { getDatabase, get, ref, set } from "./firebase-init.js";
 
-export async function updateVisitCount() {
+export async function updateVisitCount(ipAddress) {
   const db = getDatabase();
+  const sanitizedIP = ipAddress.replace(/\./g, "-");
   const visitCountRef = ref(db, "public/log/visitCount");
-  const visitsLogRef = ref(db, "public/log/visits");
+  const visitsLogRef = ref(db, `public/log/visits/${sanitizedIP}`);
   const visitTime = new Date().toISOString();
   const visitURL = window.location.href;
-  const pageTitle = document.title || "unknown";
 
   try {
-    // Increment total visit count
     const snapshot = await get(visitCountRef);
     let visitCount = snapshot.exists() ? snapshot.val() : 0;
     visitCount += 1;
@@ -22,18 +20,31 @@ export async function updateVisitCount() {
 
     await set(visitCountRef, visitCount);
 
-    // Log individual visit (no IP, just timestamp + URL + title)
-    await push(visitsLogRef, {
-      time: visitTime,
-      url: visitURL,
-      title: pageTitle,
-    });
+    const logSnapshot = await get(visitsLogRef);
+    const visitEntry = { time: visitTime, url: visitURL };
+
+    if (logSnapshot.exists()) {
+      const existingData = logSnapshot.val();
+      if (!existingData.visits) existingData.visits = [];
+      existingData.visits.push(visitEntry);
+      await set(visitsLogRef, existingData);
+    } else {
+      await set(visitsLogRef, {
+        ip: ipAddress,
+        visits: [visitEntry],
+      });
+    }
   } catch (error) {
     console.error("Error logging visit:", error);
   }
 }
 
-// Keep getIP as a no-op for backward compatibility
 export function getIP() {
-  return Promise.resolve({ ip: "unknown" });
+  return fetch("https://api.ipify.org?format=json")
+    .then((response) => response.json())
+    .then((data) => data.ip)
+    .catch((error) => {
+      console.error("Error fetching IP address:", error);
+      return "Unknown IP";
+    });
 }
