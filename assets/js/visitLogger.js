@@ -1,5 +1,5 @@
 // visitLogger.js — simplified visit logging (no IP fetch)
-import { getDatabase, get, ref, set, push } from "./firebase-init-noauth.js";
+import { getDatabase, get, ref, set, push } from "./firebase-init.js";
 
 export async function updateVisitCount() {
   const db = getDatabase();

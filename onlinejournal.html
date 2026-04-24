@@ -431,7 +431,7 @@
   <script src="assets/js/main.js"></script>
 
   <script type="module">
-    import { auth, database } from "./assets/js/firebase-init-noauth.js";
+    import { auth, database } from "./assets/js/firebase-init.js";
     import {
       ref,
       set,
@@ -746,18 +746,30 @@
 
       Object.entries(allArticles)
         .sort((a, b) => {
-          const aTime = a[1].updatedAt || a[1].createdAt || 0;
-          const bTime = b[1].updatedAt || b[1].createdAt || 0;
-          return bTime - aTime;
-        })
-        .forEach(([rowKey, a]) => {
+          function getTime(article) {
+            if (article.date) {
+              const [y, m, d] = article.date.split('-').map(Number);
+              return new Date(y, m - 1, d).getTime();
+            }
+            return article.updatedAt || article.createdAt || 0;
+          }
+
+          return getTime(b[1]) - getTime(a[1]); // newest first
+        }).forEach(([rowKey, a]) => {
           const div = document.createElement("div");
           div.className = "entry-card";
 
           const scopeLabel = a.__scope === "private" ? "Private" : "Public";
 
+          let cardDate = '';
+          if (a.date) {
+            const [yr, mo, dy] = a.date.split('-').map(Number);
+            cardDate = new Date(yr, mo - 1, dy).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+          } else if (a.createdAt) {
+            cardDate = new Date(a.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+          }
           div.innerHTML = `
-        <small>${scopeLabel}</small>
+        <small>${scopeLabel}${cardDate ? ' · ' + cardDate : ''}</small>
         <h3>${escapeHtml(a.title)}</h3>
         <p>${escapeHtml(a.description || "")}</p>
       `;
@@ -785,11 +797,14 @@
 
       articleTitle.textContent = a.title;
 
-      const dateStr = new Date(a.createdAt || Date.now()).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-      });
+      // Prefer the clean date string; fall back to createdAt timestamp
+      let dateStr = '';
+      if (a.date) {
+        const [yr, mo, dy] = a.date.split('-').map(Number);
+        dateStr = new Date(yr, mo - 1, dy).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+      } else if (a.createdAt) {
+        dateStr = new Date(a.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+      }
       articleDate.textContent = dateStr;
 
       articleDescription.textContent = a.description || "";
