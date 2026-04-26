@@ -38,10 +38,10 @@
     <section id="sec-task-select" class="collapsible-section">
       <h3 class="collapsible-header">Select Task</h3>
 
-      <select id="taskSelect">
+      <select id="taskSelect" class="table">
         <option value="" disabled selected>Select Task</option>
       </select>
-<br>
+      <br>
       <div><input type="text" id="taskName" placeholder="Name" maxlength="40" /></div>
       <div class="project-column-input"><input type="text" id="project" placeholder="Project" maxlength="40" /></div>
       <div class="phone-column-input"><input type="text" id="customerPhone" placeholder="Phone" maxlength="40" /></div>
@@ -131,12 +131,12 @@
       </div>
     </section>
 
-    <section id="sec-device-details" class="collapsible-section">
+    <section id="sec-device-details" class="collapsible-section table">
       <h3 class="collapsible-header">Devices</h3>
       <table>
         <tr>
           <td><select id="deviceListSelect">
-              <option value="">— select list —</option>
+              <option value="">select list</option>
             </select></td>
           <td><input type="text" id="newDeviceListName" placeholder="List name" /></td>
           <td><button id="addDeviceListBtn">+ List</button></td>
@@ -151,7 +151,7 @@
         <button id="exportDeviceCSV" style="float:right">Export CSV</button>
       </div>
       <div id="deviceTableWrap" style="display:none;overflow-x:auto">
-        <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <table style="width:100%;border-collapse:collapse">
           <thead>
             <tr>
               <th style="padding:4px 6px;text-align:center;width:36px" title="Counted">✓</th>
@@ -186,8 +186,8 @@
         </tr>
       </table>
 
-      <div id="imgUpload-task">
-        <table style="width:100%">
+      <div id="imgUpload-task" class="table">
+        <table>
           <tr>
             <td><input type="file" id="timerFileUploader" accept="image/*" /></td>
             <td><input type="text" id="timerImageNameInput" placeholder="Image Name" /></td>
@@ -400,11 +400,9 @@
 
         if (seg.endTime) {
           end = new Date(seg.endTime);
-        } else if (currentTask && currentTask.id === task.id) {
-          // only active task uses "now"
+        } else if (currentTask) {
           end = new Date();
         } else {
-          // fallback: treat as 0 duration (or use startTime)
           end = new Date(seg.startTime);
         }
 
@@ -538,6 +536,7 @@
 
     function loadTasks() {
       if (unsubscribeTasks) unsubscribeTasks();
+      isShowingAll = false;
       unsubscribeTasks = onValue(dbRef(database, `${DB}/tasks`), (snap) => {
         const tasks = [];
         snap.forEach(s => { const t = s.val() || {}; t.id = t.id || s.key; tasks.push(t); });
@@ -702,7 +701,17 @@
       mkBtn("Export CSV", exportTaskCSV);
       mkBtn("Save JSON", () => get(dbRef(database, `${DB}/tasks`)).then(snap => { const t = []; snap.forEach(s => t.push(s.val())); const a = document.createElement("a"); a.href = "data:application/json," + encodeURIComponent(JSON.stringify(t, null, 2)); a.download = "tasks.json"; a.click(); }));
       mkBtn("Load JSON", () => { const inp = document.createElement("input"); inp.type = "file"; inp.accept = "application/json"; inp.onchange = e => { const file = e.target.files[0]; if (!file) return; const r = new FileReader(); r.onload = () => { JSON.parse(r.result).forEach(t => { const ref = dbRef(database, `${DB}/tasks/${t.id}`); get(ref).then(s => { if (!s.exists()) set(ref, t); }); }); }; r.readAsText(file); }; inp.click(); });
-      mkBtn("Top ⤒", () => window.scrollTo({ top: 0, behavior: "smooth" }));
+    }
+
+    function createScrollToTopButton() {
+      const btn = document.createElement("button");
+      btn.innerText = "⤒";
+      btn.id = "scrollTopBtn";
+      btn.classList.add("clear-button");
+
+      btn.addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }));
+
+      document.body.appendChild(btn);
     }
 
     function exportTaskCSV() {
@@ -900,8 +909,7 @@
       taskLogTbody.innerHTML = ""; sorted.forEach(addTaskToTable); sortOrder = sortOrder === "asc" ? "desc" : "asc";
     });
 
-    document.addEventListener("DOMContentLoaded", () => { loadColVis(); applyColVis(); createTimerButtons(); });
-
+    document.addEventListener("DOMContentLoaded", () => { loadColVis(); applyColVis(); createTimerButtons(); createScrollToTopButton(); });
 
     // ════════════════════════════════════
     // DETAILS
@@ -1310,7 +1318,7 @@
 
 
     document.getElementById("appTitle").addEventListener("click", e => {
-      if (e.ctrlKey) { const sec = document.getElementById("login-section"); sec.style.display = getComputedStyle(sec).display === "none" ? "block" : "none"; }
+      if (e.ctrlKey) { const sec = document.getElementById("login-inline"); sec.style.display = getComputedStyle(sec).display === "none" ? "block" : "none"; }
     });
 
   </script>
