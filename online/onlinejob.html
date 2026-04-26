@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>Job Manager</title>
   <link rel="stylesheet" href="./assets/css/online.css" />
   <script type="module" src="../assets/js/auth.js"></script>
@@ -116,7 +116,7 @@
       <input type="text" id="newDailyNotes" placeholder="Notes" />
       <button id="addDailyTaskBtn">+ Add</button>
       <input type="text" id="dailyFilter" placeholder="Filter…" />
-      <div style="overflow-x:auto">
+      <div class="table">
         <table>
           <thead>
             <tr>
@@ -147,25 +147,25 @@
         <input type="text" id="newDeviceLabel" placeholder="Label / ID" />
         <input type="text" id="newDeviceSerial" placeholder="Serial #" />
         <button id="addDeviceItemBtn">+ Device</button>
-        <input type="text" id="deviceFilter" placeholder="Filter…" style="width:auto" />
-        <button id="exportDeviceCSV" style="float:right">Export CSV</button>
+        <input type="text" id="deviceFilter" placeholder="Filter…" />
+        <button id="exportDeviceCSV">Export CSV</button>
       </div>
-      <div id="deviceTableWrap" style="display:none;overflow-x:auto">
-        <table style="width:100%;border-collapse:collapse">
+      <div id="deviceTableWrap" style="display:none">
+        <table>
           <thead>
             <tr>
-              <th style="padding:4px 6px;text-align:center;width:36px" title="Counted">✓</th>
-              <th style="padding:4px 6px;text-align:left;min-width:90px">Label</th>
-              <th style="padding:4px 6px;text-align:left;min-width:100px">Serial</th>
-              <th style="padding:4px 6px;text-align:left;min-width:100px">Model</th>
-              <th style="padding:4px 6px;text-align:left;min-width:80px">Type</th>
-              <th style="padding:4px 6px;text-align:left;min-width:110px">Location</th>
-              <th style="padding:4px 6px;text-align:left;min-width:80px">Status</th>
-              <th style="padding:4px 6px;text-align:left;min-width:120px">IP</th>
-              <th style="padding:4px 6px;text-align:left;min-width:130px">MAC</th>
-              <th style="padding:4px 6px;text-align:left;min-width:150px">Notes</th>
-              <th style="padding:4px 6px;text-align:left;min-width:200px">Images</th>
-              <th style="padding:4px 6px;width:36px"></th>
+              <th class="col-check" title="Counted">✓</th>
+              <th class="col-label">Label</th>
+              <th class="col-serial">Serial</th>
+              <th class="col-model">Model</th>
+              <th class="col-type">Type</th>
+              <th class="col-location">Location</th>
+              <th class="col-status">Status</th>
+              <th class="col-ip">IP</th>
+              <th class="col-mac">MAC</th>
+              <th class="col-notes-col">Notes</th>
+              <th class="col-images">Images</th>
+              <th class="col-act"></th>
             </tr>
           </thead>
           <tbody id="deviceItemBody"></tbody>
@@ -805,18 +805,16 @@
 
         unique.forEach(({ name, url, fullPath }, idx) => {
           const card = document.createElement("div");
-          card.style.cssText = "display:inline-flex;flex-direction:column;align-items:center;gap:3px";
+          card.className = "img-card";
 
           const img = document.createElement("img");
-          img.src = url;
-          img.title = name;
-          img.style.cssText = "height:90px;width:auto;object-fit:cover;border-radius:4px;cursor:pointer;border:1px solid var(--border)";
-          img.onclick = () => openModal(idx);
+          img.src = url; img.title = name;
+          img.className = "img-thumb";
+          img.addEventListener("click", () => openModal(idx));
 
           const del = document.createElement("button");
           del.textContent = "🗑";
-          del.className = "clear-button";
-          del.style.fontSize = "11px";
+          del.className = "clear-button btn-sm";
 
           del.onclick = async () => {
             if (!confirm(`Delete "${name}"?`)) return;
@@ -996,32 +994,31 @@
         const tr = document.createElement("tr");
         if (d.counted) tr.classList.add("device-counted");
         const basePath = `${DB}/tasks/${metaOwnerTaskId}/lists/${activeDeviceListId}/${itemId}`;
-        const tdCount = document.createElement("td"); tdCount.style.cssText = "padding:4px 6px;text-align:center;vertical-align:top";
-        const chk = document.createElement("input"); chk.type = "checkbox"; chk.checked = !!d.counted; chk.style.width = "auto";
+        const tdCount = document.createElement("td"); tdCount.className = "col-check";
+        const chk = document.createElement("input"); chk.type = "checkbox"; chk.checked = !!d.counted;
         chk.onchange = () => { d.counted = chk.checked; tr.classList.toggle("device-counted", chk.checked); set(dbRef(database, `${basePath}/counted`), chk.checked); };
         tdCount.appendChild(chk);
         const mkEditable = (val, field) => {
-          const td = document.createElement("td"); td.style.cssText = "padding:4px 6px;vertical-align:top";
+          const td = document.createElement("td");
           td.contentEditable = "true"; td.textContent = val || "";
           td.onblur = () => { const v = td.textContent.trim(); if (v !== (d[field] || "")) { d[field] = v; set(dbRef(database, `${basePath}/${field}`), v); } };
           return td;
         };
-        const tdNotes = document.createElement("td"); tdNotes.style.cssText = "padding:4px 6px;vertical-align:top";
-        const notesEl = document.createElement("textarea"); notesEl.value = d.notes || ""; notesEl.rows = 3;
-        notesEl.style.cssText = "width:100%;font-size:12px;resize:vertical";
+        const tdNotes = document.createElement("td");
+        const notesEl = document.createElement("textarea"); notesEl.value = d.notes || ""; notesEl.rows = 3; notesEl.className = "device-notes";
         notesEl.onblur = () => { if (notesEl.value !== (d.notes || "")) { d.notes = notesEl.value; set(dbRef(database, `${basePath}/notes`), notesEl.value); } };
         tdNotes.appendChild(notesEl);
-        const tdImages = document.createElement("td"); tdImages.style.cssText = "padding:4px 6px;vertical-align:top";
+        const tdImages = document.createElement("td");
         tdImages.appendChild(buildDeviceThumbStrip(d, basePath));
-        const fileInput = document.createElement("input"); fileInput.type = "file"; fileInput.accept = "image/*"; fileInput.style.display = "none";
-        const markupChk = document.createElement("input"); markupChk.type = "checkbox"; markupChk.checked = true; markupChk.style.width = "auto";
-        const markupLbl = document.createElement("label"); markupLbl.style.cssText = "font-size:11px;display:flex;align-items:center;gap:3px";
+        const fileInput = document.createElement("input"); fileInput.type = "file"; fileInput.accept = "image/*"; fileInput.className = "hidden";
+        const markupChk = document.createElement("input"); markupChk.type = "checkbox"; markupChk.checked = true;
+        const markupLbl = document.createElement("label"); markupLbl.className = "markup-label";
         markupLbl.append(markupChk, "Markup");
         const upBtn = document.createElement("button"); upBtn.textContent = "📷 Add Image";
         upBtn.onclick = () => fileInput.click();
         fileInput.onchange = async () => { const file = fileInput.files[0]; if (!file) return; await uploadDeviceImage(activeDeviceListId, itemId, file, d, basePath, markupChk.checked); fileInput.value = ""; };
         tdImages.appendChild(markupLbl); tdImages.appendChild(upBtn); tdImages.appendChild(fileInput);
-        const tdAct = document.createElement("td"); tdAct.style.cssText = "padding:4px 6px;vertical-align:top;text-align:center";
+        const tdAct = document.createElement("td"); tdAct.className = "col-act";
         const delBtn = document.createElement("button"); delBtn.textContent = "🗑"; delBtn.classList.add("clear-button");
         delBtn.onclick = async () => {
           if (!confirm(`Delete "${d.id || d.label || itemId}"?`)) return;
@@ -1052,7 +1049,7 @@
           renderDeviceTable();
         };
         const markupInp = document.createElement("input"); markupInp.type = "text"; markupInp.className = "thumb-markup"; markupInp.placeholder = "Markup text"; markupInp.value = img.markup || "";
-        const markupBtn = document.createElement("button"); markupBtn.textContent = "Stamp"; markupBtn.style.fontSize = "11px";
+        const markupBtn = document.createElement("button"); markupBtn.textContent = "Stamp"; markupBtn.classList.add("btn-sm");
         markupBtn.onclick = async () => {
           const text = markupInp.value.trim(); if (!text) { alert("Enter markup text"); return; }
           try {
@@ -1149,24 +1146,24 @@
         const basePath = `${DB}/tasks/${metaOwnerTaskId}/tasks/${key}`;
         const tr = document.createElement("tr");
 
-        const tdDate = document.createElement("td"); tdDate.style.cssText = "padding:4px 6px;vertical-align:top";
+        const tdDate = document.createElement("td");
         tdDate.contentEditable = "true"; tdDate.textContent = t.date || key;
         tdDate.onblur = () => { const v = tdDate.textContent.trim(); if (v !== (t.date || key)) { t.date = v; set(dbRef(database, `${basePath}/date`), v); } };
 
-        const tdNotes = document.createElement("td"); tdNotes.style.cssText = "padding:4px 6px;vertical-align:top";
+        const tdNotes = document.createElement("td");
         tdNotes.contentEditable = "true"; tdNotes.textContent = t.notes || "";
         tdNotes.onblur = () => { const v = tdNotes.textContent.trim(); if (v !== (t.notes || "")) { t.notes = v; set(dbRef(database, `${basePath}/notes`), v); } };
 
-        const tdImg = document.createElement("td"); tdImg.style.cssText = "padding:4px 6px;vertical-align:top";
+        const tdImg = document.createElement("td");
         const strip = buildDailyThumbStrip(t, basePath);
-        const addImgInp = document.createElement("input"); addImgInp.type = "file"; addImgInp.accept = "image/*"; addImgInp.style.display = "none";
+        const addImgInp = document.createElement("input"); addImgInp.type = "file"; addImgInp.accept = "image/*"; addImgInp.className = "hidden";
         const addImgBtn = document.createElement("button"); addImgBtn.textContent = "+ Photo";
-        addImgBtn.onclick = () => addImgInp.click();
-        addImgInp.onchange = async (e) => { const f = e.target.files[0]; if (!f) return; await uploadDailyImage(key, f, t, basePath); addImgInp.value = ""; };
+        addImgBtn.addEventListener("click", () => addImgInp.click());
+        addImgInp.addEventListener("change", async (e) => { const f = e.target.files[0]; if (!f) return; await uploadDailyImage(key, f, t, basePath); addImgInp.value = ""; });
         tdImg.append(strip, addImgBtn, addImgInp);
 
-        const tdAct = document.createElement("td"); tdAct.style.cssText = "padding:4px 6px;vertical-align:top";
-        const delBtn = document.createElement("button"); delBtn.textContent = "✕"; delBtn.style.background = "red";
+        const tdAct = document.createElement("td");
+        const delBtn = document.createElement("button"); delBtn.textContent = "✕"; delBtn.className = "clear-button";
         delBtn.onclick = async () => {
           if (!confirm("Delete this daily task?")) return;
           if (Array.isArray(t.images)) {
