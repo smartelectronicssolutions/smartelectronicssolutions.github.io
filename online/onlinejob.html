@@ -1,0 +1,1319 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Job Manager</title>
+  <link rel="stylesheet" href="./assets/css/online.css" />
+  <script type="module" src="../assets/js/auth.js"></script>
+  <script src="../assets/js/search.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
+</head>
+
+<body>
+
+  <header>
+    <h1 id="appTitle">Job Manager</h1>
+    <div class="auth-bar">
+      <div>
+        <span id="auth-label">Not signed in</span>
+        <button class="btn" id="auth-btn">Sign In</button>
+      </div>
+    </div>
+
+    <div id="login-inline">
+      <h3>Sign In</h3>
+      <input type="email" id="email-in" placeholder="Email" />
+      <input type="password" id="pass-in" placeholder="Password" />
+      <button class="btn" id="do-login">
+        Sign In
+      </button>
+      <p id="auth-err"></p>
+    </div>
+
+  </header>
+
+  <main>
+    <section id="sec-task-select" class="collapsible-section">
+      <h3 class="collapsible-header">Select Task</h3>
+
+      <select id="taskSelect">
+        <option value="" disabled selected>Select Task</option>
+      </select>
+<br>
+      <div><input type="text" id="taskName" placeholder="Name" maxlength="40" /></div>
+      <div class="project-column-input"><input type="text" id="project" placeholder="Project" maxlength="40" /></div>
+      <div class="phone-column-input"><input type="text" id="customerPhone" placeholder="Phone" maxlength="40" /></div>
+      <div class="email-column-input"><input type="email" id="customerEmail" placeholder="Email" maxlength="80" /></div>
+      <div class="address-column-input"><input type="text" id="customerAddress" placeholder="Address" maxlength="60" />
+      </div>
+      <div class="odometer-column-input"><input type="number" id="startOdometer" placeholder="Start Odometer" /></div>
+      <div class="odometer-column-input"><input type="number" id="endOdometer" placeholder="End Odometer" disabled />
+      </div>
+      <div class="notes-column-input"><textarea id="taskNotes" placeholder="Notes"></textarea></div>
+      <button id="updateTaskBtn" style="display:none">Update Task</button>
+    </section>
+
+    <section id="sec-timer" class="collapsible-section">
+      <h3 class="collapsible-header">Timer</h3>
+      <button id="startTravelBtn">Start Travel</button>
+      <button id="startWorkBtn">Start Work</button>
+      <button id="endTaskBtn" style="display:none">End Task</button>
+      <div>Timer: <span id="currentTaskTime">00:00:00</span></div>
+      <div id="segmentSummary"></div>
+    </section>
+
+
+    <section id="sec-task-log" class="collapsible-section">
+      <h3 class="collapsible-header">Task Log</h3>
+      <label><span id="totalTasks">0</span> Tasks: <input type="text" id="searchTask" /></label>
+      <br>
+      <label><input type="checkbox" class="toggle-column" value="project-column" checked /> Project</label>
+      <label><input type="checkbox" class="toggle-column" value="address-column" /> Address</label>
+      <label><input type="checkbox" class="toggle-column" value="phone-column" /> Phone</label>
+      <label><input type="checkbox" class="toggle-column" value="email-column" /> Email</label>
+      <label><input type="checkbox" class="toggle-column" value="sensorcount-column" /> Devices</label>
+      <label><input type="checkbox" class="toggle-column" value="odometer-column" /> Mileage</label>
+      <label><input type="checkbox" class="toggle-column" value="location-column" /> Location</label>
+      <label><input type="checkbox" class="toggle-column" value="start-time-column" checked /> Start</label>
+      <label><input type="checkbox" class="toggle-column" value="end-time-column" checked /> End</label>
+      <label><input type="checkbox" class="toggle-column" value="length-column" checked /> Length</label>
+      <label><input type="checkbox" class="toggle-column" value="segments-column" /> Segments</label>
+      <label><input type="checkbox" class="toggle-column" value="notes-column" checked /> Notes</label>
+
+      <div class="table">
+        <table id="task-log">
+          <thead>
+            <tr>
+              <th class="name-column">Name</th>
+              <th class="project-column">Project</th>
+              <th class="address-column">Address</th>
+              <th class="phone-column">Phone</th>
+              <th class="email-column">Email</th>
+              <th class="sensorcount-column">Devices</th>
+              <th class="start-odometer-column odometer-column">Start Odo</th>
+              <th class="end-odometer-column odometer-column">End Odo</th>
+              <th class="distance-column odometer-column">Distance</th>
+              <th class="location-column">Location</th>
+              <th class="start-time-column">Start Time</th>
+              <th class="end-time-column">End Time</th>
+              <th class="length-column">Length</th>
+              <th class="segments-column">Segments</th>
+              <th class="notes-column">Notes</th>
+              <th class="actions-column">Actions</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div id="timerButtons"></div>
+    </section>
+
+    <section id="sec-daily-tasks" class="collapsible-section">
+      <h3 class="collapsible-header">Daily Tasks</h3>
+      <input type="datetime-local" id="newDailyDate" />
+      <input type="text" id="newDailyNotes" placeholder="Notes" />
+      <button id="addDailyTaskBtn">+ Add</button>
+      <input type="text" id="dailyFilter" placeholder="Filter…" />
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Date/Time</th>
+              <th>Notes</th>
+              <th>Images</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="dailyTasksBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="sec-device-details" class="collapsible-section">
+      <h3 class="collapsible-header">Devices</h3>
+      <table>
+        <tr>
+          <td><select id="deviceListSelect">
+              <option value="">— select list —</option>
+            </select></td>
+          <td><input type="text" id="newDeviceListName" placeholder="List name" /></td>
+          <td><button id="addDeviceListBtn">+ List</button></td>
+          <td><button id="delDeviceListBtn" class="clear-button">Delete List</button></td>
+        </tr>
+      </table>
+      <div id="deviceAddRow" style="display:none">
+        <input type="text" id="newDeviceLabel" placeholder="Label / ID" />
+        <input type="text" id="newDeviceSerial" placeholder="Serial #" />
+        <button id="addDeviceItemBtn">+ Device</button>
+        <input type="text" id="deviceFilter" placeholder="Filter…" style="width:auto" />
+        <button id="exportDeviceCSV" style="float:right">Export CSV</button>
+      </div>
+      <div id="deviceTableWrap" style="display:none;overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead>
+            <tr>
+              <th style="padding:4px 6px;text-align:center;width:36px" title="Counted">✓</th>
+              <th style="padding:4px 6px;text-align:left;min-width:90px">Label</th>
+              <th style="padding:4px 6px;text-align:left;min-width:100px">Serial</th>
+              <th style="padding:4px 6px;text-align:left;min-width:100px">Model</th>
+              <th style="padding:4px 6px;text-align:left;min-width:80px">Type</th>
+              <th style="padding:4px 6px;text-align:left;min-width:110px">Location</th>
+              <th style="padding:4px 6px;text-align:left;min-width:80px">Status</th>
+              <th style="padding:4px 6px;text-align:left;min-width:120px">IP</th>
+              <th style="padding:4px 6px;text-align:left;min-width:130px">MAC</th>
+              <th style="padding:4px 6px;text-align:left;min-width:150px">Notes</th>
+              <th style="padding:4px 6px;text-align:left;min-width:200px">Images</th>
+              <th style="padding:4px 6px;width:36px"></th>
+            </tr>
+          </thead>
+          <tbody id="deviceItemBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="sec-images" class="collapsible-section">
+      <h3 class="collapsible-header">Images</h3>
+      <table>
+        <tr>
+          <td><select id="imgFolderSelect">
+              <option value="">Root</option>
+            </select></td>
+          <td><input type="text" id="newListName" placeholder="New folder name" /></td>
+          <td><button id="addListBtn">+ Add</button></td>
+          <td><button id="delListBtn" class="clear-button">Delete Folder</button></td>
+        </tr>
+      </table>
+
+      <div id="imgUpload-task">
+        <table style="width:100%">
+          <tr>
+            <td><input type="file" id="timerFileUploader" accept="image/*" /></td>
+            <td><input type="text" id="timerImageNameInput" placeholder="Image Name" /></td>
+            <td><input type="text" id="timerMarkupText" placeholder="Markup Text" /></td>
+            <td><button id="timerUploadBtn">Upload</button></td>
+          </tr>
+        </table>
+        <div id="timerLoadingIndicator" style="display:none">Loading images...</div>
+        <button id="timerDownloadAllBtn">Download All</button>
+        <div id="imgGallery"></div>
+      </div>
+    </section>
+
+    <section id="sec-stats" class="collapsible-section">
+      <h3 class="collapsible-header">Stats</h3>
+      <h3>Hours (last 14 days):</h3>
+      <div id="dailyTimeSpent"></div>
+      <div><b>Total Hours: </b><span id="totalHours">0</span></div>
+      <h3>Hours Between Dates:</h3>
+      <label>Start: <input type="datetime-local" id="startDate" /></label>
+      <label>End: <input type="datetime-local" id="endDate" /></label>
+      <button id="calculateHoursBtn">Calculate</button>
+      <div>Total: <span id="calculatedHours">0</span></div>
+    </section>
+
+  </main>
+
+  <div id="modal">
+    <div id="modalContent">
+      <img id="modalImage" src="" alt="Large View" />
+      <p id="modalFileName"></p>
+      <div>
+        <button id="modalPrev">◀ Prev</button>
+        <button id="modalNext">Next ▶</button>
+      </div>
+      <button id="downloadButton">Download</button>
+      <button class="clear-button" id="deleteButton">Delete</button>
+      <button id="closeModalButton">Close</button>
+    </div>
+  </div>
+
+  <script type="module">
+    import {
+      auth, onAuthStateChanged, database, storage,
+      ref as dbRef, set, get, onValue, remove, update,
+      uploadBytesResumable, uploadBytes, getDownloadURL,
+      deleteObject, listAll, storageRef,
+    } from "../assets/js/firebase-init.js";
+
+    // ════════════════════════════════════
+    // SHARED
+    // ════════════════════════════════════
+    let DB = "public";
+
+    onAuthStateChanged(auth, (user) => {
+      DB = user ? user.uid : "public";
+      loadTasks();
+    });
+
+    function initCollapsibles() {
+      document.querySelectorAll(".collapsible-section").forEach(sec => {
+        const header = sec.querySelector(".collapsible-header");
+        if (!header || !sec.id) return;
+        if (localStorage.getItem(`collapse:${sec.id}`) === "true") sec.classList.add("collapsed");
+        if (header.dataset.bound) return;
+        header.dataset.bound = "true";
+        header.addEventListener("click", () => {
+          sec.classList.toggle("collapsed");
+          localStorage.setItem(`collapse:${sec.id}`, sec.classList.contains("collapsed"));
+        });
+      });
+    }
+    initCollapsibles();
+
+    // ════════════════════════════════════
+    // TIMER
+    // ════════════════════════════════════
+    const taskNameInput = document.getElementById("taskName");
+    const projectInput = document.getElementById("project");
+    const customerAddressInput = document.getElementById("customerAddress");
+    const customerPhoneInput = document.getElementById("customerPhone");
+    const customerEmailInput = document.getElementById("customerEmail");
+    const taskNotesTextarea = document.getElementById("taskNotes");
+    const startOdometerInput = document.getElementById("startOdometer");
+    const endOdometerInput = document.getElementById("endOdometer");
+    const endTaskBtn = document.getElementById("endTaskBtn");
+    const taskLogTbody = document.querySelector("#task-log tbody");
+    const totalHoursSpan = document.getElementById("totalHours");
+    const currentTaskTimeDisplay = document.getElementById("currentTaskTime");
+    const updateTaskBtn = document.getElementById("updateTaskBtn");
+    const segmentSummary = document.getElementById("segmentSummary");
+    const timerFileUploader = document.getElementById("timerFileUploader");
+    const timerImageNameInput = document.getElementById("timerImageNameInput");
+    const timerMarkupText = document.getElementById("timerMarkupText");
+    const timerLoadingIndicator = document.getElementById("timerLoadingIndicator");
+    const imgGallery = document.getElementById("imgGallery");
+    const searchTaskInput = document.getElementById("searchTask");
+    const CALC_DEADLINE_MS = 60_000;
+
+    const taskSearchHelper = window.SearchEngine?.attachAuto
+      ? window.SearchEngine.attachAuto(searchTaskInput, { placeholderAdvanced: '🔎 name:"acme" project:roof' })
+      : null;
+
+    let sortOrder = "asc";
+    let currentTask = null;
+    let timerInterval = null;
+    let currentTaskId = null;
+    let unsubscribeTasks = null;
+    let isShowingAll = false;
+    let allTasks = [];
+    let isLoadingImages = false;
+    const initialLoadCount = 50;
+
+    function snap15(date) {
+      const d = new Date(date);
+      const minutes = d.getMinutes();
+      const snapped = Math.round(minutes / 15) * 15;
+
+      if (snapped === 60) {
+        d.setHours(d.getHours() + 1);
+        d.setMinutes(0);
+      } else {
+        d.setMinutes(snapped);
+      }
+
+      d.setSeconds(0);
+      d.setMilliseconds(0);
+      return d;
+    }
+    function isValidDate(d) { return d instanceof Date && !isNaN(d.getTime()); }
+    function safeDate(v) { const d = new Date(v); return isValidDate(d) ? d : null; }
+    function fmtDt(dt) { const d = new Date(dt); return `${d.toLocaleDateString()} ${d.toLocaleTimeString()}`; }
+    function fmtDur(ms) {
+      const s = Math.max(0, Math.floor(ms / 1000));
+      return `${String(Math.floor(s / 3600)).padStart(2, "0")}:${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+    }
+    function calcLength(task) {
+      const s = new Date(task.startTime), e = task.endTime ? new Date(task.endTime) : new Date();
+      const sec = (e - s) / 1000;
+      if (Math.abs(sec) > 10 * 365 * 24 * 3600) return "More than 10 years";
+      const neg = sec < 0, abs = Math.abs(sec);
+      const h = Math.floor(abs / 3600), m = Math.floor((abs % 3600) / 60), ss = Math.floor(abs % 60);
+      return `${neg ? "-" : ""}${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(ss).padStart(2, "0")} (${(sec / 3600).toFixed(2)})`;
+    }
+    function calcDist(s, e) { const a = parseFloat(s), b = parseFloat(e); return (isNaN(a) || isNaN(b)) ? "" : (b - a).toFixed(1); }
+    function fmtMs(ms) { const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return h ? `${h}h ${m}m` : `${m}m`; }
+    function ensureSegs(task) { if (!Array.isArray(task.segments)) task.segments = []; return task.segments; }
+    function getSegNow() { return snap15(new Date()).toISOString(); }
+    function closeActiveSeg(task) {
+      const segs = ensureSegs(task);
+      for (let i = segs.length - 1; i >= 0; i--) { if (!segs[i].endTime) { segs[i].endTime = getSegNow(); break; } }
+    }
+
+    function tickTimer() {
+      if (!currentTask?.startTime) return;
+      const ms = new Date() - new Date(currentTask.startTime);
+      if (ms > 10 * 365 * 24 * 3600 * 1000) { currentTaskTimeDisplay.innerText = "Too Long"; return; }
+      currentTaskTimeDisplay.innerText = fmtDur(ms);
+      updateSegSummary();
+    }
+
+    function parseTimeEdit(text, refIso) {
+      const t = text.trim();
+      const timePart = t.match(/(\d{1,2}:\d{2}(?::\d{2})?\s*(?:am|pm)?|\d{1,2}\s*(?:am|pm))\s*$/i);
+      const m = (timePart ? timePart[1] : t).match(/^(\d{1,2})(?::(\d{2})(?::\d{2})?)?\s*(am|pm)?$/i);
+      if (!m) return null;
+      let h = parseInt(m[1], 10), min = parseInt(m[2] || "0", 10);
+      const ap = (m[3] || "").toLowerCase();
+      if (ap === "pm" && h < 12) h += 12;
+      if (ap === "am" && h === 12) h = 0;
+      if (h > 23 || min > 59) return null;
+      const d = new Date(refIso || new Date()); d.setHours(h, min, 0, 0); return snap15(d);
+    }
+
+    function saveSegTime(idx, field, text) {
+      const segs = ensureSegs(currentTask);
+      if (!segs[idx]) return;
+      const snapped = parseTimeEdit(text, segs[idx][field] || segs[idx].startTime);
+      if (!snapped) return;
+      segs[idx][field] = snapped.toISOString();
+      if (field === "startTime" && snapped < new Date(currentTask.startTime))
+        currentTask.startTime = snapped.toISOString();
+      saveTask(currentTask);
+    }
+
+    function updateSegSummary() {
+      if (!segmentSummary || !currentTask) { if (segmentSummary) segmentSummary.innerHTML = ""; return; }
+      const segs = ensureSegs(currentTask);
+      if (!segs.length) { segmentSummary.innerHTML = '<span class="seg-empty">No segments yet.</span>'; return; }
+      if (segmentSummary.contains(document.activeElement)) return;
+
+      const now = new Date();
+      const fmtT = d => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const mkTime = (isoVal, idx, field) => {
+        const span = document.createElement("span");
+        span.className = "seg-time";
+        span.contentEditable = true;
+        span.textContent = fmtT(isoVal);
+        span.title = `Edit ${field === 'startTime' ? 'start' : 'end'} time`;
+        span.addEventListener("blur", () => { saveSegTime(idx, field, span.textContent); updateSegSummary(); });
+        span.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); span.blur(); } });
+        return span;
+      };
+
+      let travelMs = 0, workMs = 0;
+      const frag = document.createDocumentFragment();
+
+      segs.forEach((seg, idx) => {
+        let end;
+
+        if (seg.endTime) {
+          end = new Date(seg.endTime);
+        } else if (currentTask && currentTask.id === task.id) {
+          // only active task uses "now"
+          end = new Date();
+        } else {
+          // fallback: treat as 0 duration (or use startTime)
+          end = new Date(seg.startTime);
+        }
+
+        const ms = Math.max(0, end - new Date(seg.startTime)); if (seg.type === "travel") travelMs += ms; else workMs += ms;
+
+        const row = document.createElement("div");
+        row.className = "seg-row" + (!seg.endTime ? " active" : "");
+
+        const badge = document.createElement("span");
+        badge.className = `seg-badge ${seg.type}`;
+        badge.textContent = seg.type;
+
+        const arrow = document.createElement("span");
+        arrow.className = "seg-arrow";
+        arrow.textContent = " → ";
+
+        const endEl = seg.endTime
+          ? mkTime(seg.endTime, idx, "endTime")
+          : Object.assign(document.createElement("span"), { innerHTML: "<b>now</b>", className: "seg-arrow" });
+
+        const dur = document.createElement("span");
+        dur.className = "seg-dur";
+        dur.textContent = fmtMs(ms);
+
+        row.append(badge, mkTime(seg.startTime, idx, "startTime"), arrow, endEl, dur);
+        frag.appendChild(row);
+      });
+
+      const totals = document.createElement("div");
+      totals.className = "seg-totals";
+      totals.innerHTML = `<span>Travel <b>${fmtMs(travelMs)}</b></span><span>Work <b>${fmtMs(workMs)}</b></span>`;
+
+      segmentSummary.innerHTML = "";
+      segmentSummary.appendChild(totals);
+      segmentSummary.appendChild(frag);
+    }
+
+    function saveTask(task) { set(dbRef(database, `${DB}/tasks/${task.id}`), task); }
+
+    function promptAndStartSegment(type) {
+      if (currentTask?.endTime) { alert("Job completed. Start a new task."); return; }
+      if (currentTask) {
+        closeActiveSeg(currentTask);
+        ensureSegs(currentTask).push({ type, startTime: getSegNow(), endTime: null });
+        saveTask(currentTask);
+        updateSegSummary();
+        return;
+      }
+      let name = taskNameInput.value.trim();
+      if (!name) { name = (prompt("Task name (required):") || "").trim(); if (!name) return; taskNameInput.value = name; }
+      if (!projectInput.value.trim()) { const p = (prompt("Project (optional):") || "").trim(); projectInput.value = p; }
+      if (type === "travel" && !startOdometerInput.value.trim()) { const o = (prompt("Start odometer (optional):") || "").trim(); if (o) startOdometerInput.value = o; }
+      startTask(type);
+    }
+
+    function startTask(initType = null) {
+      const handle = (location) => {
+        currentTask = {
+          id: Date.now().toString(),
+          customerName: taskNameInput.value.trim(),
+          project: projectInput.value.trim(),
+          customerAddress: customerAddressInput.value.trim(),
+          customerPhone: customerPhoneInput.value.trim(),
+          customerEmail: customerEmailInput.value.trim(),
+          notes: taskNotesTextarea.value.trim(),
+          startOdometer: startOdometerInput.value.trim(),
+          endOdometer: null, location,
+          startTime: snap15(new Date()).toISOString(),
+          endTime: null, segments: [],
+        };
+        if (initType) currentTask.segments.push({ type: initType, startTime: getSegNow(), endTime: null });
+        saveTask(currentTask);
+        timerInterval = setInterval(tickTimer, 1000);
+        endOdometerInput.disabled = false;
+        endTaskBtn.style.display = "inline-block";
+        updateSegSummary();
+      };
+      if ("geolocation" in navigator) {
+        navigator.geolocation.getCurrentPosition(
+          p => handle({ latitude: p.coords.latitude.toFixed(4), longitude: p.coords.longitude.toFixed(4) }),
+          () => handle(null),
+        );
+      } else { handle(null); }
+    }
+
+    function endTask() {
+      clearInterval(timerInterval);
+      closeActiveSeg(currentTask);
+      currentTask.endOdometer = endOdometerInput.value.trim();
+      currentTask.endTime = snap15(new Date()).toISOString();
+      currentTask.notes = taskNotesTextarea.value.trim();
+      currentTask.customerAddress = customerAddressInput.value.trim();
+      currentTask.customerPhone = customerPhoneInput.value.trim();
+      currentTask.customerEmail = customerEmailInput.value.trim();
+      currentTask.project = projectInput.value.trim();
+      saveTask(currentTask);
+      updateTaskInTable(currentTask);
+      updateSegSummary();
+      resetTimerState();
+      updateTotalHours(allTasks);
+      applyColVis();
+      clearTimerImages();
+    }
+
+    function resetTimerState() {
+      clearInterval(timerInterval); timerInterval = null; currentTask = null; currentTaskId = null;
+      taskNameInput.value = projectInput.value = taskNotesTextarea.value = "";
+      customerAddressInput.value = customerPhoneInput.value = customerEmailInput.value = "";
+      startOdometerInput.value = endOdometerInput.value = "";
+      endOdometerInput.disabled = true;
+      endTaskBtn.style.display = "none";
+      currentTaskTimeDisplay.innerText = "00:00:00";
+    }
+
+    function clearTimerImages() {
+      imgGallery.innerHTML = "";
+      timerFileUploader.value = ""; timerImageNameInput.value = ""; timerMarkupText.value = "";
+    }
+
+    function updateTotalHours(tasks) {
+      let s = 0;
+      tasks.forEach(t => { if (t.endTime) s += (new Date(t.endTime) - new Date(t.startTime)) / 1000; });
+      totalHoursSpan.innerText = `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m (${(s / 3600).toFixed(2)})`;
+    }
+
+    function populateTaskDropdown(tasks) {
+      const sel = document.getElementById("taskSelect");
+      sel.innerHTML = '<option value="" disabled selected>Select Task</option>';
+      tasks.forEach(t => sel.appendChild(new Option(`${t.customerName || "Unnamed"} - ${t.project || "No Project"}`, t.id)));
+    }
+
+    function loadTasks() {
+      if (unsubscribeTasks) unsubscribeTasks();
+      unsubscribeTasks = onValue(dbRef(database, `${DB}/tasks`), (snap) => {
+        const tasks = [];
+        snap.forEach(s => { const t = s.val() || {}; t.id = t.id || s.key; tasks.push(t); });
+        handleTasksUpdate(tasks);
+      });
+    }
+
+    function handleTasksUpdate(tasks) {
+      taskLogTbody.innerHTML = ""; allTasks = tasks;
+      tasks.sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
+      if (tasks.length <= initialLoadCount) isShowingAll = true;
+      (isShowingAll ? tasks : tasks.slice(0, initialLoadCount)).forEach(addTaskToTable);
+      document.getElementById("totalTasks").innerText = tasks.length;
+      checkOngoingTask(tasks); updateTotalHours(tasks); processDaily(tasks); populateTaskDropdown(tasks);
+      if (!isShowingAll && tasks.length > initialLoadCount) addLoadAllBtn();
+    }
+
+    function checkOngoingTask(tasks) {
+      const open = tasks.filter(t => t.startTime && !t.endTime);
+      if (!open.length) return;
+      open.sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
+      currentTask = open[0];
+      taskNameInput.value = currentTask.customerName || ""; projectInput.value = currentTask.project || "";
+      taskNotesTextarea.value = currentTask.notes || ""; customerAddressInput.value = currentTask.customerAddress || "";
+      customerPhoneInput.value = currentTask.customerPhone || ""; customerEmailInput.value = currentTask.customerEmail || "";
+      startOdometerInput.value = currentTask.startOdometer || ""; endOdometerInput.value = currentTask.endOdometer || "";
+      endOdometerInput.disabled = false;
+      if (!timerInterval) timerInterval = setInterval(tickTimer, 1000);
+      endTaskBtn.style.display = "inline-block";
+    }
+
+    function addTaskToTable(task) {
+      const row = taskLogTbody.insertRow();
+      row.dataset.taskId = task.id;
+      updateRow(row, task);
+      applyColVis();
+    }
+
+    function updateTaskInTable(task) {
+      const row = document.querySelector(`[data-task-id="${task.id}"]`);
+      if (row) updateRow(row, task); else addTaskToTable(task);
+    }
+
+    function updateRow(row, task) {
+      const key = task.id;
+      row.dataset.taskId = key; row.innerHTML = "";
+      const headers = Array.from(document.querySelectorAll("#task-log thead th"));
+      headers.forEach((th, i) => { const c = row.insertCell(i); c.className = th.className; });
+      const col = cls => { const i = headers.findIndex(th => th.classList.contains(cls)); return i >= 0 ? row.cells[i] : null; };
+
+      const nameC = col("name-column"), projC = col("project-column"), addrC = col("address-column");
+      const phoneC = col("phone-column"), emailC = col("email-column");
+      const soC = col("start-odometer-column"), eoC = col("end-odometer-column"), distC = col("distance-column");
+      const segsC = col("segments-column"), locC = col("location-column");
+      const stC = col("start-time-column"), etC = col("end-time-column"), lenC = col("length-column");
+      const notesC = col("notes-column"), scC = col("sensorcount-column"), actC = col("actions-column");
+
+      if (nameC) nameC.innerText = task.customerName || "";
+      if (projC) projC.innerText = task.project || "";
+      if (addrC && task.customerAddress) { const a = document.createElement("a"); a.href = `https://maps.apple.com/?address=${encodeURIComponent(task.customerAddress)}`; a.target = "_blank"; a.innerText = task.customerAddress; addrC.appendChild(a); }
+      if (phoneC) phoneC.innerText = task.customerPhone || "";
+      if (emailC) emailC.innerText = task.customerEmail || "";
+      if (soC) soC.innerText = task.startOdometer || "";
+      if (eoC) eoC.innerText = task.endOdometer || "";
+      if (distC) distC.innerText = task.endOdometer ? calcDist(task.startOdometer, task.endOdometer) : "";
+      if (locC) locC.innerText = task.location ? `Lat:${task.location.latitude} Lon:${task.location.longitude}` : "";
+      if (stC) stC.innerText = task.startTime ? fmtDt(task.startTime) : "";
+      if (etC) etC.innerText = task.endTime ? fmtDt(task.endTime) : "";
+      if (lenC) lenC.innerText = task.endTime ? calcLength(task) : "";
+      if (notesC) notesC.innerText = task.notes || "";
+      if (scC) { scC.innerText = task.sensorCount || ""; scC.contentEditable = true; scC.onblur = () => updateTaskField(key, "sensorCount", scC.innerText ? Number(scC.innerText) : null); }
+      const _st = (task.segments || []).reduce((a, s) => { const ms = Math.max(0, (s.endTime ? new Date(s.endTime) : new Date()) - new Date(s.startTime)); if (s.type === "travel") a.t += ms; if (s.type === "work") a.w += ms; return a; }, { t: 0, w: 0 });
+      if (segsC) segsC.innerText = task.segments?.length ? `T:${fmtMs(_st.t)} W:${fmtMs(_st.w)}` : "";
+      if (actC) {
+        const loadBtn = document.createElement("button"); loadBtn.innerText = "Load";
+        loadBtn.onclick = () => { loadTaskForEditing(key); window.scrollTo({ top: 0, behavior: "smooth" }); };
+        actC.appendChild(loadBtn);
+        const delBtn = document.createElement("button"); delBtn.classList.add("clear-button"); delBtn.innerText = "Delete";
+        delBtn.onclick = () => { if (confirm("Delete this task?")) deleteTaskById(key, row); };
+        actC.appendChild(delBtn);
+      }
+      [nameC, projC, soC, eoC, stC, etC, notesC, phoneC, emailC].filter(Boolean).forEach(c => c.contentEditable = true);
+      if (nameC) nameC.onblur = () => updateTaskField(key, "customerName", nameC.innerText);
+      if (projC) projC.onblur = () => updateTaskField(key, "project", projC.innerText);
+      if (soC) soC.onblur = () => updateTaskField(key, "startOdometer", soC.innerText);
+      if (eoC) eoC.onblur = () => updateTaskField(key, "endOdometer", eoC.innerText);
+      if (stC) stC.onblur = () => { const s = parseTimeEdit(stC.innerText, task.startTime); if (s) { task.startTime = s.toISOString(); stC.innerText = fmtDt(s); if (lenC) lenC.innerText = task.endTime ? calcLength(task) : ""; updateTaskField(key, "startTime", s.toISOString()); } };
+      if (etC) etC.onblur = () => { const s = parseTimeEdit(etC.innerText, task.endTime || task.startTime); if (s) { task.endTime = s.toISOString(); etC.innerText = fmtDt(s); if (lenC) lenC.innerText = calcLength(task); updateTaskField(key, "endTime", s.toISOString()); } };
+      if (notesC) notesC.onblur = () => updateTaskField(key, "notes", notesC.innerText);
+      if (phoneC) phoneC.onblur = () => updateTaskField(key, "customerPhone", phoneC.innerText);
+      if (emailC) emailC.onblur = () => updateTaskField(key, "customerEmail", emailC.innerText);
+      enableClickCopy(row);
+    }
+
+    async function loadTaskForEditing(taskKey) {
+      currentTaskId = taskKey;
+      const snap = await get(dbRef(database, `${DB}/tasks/${taskKey}`));
+      if (!snap.exists()) return;
+      const task = snap.val(); task.id = task.id || taskKey; currentTask = task;
+      taskNameInput.value = task.customerName || ""; projectInput.value = task.project || "";
+      taskNotesTextarea.value = task.notes || ""; startOdometerInput.value = task.startOdometer || "";
+      endOdometerInput.value = task.endOdometer || ""; customerAddressInput.value = task.customerAddress || "";
+      customerPhoneInput.value = task.customerPhone || ""; customerEmailInput.value = task.customerEmail || "";
+      endOdometerInput.disabled = task.endOdometer == null;
+      clearInterval(timerInterval);
+      if (!task.endTime) timerInterval = setInterval(tickTimer, 1000);
+      updateSegSummary(); loadTimerImages(task.project);
+      endTaskBtn.style.display = task.endTime ? "none" : "inline-block";
+      updateTaskBtn.style.display = "inline-block";
+      loadProject(taskKey);
+    }
+
+    function updateTaskField(taskId, field, val) {
+      const r = dbRef(database, `${DB}/tasks/${taskId}`);
+      get(r).then(snap => { if (!snap.exists() || snap.val()[field] === val) return; update(r, { [field]: val }).then(applySearchFilter); });
+    }
+
+    function deleteTaskById(taskId, row) {
+      remove(dbRef(database, `${DB}/tasks/${taskId}`)).then(() => { row?.parentNode?.removeChild(row); updateTotalHours(allTasks); applySearchFilter(); });
+    }
+
+    function updateTask() {
+      if (!currentTaskId) { alert("No task loaded."); return; }
+      update(dbRef(database, `${DB}/tasks/${currentTaskId}`), {
+        customerName: taskNameInput.value.trim(), project: projectInput.value.trim(),
+        notes: taskNotesTextarea.value.trim(), startOdometer: startOdometerInput.value.trim(),
+        endOdometer: endOdometerInput.value.trim(), customerAddress: customerAddressInput.value.trim(),
+        customerPhone: customerPhoneInput.value.trim(), customerEmail: customerEmailInput.value.trim(),
+      }).then(() => alert("Task updated.")); applySearchFilter();
+    }
+
+    function applySearchFilter() {
+      const q = String(searchTaskInput?.value || "").trim();
+      const rows = Array.from(document.querySelectorAll("#task-log tbody tr"));
+      if (!q) { rows.forEach(r => r.style.display = r.classList.contains("excluded-by-date") ? "none" : ""); return; }
+      const records = rows.map(row => ({ row, name: row.querySelector(".name-column")?.innerText || "", project: row.querySelector(".project-column")?.innerText || "", notes: row.querySelector(".notes-column")?.innerText || "", address: row.querySelector(".address-column")?.innerText || "" }));
+      let matches = taskSearchHelper ? taskSearchHelper.filter(records, q) : records.filter(r => { const lq = q.toLowerCase(); return r.name.toLowerCase().includes(lq) || r.project.toLowerCase().includes(lq) || r.notes.toLowerCase().includes(lq) || r.address.toLowerCase().includes(lq); });
+      const allowed = new Set(matches.map(r => r.row));
+      rows.forEach(r => { if (r.classList.contains("excluded-by-date")) { r.style.display = "none"; return; } r.style.display = allowed.has(r) ? "" : "none"; });
+    }
+
+    function applyColVis() {
+      document.querySelectorAll(".toggle-column").forEach(cb => {
+        const cls = cb.value;
+        document.querySelectorAll(`.${cls},td.${cls}`).forEach(el => el.style.display = cb.checked ? "" : "none");
+        document.querySelectorAll(`.${cls}-input,.start-${cls}-input,.end-${cls}-input`).forEach(el => el.style.display = cb.checked ? "" : "none");
+      });
+    }
+    function saveColVis() { const s = {}; document.querySelectorAll(".toggle-column").forEach(cb => s[cb.value] = cb.checked); localStorage.setItem("columnVisibility", JSON.stringify(s)); }
+    function loadColVis() { const s = JSON.parse(localStorage.getItem("columnVisibility")); if (s) document.querySelectorAll(".toggle-column").forEach(cb => { if (s[cb.value] !== undefined) cb.checked = s[cb.value]; }); }
+
+    function addLoadAllBtn() {
+      const c = document.getElementById("timerButtons"); if (document.getElementById("loadAllBtn")) return;
+      const btn = document.createElement("button"); btn.id = "loadAllBtn"; btn.innerText = "Show All";
+      btn.onclick = () => { isShowingAll = true; allTasks.slice(initialLoadCount).forEach(addTaskToTable); btn.remove(); document.getElementById("totalTasks").innerText = allTasks.length; processDaily(allTasks); updateTotalHours(allTasks); applySearchFilter(); };
+      c.appendChild(btn);
+    }
+
+    function createTimerButtons() {
+      const c = document.getElementById("timerButtons");
+      const mkBtn = (label, fn) => { const b = document.createElement("button"); b.innerText = label; b.onclick = fn; c.appendChild(b); };
+      mkBtn("Export CSV", exportTaskCSV);
+      mkBtn("Save JSON", () => get(dbRef(database, `${DB}/tasks`)).then(snap => { const t = []; snap.forEach(s => t.push(s.val())); const a = document.createElement("a"); a.href = "data:application/json," + encodeURIComponent(JSON.stringify(t, null, 2)); a.download = "tasks.json"; a.click(); }));
+      mkBtn("Load JSON", () => { const inp = document.createElement("input"); inp.type = "file"; inp.accept = "application/json"; inp.onchange = e => { const file = e.target.files[0]; if (!file) return; const r = new FileReader(); r.onload = () => { JSON.parse(r.result).forEach(t => { const ref = dbRef(database, `${DB}/tasks/${t.id}`); get(ref).then(s => { if (!s.exists()) set(ref, t); }); }); }; r.readAsText(file); }; inp.click(); });
+      mkBtn("Top ⤒", () => window.scrollTo({ top: 0, behavior: "smooth" }));
+    }
+
+    function exportTaskCSV() {
+      const tbl = document.getElementById("task-log");
+      const hiddenIdx = new Set(Array.from(tbl.querySelectorAll("thead th")).map((th, i) => (th.classList.contains("actions-column") || th.style.display === "none") ? i : null).filter(i => i !== null));
+      const headers = Array.from(tbl.querySelectorAll("thead th")).filter((_, i) => !hiddenIdx.has(i)).map(th => th.textContent.trim());
+      const rows = Array.from(tbl.querySelectorAll("tbody tr")).filter(r => r.style.display !== "none").map(r => Array.from(r.cells).filter((_, i) => !hiddenIdx.has(i)).map(c => c.textContent.replace(/\r?\n|\r/g, " ").trim()));
+      rows.unshift(headers);
+      const csv = rows.map(r => r.map(f => { f = String(f || ""); if (f.includes(",") || f.includes('"')) f = `"${f.replace(/"/g, '""')}"`; return f; }).join(",")).join("\r\n");
+      const a = document.createElement("a"); a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv); a.download = "tasks.csv"; a.click();
+    }
+
+    function processDaily(tasks) {
+      try {
+        const daily = {}, t0 = performance.now();
+        for (const task of tasks) {
+          if (performance.now() - t0 > CALC_DEADLINE_MS) break;
+          if (!task.startTime || !task.endTime) continue;
+          let s = safeDate(task.startTime), e = safeDate(task.endTime);
+          if (!s || !e) continue; if (e < s) { const tmp = s; s = e; e = tmp; }
+          if (e - s > 10 * 365 * 24 * 3600 * 1000) continue;
+          let guard = 0;
+          while (s < e) {
+            if (performance.now() - t0 > CALC_DEADLINE_MS || ++guard > 4000) break;
+            const key = s.toISOString().split("T")[0];
+            const next = new Date(Date.UTC(s.getUTCFullYear(), s.getUTCMonth(), s.getUTCDate() + 1, 0, 0, 0, 0));
+            const end = next < e ? next : e; const dur = Math.max(0, (end - s) / 1000);
+            if (dur > 0) daily[key] = (daily[key] || 0) + dur; s = end;
+          }
+        }
+        const el = document.getElementById("dailyTimeSpent"); el.innerHTML = "";
+        const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 15);
+        Object.keys(daily).map(k => new Date(k)).filter(d => d >= cutoff).sort((a, b) => a - b).forEach(d => {
+          const key = d.toISOString().split("T")[0], sec = daily[key];
+          const div = document.createElement("div"); div.innerText = `${key}: ${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m (${(sec / 3600).toFixed(2)})`;
+          el.appendChild(div);
+        });
+      } catch (e) { console.error(e); }
+    }
+
+    function calcHoursBetweenDates() {
+      const s = safeDate(document.getElementById("startDate").value), e = safeDate(document.getElementById("endDate").value);
+      if (!s || !e) { alert("Select valid dates."); return; } e.setHours(23, 59, 59, 999);
+      let total = 0; const t0 = performance.now();
+      Array.from(document.querySelectorAll("#task-log tbody tr")).forEach(row => {
+        if (performance.now() - t0 > CALC_DEADLINE_MS) return;
+        const sc = row.querySelector(".start-time-column"), ec = row.querySelector(".end-time-column");
+        if (!sc || !ec) { row.classList.add("excluded-by-date"); row.style.display = "none"; return; }
+        const ts = safeDate(sc.innerText), te = safeDate(ec.innerText);
+        if (!ts || !te) { row.classList.add("excluded-by-date"); row.style.display = "none"; return; }
+        const es = ts < s ? s : ts, ee = te > e ? e : te;
+        if (es <= ee) { total += (ee - es) / 1000; row.classList.remove("excluded-by-date"); }
+        else row.classList.add("excluded-by-date");
+      });
+      document.getElementById("calculatedHours").innerText = `${Math.floor(total / 3600)}h ${Math.floor((total % 3600) / 60)}m (${(total / 3600).toFixed(2)})`;
+      applySearchFilter();
+    }
+
+    // ── Timer images ──
+    async function loadTimerImages(project) {
+      if (isLoadingImages) return;
+      isLoadingImages = true;
+
+      imgGallery.innerHTML = "";
+      timerLoadingIndicator.style.display = "block";
+
+      try {
+        const folder = getActiveImageFolder();
+
+        const snap = await listAll(storageRef(storage, folder));
+
+        const all = await Promise.all(
+          snap.items
+            .filter(item => item.name !== ".keep")
+            .map(async (item) => ({
+              name: item.name,
+              url: await getDownloadURL(item),
+              fullPath: item.fullPath
+            }))
+        );
+
+        // ✅ DEDUPE FIX
+        const seen = new Set();
+        const unique = all.filter(img => {
+          if (seen.has(img.name)) return false;
+          seen.add(img.name);
+          return true;
+        });
+
+        modalItems = unique;
+
+        unique.forEach(({ name, url, fullPath }, idx) => {
+          const card = document.createElement("div");
+          card.style.cssText = "display:inline-flex;flex-direction:column;align-items:center;gap:3px";
+
+          const img = document.createElement("img");
+          img.src = url;
+          img.title = name;
+          img.style.cssText = "height:90px;width:auto;object-fit:cover;border-radius:4px;cursor:pointer;border:1px solid var(--border)";
+          img.onclick = () => openModal(idx);
+
+          const del = document.createElement("button");
+          del.textContent = "🗑";
+          del.className = "clear-button";
+          del.style.fontSize = "11px";
+
+          del.onclick = async () => {
+            if (!confirm(`Delete "${name}"?`)) return;
+            try {
+              await deleteObject(storageRef(storage, fullPath));
+              modalItems = modalItems.filter(i => i.url !== url);
+              card.remove();
+              document.getElementById("modal").style.display = "none";
+            } catch (e) {
+              console.error(e);
+            }
+          };
+
+          card.append(img, del);
+          imgGallery.appendChild(card);
+        });
+
+      } catch (e) {
+        console.error(e);
+      } finally {
+        timerLoadingIndicator.style.display = "none";
+        isLoadingImages = false;
+      }
+    }
+
+    function openModal(index) {
+      if (!modalItems.length) return;
+      modalIndex = index;
+      const { url, name } = modalItems[modalIndex];
+      document.getElementById("modalImage").src = url;
+      document.getElementById("modalFileName").textContent = name;
+      document.getElementById("downloadButton").onclick = () => window.open(url, "_blank");
+      document.getElementById("modalPrev").disabled = modalItems.length <= 1;
+      document.getElementById("modalNext").disabled = modalItems.length <= 1;
+      document.getElementById("modal").style.display = "flex";
+    }
+
+    async function uploadTimerImage() {
+      const files = timerFileUploader.files; if (!files.length) { alert("Select an image."); return; }
+      const project = projectInput.value.trim(); if (!project) { alert("Enter a project first."); return; }
+      const file = files[0], markup = timerMarkupText.value.trim(), name = timerImageNameInput.value.trim();
+      const ext = file.name.split(".").pop(); let base = (markup || name || file.name.split(".").slice(0, -1).join(".")).replace(/\s+/g, "_");
+      let final = `${base}.${ext}`;
+      let blob = await resizeImg(file, 2048); if (markup) blob = await stampImg(blob, markup);
+      const folder = getActiveImageFolder();
+      const existing = (await listAll(storageRef(storage, folder))).items.map(i => i.name);
+      let n = 1; while (existing.includes(final)) { final = `${base}_${n++}.${ext}`; }
+      await uploadToStorage(blob, `${folder}/${final}`);
+      await loadTimerImages(project); alert("Uploaded!"); timerFileUploader.value = "";
+    }
+
+    function resizeImg(file, maxW) { return new Promise(resolve => { const reader = new FileReader(); reader.onload = () => { const img = new Image(); img.src = reader.result; img.onload = () => { let [w, h] = [img.width, img.height]; if (w > maxW) { h = h * maxW / w; w = maxW; } const c = document.createElement("canvas"); c.width = w; c.height = h; c.getContext("2d").drawImage(img, 0, 0, w, h); c.toBlob(resolve, file.type); }; }; reader.readAsDataURL(file); }); }
+    function stampImg(blob, text) { return new Promise(resolve => { const reader = new FileReader(); reader.onload = () => { const img = new Image(); img.src = reader.result; img.onload = () => { const c = document.createElement("canvas"); c.width = img.width; c.height = img.height + 100; const ctx = c.getContext("2d"); ctx.drawImage(img, 0, 0); ctx.fillStyle = "white"; ctx.font = "80px Arial"; ctx.textAlign = "center"; ctx.fillText(text, c.width / 2, c.height - 20); c.toBlob(resolve, "image/jpeg"); }; }; reader.readAsDataURL(blob); }); }
+    function uploadToStorage(blob, path) { return new Promise((resolve, reject) => { const r = storageRef(storage, path); const t = uploadBytesResumable(r, blob); t.on("state_changed", null, reject, async () => resolve(await getDownloadURL(r))); }); }
+
+    function enableClickCopy(row) {
+      for (const cell of row.cells) { cell.addEventListener("click", function () { if (!this._cc) this._cc = 0; this._cc++; clearTimeout(this._ct); this._ct = setTimeout(() => this._cc = 0, 500); if (this._cc === 4) { navigator.clipboard.writeText(this.innerText.trim()).then(() => { const o = this.style.backgroundColor; this.style.backgroundColor = "lightblue"; setTimeout(() => this.style.backgroundColor = o, 1000); }); this._cc = 0; } }); }
+    }
+
+    // ── Timer event bindings ──
+    endTaskBtn.addEventListener("click", endTask);
+    document.getElementById("startTravelBtn").addEventListener("click", () => promptAndStartSegment("travel"));
+    document.getElementById("startWorkBtn").addEventListener("click", () => promptAndStartSegment("work"));
+    updateTaskBtn.addEventListener("click", updateTask);
+    document.getElementById("timerUploadBtn").addEventListener("click", uploadTimerImage);
+    document.getElementById("timerDownloadAllBtn").addEventListener("click", async () => {
+      const p = projectInput.value.trim(); if (!p) { alert("Select a task first."); return; }
+      const snap = await listAll(storageRef(storage, `${DB}/tasks/images/${p}`));
+      if (!snap.items.length) { alert("No images found."); return; }
+      for (const item of snap.items) window.open(await getDownloadURL(item), "_blank");
+    });
+    document.getElementById("taskSelect").addEventListener("change", async e => {
+      const id = e.target.value; if (!id) return;
+      const snap = await get(dbRef(database, `${DB}/tasks/${id}`)); if (!snap.exists()) return;
+      const task = snap.val(); task.id = task.id || id; currentTask = task; currentTaskId = id;
+      taskNameInput.value = task.customerName || ""; projectInput.value = task.project || ""; taskNotesTextarea.value = task.notes || "";
+      startOdometerInput.value = task.startOdometer || ""; endOdometerInput.value = task.endOdometer || ""; customerAddressInput.value = task.customerAddress || "";
+      customerPhoneInput.value = task.customerPhone || ""; customerEmailInput.value = task.customerEmail || "";
+      endOdometerInput.disabled = task.endOdometer == null; clearInterval(timerInterval);
+      if (!task.endTime) timerInterval = setInterval(tickTimer, 1000);
+      updateSegSummary(); updateTaskBtn.style.display = "inline-block"; loadTimerImages(task.project);
+      endTaskBtn.style.display = task.endTime ? "none" : "inline-block";
+      loadProject(id);
+    });
+    searchTaskInput.addEventListener("input", applySearchFilter);
+    document.getElementById("calculateHoursBtn").addEventListener("click", calcHoursBetweenDates);
+    document.querySelectorAll(".toggle-column").forEach(cb => cb.addEventListener("change", () => { saveColVis(); applyColVis(); }));
+    document.querySelector("#task-log th.start-time-column").addEventListener("click", () => {
+      const sorted = [...allTasks].sort((a, b) => { const d = new Date(a.startTime) - new Date(b.startTime); return sortOrder === "asc" ? d : -d; });
+      taskLogTbody.innerHTML = ""; sorted.forEach(addTaskToTable); sortOrder = sortOrder === "asc" ? "desc" : "asc";
+    });
+
+    document.addEventListener("DOMContentLoaded", () => { loadColVis(); applyColVis(); createTimerButtons(); });
+
+
+    // ════════════════════════════════════
+    // DETAILS
+    // ════════════════════════════════════
+    let currentProject = "", modalItems = [], modalIndex = 0;
+    let isLoadingProject = false, currentProjectName = "", currentCustomerName = "", metaOwnerTaskId = "", allProjects = [];
+
+    const sanitize = s => (s || "").trim().replace(/\s+/g, "_");
+    const normKey = s => (s || "").trim().toLowerCase();
+    let currentDeviceLists = {}, activeDeviceListId = "";
+    const DEVICE_RESERVED = new Set(["_name", "createdAt", "meta", "items"]);
+    function getDeviceListItems(listObj) { if (!listObj || typeof listObj !== "object") return {}; const out = {}; for (const [k, v] of Object.entries(listObj)) { if (DEVICE_RESERVED.has(k)) continue; out[k] = v; } return out; }
+
+    function getActiveImageFolder() {
+      const val = document.getElementById("imgFolderSelect")?.value || "";
+      const safeProj = sanitize(currentProjectName || currentProject);
+      const base = `${DB}/tasks/images/${safeProj}`;
+      return val ? `${base}/${val}` : base;
+    }
+
+    async function loadImageFolders() {
+      const safeProj = sanitize(currentProjectName || currentProject);
+      if (!safeProj) return;
+      const sel = document.getElementById("imgFolderSelect"); if (!sel) return;
+      const cur = sel.value;
+      sel.innerHTML = '<option value="">Root</option>';
+      try {
+        const result = await listAll(storageRef(storage, `${DB}/tasks/images/${safeProj}`));
+        result.prefixes.map(p => p.name).sort().forEach(name => sel.appendChild(new Option(name, name)));
+      } catch { }
+      if (cur === "" || Array.from(sel.options).some(o => o.value === cur)) sel.value = cur;
+      if (currentProject) loadTimerImages(currentProjectName || currentProject);
+    }
+
+    async function addImageList() {
+      const inp = document.getElementById("newListName"), name = sanitize(inp?.value.trim());
+      if (!name || !currentProject) return;
+      const safeProj = sanitize(currentProjectName || currentProject);
+      await uploadBytes(storageRef(storage, `${DB}/tasks/images/${safeProj}/${name}/.keep`), new Blob([""]));
+      inp.value = "";
+      await loadImageFolders();
+      document.getElementById("imgFolderSelect").value = name;
+      loadTimerImages(currentProjectName || currentProject);
+    }
+
+    async function deleteImageList() {
+      const val = document.getElementById("imgFolderSelect").value;
+      if (!val) return;
+      const safeProj = sanitize(currentProjectName || currentProject);
+      if (!confirm(`Delete folder "${val}" and all its files?`)) return;
+      try {
+        const snap = await listAll(storageRef(storage, `${DB}/tasks/images/${safeProj}/${val}`));
+        await Promise.all(snap.items.map(item => deleteObject(item)));
+      } catch { }
+      await loadImageFolders();
+    }
+
+    async function loadDeviceLists() {
+      if (!metaOwnerTaskId) return;
+      const snap = await get(dbRef(database, `${DB}/tasks/${metaOwnerTaskId}/lists`));
+      currentDeviceLists = snap.exists() ? snap.val() : {};
+      activeDeviceListId = "";
+      renderDeviceListDropdown();
+      renderDeviceTable();
+    }
+
+    function renderDeviceListDropdown() {
+      const sel = document.getElementById("deviceListSelect"); if (!sel) return;
+      sel.innerHTML = '<option value="">— select list —</option>' +
+        Object.entries(currentDeviceLists).sort(([, a], [, b]) => (a._name || "").localeCompare(b._name || ""))
+          .map(([id, d]) => `<option value="${id}">${d._name || id}</option>`).join('');
+      if (activeDeviceListId && currentDeviceLists[activeDeviceListId]) sel.value = activeDeviceListId;
+      const has = !!sel.value;
+      document.getElementById("deviceAddRow").style.display = has ? "" : "none";
+      document.getElementById("deviceTableWrap").style.display = has ? "" : "none";
+    }
+
+    function renderDeviceTable() {
+      const tbody = document.getElementById("deviceItemBody"); if (!tbody) return;
+      tbody.innerHTML = "";
+      if (!activeDeviceListId || !currentDeviceLists[activeDeviceListId]) return;
+      const items = getDeviceListItems(currentDeviceLists[activeDeviceListId]);
+      Object.entries(items).sort(([, a], [, b]) => (a.id || a.label || "").localeCompare(b.id || b.label || "")).forEach(([itemId, d]) => {
+        const tr = document.createElement("tr");
+        if (d.counted) tr.classList.add("device-counted");
+        const basePath = `${DB}/tasks/${metaOwnerTaskId}/lists/${activeDeviceListId}/${itemId}`;
+        const tdCount = document.createElement("td"); tdCount.style.cssText = "padding:4px 6px;text-align:center;vertical-align:top";
+        const chk = document.createElement("input"); chk.type = "checkbox"; chk.checked = !!d.counted; chk.style.width = "auto";
+        chk.onchange = () => { d.counted = chk.checked; tr.classList.toggle("device-counted", chk.checked); set(dbRef(database, `${basePath}/counted`), chk.checked); };
+        tdCount.appendChild(chk);
+        const mkEditable = (val, field) => {
+          const td = document.createElement("td"); td.style.cssText = "padding:4px 6px;vertical-align:top";
+          td.contentEditable = "true"; td.textContent = val || "";
+          td.onblur = () => { const v = td.textContent.trim(); if (v !== (d[field] || "")) { d[field] = v; set(dbRef(database, `${basePath}/${field}`), v); } };
+          return td;
+        };
+        const tdNotes = document.createElement("td"); tdNotes.style.cssText = "padding:4px 6px;vertical-align:top";
+        const notesEl = document.createElement("textarea"); notesEl.value = d.notes || ""; notesEl.rows = 3;
+        notesEl.style.cssText = "width:100%;font-size:12px;resize:vertical";
+        notesEl.onblur = () => { if (notesEl.value !== (d.notes || "")) { d.notes = notesEl.value; set(dbRef(database, `${basePath}/notes`), notesEl.value); } };
+        tdNotes.appendChild(notesEl);
+        const tdImages = document.createElement("td"); tdImages.style.cssText = "padding:4px 6px;vertical-align:top";
+        tdImages.appendChild(buildDeviceThumbStrip(d, basePath));
+        const fileInput = document.createElement("input"); fileInput.type = "file"; fileInput.accept = "image/*"; fileInput.style.display = "none";
+        const markupChk = document.createElement("input"); markupChk.type = "checkbox"; markupChk.checked = true; markupChk.style.width = "auto";
+        const markupLbl = document.createElement("label"); markupLbl.style.cssText = "font-size:11px;display:flex;align-items:center;gap:3px";
+        markupLbl.append(markupChk, "Markup");
+        const upBtn = document.createElement("button"); upBtn.textContent = "📷 Add Image";
+        upBtn.onclick = () => fileInput.click();
+        fileInput.onchange = async () => { const file = fileInput.files[0]; if (!file) return; await uploadDeviceImage(activeDeviceListId, itemId, file, d, basePath, markupChk.checked); fileInput.value = ""; };
+        tdImages.appendChild(markupLbl); tdImages.appendChild(upBtn); tdImages.appendChild(fileInput);
+        const tdAct = document.createElement("td"); tdAct.style.cssText = "padding:4px 6px;vertical-align:top;text-align:center";
+        const delBtn = document.createElement("button"); delBtn.textContent = "🗑"; delBtn.classList.add("clear-button");
+        delBtn.onclick = async () => {
+          if (!confirm(`Delete "${d.id || d.label || itemId}"?`)) return;
+          await remove(dbRef(database, `${DB}/tasks/${metaOwnerTaskId}/lists/${activeDeviceListId}/${itemId}`));
+          delete currentDeviceLists[activeDeviceListId][itemId];
+          renderDeviceTable();
+        };
+        tdAct.appendChild(delBtn);
+        tr.append(tdCount, mkEditable(d.id || d.label, "id"), mkEditable(d.serial, "serial"), mkEditable(d.model, "model"), mkEditable(d.type, "type"), mkEditable(d.location, "location"), mkEditable(d.status, "status"), mkEditable(d.ip, "ip"), mkEditable(d.mac, "mac"), tdNotes, tdImages, tdAct);
+        tbody.appendChild(tr);
+      });
+      filterDeviceTable();
+    }
+
+    function buildDeviceThumbStrip(d, basePath) {
+      const strip = document.createElement("div"); strip.className = "thumb-strip";
+      const images = Array.isArray(d.images) ? d.images : [];
+      images.forEach((img, idx) => {
+        const w = document.createElement("div"); w.className = "thumb-wrapper";
+        const thumb = document.createElement("img"); thumb.className = "thumb-img"; thumb.src = img.url; thumb.title = img.note || "";
+        thumb.onclick = () => window.open(img.url, "_blank");
+        const del = document.createElement("button"); del.className = "thumb-delete"; del.textContent = "×";
+        del.onclick = async () => {
+          if (!confirm("Delete image?")) return;
+          const imgs = [...images]; const [removed] = imgs.splice(idx, 1); d.images = imgs;
+          await set(dbRef(database, `${basePath}/images`), imgs);
+          if (removed?.path) { try { await deleteObject(storageRef(storage, removed.path)); } catch { } }
+          renderDeviceTable();
+        };
+        const markupInp = document.createElement("input"); markupInp.type = "text"; markupInp.className = "thumb-markup"; markupInp.placeholder = "Markup text"; markupInp.value = img.markup || "";
+        const markupBtn = document.createElement("button"); markupBtn.textContent = "Stamp"; markupBtn.style.fontSize = "11px";
+        markupBtn.onclick = async () => {
+          const text = markupInp.value.trim(); if (!text) { alert("Enter markup text"); return; }
+          try {
+            const res = await fetch(img.url); const blob = await res.blob();
+            const stamped = await stampImg(blob, text);
+            const sRef = storageRef(storage, img.path);
+            await uploadBytes(sRef, stamped, { contentType: "image/jpeg" });
+            const newUrl = await getDownloadURL(sRef);
+            const imgs = [...images]; imgs[idx] = { ...imgs[idx], url: newUrl, markup: text }; d.images = imgs;
+            await set(dbRef(database, `${basePath}/images`), imgs);
+            renderDeviceTable();
+          } catch (e) { console.error(e); alert("Markup failed"); }
+        };
+        const noteEl = document.createElement("textarea"); noteEl.className = "thumb-note"; noteEl.rows = 2; noteEl.placeholder = "Notes…"; noteEl.value = img.note || "";
+        noteEl.onblur = async () => {
+          const val = noteEl.value;
+          if (val !== (img.note || "")) { const imgs = [...images]; imgs[idx] = { ...imgs[idx], note: val }; d.images = imgs; await set(dbRef(database, `${basePath}/images`), imgs); }
+        };
+        w.append(thumb, del, markupInp, markupBtn, noteEl); strip.appendChild(w);
+      });
+      return strip;
+    }
+
+    async function uploadDeviceImage(listId, itemId, file, d, basePath, applyMarkup = true) {
+      const safeProj = sanitize(currentProjectName || currentProject);
+      const listName = sanitize(currentDeviceLists[listId]?._name || listId);
+      const label = sanitize(d.id || d.label || itemId);
+      const autoText = `${listName} - ${d.id || d.label || itemId}`;
+      const folder = `${DB}/tasks/images/${safeProj}/${listName}`;
+      const path = `${folder}/${label}_${Date.now()}.jpg`;
+      try {
+        let blob = await resizeImg(file, 2048);
+        if (applyMarkup) blob = await stampImg(blob, autoText);
+        await uploadBytes(storageRef(storage, path), blob, { contentType: "image/jpeg" });
+        const url = await getDownloadURL(storageRef(storage, path));
+        const imgs = Array.isArray(d.images) ? [...d.images] : [];
+        imgs.push({ url, path, note: "", markup: autoText });
+        d.images = imgs;
+        await set(dbRef(database, `${basePath}/images`), imgs);
+        renderDeviceTable();
+      } catch (e) { console.error(e); alert("Upload failed"); }
+    }
+
+    async function addDeviceList() {
+      const inp = document.getElementById("newDeviceListName"), name = inp?.value.trim();
+      if (!name || !metaOwnerTaskId) return;
+      const id = Date.now().toString();
+      await set(dbRef(database, `${DB}/tasks/${metaOwnerTaskId}/lists/${id}`), { _name: name, createdAt: Date.now() });
+      currentDeviceLists[id] = { _name: name }; inp.value = "";
+      activeDeviceListId = id;
+      renderDeviceListDropdown();
+      document.getElementById("deviceTableWrap").style.display = "";
+      document.getElementById("deviceAddRow").style.display = "";
+      renderDeviceTable();
+    }
+
+    async function deleteDeviceList() {
+      const id = activeDeviceListId; if (!id || !currentDeviceLists[id]) return;
+      if (!confirm(`Delete list "${currentDeviceLists[id]._name || id}"?`)) return;
+      await remove(dbRef(database, `${DB}/tasks/${metaOwnerTaskId}/lists/${id}`));
+      delete currentDeviceLists[id]; activeDeviceListId = "";
+      renderDeviceListDropdown(); renderDeviceTable();
+    }
+
+    async function addDeviceItem() {
+      const labelInp = document.getElementById("newDeviceLabel"), serialInp = document.getElementById("newDeviceSerial");
+      const label = labelInp?.value.trim(); if (!label || !activeDeviceListId || !metaOwnerTaskId) return;
+      const id = Date.now().toString();
+      const item = { id: label, serial: serialInp?.value.trim() || "", notes: "", images: [], counted: false };
+      await set(dbRef(database, `${DB}/tasks/${metaOwnerTaskId}/lists/${activeDeviceListId}/${id}`), item);
+      currentDeviceLists[activeDeviceListId][id] = item;
+      labelInp.value = ""; if (serialInp) serialInp.value = "";
+      renderDeviceTable();
+    }
+
+    // ════════════════════════════════════
+    // DAILY TASKS
+    // ════════════════════════════════════
+    let currentDailyTasks = {};
+
+    async function loadDailyTasks() {
+      if (!metaOwnerTaskId) return;
+      const snap = await get(dbRef(database, `${DB}/tasks/${metaOwnerTaskId}/tasks`));
+      currentDailyTasks = snap.exists() ? snap.val() : {};
+      renderDailyTasks();
+    }
+
+    function renderDailyTasks() {
+      const tbody = document.getElementById("dailyTasksBody"); if (!tbody) return;
+      tbody.innerHTML = "";
+      const entries = Object.entries(currentDailyTasks)
+        .sort(([, a], [, b]) => String(b.date || "").localeCompare(String(a.date || "")));
+      entries.forEach(([key, t]) => {
+        const basePath = `${DB}/tasks/${metaOwnerTaskId}/tasks/${key}`;
+        const tr = document.createElement("tr");
+
+        const tdDate = document.createElement("td"); tdDate.style.cssText = "padding:4px 6px;vertical-align:top";
+        tdDate.contentEditable = "true"; tdDate.textContent = t.date || key;
+        tdDate.onblur = () => { const v = tdDate.textContent.trim(); if (v !== (t.date || key)) { t.date = v; set(dbRef(database, `${basePath}/date`), v); } };
+
+        const tdNotes = document.createElement("td"); tdNotes.style.cssText = "padding:4px 6px;vertical-align:top";
+        tdNotes.contentEditable = "true"; tdNotes.textContent = t.notes || "";
+        tdNotes.onblur = () => { const v = tdNotes.textContent.trim(); if (v !== (t.notes || "")) { t.notes = v; set(dbRef(database, `${basePath}/notes`), v); } };
+
+        const tdImg = document.createElement("td"); tdImg.style.cssText = "padding:4px 6px;vertical-align:top";
+        const strip = buildDailyThumbStrip(t, basePath);
+        const addImgInp = document.createElement("input"); addImgInp.type = "file"; addImgInp.accept = "image/*"; addImgInp.style.display = "none";
+        const addImgBtn = document.createElement("button"); addImgBtn.textContent = "+ Photo";
+        addImgBtn.onclick = () => addImgInp.click();
+        addImgInp.onchange = async (e) => { const f = e.target.files[0]; if (!f) return; await uploadDailyImage(key, f, t, basePath); addImgInp.value = ""; };
+        tdImg.append(strip, addImgBtn, addImgInp);
+
+        const tdAct = document.createElement("td"); tdAct.style.cssText = "padding:4px 6px;vertical-align:top";
+        const delBtn = document.createElement("button"); delBtn.textContent = "✕"; delBtn.style.background = "red";
+        delBtn.onclick = async () => {
+          if (!confirm("Delete this daily task?")) return;
+          if (Array.isArray(t.images)) {
+            await Promise.all(t.images.filter(i => i?.path).map(i => deleteObject(storageRef(storage, i.path)).catch(() => { })));
+          }
+          await remove(dbRef(database, basePath));
+          delete currentDailyTasks[key]; renderDailyTasks();
+        };
+        tdAct.appendChild(delBtn);
+
+        tr.append(tdDate, tdNotes, tdImg, tdAct);
+        tbody.appendChild(tr);
+      });
+      filterDailyTasks();
+    }
+
+    function buildDailyThumbStrip(t, basePath) {
+      const strip = document.createElement("div"); strip.className = "thumb-strip";
+      const imgs = Array.isArray(t.images) ? t.images : [];
+      imgs.forEach((img, idx) => {
+        if (!img?.url) return;
+        const wrap = document.createElement("div"); wrap.className = "thumb-wrapper";
+        const a = document.createElement("a"); a.href = img.url; a.target = "_blank";
+        const thumb = document.createElement("img"); thumb.src = img.url; thumb.className = "thumb-img"; thumb.loading = "lazy";
+        a.appendChild(thumb);
+        const delBtn = document.createElement("button"); delBtn.textContent = "✕"; delBtn.className = "thumb-delete";
+        delBtn.onclick = async () => {
+          if (!confirm("Delete image?")) return;
+          try { await deleteObject(storageRef(storage, img.path)); } catch { }
+          t.images.splice(idx, 1);
+          await set(dbRef(database, `${basePath}/images`), t.images);
+          wrap.remove();
+        };
+        const noteEl = document.createElement("textarea"); noteEl.className = "thumb-note"; noteEl.rows = 2; noteEl.placeholder = "Note..."; noteEl.value = img.note || "";
+        noteEl.onblur = () => { img.note = noteEl.value; set(dbRef(database, `${basePath}/images`), t.images); };
+        wrap.append(a, delBtn, noteEl);
+        strip.appendChild(wrap);
+      });
+      return strip;
+    }
+
+    async function uploadDailyImage(key, file, t, basePath) {
+      const safeProj = sanitize(currentProjectName || currentProject);
+      const path = `${DB}/tasks/images/${safeProj}/daily/${key}/${Date.now()}.jpg`;
+      const sRef = storageRef(storage, path);
+      await uploadBytes(sRef, file);
+      const url = await getDownloadURL(sRef);
+      if (!Array.isArray(t.images)) t.images = [];
+      t.images.push({ url, path, note: "" });
+      await set(dbRef(database, `${basePath}/images`), t.images);
+      renderDailyTasks();
+    }
+
+    async function addDailyTask() {
+      if (!metaOwnerTaskId) { alert("Load a task first."); return; }
+      const dateInp = document.getElementById("newDailyDate");
+      const notesInp = document.getElementById("newDailyNotes");
+      const dt = (dateInp?.value || "").trim();
+      const notes = (notesInp?.value || "").trim();
+      if (!dt) return alert("Enter a date/time.");
+      const key = dt;
+      const item = { date: dt, notes, images: [] };
+      await set(dbRef(database, `${DB}/tasks/${metaOwnerTaskId}/tasks/${key}`), item);
+      currentDailyTasks[key] = item;
+      if (dateInp) dateInp.value = ""; if (notesInp) notesInp.value = "";
+      renderDailyTasks();
+    }
+
+    function getPhotoNamePrefix() { const c = sanitize(currentCustomerName || ""), p = sanitize(currentProjectName || currentProject || ""); return (c && p) ? `${c}_${p}` : c || p; }
+    function getPhotoLabelPrefix() { return (currentProjectName || currentProject || "").trim(); }
+    function bestTime(task, id) { return Math.max(Number(task.updatedAt) || 0, Number(task.createdAt) || 0, Number(task.startTime) || 0, Number(task.timestamp) || 0, Number(id) || 0); }
+    async function resolveMetaOwnerTaskId() {
+      metaOwnerTaskId = currentProject;
+      const projKey = normKey(currentProjectName), custKey = normKey(currentCustomerName);
+      if (!projKey && !custKey) return metaOwnerTaskId;
+      const snap = await get(dbRef(database, `${DB}/tasks`)); if (!snap.exists()) return metaOwnerTaskId;
+      const tasks = snap.val();
+      const matches = Object.entries(tasks).filter(([, t]) => normKey(t.project) === projKey && normKey(t.customerName) === custKey);
+      if (!matches.length) return metaOwnerTaskId;
+      matches.sort((a, b) => bestTime(a[1], a[0]) - bestTime(b[1], b[0])); metaOwnerTaskId = matches[0][0]; return metaOwnerTaskId;
+    }
+
+    async function loadProject(id) {
+      if (isLoadingProject) return; isLoadingProject = true;
+      try {
+        currentProject = id; localStorage.setItem("lastProject", id);
+        const snap = await get(dbRef(database, `${DB}/tasks/${id}`)); if (!snap.exists()) throw new Error("No task");
+        const data = snap.val(); currentProjectName = data.project || ""; currentCustomerName = (data.customerName || "").trim();
+        await resolveMetaOwnerTaskId();
+        const ownerSnap = await get(dbRef(database, `${DB}/tasks/${metaOwnerTaskId}`));
+        await loadImageFolders(); await loadDeviceLists(); await loadDailyTasks();
+      } catch (e) { console.error(e); alert("Failed to load project."); }
+      finally { isLoadingProject = false; }
+    }
+
+    function filterDailyTasks() {
+      const q = (document.getElementById("dailyFilter")?.value || "").toLowerCase();
+      document.querySelectorAll("#dailyTasksBody tr").forEach(tr => {
+        tr.style.display = q && !tr.textContent.toLowerCase().includes(q) ? "none" : "";
+      });
+    }
+
+    function filterDeviceTable() {
+      const q = (document.getElementById("deviceFilter")?.value || "").toLowerCase();
+      document.querySelectorAll("#deviceItemBody tr").forEach(tr => {
+        tr.style.display = q && !tr.textContent.toLowerCase().includes(q) ? "none" : "";
+      });
+    }
+
+    // ── Details event bindings ──
+    document.getElementById("addListBtn").onclick = addImageList;
+    document.getElementById("delListBtn").onclick = deleteImageList;
+    document.getElementById("addDailyTaskBtn").onclick = addDailyTask;
+    document.getElementById("addDeviceListBtn").onclick = addDeviceList;
+    document.getElementById("delDeviceListBtn").onclick = deleteDeviceList;
+    document.getElementById("addDeviceItemBtn").onclick = addDeviceItem;
+    document.getElementById("deviceListSelect").addEventListener("change", e => {
+      activeDeviceListId = e.target.value;
+      const has = !!activeDeviceListId;
+      document.getElementById("deviceAddRow").style.display = has ? "" : "none";
+      document.getElementById("deviceTableWrap").style.display = has ? "" : "none";
+      renderDeviceTable();
+    });
+    document.getElementById("imgFolderSelect").addEventListener("change", () => { if (currentProject) loadTimerImages(currentProjectName || currentProject); });
+    document.getElementById("dailyFilter").addEventListener("input", filterDailyTasks);
+    document.getElementById("deviceFilter").addEventListener("input", filterDeviceTable);
+
+    document.getElementById("exportDeviceCSV").onclick = () => {
+      if (!activeDeviceListId || !currentDeviceLists[activeDeviceListId]) { alert("Select a device list first."); return; }
+      const listName = currentDeviceLists[activeDeviceListId]._name || "devices";
+      const items = getDeviceListItems(currentDeviceLists[activeDeviceListId]);
+      const rows = [["Counted", "Label", "Serial", "Model", "Type", "Location", "Status", "IP", "MAC", "Notes", "Images"]];
+      Object.entries(items).forEach(([, d]) => rows.push([d.counted ? "Y" : "N", d.id || d.label || "", d.serial || "", d.model || "", d.type || "", d.location || "", d.status || "", d.ip || "", d.mac || "", (d.notes || "").replace(/,/g, ";"), Array.isArray(d.images) ? d.images.length : 0]));
+      const a = document.createElement("a"); a.href = "data:text/csv," + encodeURIComponent(rows.map(r => r.join(",")).join("\n")); a.download = `${sanitize(listName)}_devices.csv`; a.click();
+    };
+
+
+    // ── Modal bindings ──
+    document.getElementById("closeModalButton").onclick = () => document.getElementById("modal").style.display = "none";
+    document.getElementById("modal").addEventListener("click", e => { if (e.target === document.getElementById("modal")) document.getElementById("modal").style.display = "none"; });
+    document.getElementById("modalPrev").onclick = () => { if (modalItems.length < 2) return; openModal((modalIndex - 1 + modalItems.length) % modalItems.length); };
+    document.getElementById("modalNext").onclick = () => { if (modalItems.length < 2) return; openModal((modalIndex + 1) % modalItems.length); };
+    document.getElementById("deleteButton").onclick = async () => {
+      const item = modalItems[modalIndex];
+      if (!confirm("Delete this image?")) return;
+      try { await deleteObject(storageRef(storage, item.fullPath)); document.getElementById("modal").style.display = "none"; loadTimerImages(currentProjectName || currentProject); }
+      catch (e) { console.error(e); alert("Failed to delete."); }
+    };
+
+
+    document.getElementById("appTitle").addEventListener("click", e => {
+      if (e.ctrlKey) { const sec = document.getElementById("login-section"); sec.style.display = getComputedStyle(sec).display === "none" ? "block" : "none"; }
+    });
+
+  </script>
+</body>
+
+</html>

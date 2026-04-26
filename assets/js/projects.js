@@ -216,14 +216,6 @@ const apps = [
     requiresLogin: true,
   },
   {
-    title: "Online Mileage Tracker",
-    image: "assets/img/livemileage-thumbnail.png",
-    link: "apps/online/onlinemileage.html",
-    description: "Track mileage with live data updates.",
-    category: "Cloud",
-    requiresLogin: true,
-  },
-  {
     title: "Online Analytics",
     image: "assets/img/liveanalytics-thumbnail.png",
     link: "apps/online/onlineanalytics.html",
@@ -312,14 +304,6 @@ const apps = [
     requiresLogin: true,
   },
   {
-    title: "Online Task Manager",
-    image: "assets/img/livetasker-thumbnail.png",
-    link: "apps/online/onlinetasker.html",
-    description: "Manage tasks with live collaboration.",
-    category: "Cloud",
-    requiresLogin: true,
-  },
-  {
     title: "Online Timer",
     image: "assets/img/livetimer-thumbnail.png",
     link: "apps/local/timer.html",
@@ -385,13 +369,6 @@ const apps = [
     link: "apps/local/notes.html",
     description: "Create and manage your notes.",
     category: "Cloud, Other",
-    requiresLogin: true,
-  },
-  {
-    title: "Personal Task Manager",
-    image: "assets/img/tasker-thumbnail.png",
-    link: "apps/online/onlinetasker.html",
-    description: "Organize and track your tasks.",
     requiresLogin: true,
   },
 ];
