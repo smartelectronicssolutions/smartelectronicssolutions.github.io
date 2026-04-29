@@ -367,10 +367,14 @@
     function saveSegTime(idx, field, text) {
       const segs = ensureSegs(currentTask);
       if (!segs[idx]) return;
-      const snapped = parseTimeEdit(text, segs[idx][field] || segs[idx].startTime);
+      // Always anchor to the task's own startTime so corrupt segment dates can't cascade.
+      // "6:00 PM" → resolves on task-start day. "5:15 AM" → before task start → advance +1d.
+      const snapped = parseTimeEdit(text, currentTask.startTime);
       if (!snapped) return;
+      const taskStart = new Date(currentTask.startTime);
+      if (snapped < taskStart) snapped.setDate(snapped.getDate() + 1);
       segs[idx][field] = snapped.toISOString();
-      if (field === "startTime" && snapped < new Date(currentTask.startTime))
+      if (field === "startTime" && snapped < taskStart)
         currentTask.startTime = snapped.toISOString();
       saveTask(currentTask);
     }
@@ -382,8 +386,12 @@
       if (segmentSummary.contains(document.activeElement)) return;
 
       const now = new Date();
+      const _taskStartMidnight = currentTask?.startTime
+        ? new Date(new Date(currentTask.startTime).toDateString())
+        : null;
       const fmtT = d => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const mkTime = (isoVal, idx, field) => {
+        const wrap = document.createElement("span");
         const span = document.createElement("span");
         span.className = "seg-time";
         span.contentEditable = true;
@@ -391,7 +399,17 @@
         span.title = `Edit ${field === 'startTime' ? 'start' : 'end'} time`;
         span.addEventListener("blur", () => { saveSegTime(idx, field, span.textContent); updateSegSummary(); });
         span.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); span.blur(); } });
-        return span;
+        wrap.appendChild(span);
+        if (_taskStartMidnight) {
+          const dayDiff = Math.round((new Date(new Date(isoVal).toDateString()) - _taskStartMidnight) / 86400000);
+          if (dayDiff > 0) {
+            const badge = document.createElement("span");
+            badge.textContent = ` ${new Date(isoVal).toLocaleDateString([], { month: 'short', day: 'numeric' })}`;
+            badge.style.cssText = "font-size:0.75em;opacity:0.6;pointer-events:none;user-select:none";
+            wrap.appendChild(badge);
+          }
+        }
+        return wrap;
       };
 
       let travelMs = 0, workMs = 0;
@@ -444,8 +462,25 @@
 
     function saveTask(task) { set(dbRef(database, `${DB}/tasks/${task.id}`), task); }
 
+    function addImpliedWorkSegment(task) {
+      if (!task.endTime) return;
+      const segs = ensureSegs(task);
+      if (segs.some(s => s.type === "work")) return;
+      const lastEnd = segs.length && segs[segs.length - 1].endTime
+        ? segs[segs.length - 1].endTime
+        : task.startTime;
+      if (new Date(lastEnd) >= new Date(task.endTime)) return;
+      segs.push({ type: "work", startTime: lastEnd, endTime: task.endTime });
+      saveTask(task);
+    }
+
     function promptAndStartSegment(type) {
-      if (currentTask?.endTime) { alert("Job completed. Start a new task."); return; }
+      if (currentTask?.endTime) {
+        if (!confirm("This job is marked complete. Reopen it and add a segment?")) return;
+        currentTask.endTime = null;
+        endTaskBtn.style.display = "inline-block";
+        if (!timerInterval) timerInterval = setInterval(tickTimer, 1000);
+      }
       if (currentTask) {
         closeActiveSeg(currentTask);
         ensureSegs(currentTask).push({ type, startTime: getSegNow(), endTime: null });
@@ -628,8 +663,8 @@
       if (projC) projC.onblur = () => updateTaskField(key, "project", projC.innerText);
       if (soC) soC.onblur = () => updateTaskField(key, "startOdometer", soC.innerText);
       if (eoC) eoC.onblur = () => updateTaskField(key, "endOdometer", eoC.innerText);
-      if (stC) stC.onblur = () => { const s = parseTimeEdit(stC.innerText, task.startTime); if (s) { task.startTime = s.toISOString(); stC.innerText = fmtDt(s); if (lenC) lenC.innerText = task.endTime ? calcLength(task) : ""; updateTaskField(key, "startTime", s.toISOString()); } };
-      if (etC) etC.onblur = () => { const s = parseTimeEdit(etC.innerText, task.endTime || task.startTime); if (s) { task.endTime = s.toISOString(); etC.innerText = fmtDt(s); if (lenC) lenC.innerText = calcLength(task); updateTaskField(key, "endTime", s.toISOString()); } };
+      if (stC) stC.onblur = () => { const raw = stC.innerText.trim(); const full = new Date(raw); const s = isValidDate(full) ? snap15(full) : parseTimeEdit(raw, task.startTime); if (s) { task.startTime = s.toISOString(); stC.innerText = fmtDt(s); if (lenC) lenC.innerText = task.endTime ? calcLength(task) : ""; updateTaskField(key, "startTime", s.toISOString()); } };
+      if (etC) etC.onblur = () => { const raw = etC.innerText.trim(); const full = new Date(raw); const s = isValidDate(full) ? snap15(full) : parseTimeEdit(raw, task.endTime || task.startTime); if (s) { task.endTime = s.toISOString(); etC.innerText = fmtDt(s); if (lenC) lenC.innerText = calcLength(task); updateTaskField(key, "endTime", s.toISOString()); } };
       if (notesC) notesC.onblur = () => updateTaskField(key, "notes", notesC.innerText);
       if (phoneC) phoneC.onblur = () => updateTaskField(key, "customerPhone", phoneC.innerText);
       if (emailC) emailC.onblur = () => updateTaskField(key, "customerEmail", emailC.innerText);
@@ -648,6 +683,7 @@
       endOdometerInput.disabled = task.endOdometer == null;
       clearInterval(timerInterval);
       if (!task.endTime) timerInterval = setInterval(tickTimer, 1000);
+      addImpliedWorkSegment(currentTask);
       updateSegSummary(); loadTimerImages(task.project);
       endTaskBtn.style.display = task.endTime ? "none" : "inline-block";
       updateTaskBtn.style.display = "inline-block";
