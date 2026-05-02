@@ -463,14 +463,15 @@
     function saveTask(task) { set(dbRef(database, `${DB}/tasks/${task.id}`), task); }
 
     function addImpliedWorkSegment(task) {
-      if (!task.endTime) return;
       const segs = ensureSegs(task);
       if (segs.some(s => s.type === "work")) return;
-      const lastEnd = segs.length && segs[segs.length - 1].endTime
-        ? segs[segs.length - 1].endTime
-        : task.startTime;
-      if (new Date(lastEnd) >= new Date(task.endTime)) return;
-      segs.push({ type: "work", startTime: lastEnd, endTime: task.endTime });
+      const lastSeg = segs[segs.length - 1];
+      if (lastSeg && !lastSeg.endTime) return; // last segment still open
+      const lastEnd = lastSeg ? lastSeg.endTime : task.startTime;
+      const taskEnd = task.endTime || null;
+      // For completed tasks, skip if no gap between last segment and task end
+      if (taskEnd && new Date(lastEnd) >= new Date(taskEnd)) return;
+      segs.push({ type: "work", startTime: lastEnd, endTime: taskEnd });
       saveTask(task);
     }
 
@@ -740,7 +741,7 @@
       const c = document.getElementById("timerButtons");
       const mkBtn = (label, fn) => { const b = document.createElement("button"); b.innerText = label; b.onclick = fn; c.appendChild(b); };
       mkBtn("Export CSV", exportTaskCSV);
-      mkBtn("Save JSON", () => get(dbRef(database, `${DB}/tasks`)).then(snap => { const t = []; snap.forEach(s => t.push(s.val())); const a = document.createElement("a"); a.href = "data:application/json," + encodeURIComponent(JSON.stringify(t, null, 2)); a.download = "tasks.json"; a.click(); }));
+      mkBtn("Save JSON", () => { const blob = new Blob([JSON.stringify(allTasks, null, 2)], { type: "application/json" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = "tasks.json"; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); });
       mkBtn("Load JSON", () => { const inp = document.createElement("input"); inp.type = "file"; inp.accept = "application/json"; inp.onchange = e => { const file = e.target.files[0]; if (!file) return; const r = new FileReader(); r.onload = () => { JSON.parse(r.result).forEach(t => { const ref = dbRef(database, `${DB}/tasks/${t.id}`); get(ref).then(s => { if (!s.exists()) set(ref, t); }); }); }; r.readAsText(file); }; inp.click(); });
     }
 
