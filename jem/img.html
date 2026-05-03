@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>JEM Image Upload Tool</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="./assets/css/styles.css" />
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; }
+      .container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+      h1 { margin-top: 0; font-size: 2rem; }
+      .subtitle { color: var(--muted); margin-bottom: 24px; }
+      .panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); margin-bottom: 20px; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+      label { display: grid; gap: 8px; font-weight: 700; color: var(--muted); font-size: .9rem; }
+      input, select, button { border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,.04); color: var(--text); padding: 12px 14px; font: inherit; }
+      input[type="file"] { padding: 10px; }
+      input[type="checkbox"] { width: auto; padding: 0; }
+      button { cursor: pointer; font-weight: 700; background: var(--accent); border-color: var(--accent); color: white; transition: opacity .15s; }
+      button:hover { opacity: .9; }
+      button:disabled { opacity: .5; cursor: not-allowed; }
+      .btn-secondary { background: transparent; border-color: var(--border); color: var(--text); }
+      .actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 18px; }
+      .dropzone { border: 2px dashed var(--border); border-radius: 18px; padding: 30px; text-align: center; margin-top: 16px; transition: border-color .15s, background .15s; }
+      .dropzone.dragover { border-color: var(--accent); background: rgba(14,165,233,.08); }
+      .preview-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; margin-top: 18px; }
+      .preview-card { background: rgba(255,255,255,.03); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+      .preview-card img { width: 100%; height: 140px; object-fit: cover; display: block; }
+      .preview-info { padding: 10px 12px; }
+      .filename { font-weight: 700; font-size: .85rem; word-break: break-all; }
+      .muted { color: var(--muted); font-size: .8rem; }
+      .upload-status { font-size: .75rem; margin-top: 4px; min-height: 14px; }
+      .upload-status.ok { color: #4ade80; }
+      .upload-status.err { color: #f87171; }
+      .progress-bar { height: 4px; background: var(--border); border-radius: 2px; margin-top: 6px; overflow: hidden; }
+      .progress-fill { height: 100%; background: var(--accent); width: 0%; transition: width .15s; }
+      .checkbox-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; color: var(--muted); font-size: .9rem; }
+      .checkbox-row label { display: inline; font-weight: normal; color: var(--muted); font-size: .9rem; }
+      .log { margin-top: 14px; color: var(--muted); white-space: pre-wrap; font-size: .9rem; min-height: 20px; }
+      .auth-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 18px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 20px; font-size: .9rem; }
+      .auth-bar input { padding: 8px 12px; max-width: 200px; flex-shrink: 1; }
+      .auth-bar button { padding: 8px 16px; }
+      .auth-label { flex: 1; color: var(--muted); min-width: 140px; }
+      .mode-hint { display: inline-block; font-size: .72rem; padding: 2px 7px; border-radius: 8px; background: rgba(14,165,233,.15); color: #38bdf8; margin-left: 6px; vertical-align: middle; }
+      @media (max-width: 600px) { .container { padding: 16px; } .auth-bar { flex-direction: column; align-items: flex-start; } }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>JEM Image Upload Tool</h1>
+      <p class="subtitle">Resize, rename, and upload images to Firebase. They appear on the site instantly.</p>
+
+      <!-- Auth -->
+      <div class="auth-bar">
+        <span class="auth-label" id="authLabel">Not signed in</span>
+        <input type="email" id="emailIn" placeholder="Email" />
+        <input type="password" id="passIn" placeholder="Password" />
+        <button id="loginBtn">Sign In</button>
+      </div>
+
+      <!-- Settings -->
+      <div class="panel">
+        <div class="grid">
+          <label>
+            Category
+            <select id="prefix">
+              <option value="d">d — Detailing</option>
+              <option value="m">m — Mechanic</option>
+              <option value="c">c — Decals</option>
+              <option value="p">p — Pressure Wash</option>
+            </select>
+          </label>
+          <label>
+            Starting Number
+            <input type="number" id="startNumber" value="1" min="0" />
+          </label>
+          <label>
+            Resize Width (px)
+            <input type="number" id="resizeWidth" value="1600" min="100" />
+          </label>
+          <label>
+            JPEG Quality (0–1)
+            <input type="number" id="quality" value="0.85" min="0.1" max="1" step="0.05" />
+          </label>
+        </div>
+
+        <div class="checkbox-row">
+          <input type="checkbox" id="keepOriginalSize" />
+          <label for="keepOriginalSize">Do not resize</label>
+        </div>
+
+        <div class="checkbox-row">
+          <input type="checkbox" id="beforeAfterMode" />
+          <label for="beforeAfterMode">
+            Before / After mode
+            <span class="mode-hint">odd file → d001<strong>b</strong> (before) · even file → d001<strong>a</strong> (after)</span>
+          </label>
+        </div>
+
+        <div class="dropzone" id="dropzone">
+          <p><strong>Drag &amp; Drop Images Here</strong></p>
+          <p class="muted">or click to select</p>
+          <input type="file" id="imageInput" multiple accept="image/*" />
+        </div>
+
+        <div class="actions">
+          <button id="processBtn">Process &amp; Preview</button>
+          <button id="uploadBtn" disabled>Upload to Firebase</button>
+          <button id="downloadAllBtn" class="btn-secondary" disabled>Download ZIP</button>
+        </div>
+
+        <div class="log" id="log"></div>
+      </div>
+
+      <!-- Preview -->
+      <div class="panel">
+        <h2>Preview</h2>
+        <div id="previewGrid" class="preview-grid"></div>
+      </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+    <script type="module">
+      import {
+        storage, storageRef, uploadBytesResumable, getDownloadURL,
+        auth, onAuthStateChanged, signInWithEmailAndPassword, signOut
+      } from "../../assets/js/firebase-init.js";
+
+      const authLabel  = document.getElementById("authLabel");
+      const loginBtn   = document.getElementById("loginBtn");
+      const emailIn    = document.getElementById("emailIn");
+      const passIn     = document.getElementById("passIn");
+      const imageInput = document.getElementById("imageInput");
+      const processBtn = document.getElementById("processBtn");
+      const uploadBtn  = document.getElementById("uploadBtn");
+      const downloadAllBtn = document.getElementById("downloadAllBtn");
+      const previewGrid = document.getElementById("previewGrid");
+      const logEl      = document.getElementById("log");
+      const dropzone   = document.getElementById("dropzone");
+
+      let selectedFiles  = [];
+      let processedFiles = [];
+      let currentUser    = null;
+
+      /* ── auth ── */
+      onAuthStateChanged(auth, user => {
+        currentUser = user;
+        if (user) {
+          authLabel.textContent = "Signed in: " + user.email;
+          emailIn.style.display = "none";
+          passIn.style.display  = "none";
+          loginBtn.textContent  = "Sign Out";
+        } else {
+          authLabel.textContent = "Not signed in — sign in to upload";
+          emailIn.style.display = "";
+          passIn.style.display  = "";
+          loginBtn.textContent  = "Sign In";
+        }
+      });
+
+      loginBtn.addEventListener("click", async () => {
+        if (currentUser) {
+          await signOut(auth);
+        } else {
+          try {
+            await signInWithEmailAndPassword(auth, emailIn.value, passIn.value);
+          } catch {
+            alert("Login failed. Check email and password.");
+          }
+        }
+      });
+
+      /* ── file selection ── */
+      imageInput.addEventListener("change", e => {
+        selectedFiles = [...e.target.files];
+        logEl.textContent = selectedFiles.length + " image(s) selected.";
+      });
+
+      dropzone.addEventListener("dragover", e => { e.preventDefault(); dropzone.classList.add("dragover"); });
+      dropzone.addEventListener("dragleave", () => dropzone.classList.remove("dragover"));
+      dropzone.addEventListener("drop", e => {
+        e.preventDefault();
+        dropzone.classList.remove("dragover");
+        selectedFiles = [...e.dataTransfer.files].filter(f => f.type.startsWith("image/"));
+        logEl.textContent = selectedFiles.length + " image(s) selected.";
+      });
+
+      /* ── filename builder ── */
+      function buildFilename(prefix, startNum, fileIndex, beforeAfterMode) {
+        if (beforeAfterMode) {
+          const pairNum = startNum + Math.floor(fileIndex / 2);
+          const suffix  = fileIndex % 2 === 0 ? "b" : "a";
+          return prefix + String(pairNum).padStart(3, "0") + suffix + ".jpg";
+        }
+        return prefix + String(startNum + fileIndex).padStart(3, "0") + ".jpg";
+      }
+
+      /* ── resize ── */
+      function resizeImage(file, maxWidth, quality, keepOriginalSize) {
+        return new Promise(resolve => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement("canvas");
+            let w = img.width, h = img.height;
+            if (!keepOriginalSize && w > maxWidth) {
+              h = Math.round(h * (maxWidth / w));
+              w = maxWidth;
+            }
+            canvas.width = w; canvas.height = h;
+            canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+            canvas.toBlob(resolve, "image/jpeg", quality);
+          };
+          img.src = URL.createObjectURL(file);
+        });
+      }
+
+      function formatBytes(b) {
+        if (b < 1024) return b + " B";
+        if (b < 1048576) return (b / 1024).toFixed(1) + " KB";
+        return (b / 1048576).toFixed(2) + " MB";
+      }
+
+      /* ── process ── */
+      processBtn.addEventListener("click", async () => {
+        if (!selectedFiles.length) { alert("Select images first."); return; }
+
+        processBtn.disabled = true;
+        processBtn.textContent = "Processing…";
+        previewGrid.innerHTML = "";
+        processedFiles = [];
+
+        const prefix          = document.getElementById("prefix").value;
+        const startNum        = Number(document.getElementById("startNumber").value) || 1;
+        const resizeWidth     = Number(document.getElementById("resizeWidth").value) || 1600;
+        const quality         = Number(document.getElementById("quality").value) || 0.85;
+        const keepOriginalSize = document.getElementById("keepOriginalSize").checked;
+        const beforeAfterMode = document.getElementById("beforeAfterMode").checked;
+
+        for (let i = 0; i < selectedFiles.length; i++) {
+          const filename = buildFilename(prefix, startNum, i, beforeAfterMode);
+          const blob     = await resizeImage(selectedFiles[i], resizeWidth, quality, keepOriginalSize);
+          const objUrl   = URL.createObjectURL(blob);
+          processedFiles.push({ filename, blob });
+
+          const card = document.createElement("div");
+          card.className = "preview-card";
+          card.innerHTML =
+            '<img src="' + objUrl + '" alt="' + filename + '">' +
+            '<div class="preview-info">' +
+              '<div class="filename">' + filename + '</div>' +
+              '<div class="muted">' + formatBytes(blob.size) + '</div>' +
+              '<div class="upload-status" id="status-' + i + '"></div>' +
+              '<div class="progress-bar"><div class="progress-fill" id="prog-' + i + '"></div></div>' +
+            '</div>';
+          previewGrid.appendChild(card);
+        }
+
+        logEl.textContent = "Processed " + processedFiles.length + " image(s). Click Upload to push to Firebase.";
+        processBtn.disabled = false;
+        processBtn.textContent = "Process & Preview";
+        uploadBtn.disabled = false;
+        downloadAllBtn.disabled = false;
+      });
+
+      /* ── upload ── */
+      uploadBtn.addEventListener("click", async () => {
+        if (!processedFiles.length) return;
+        if (!currentUser) { alert("Sign in before uploading."); return; }
+
+        uploadBtn.disabled = true;
+        uploadBtn.textContent = "Uploading…";
+        let successCount = 0;
+
+        await Promise.all(processedFiles.map((f, i) => new Promise(resolve => {
+          const path  = "public/jeb/images/" + f.filename;
+          const ref   = storageRef(storage, path);
+          const task  = uploadBytesResumable(ref, f.blob, { contentType: "image/jpeg" });
+          const statEl = document.getElementById("status-" + i);
+          const progEl = document.getElementById("prog-" + i);
+
+          task.on("state_changed",
+            snap => {
+              const pct = Math.round(snap.bytesTransferred / snap.totalBytes * 100);
+              if (progEl) progEl.style.width = pct + "%";
+            },
+            err => {
+              if (statEl) { statEl.textContent = "Failed: " + err.code; statEl.className = "upload-status err"; }
+              resolve();
+            },
+            async () => {
+              if (statEl) { statEl.textContent = "✓ Uploaded"; statEl.className = "upload-status ok"; }
+              successCount++;
+              resolve();
+            }
+          );
+        })));
+
+        logEl.textContent = "Uploaded " + successCount + " / " + processedFiles.length + " image(s). Slideshow will reflect changes on next load.";
+        uploadBtn.disabled = false;
+        uploadBtn.textContent = "Upload to Firebase";
+      });
+
+      /* ── download zip ── */
+      downloadAllBtn.addEventListener("click", async () => {
+        if (!processedFiles.length) return;
+        const zip = new JSZip();
+        processedFiles.forEach(f => zip.file(f.filename, f.blob));
+        const blob = await zip.generateAsync({ type: "blob" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "jem-gallery-images.zip";
+        a.click();
+      });
+    </script>
+  </body>
+</html>

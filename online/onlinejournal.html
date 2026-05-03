@@ -501,8 +501,7 @@
   </main>
 
   <script type="module">
-    import { auth, database, ref, set, get, remove } from "../assets/js/firebase-init.js";
-    import { onUserReady } from "../assets/js/auth.js";
+    import { auth, database, ref, set, get, remove, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "../assets/js/firebase-init.js";
     import { renderArticleContent } from "../assets/js/onlinejournal.js";
 
     /* ── state ── */
@@ -540,9 +539,11 @@
     const deleteArticleBtn = document.getElementById("deleteArticleBtn");
 
     /* ── auth ── */
-    onUserReady(async (user) => {
+    onAuthStateChanged(auth, async (user) => {
       const editorPanel = document.getElementById("editorPanel");
       const articleActions = document.querySelector(".article-actions");
+      const authLabel = document.getElementById("auth-label");
+      const authBtn = document.getElementById("auth-btn");
 
       if (user) {
         PATH = user.uid + "/journalArticles";
@@ -552,6 +553,8 @@
         authIndicator.style.color = "#fff";
         if (editorPanel) editorPanel.style.display = "block";
         if (articleActions) articleActions.style.display = "flex";
+        if (authLabel) authLabel.textContent = user.email;
+        if (authBtn) authBtn.textContent = "Logout";
       } else {
         PATH = "public/journalArticles";
         currentUser = null;
@@ -560,9 +563,39 @@
         authIndicator.style.color = "var(--muted)";
         if (editorPanel) editorPanel.style.display = "none";
         if (articleActions) articleActions.style.display = "none";
+        if (authLabel) authLabel.textContent = "Not signed in";
+        if (authBtn) authBtn.textContent = "Sign In";
       }
 
       await loadArticles(true);
+    });
+
+    /* ── auth UI ── */
+    document.addEventListener("DOMContentLoaded", () => {
+      const authBtn = document.getElementById("auth-btn");
+      const loginBox = document.getElementById("login-inline");
+      const doLogin = document.getElementById("do-login");
+      const emailInput = document.getElementById("email-in");
+      const passwordInput = document.getElementById("pass-in");
+      const authErr = document.getElementById("auth-err");
+
+      authBtn?.addEventListener("click", () => {
+        if (auth.currentUser) {
+          signOut(auth);
+        } else {
+          loginBox.style.display = loginBox.style.display === "block" ? "none" : "block";
+        }
+      });
+
+      doLogin?.addEventListener("click", async () => {
+        try {
+          await signInWithEmailAndPassword(auth, emailInput.value, passwordInput.value);
+          loginBox.style.display = "none";
+          if (authErr) authErr.textContent = "";
+        } catch {
+          if (authErr) authErr.textContent = "Invalid login.";
+        }
+      });
     });
 
     /* ── helpers ── */
