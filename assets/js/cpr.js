@@ -1,7 +1,7 @@
 // CPR Calculator — root-level adapter
 // Wraps websites/cpr/js/index.js with corrected image paths for root deployment
 
-import { ref, database, onValue } from "./firebase-init-noauth.js";
+import { ref, database, onValue } from "./firebase-init.js";
 
 const phonesInDB = ref(database, "devices");
 
@@ -17,7 +17,7 @@ const defaultImageSrc = IMG_BASE + "default.png";
 
 function loadData() {
   const brand = document.querySelector('input[name="brand"]:checked').value;
-  const brandRef = ref(database, `share/repairPricing/${brand}`);
+  const brandRef = ref(database, `share/devices/${brand}`);
   onValue(brandRef, (snapshot) => {
     const brandData = snapshot.val();
     modelSelect.innerHTML = "";
@@ -48,7 +48,7 @@ modelSelect.addEventListener("change", () => {
   const selectedModel = modelSelect.value;
   const modelRef = ref(
     database,
-    `share/repairPricing/${brand}/${selectedModel}`,
+    `share/devices/${brand}/${selectedModel}`,
   );
   onValue(modelRef, (snapshot) => {
     const modelData = snapshot.val();
