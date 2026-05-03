@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="theme-">
+<html lang="en">
 
 <head>
     <meta charset="UTF-8">
@@ -258,7 +258,6 @@
         <h2>Latest Updates</h2>
         <p>Notes from the field — tools built, problems solved, things learned.</p>
         <div class="post-grid" id="updatesGrid"></div>
-        </div>
     </section>
 
     <section class="cta">
@@ -271,70 +270,36 @@
 
     <script src="assets/js/main.js"></script>
     <script type="module">
-        import { auth, database } from "./assets/js/firebase-init.js";
-        import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.1.3/firebase-auth.js";
-        import { ref, get } from "https://www.gstatic.com/firebasejs/9.1.3/firebase-database.js";
+        import { database } from "./assets/js/firebase-init.js";
+        import { ref, get } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js";
         import { renderArticleCards } from "./assets/js/onlinejournal.js";
 
         const updatesGrid = document.getElementById("updatesGrid");
-        let PATH = "share/journalArticles";
-
-        onAuthStateChanged(auth, async (user) => {
-            if (user) {
-                PATH = `${user.uid}/journalArticles`;
-            } else {
-                PATH = "share/journalArticles";
-            }
-
-            await loadArticles();
-        });
 
         async function loadArticles() {
             try {
-                const snapshot = await get(ref(database, PATH));
+                const snapshot = await get(ref(database, "public/journalArticles"));
                 const data = snapshot.val();
 
-                if (!updatesGrid) return;
+                if (!updatesGrid || !data) return;
 
-                updatesGrid.innerHTML = "";
-
-                let finalData = {};
-
-                // If user data exists, normalize it
-                if (data) {
-                    Object.entries(data).forEach(([id, article]) => {
-                        finalData[`public__${id}`] = {
-                            ...article,
-                            __id: id,
-                            __path: "share/journalArticles",
-                            __scope: "public"
-                        };
-                    });
-                }
-
-                // fallback to public if empty
-                if (Object.keys(finalData).length === 0) {
-                    const publicSnapshot = await get(ref(database, "share/journalArticles"));
-                    const publicData = publicSnapshot.val();
-
-                    if (publicData) {
-                        Object.entries(publicData).forEach(([id, article]) => {
-                            finalData[`public__${id}`] = {
-                                ...article,
-                                __id: id,
-                                __path: "share/journalArticles",
-                                __scope: "public"
-                            };
-                        });
-                    }
-                }
+                const finalData = {};
+                Object.entries(data).forEach(([id, article]) => {
+                    finalData[`public__${id}`] = {
+                        ...article,
+                        __id: id,
+                        __path: "public/journalArticles",
+                        __scope: "public"
+                    };
+                });
 
                 renderArticleCards(finalData, updatesGrid);
-
             } catch (error) {
                 console.error("Error loading articles:", error);
             }
         }
+
+        loadArticles();
     </script>
 </body>
 

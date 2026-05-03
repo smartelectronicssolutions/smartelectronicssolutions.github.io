@@ -292,6 +292,65 @@
       font-weight: bold;
     }
 
+    .ci-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 8px;
+      margin-bottom: 6px;
+      background: var(--bg);
+    }
+
+    .ci-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .ci-badge {
+      font-size: 10px;
+      font-weight: bold;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: var(--primary);
+      color: #fff;
+    }
+
+    .ci-header button {
+      font-size: 11px;
+      padding: 1px 6px;
+      margin-left: 3px;
+    }
+
+    .ci-del {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--danger);
+      cursor: pointer;
+      border-radius: var(--radius);
+    }
+
+    .ci-del:hover { border-color: var(--danger); }
+
+    .ci-add-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin: 6px 0 8px;
+    }
+
+    .ci-add-row button {
+      font-size: 11px;
+      padding: 2px 7px;
+    }
+
+    .ci-mono {
+      font-family: monospace;
+      font-size: 12px;
+    }
+
     .auth-indicator {
       font-size: 11px;
       padding: 3px 8px;
@@ -347,6 +406,7 @@
 <body>
 
   <header style="position:relative;">
+    <div class="logo-box"><a href="../index.html"><img src="../assets/img/logo.png" alt="Smart Solutions"></a></div>
     <h1>Online Journal</h1>
     <div class="auth-bar">
       <span id="auth-label">Not signed in</span>
@@ -545,49 +605,139 @@
         return;
       }
 
-      sections.forEach(function (s, i) {
+      sections.forEach(function (s, si) {
         var div = document.createElement("div");
         div.className = "section-card";
-        div.innerHTML =
-          "<h4>Section " + (i + 1) + "</h4>" +
-          '<input data-i="' + i + '" class="sec-title" value="' + escapeHtml(s.title) + '" placeholder="Title"/>' +
-          '<textarea data-i="' + i + '" class="sec-summary">' + escapeHtml(s.summary) + "</textarea>" +
-          '<textarea data-i="' + i + '" class="sec-steps">' + escapeHtml(s.steps.join("\n")) + "</textarea>" +
-          "<label>Image URL</label>" +
-          '<input type="text" class="sec-image" data-i="' + i + '" value="' +
-          escapeHtml((s.content && s.content.find(function (c) { return c.type === 'image'; }) || {}).src || '') +
-          '" placeholder="assets/img/example.png"/>' +
-          '<div class="actions">' +
-          '<button data-i="' + i + '" class="sec-up">&#8593;</button>' +
-          '<button data-i="' + i + '" class="sec-down">&#8595;</button>' +
-          '<button data-i="' + i + '" class="sec-del">Remove</button>' +
-          "</div>";
+
+        var html = "<h4>Section " + (si + 1) + "</h4>";
+        html += '<label>Title</label><input data-si="' + si + '" class="sec-title" value="' + escapeHtml(s.title) + '" placeholder="Section title"/>';
+        html += '<label>Summary</label><textarea data-si="' + si + '" class="sec-summary" placeholder="Short section summary">' + escapeHtml(s.summary) + "</textarea>";
+
+        // Content items
+        html += '<label>Content</label><div class="content-items">';
+        (s.content || []).forEach(function (item, ci) {
+          html += '<div class="ci-card">';
+          html += '<div class="ci-header"><span class="ci-badge">' + item.type + '</span><span>';
+          html += '<button type="button" class="ci-up btn-outline" data-si="' + si + '" data-ci="' + ci + '">↑</button>';
+          html += '<button type="button" class="ci-down btn-outline" data-si="' + si + '" data-ci="' + ci + '">↓</button>';
+          html += '<button type="button" class="ci-del" data-si="' + si + '" data-ci="' + ci + '">✕</button>';
+          html += '</span></div>';
+
+          if (item.type === 'text') {
+            html += '<textarea class="ci-value" data-si="' + si + '" data-ci="' + ci + '" placeholder="Text...">' + escapeHtml(item.value || '') + '</textarea>';
+          } else if (item.type === 'code') {
+            html += '<textarea class="ci-value ci-mono" data-si="' + si + '" data-ci="' + ci + '" placeholder="Code...">' + escapeHtml(item.value || '') + '</textarea>';
+          } else if (item.type === 'image') {
+            html += '<input type="text" class="ci-src" data-si="' + si + '" data-ci="' + ci + '" value="' + escapeHtml(item.src || '') + '" placeholder="Image URL"/>';
+          } else if (item.type === 'link_button' || item.type === 'link') {
+            html += '<input type="text" class="ci-label" data-si="' + si + '" data-ci="' + ci + '" value="' + escapeHtml(item.label || '') + '" placeholder="Label text"/>';
+            html += '<input type="text" class="ci-href" data-si="' + si + '" data-ci="' + ci + '" value="' + escapeHtml(item.href || '') + '" placeholder="https://..."/>';
+          } else if (item.type === 'list') {
+            html += '<textarea class="ci-items" data-si="' + si + '" data-ci="' + ci + '" placeholder="One item per line">' + escapeHtml((item.items || []).join('\n')) + '</textarea>';
+          }
+
+          html += '</div>';
+        });
+        html += '</div>';
+
+        // Add content item buttons
+        html += '<div class="ci-add-row">';
+        ['text', 'link_button', 'link', 'list', 'image', 'code'].forEach(function (type) {
+          html += '<button type="button" class="ci-add btn-outline" data-si="' + si + '" data-type="' + type + '">+ ' + type + '</button>';
+        });
+        html += '</div>';
+
+        // Legacy steps — only show if populated
+        if (s.steps && s.steps.length) {
+          html += '<label>Steps (legacy)</label><textarea data-si="' + si + '" class="sec-steps" placeholder="One step per line">' + escapeHtml(s.steps.join("\n")) + "</textarea>";
+        }
+
+        html += '<div class="actions">';
+        html += '<button type="button" data-si="' + si + '" class="sec-up">↑ Section</button>';
+        html += '<button type="button" data-si="' + si + '" class="sec-down">↓ Section</button>';
+        html += '<button type="button" data-si="' + si + '" class="sec-del">Remove Section</button>';
+        html += '</div>';
+
+        div.innerHTML = html;
         sectionsContainer.appendChild(div);
       });
 
+      // Section field events
       sectionsContainer.querySelectorAll(".sec-title").forEach(function (el) {
-        el.oninput = function (e) { sections[e.target.dataset.i].title = e.target.value; };
+        el.oninput = function () { sections[Number(this.dataset.si)].title = this.value; };
       });
       sectionsContainer.querySelectorAll(".sec-summary").forEach(function (el) {
-        el.oninput = function (e) { sections[e.target.dataset.i].summary = e.target.value; };
+        el.oninput = function () { sections[Number(this.dataset.si)].summary = this.value; };
       });
       sectionsContainer.querySelectorAll(".sec-steps").forEach(function (el) {
-        el.oninput = function (e) { sections[e.target.dataset.i].steps = e.target.value.split("\n"); };
+        el.oninput = function () { sections[Number(this.dataset.si)].steps = this.value.split("\n"); };
       });
-      sectionsContainer.querySelectorAll(".sec-image").forEach(function (el) {
-        el.oninput = function (e) {
-          var i = Number(e.target.dataset.i);
-          if (!sections[i]) return;
-          sections[i].content = (sections[i].content || []).filter(function (c) { return c.type !== "image"; });
-          if (e.target.value.trim()) sections[i].content.push({ type: "image", src: e.target.value.trim() });
+
+      // Content item field events
+      sectionsContainer.querySelectorAll(".ci-value").forEach(function (el) {
+        el.oninput = function () { sections[Number(this.dataset.si)].content[Number(this.dataset.ci)].value = this.value; };
+      });
+      sectionsContainer.querySelectorAll(".ci-src").forEach(function (el) {
+        el.oninput = function () { sections[Number(this.dataset.si)].content[Number(this.dataset.ci)].src = this.value; };
+      });
+      sectionsContainer.querySelectorAll(".ci-label").forEach(function (el) {
+        el.oninput = function () { sections[Number(this.dataset.si)].content[Number(this.dataset.ci)].label = this.value; };
+      });
+      sectionsContainer.querySelectorAll(".ci-href").forEach(function (el) {
+        el.oninput = function () { sections[Number(this.dataset.si)].content[Number(this.dataset.ci)].href = this.value; };
+      });
+      sectionsContainer.querySelectorAll(".ci-items").forEach(function (el) {
+        el.oninput = function () {
+          sections[Number(this.dataset.si)].content[Number(this.dataset.ci)].items =
+            this.value.split("\n").map(function (x) { return x.trim(); }).filter(Boolean);
         };
       });
-      sectionsContainer.querySelectorAll(".sec-del").forEach(function (btn) {
-        btn.onclick = function () { sections.splice(Number(btn.dataset.i), 1); renderSections(); };
+
+      // Add content item
+      sectionsContainer.querySelectorAll(".ci-add").forEach(function (btn) {
+        btn.onclick = function () {
+          var si = Number(this.dataset.si), type = this.dataset.type;
+          var item = { type: type };
+          if (type === 'text' || type === 'code') item.value = '';
+          else if (type === 'image') item.src = '';
+          else if (type === 'link_button' || type === 'link') { item.label = ''; item.href = ''; }
+          else if (type === 'list') item.items = [];
+          sections[si].content.push(item);
+          renderSections();
+        };
       });
+
+      // Content item up / down / delete
+      sectionsContainer.querySelectorAll(".ci-up").forEach(function (btn) {
+        btn.onclick = function () {
+          var si = Number(this.dataset.si), ci = Number(this.dataset.ci);
+          if (ci === 0) return;
+          var arr = sections[si].content;
+          var tmp = arr[ci]; arr[ci] = arr[ci - 1]; arr[ci - 1] = tmp;
+          renderSections();
+        };
+      });
+      sectionsContainer.querySelectorAll(".ci-down").forEach(function (btn) {
+        btn.onclick = function () {
+          var si = Number(this.dataset.si), ci = Number(this.dataset.ci);
+          var arr = sections[si].content;
+          if (ci >= arr.length - 1) return;
+          var tmp = arr[ci]; arr[ci] = arr[ci + 1]; arr[ci + 1] = tmp;
+          renderSections();
+        };
+      });
+      sectionsContainer.querySelectorAll(".ci-del").forEach(function (btn) {
+        btn.onclick = function () {
+          var si = Number(this.dataset.si), ci = Number(this.dataset.ci);
+          sections[si].content.splice(ci, 1);
+          renderSections();
+        };
+      });
+
+      // Section up / down / delete
       sectionsContainer.querySelectorAll(".sec-up").forEach(function (btn) {
         btn.onclick = function () {
-          var i = Number(btn.dataset.i);
+          var i = Number(this.dataset.si);
           if (i === 0) return;
           var tmp = sections[i]; sections[i] = sections[i - 1]; sections[i - 1] = tmp;
           renderSections();
@@ -595,9 +745,15 @@
       });
       sectionsContainer.querySelectorAll(".sec-down").forEach(function (btn) {
         btn.onclick = function () {
-          var i = Number(btn.dataset.i);
+          var i = Number(this.dataset.si);
           if (i >= sections.length - 1) return;
           var tmp = sections[i]; sections[i] = sections[i + 1]; sections[i + 1] = tmp;
+          renderSections();
+        };
+      });
+      sectionsContainer.querySelectorAll(".sec-del").forEach(function (btn) {
+        btn.onclick = function () {
+          sections.splice(Number(this.dataset.si), 1);
           renderSections();
         };
       });
