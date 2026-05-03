@@ -24,7 +24,7 @@ export function renderArticleContent(article) {
     `;
   }
 
-  (article.sections || []).forEach(section => {
+  (article.sections || []).forEach((section) => {
     if (section.title) {
       html += `<h3>${escapeHtml(section.title)}</h3>`;
     }
@@ -33,7 +33,7 @@ export function renderArticleContent(article) {
       html += `<p>${escapeHtml(section.summary)}</p>`;
     }
 
-    (section.content || []).forEach(item => {
+    (section.content || []).forEach((item) => {
       if (item.type === "text") {
         html += `<p>${item.value}</p>`;
       }
@@ -47,7 +47,7 @@ export function renderArticleContent(article) {
       }
 
       if (item.type === "list") {
-        html += `<ul>${item.items.map(i => `<li>${escapeHtml(i)}</li>`).join("")}</ul>`;
+        html += `<ul>${item.items.map((i) => `<li>${escapeHtml(i)}</li>`).join("")}</ul>`;
       }
 
       if (item.type === "code") {
@@ -79,7 +79,7 @@ export function renderArticleContent(article) {
 
     // fallback support (old data)
     if (section.steps) {
-      html += `<ul>${section.steps.map(s => `<li>${escapeHtml(s)}</li>`).join("")}</ul>`;
+      html += `<ul>${section.steps.map((s) => `<li>${escapeHtml(s)}</li>`).join("")}</ul>`;
     }
   });
 
@@ -87,7 +87,7 @@ export function renderArticleContent(article) {
   if (article.relatedLinks && article.relatedLinks.length > 0) {
     html += `<div class="related-links"><h4>Related Resources</h4><ul>`;
 
-    article.relatedLinks.forEach(link => {
+    article.relatedLinks.forEach((link) => {
       if (!link.url.includes("PLACEHOLDER")) {
         html += `
           <li>
@@ -116,13 +116,14 @@ export function renderArticleCards(data, container) {
     .sort((a, b) => b[0] - a[0])
     .slice(0, 4)
     .forEach(([id, article]) => {
-
       const div = document.createElement("div");
       div.className = "post";
 
       // Optional preview image
       let previewImg = "";
-      const firstImage = article.sections?.[0]?.content?.find(c => c.type === "image");
+      const firstImage = article.sections?.[0]?.content?.find(
+        (c) => c.type === "image",
+      );
 
       if (firstImage) {
         previewImg = `<img src="${firstImage.src}" class="article-img">`;
@@ -136,7 +137,7 @@ export function renderArticleCards(data, container) {
       `;
 
       div.onclick = () => {
-        window.location.href = `onlinejournal.html?id=${id}`;
+        window.location.href = `online/onlinejournal.html?id=${id}`;
       };
 
       container.appendChild(div);

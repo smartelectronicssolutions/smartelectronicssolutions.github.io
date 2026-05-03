@@ -1,0 +1,1099 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Invoice Manager</title>
+  <link rel="stylesheet" href="assets/css/online.css" />
+  <script>
+    (function () {
+      const t = localStorage.getItem("ss-theme");
+      if (t === "light") document.documentElement.classList.add("light");
+    })();
+  </script>
+  <script type="module" src="../assets/js/auth.js"></script>
+  <style>
+    .inv-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    label {
+      display: block;
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 2px;
+    }
+
+    input[type=text],
+    input[type=email],
+    input[type=tel],
+    input[type=number],
+    input[type=date],
+    select,
+    textarea {
+      width: 100%;
+      box-sizing: border-box;
+      border-radius: var(--radius);
+    }
+
+    input[type=checkbox] {
+      width: auto;
+    }
+
+    .field {
+      margin-bottom: 6px;
+    }
+
+    .section-title {
+      font-weight: 600;
+      font-size: 0.9rem;
+      margin: 0 0 8px;
+      color: var(--text);
+    }
+
+    section {
+      margin: 12px 0;
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    .parts-table td,
+    .labor-table td {
+      padding: 3px 4px;
+      vertical-align: middle;
+    }
+
+    .parts-table td input,
+    .labor-table td input {
+      padding: 2px 4px;
+      font-size: 12px;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    .col-act {
+      width: 30px;
+      text-align: center;
+    }
+
+    .totals-box {
+      border: 1px solid var(--border);
+      padding: 10px;
+      background: var(--surface2);
+      max-width: 360px;
+      margin-left: auto;
+      margin-top: 10px;
+    }
+
+    .totals-box table {
+      background: transparent;
+    }
+
+    .totals-box td {
+      border: none;
+      padding: 2px 6px;
+      font-size: 13px;
+    }
+
+    .totals-box tr.grand td {
+      font-weight: 600;
+      font-size: 14px;
+      border-top: 1px solid var(--border);
+    }
+
+    .totals-box td:last-child {
+      text-align: right;
+    }
+
+    .status-paid {
+      color: #4caf50;
+      font-weight: 600;
+    }
+
+    .status-unpaid {
+      color: var(--danger);
+      font-weight: 600;
+    }
+
+    .inv-row-paid td {
+      opacity: 0.65;
+    }
+
+    .inv-row-paid td:first-child {
+      opacity: 1;
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    .inv-dropdowns {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+      align-items: flex-end;
+    }
+
+    .inv-dropdowns .field {
+      flex: 1;
+      min-width: 120px;
+    }
+
+    #profitDisplay {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    #profitDisplay span {
+      color: #4caf50;
+      font-weight: 600;
+    }
+
+    #invMsg {
+      font-size: 12px;
+      margin-top: 6px;
+    }
+
+    .remaining-section {
+      margin-top: 8px;
+      padding: 8px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface2);
+      display: none;
+    }
+
+    .auth-bar {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    #login-inline {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 10px;
+      position: absolute;
+      top: 100%;
+      right: 10px;
+      z-index: 100;
+      display: none;
+      min-width: 220px;
+    }
+
+    #login-inline h3 {
+      margin: 0 0 8px;
+      font-size: 13px;
+    }
+
+    #auth-err {
+      color: var(--danger);
+      font-size: 11px;
+      margin: 4px 0 0;
+    }
+  </style>
+</head>
+
+<body>
+
+  <header style="position:relative;">
+    <h1>Invoice Manager</h1>
+    <div class="auth-bar">
+      <span id="auth-label">Not signed in</span>
+      <button class="btn" id="auth-btn">Sign In</button>
+    </div>
+    <button id="theme-toggle" title="Toggle theme">&#9728;&#65039;</button>
+    <script>
+      (function () {
+        const btn = document.getElementById("theme-toggle");
+        const html = document.documentElement;
+        btn.textContent = html.classList.contains("light") ? "🌙" : "☀️";
+        btn.addEventListener("click", function () {
+          const next = html.classList.contains("light") ? "dark" : "light";
+          html.classList.toggle("light", next === "light");
+          localStorage.setItem("ss-theme", next);
+          btn.textContent = next === "light" ? "🌙" : "☀️";
+        });
+      })();
+    </script>
+    <div id="login-inline">
+      <h3>Sign In</h3>
+      <input type="email" id="email-in" placeholder="Email" />
+      <input type="password" id="pass-in" placeholder="Password" />
+      <button class="btn" id="do-login">Sign In</button>
+      <p id="auth-err"></p>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- BUSINESS SETTINGS -->
+    <section>
+      <div class="collapsible-header section-title" id="settingsHeader">Business Settings</div>
+      <div id="settingsBody" class="hidden">
+        <div class="inv-grid">
+          <div class="field"><label>Business Name</label><input id="bizName" type="text" /></div>
+          <div class="field"><label>Phone</label><input id="bizPhone" type="tel" /></div>
+          <div class="field"><label>Email</label><input id="bizEmail" type="email" /></div>
+          <div class="field"><label>Website</label><input id="bizWebsite" type="text" /></div>
+        </div>
+        <div class="field"><label>Address</label><input id="bizAddress" type="text" /></div>
+        <div class="field"><label>Default Terms / Notes</label><textarea id="bizTerms" rows="2"></textarea></div>
+        <button id="saveSettingsBtn">Save Settings</button>
+      </div>
+    </section>
+
+    <!-- INVOICE BUILDER -->
+    <section>
+      <div class="section-title">Invoice Builder</div>
+
+      <div class="inv-grid" style="margin-bottom:10px;">
+        <div class="field">
+          <label>Import from Job Task</label>
+          <select id="jobTaskSelect">
+            <option value="">-- select task --</option>
+          </select>
+        </div>
+        <div class="field" style="display:flex;align-items:flex-end;">
+          <button id="importTaskBtn" style="margin:0;">Import Customer + Segments</button>
+        </div>
+      </div>
+
+      <div class="inv-grid">
+        <div class="field">
+          <label>Type</label>
+          <select id="invoiceType">
+            <option value="invoice">Invoice</option>
+            <option value="quote">Quote</option>
+          </select>
+        </div>
+        <div class="field"><label>Number</label><input id="invNumber" type="text" /></div>
+        <div class="field"><label>Date</label><input id="invDate" type="date" /></div>
+        <div class="field"><label>Due Date</label><input id="invDue" type="date" /></div>
+      </div>
+
+      <div class="section-title" style="margin-top:10px;">Bill To</div>
+      <div class="inv-grid">
+        <div class="field"><label>Name / Company</label><input id="billName" type="text" /></div>
+        <div class="field"><label>Phone</label><input id="billPhone" type="tel" /></div>
+        <div class="field"><label>Email</label><input id="billEmail" type="email" /></div>
+        <div class="field"><label>Address</label><input id="billAddress" type="text" /></div>
+      </div>
+
+      <!-- PARTS -->
+      <div class="section-title" style="margin-top:12px;">Parts</div>
+      <div class="inv-dropdowns">
+        <div class="field"><label>Category</label><select id="partCategory"></select></div>
+        <div class="field"><label>Subcategory</label><select id="partSubcategory"></select></div>
+        <div class="field"><label>Part</label><select id="partSelector"></select></div>
+        <div style="display:flex;gap:4px;align-items:flex-end;padding-bottom:2px;">
+          <button id="addPartBtn">Add</button>
+          <button id="delPartBtn" class="clear-button">Undo</button>
+        </div>
+      </div>
+      <div id="profitDisplay">Profit on Parts: <span id="priceDiff">$0.00</span></div>
+      <div style="overflow-x:auto;">
+        <table class="parts-table">
+          <thead>
+            <tr>
+              <th>Part</th>
+              <th style="width:64px;">Qty</th>
+              <th style="width:80px;">Price</th>
+              <th style="width:80px;" class="cost-col">Cost</th>
+              <th style="width:80px;">Total</th>
+              <th class="col-act"></th>
+            </tr>
+          </thead>
+          <tbody id="partsBody"></tbody>
+        </table>
+      </div>
+      <label style="font-size:11px;color:var(--muted);margin-top:4px;display:inline-flex;align-items:center;gap:4px;">
+        <input type="checkbox" id="showCostCol" /> Show Cost Column
+      </label>
+
+      <!-- LABOR -->
+      <div class="section-title" style="margin-top:12px;">Labor</div>
+      <div style="overflow-x:auto;">
+        <table class="labor-table">
+          <thead>
+            <tr>
+              <th>Description</th>
+              <th style="width:70px;">Hrs/Units</th>
+              <th style="width:80px;">Rate</th>
+              <th style="width:80px;">Total</th>
+              <th class="col-act"></th>
+            </tr>
+          </thead>
+          <tbody id="laborBody"></tbody>
+        </table>
+      </div>
+      <button id="addLaborBtn" style="margin-top:4px;">+ Add Labor Row</button>
+
+      <div class="field" style="margin-top:10px;"><label>Notes / Terms</label><textarea id="invNotes"
+          rows="3"></textarea></div>
+      <div class="field" style="max-width:140px;">
+        <label>Tax %</label><input id="taxPercent" type="number" step="0.01" value="0" />
+      </div>
+
+      <div class="totals-box">
+        <table>
+          <tr>
+            <td>Subtotal</td>
+            <td id="totSubtotal">$0.00</td>
+          </tr>
+          <tr>
+            <td id="taxLabel">Tax (0%)</td>
+            <td id="totTax">$0.00</td>
+          </tr>
+          <tr class="grand">
+            <td>Total</td>
+            <td id="totTotal">$0.00</td>
+          </tr>
+        </table>
+      </div>
+
+      <div style="margin-top:8px;">
+        <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);">
+          <input type="checkbox" id="showRemaining" /> Show Remaining Balance
+        </label>
+      </div>
+      <div class="remaining-section" id="remainingSection">
+        <div class="inv-grid">
+          <div class="field"><label>Amount Paid ($)</label><input id="amountPaid" type="number" step="0.01" /></div>
+          <div class="field"><label>Paid Date</label><input id="paidDate" type="date" /></div>
+        </div>
+        <div style="font-size:13px;font-weight:600;margin-top:4px;color:var(--text);">
+          Remaining: <span id="remainingBalance">$0.00</span>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button id="saveInvBtn">Save Invoice</button>
+        <button id="printInvBtn">Print / PDF</button>
+        <button id="newInvBtn"
+          style="background:transparent;border-color:var(--border);color:var(--muted);">New</button>
+      </div>
+      <div id="invMsg"></div>
+    </section>
+
+    <!-- SAVED INVOICES -->
+    <section>
+      <div class="section-title">Saved Invoices</div>
+      <input id="savedSearch" type="text" placeholder="Search name, number, status..."
+        style="max-width:300px;margin-bottom:8px;" />
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Inv #</th>
+              <th>Date</th>
+              <th>Customer</th>
+              <th>Total</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="savedBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <script type="module">
+    import {
+      auth, onAuthStateChanged, database,
+      ref, onValue, set, get, update, remove
+    } from "../assets/js/firebase-init.js";
+
+    // ── state ──
+    let DB = null;
+    let jobTasks = {};
+    let invoices = {};
+    let currentInvId = null;
+    let INVENTORY_ITEMS = [];
+
+    const ALL = "__ALL__";
+    const NO_CAT = "__NO_CAT__";
+    const NO_SUB = "__NO_SUB__";
+
+    // ── auth ──
+    onAuthStateChanged(auth, user => {
+      DB = user ? user.uid : null;
+      if (user) {
+        loadInventory();
+        loadJobTasks();
+        listenInvoices();
+      }
+    });
+
+    // ── collapsible settings ──
+    document.getElementById("settingsHeader").addEventListener("click", () =>
+      document.getElementById("settingsBody").classList.toggle("hidden"));
+
+    // ── business settings ──
+    const BIZ_KEY = "inv-biz-settings";
+    function loadBizSettings() {
+      const s = JSON.parse(localStorage.getItem(BIZ_KEY) || "{}");
+      document.getElementById("bizName").value = s.name || "";
+      document.getElementById("bizPhone").value = s.phone || "";
+      document.getElementById("bizEmail").value = s.email || "";
+      document.getElementById("bizWebsite").value = s.website || "";
+      document.getElementById("bizAddress").value = s.address || "";
+      document.getElementById("bizTerms").value = s.terms || "";
+    }
+    function getBiz() {
+      return {
+        name: document.getElementById("bizName").value.trim(),
+        phone: document.getElementById("bizPhone").value.trim(),
+        email: document.getElementById("bizEmail").value.trim(),
+        website: document.getElementById("bizWebsite").value.trim(),
+        address: document.getElementById("bizAddress").value.trim(),
+        terms: document.getElementById("bizTerms").value.trim(),
+      };
+    }
+    document.getElementById("saveSettingsBtn").addEventListener("click", () => {
+      localStorage.setItem(BIZ_KEY, JSON.stringify(getBiz()));
+      setMsg("Settings saved.");
+    });
+    loadBizSettings();
+
+    // ── helpers ──
+    function fmt(n) { return "$" + Number(n || 0).toFixed(2); }
+    function setMsg(m, danger) {
+      const el = document.getElementById("invMsg");
+      el.textContent = m;
+      el.style.color = danger ? "var(--danger)" : "var(--muted)";
+      if (m) setTimeout(function () { if (el.textContent === m) el.textContent = ""; }, 3500);
+    }
+    function today() { return new Date().toISOString().slice(0, 10); }
+    function dueIn(days) { var d = new Date(); d.setDate(d.getDate() + days); return d.toISOString().slice(0, 10); }
+    function genInvNum() {
+      var d = new Date();
+      return "INV-" + d.getFullYear() + String(d.getMonth() + 1).padStart(2, "0") + String(d.getDate()).padStart(2, "0") + "-" + String(Math.floor(Math.random() * 900) + 100);
+    }
+    function esc(s) {
+      return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+    }
+
+    // ── cost column toggle ──
+    function syncCostCol() {
+      var show = document.getElementById("showCostCol").checked;
+      document.querySelectorAll(".cost-col").forEach(function (el) { el.style.display = show ? "" : "none"; });
+    }
+    document.getElementById("showCostCol").addEventListener("change", syncCostCol);
+    syncCostCol();
+
+    // ── remaining balance ──
+    document.getElementById("showRemaining").addEventListener("change", function () {
+      document.getElementById("remainingSection").style.display = this.checked ? "block" : "none";
+    });
+    document.getElementById("amountPaid").addEventListener("input", updateRemaining);
+
+    // ──────────────────────────────────────────────
+    // INVENTORY (ledgerTx)
+    // ──────────────────────────────────────────────
+    function safeStr(v) { return typeof v === "string" ? v.trim() : ""; }
+    function hasTag(tags, want) {
+      var w = String(want || "").toLowerCase();
+      return (Array.isArray(tags) ? tags : []).some(function (t) { return String(t).toLowerCase() === w; });
+    }
+    function roundMoney(n) { return Math.round((Number(n) || 0) * 100) / 100; }
+
+    function buildInventory(rawYears) {
+      var lines = [];
+      Object.entries(rawYears || {}).forEach(function (yearEntry) {
+        var yo = yearEntry[1];
+        if (!yo || typeof yo !== "object") return;
+        Object.entries(yo).forEach(function (entry) {
+          var id = entry[0], v = entry[1];
+          if (!v || typeof v !== "object") return;
+          if (String(v.type || "").toLowerCase() !== "expense") return;
+          if (!hasTag(v.tags, "inv")) return;
+          var name = safeStr(v.name), sku = safeStr(v.sku);
+          if (!name && !sku) return;
+          lines.push({
+            id: id, date: Number(v.date || 0),
+            part: name || sku, sku: sku,
+            category: safeStr(v.cat),
+            subcategory: safeStr(v.sub),
+            price: roundMoney(Math.abs(Number(v.amt || 0))),
+            actualPrice: roundMoney(Math.abs(Number(v.altAmt || 0))),
+          });
+        });
+      });
+      var map = new Map();
+      lines.forEach(function (l) {
+        var key = l.sku ? "sku:" + l.sku.toLowerCase() : "name:" + l.part.toLowerCase();
+        var cur = map.get(key);
+        if (!cur) { map.set(key, l); return; }
+        if (l.date > cur.date || (l.date === cur.date && l.id > cur.id)) map.set(key, l);
+      });
+      return Array.from(map.values()).sort(function (a, b) { return a.part.localeCompare(b.part); });
+    }
+
+    function loadInventory() {
+      if (!DB) return;
+      onValue(ref(database, DB + "/ledgerTx"), function (snap) {
+        INVENTORY_ITEMS = buildInventory(snap.val() || {});
+        rebuildCategorySelect();
+      });
+    }
+
+    function mkOpt(v, t) { var o = document.createElement("option"); o.value = v; o.textContent = t; return o; }
+
+    function rebuildCategorySelect() {
+      var cats = new Set(); var hasNoCat = false;
+      INVENTORY_ITEMS.forEach(function (it) { it.category ? cats.add(it.category) : (hasNoCat = true); });
+      var sel = document.getElementById("partCategory");
+      sel.innerHTML = "";
+      sel.appendChild(mkOpt(ALL, "All Categories"));
+      if (hasNoCat) sel.appendChild(mkOpt(NO_CAT, "(No Category)"));
+      Array.from(cats).sort().forEach(function (c) { sel.appendChild(mkOpt(c, c)); });
+      rebuildSubcategorySelect();
+    }
+
+    function filterByCat(items, val) {
+      if (val === ALL) return items;
+      return items.filter(function (it) { return val === NO_CAT ? !it.category : it.category === val; });
+    }
+    function filterBySub(items, val) {
+      if (val === ALL) return items;
+      return items.filter(function (it) { return val === NO_SUB ? !it.subcategory : it.subcategory === val; });
+    }
+
+    function rebuildSubcategorySelect() {
+      var catVal = document.getElementById("partCategory").value || ALL;
+      var items = filterByCat(INVENTORY_ITEMS, catVal);
+      var subs = new Set(); var hasNoSub = false;
+      items.forEach(function (it) { it.subcategory ? subs.add(it.subcategory) : (hasNoSub = true); });
+      var sel = document.getElementById("partSubcategory");
+      sel.innerHTML = "";
+      sel.appendChild(mkOpt(ALL, "All Subcategories"));
+      if (hasNoSub) sel.appendChild(mkOpt(NO_SUB, "(No Subcategory)"));
+      Array.from(subs).sort().forEach(function (s) { sel.appendChild(mkOpt(s, s)); });
+      rebuildPartSelect();
+    }
+
+    function rebuildPartSelect() {
+      var catVal = document.getElementById("partCategory").value || ALL;
+      var subVal = document.getElementById("partSubcategory").value || ALL;
+      var items = filterBySub(filterByCat(INVENTORY_ITEMS, catVal), subVal);
+      var sel = document.getElementById("partSelector");
+      sel.innerHTML = "";
+      sel.appendChild(mkOpt("", items.length ? "Select Part" : "No Parts"));
+      items.forEach(function (it) {
+        var o = mkOpt(it.id, it.part);
+        o.dataset.price = it.price;
+        o.dataset.actualPrice = it.actualPrice;
+        o.dataset.category = it.category;
+        o.dataset.component = it.subcategory;
+        sel.appendChild(o);
+      });
+    }
+
+    document.getElementById("partCategory").addEventListener("change", rebuildSubcategorySelect);
+    document.getElementById("partSubcategory").addEventListener("change", rebuildPartSelect);
+
+    // ──────────────────────────────────────────────
+    // PARTS TABLE
+    // ──────────────────────────────────────────────
+    function addPartRow(data) {
+      var part, price, actualPrice, category, component, qty;
+      if (data) {
+        part = data.part; price = parseFloat(data.price) || 0;
+        actualPrice = parseFloat(data.actualPrice) || 0;
+        category = data.category || ""; component = data.component || "";
+        qty = parseInt(data.quantity) || 1;
+      } else {
+        var optEl = document.getElementById("partSelector");
+        var sel = optEl.options[optEl.selectedIndex];
+        if (!sel || !sel.value) { setMsg("Select a part first."); return; }
+        part = sel.textContent; price = parseFloat(sel.dataset.price) || 0;
+        actualPrice = parseFloat(sel.dataset.actualPrice) || 0;
+        category = sel.dataset.category || ""; component = sel.dataset.component || "";
+        qty = 1;
+      }
+      var existing = Array.from(document.querySelectorAll("#partsBody tr")).find(function (r) { return r.dataset.part === part; });
+      if (existing) {
+        var qi2 = existing.querySelector("[name=part-qty]");
+        qi2.value = (parseInt(qi2.value) || 0) + qty;
+        updatePartRowTotal(existing);
+        return;
+      }
+      var tr = document.createElement("tr");
+      tr.dataset.part = part; tr.dataset.category = category; tr.dataset.component = component;
+      tr.innerHTML =
+        "<td>" + esc(part) + "</td>" +
+        "<td><input type='number' name='part-qty' min='1' value='" + qty + "'/></td>" +
+        "<td><input type='number' name='part-price' min='0' step='0.01' value='" + price + "'/></td>" +
+        "<td class='cost-col'><input type='number' name='part-cost' min='0' step='0.01' value='" + actualPrice + "'/></td>" +
+        "<td><input type='number' name='part-total' readonly/></td>" +
+        "<td class='col-act'><button class='clear-button btn-sm' style='padding:1px 5px;'>x</button></td>";
+      document.getElementById("partsBody").appendChild(tr);
+      syncCostCol();
+      var qi = tr.querySelector("[name=part-qty]");
+      var pi = tr.querySelector("[name=part-price]");
+      var ci = tr.querySelector("[name=part-cost]");
+      qi.addEventListener("input", function () { updatePartRowTotal(tr); });
+      pi.addEventListener("input", function () { updatePartRowTotal(tr); updatePriceDiff(); });
+      ci.addEventListener("input", updatePriceDiff);
+      tr.querySelector(".clear-button").addEventListener("click", function () { tr.remove(); updateTotals(); updatePriceDiff(); });
+      updatePartRowTotal(tr);
+    }
+
+    function updatePartRowTotal(tr) {
+      var qty = parseFloat(tr.querySelector("[name=part-qty]").value) || 0;
+      var price = parseFloat(tr.querySelector("[name=part-price]").value) || 0;
+      tr.querySelector("[name=part-total]").value = (qty * price).toFixed(2);
+      updateTotals();
+    }
+
+    function updatePriceDiff() {
+      var diff = 0;
+      document.querySelectorAll("#partsBody tr").forEach(function (r) {
+        var qty = parseFloat(r.querySelector("[name=part-qty]").value) || 0;
+        var price = parseFloat(r.querySelector("[name=part-price]").value) || 0;
+        var cost = parseFloat(r.querySelector("[name=part-cost]").value) || 0;
+        diff += (qty * price) - (qty * cost);
+      });
+      document.getElementById("priceDiff").textContent = fmt(diff);
+    }
+
+    document.getElementById("addPartBtn").addEventListener("click", function () { addPartRow(null); });
+    document.getElementById("delPartBtn").addEventListener("click", function () {
+      var last = document.querySelector("#partsBody tr:last-child");
+      if (last) { last.remove(); updateTotals(); updatePriceDiff(); }
+    });
+
+    // ──────────────────────────────────────────────
+    // LABOR TABLE
+    // ──────────────────────────────────────────────
+    function addLaborRow(desc, hours, rate) {
+      desc = desc || "";
+      hours = hours || 0;
+      rate = rate || 0;
+      var tr = document.createElement("tr");
+      tr.innerHTML =
+        "<td><input type='text' name='labor-desc' value='" + esc(String(desc)) + "'/></td>" +
+        "<td><input type='number' name='labor-hours' min='0' step='0.01' value='" + hours + "'/></td>" +
+        "<td><input type='number' name='labor-rate'  min='0' step='0.01' value='" + rate + "'/></td>" +
+        "<td><input type='number' name='labor-total' readonly/></td>" +
+        "<td class='col-act'><button class='clear-button btn-sm' style='padding:1px 5px;'>x</button></td>";
+      document.getElementById("laborBody").appendChild(tr);
+      var hi = tr.querySelector("[name=labor-hours]");
+      var ri = tr.querySelector("[name=labor-rate]");
+      var ti = tr.querySelector("[name=labor-total]");
+      function calc() { ti.value = ((parseFloat(hi.value) || 0) * (parseFloat(ri.value) || 0)).toFixed(2); updateTotals(); }
+      hi.addEventListener("input", calc);
+      ri.addEventListener("input", calc);
+      tr.querySelector(".clear-button").addEventListener("click", function () { tr.remove(); updateTotals(); });
+      calc();
+    }
+    document.getElementById("addLaborBtn").addEventListener("click", function () { addLaborRow(); });
+
+    // ──────────────────────────────────────────────
+    // TOTALS
+    // ──────────────────────────────────────────────
+    function updateTotals() {
+      var parts = 0, labor = 0;
+      document.querySelectorAll("#partsBody [name=part-total]").forEach(function (i) { parts += parseFloat(i.value) || 0; });
+      document.querySelectorAll("#laborBody [name=labor-total]").forEach(function (i) { labor += parseFloat(i.value) || 0; });
+      var subtotal = parts + labor;
+      var taxPct = parseFloat(document.getElementById("taxPercent").value) || 0;
+      var tax = subtotal * (taxPct / 100);
+      var total = subtotal + tax;
+      document.getElementById("totSubtotal").textContent = fmt(subtotal);
+      document.getElementById("taxLabel").textContent = "Tax (" + taxPct + "%)";
+      document.getElementById("totTax").textContent = fmt(tax);
+      document.getElementById("totTotal").textContent = fmt(total);
+      updateRemaining();
+    }
+    document.getElementById("taxPercent").addEventListener("input", updateTotals);
+
+    function updateRemaining() {
+      var total = parseFloat(document.getElementById("totTotal").textContent.replace("$", "")) || 0;
+      var paid = parseFloat(document.getElementById("amountPaid").value) || 0;
+      document.getElementById("remainingBalance").textContent = fmt(total - paid);
+    }
+
+    // ──────────────────────────────────────────────
+    // JOB TASK IMPORT
+    // ──────────────────────────────────────────────
+    function loadJobTasks() {
+      if (!DB) return;
+      onValue(ref(database, DB + "/tasks"), function (snap) {
+        jobTasks = snap.val() || {};
+        var sel = document.getElementById("jobTaskSelect");
+        sel.innerHTML = "<option value=''>-- select task --</option>";
+        Object.entries(jobTasks)
+          .sort(function (a, b) { return (b[1].startTime || 0) - (a[1].startTime || 0); })
+          .forEach(function (entry) {
+            var id = entry[0], t = entry[1];
+            var o = document.createElement("option");
+            o.value = id;
+            o.textContent = [t.jobNumber, t.customerName, t.date].filter(Boolean).join(" - ") || id.slice(0, 12);
+            sel.appendChild(o);
+          });
+      });
+    }
+
+    document.getElementById("importTaskBtn").addEventListener("click", function () {
+      var taskId = document.getElementById("jobTaskSelect").value;
+      var t = jobTasks[taskId];
+      if (!t) { setMsg("Select a task first."); return; }
+
+      document.getElementById("billName").value = t.customerName || "";
+      document.getElementById("billPhone").value = t.customerPhone || "";
+      document.getElementById("billEmail").value = t.customerEmail || "";
+      document.getElementById("billAddress").value = t.jobAddress || "";
+      if (!document.getElementById("invNotes").value)
+        document.getElementById("invNotes").value = getBiz().terms || "";
+
+      var workMs = 0, travelMs = 0;
+      if (t.segments && t.segments.length) {
+        t.segments.forEach(function (s) {
+          if (!s.start || !s.end) return;
+          var dur = s.end - s.start;
+          if (s.type === "work") workMs += dur;
+          if (s.type === "travel") travelMs += dur;
+        });
+      } else if (t.startTime && t.endTime) {
+        workMs = t.endTime - t.startTime;
+      }
+      var workHrs = workMs / 3600000;
+      var travelHrs = travelMs / 3600000;
+      var mileage = parseFloat(t.mileage) || 0;
+
+      if (workHrs > 0) addLaborRow("Labor", +workHrs.toFixed(3), 0);
+      if (travelHrs > 0) addLaborRow("Travel", +travelHrs.toFixed(3), 0);
+      if (mileage > 0) addLaborRow("Mileage (" + mileage + " mi)", mileage, 0);
+
+      setMsg("Task imported - set rates on labor rows then save.");
+    });
+
+    // ──────────────────────────────────────────────
+    // FORM STATE
+    // ──────────────────────────────────────────────
+    function resetForm() {
+      currentInvId = null;
+      document.getElementById("invoiceType").value = "invoice";
+      document.getElementById("invNumber").value = genInvNum();
+      document.getElementById("invDate").value = today();
+      document.getElementById("invDue").value = dueIn(30);
+      document.getElementById("billName").value = "";
+      document.getElementById("billPhone").value = "";
+      document.getElementById("billEmail").value = "";
+      document.getElementById("billAddress").value = "";
+      document.getElementById("invNotes").value = getBiz().terms || "";
+      document.getElementById("taxPercent").value = "0";
+      document.getElementById("amountPaid").value = "";
+      document.getElementById("paidDate").value = "";
+      document.getElementById("showRemaining").checked = false;
+      document.getElementById("remainingSection").style.display = "none";
+      document.getElementById("jobTaskSelect").value = "";
+      document.getElementById("partsBody").innerHTML = "";
+      document.getElementById("laborBody").innerHTML = "";
+      updateTotals();
+      updatePriceDiff();
+      setMsg("New invoice ready.");
+    }
+    resetForm();
+    document.getElementById("newInvBtn").addEventListener("click", resetForm);
+
+    // ──────────────────────────────────────────────
+    // COLLECT
+    // ──────────────────────────────────────────────
+    function collectInvoice(paid) {
+      function strip(id) { return parseFloat(document.getElementById(id).textContent.replace("$", "")) || 0; }
+      var parts = Array.from(document.querySelectorAll("#partsBody tr")).map(function (r) {
+        return {
+          part: r.dataset.part || "",
+          category: r.dataset.category || "",
+          component: r.dataset.component || "",
+          quantity: r.querySelector("[name=part-qty]").value,
+          price: r.querySelector("[name=part-price]").value,
+          actualPrice: r.querySelector("[name=part-cost]").value,
+          total: r.querySelector("[name=part-total]").value,
+        };
+      });
+      var labor = Array.from(document.querySelectorAll("#laborBody tr")).map(function (r) {
+        return {
+          description: r.querySelector("[name=labor-desc]").value,
+          hours: r.querySelector("[name=labor-hours]").value,
+          rate: r.querySelector("[name=labor-rate]").value,
+          total: r.querySelector("[name=labor-total]").value,
+        };
+      });
+      var id = currentInvId || ("inv-" + Date.now());
+      return {
+        id: id,
+        invoiceType: document.getElementById("invoiceType").value,
+        number: document.getElementById("invNumber").value.trim(),
+        date: document.getElementById("invDate").value,
+        due: document.getElementById("invDue").value,
+        billName: document.getElementById("billName").value.trim(),
+        billPhone: document.getElementById("billPhone").value.trim(),
+        billEmail: document.getElementById("billEmail").value.trim(),
+        billAddress: document.getElementById("billAddress").value.trim(),
+        notes: document.getElementById("invNotes").value.trim(),
+        parts: parts,
+        labor: labor,
+        taxPercent: parseFloat(document.getElementById("taxPercent").value) || 0,
+        subtotal: strip("totSubtotal"),
+        taxAmount: strip("totTax"),
+        total: strip("totTotal"),
+        amountPaid: parseFloat(document.getElementById("amountPaid").value) || 0,
+        paidDate: document.getElementById("paidDate").value,
+        biz: getBiz(),
+        paid: !!paid,
+        savedAt: Date.now(),
+      };
+    }
+
+    // ──────────────────────────────────────────────
+    // SAVE
+    // ──────────────────────────────────────────────
+    document.getElementById("saveInvBtn").addEventListener("click", async function () {
+      if (!DB) { setMsg("Sign in to save.", true); return; }
+      var wasPaid = invoices[currentInvId] ? invoices[currentInvId].paid : false;
+      var inv = collectInvoice(wasPaid);
+      currentInvId = inv.id;
+      await set(ref(database, DB + "/invoices/" + inv.id), inv);
+      if (inv.amountPaid > 0) await upsertPaymentTx(inv);
+      setMsg("Invoice saved.");
+    });
+
+    // ──────────────────────────────────────────────
+    // LEDGER TX
+    // ──────────────────────────────────────────────
+    async function upsertPaymentTx(inv) {
+      var existing = invoices[inv.id] || {};
+      var prevTxId = existing.paymentTxId || "";
+      var prevTxYear = Number(existing.paymentTxYear || 0) || null;
+
+      var dateTS = Date.now();
+      if (inv.paidDate) {
+        var p = inv.paidDate.split("-");
+        dateTS = Date.UTC(+p[0], +p[1] - 1, +p[2], 12, 0, 0);
+      }
+      var year = new Date(dateTS).getUTCFullYear();
+      var txId = prevTxId || String(Date.now());
+
+      if (prevTxId && prevTxYear && prevTxYear !== year)
+        await set(ref(database, DB + "/ledgerTx/" + prevTxYear + "/" + prevTxId), null);
+
+      var tx = {
+        amt: inv.amountPaid, cat: "", sub: "", sku: "", link: "", img: "", imgPath: "",
+        name: "Invoice Payment - " + (inv.billName || "Unknown") + " - " + inv.number,
+        desc: "Invoice ID: " + inv.id,
+        tags: ["invoice", "payment"],
+        type: "income",
+        date: dateTS,
+      };
+      await set(ref(database, DB + "/ledgerTx/" + year + "/" + txId), tx);
+      await update(ref(database, DB + "/invoices/" + inv.id), { paymentTxId: txId, paymentTxYear: year });
+    }
+
+    // ──────────────────────────────────────────────
+    // SAVED INVOICES
+    // ──────────────────────────────────────────────
+    function listenInvoices() {
+      if (!DB) return;
+      onValue(ref(database, DB + "/invoices"), function (snap) {
+        invoices = snap.val() || {};
+        renderSaved(document.getElementById("savedSearch").value);
+      });
+    }
+
+    function renderSaved(filter) {
+      var body = document.getElementById("savedBody");
+      body.innerHTML = "";
+      var q = (filter || "").toLowerCase();
+      var list = Object.values(invoices)
+        .filter(function (inv) {
+          if (!q) return true;
+          return [inv.number, inv.billName, inv.invoiceType, inv.paid ? "paid" : "unpaid"]
+            .some(function (v) { return String(v || "").toLowerCase().indexOf(q) >= 0; });
+        })
+        .sort(function (a, b) { return (b.savedAt || 0) - (a.savedAt || 0); });
+
+      if (!list.length) {
+        body.innerHTML = "<tr><td colspan='7' style='color:var(--muted);padding:8px;'>" +
+          (q ? "No matches." : "No saved invoices.") + "</td></tr>";
+        return;
+      }
+
+      list.forEach(function (inv) {
+        var tr = document.createElement("tr");
+        if (inv.paid) tr.classList.add("inv-row-paid");
+        tr.innerHTML =
+          "<td>" + esc(inv.invoiceType || "invoice") + "</td>" +
+          "<td>" + esc(inv.number) + "</td>" +
+          "<td>" + (inv.date || "") + "</td>" +
+          "<td>" + esc(inv.billName) + "</td>" +
+          "<td>" + fmt(inv.total) + "</td>" +
+          "<td class='" + (inv.paid ? "status-paid" : "status-unpaid") + "'>" + (inv.paid ? "PAID" : "UNPAID") + "</td>" +
+          "<td style='white-space:nowrap;'>" +
+          "<button data-load='" + inv.id + "' style='font-size:11px;padding:2px 5px;'>Load</button> " +
+          "<button data-paid='" + inv.id + "' style='font-size:11px;padding:2px 5px;'>" + (inv.paid ? "Unpaid" : "Mark Paid") + "</button> " +
+          "<button data-print='" + inv.id + "' style='font-size:11px;padding:2px 5px;'>Print</button> " +
+          "<button data-del='" + inv.id + "' class='clear-button' style='font-size:11px;padding:2px 5px;'>Del</button>" +
+          "</td>";
+        body.appendChild(tr);
+      });
+    }
+
+    document.getElementById("savedSearch").addEventListener("input", function () { renderSaved(this.value); });
+
+    document.getElementById("savedBody").addEventListener("click", async function (e) {
+      var btn = e.target.closest("button");
+      if (!btn || !DB) return;
+      if (btn.dataset.load) { loadInvoice(invoices[btn.dataset.load]); return; }
+      if (btn.dataset.paid) {
+        var inv = invoices[btn.dataset.paid];
+        if (inv) await update(ref(database, DB + "/invoices/" + inv.id), { paid: !inv.paid });
+        return;
+      }
+      if (btn.dataset.print) { printInvoice(invoices[btn.dataset.print]); return; }
+      if (btn.dataset.del) {
+        if (!confirm("Delete this invoice?")) return;
+        await remove(ref(database, DB + "/invoices/" + btn.dataset.del));
+      }
+    });
+
+    // ──────────────────────────────────────────────
+    // LOAD
+    // ──────────────────────────────────────────────
+    function loadInvoice(inv) {
+      if (!inv) return;
+      currentInvId = inv.id;
+      document.getElementById("invoiceType").value = inv.invoiceType || "invoice";
+      document.getElementById("invNumber").value = inv.number || "";
+      document.getElementById("invDate").value = inv.date || today();
+      document.getElementById("invDue").value = inv.due || dueIn(30);
+      document.getElementById("billName").value = inv.billName || "";
+      document.getElementById("billPhone").value = inv.billPhone || "";
+      document.getElementById("billEmail").value = inv.billEmail || "";
+      document.getElementById("billAddress").value = inv.billAddress || "";
+      document.getElementById("invNotes").value = inv.notes || "";
+      document.getElementById("taxPercent").value = inv.taxPercent || "0";
+      document.getElementById("amountPaid").value = inv.amountPaid || "";
+      document.getElementById("paidDate").value = inv.paidDate || "";
+      var hasBalance = inv.amountPaid > 0;
+      document.getElementById("showRemaining").checked = hasBalance;
+      document.getElementById("remainingSection").style.display = hasBalance ? "block" : "none";
+      document.getElementById("partsBody").innerHTML = "";
+      document.getElementById("laborBody").innerHTML = "";
+      (inv.parts || []).forEach(function (p) { addPartRow(p); });
+      (inv.labor || []).forEach(function (l) { addLaborRow(l.description || "", l.hours || 0, l.rate || 0); });
+      updateTotals();
+      updatePriceDiff();
+      window.scrollTo(0, 0);
+      setMsg("Invoice loaded - editing " + inv.number);
+    }
+
+    // ──────────────────────────────────────────────
+    // PRINT POPUP
+    // ──────────────────────────────────────────────
+    document.getElementById("printInvBtn").addEventListener("click", function () {
+      var isPaid = currentInvId && invoices[currentInvId] ? invoices[currentInvId].paid : false;
+      printInvoice(collectInvoice(isPaid));
+    });
+
+    function printInvoice(inv) {
+      if (!inv) return;
+      var biz = inv.biz || getBiz();
+      var typeLabel = inv.invoiceType === "quote" ? "QUOTE" : "INVOICE";
+
+      var paidStamp = inv.paid
+        ? "<div style='position:absolute;top:80px;right:30px;font-size:64px;font-weight:900;color:rgba(34,197,94,0.15);transform:rotate(-22deg);border:8px solid rgba(34,197,94,0.15);padding:4px 18px;border-radius:8px;letter-spacing:6px;pointer-events:none;'>PAID</div>"
+        : "";
+
+      var partRows = (inv.parts || []).filter(function (p) { return Number(p.total) !== 0; }).map(function (p) {
+        return "<tr><td style='padding:5px 8px;border:1px solid #e2e8f0;'>" + esc(p.part) +
+          "</td><td style='padding:5px 8px;border:1px solid #e2e8f0;text-align:center;'>" + p.quantity +
+          "</td><td style='padding:5px 8px;border:1px solid #e2e8f0;text-align:right;'>$" + Number(p.price).toFixed(2) +
+          "</td><td style='padding:5px 8px;border:1px solid #e2e8f0;text-align:right;'>$" + Number(p.total).toFixed(2) + "</td></tr>";
+      }).join("");
+
+      var laborRows = (inv.labor || []).filter(function (l) { return Number(l.total) !== 0; }).map(function (l) {
+        return "<tr><td style='padding:5px 8px;border:1px solid #e2e8f0;'>" + esc(l.description) +
+          "</td><td style='padding:5px 8px;border:1px solid #e2e8f0;text-align:center;'>" + l.hours +
+          "</td><td style='padding:5px 8px;border:1px solid #e2e8f0;text-align:right;'>$" + Number(l.rate).toFixed(2) +
+          "</td><td style='padding:5px 8px;border:1px solid #e2e8f0;text-align:right;'>$" + Number(l.total).toFixed(2) + "</td></tr>";
+      }).join("");
+
+      var hasItems = partRows || laborRows;
+      var balanceDue = Number(inv.total || 0) - Number(inv.amountPaid || 0);
+
+      var doc =
+        "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>" + typeLabel + " " + esc(inv.number) + "</title>" +
+        "<style>*{box-sizing:border-box;}body{font-family:Arial,sans-serif;font-size:13px;color:#1e293b;margin:0;padding:32px;}" +
+        "table{width:100%;border-collapse:collapse;}th{background:#f1f5f9;padding:6px 8px;border:1px solid #e2e8f0;text-align:left;font-size:12px;}" +
+        ".tot td{border:none;padding:3px 8px;}.tot tr.grand td{border-top:2px solid #334155;font-weight:700;font-size:14px;}" +
+        ".tot td:last-child{text-align:right;}@media print{button{display:none;}}<" + "/style><" + "/head><body>" +
+        "<div style='position:relative;'>" + paidStamp +
+        "<div style='display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;'>" +
+        "<div>" +
+        "<div style='font-size:20px;font-weight:700;'>" + esc(biz.name || "") + "</div>" +
+        (biz.address ? "<div style='font-size:12px;color:#64748b;margin-top:3px;'>" + esc(biz.address) + "</div>" : "") +
+        (biz.phone ? "<div style='font-size:12px;color:#64748b;'>" + esc(biz.phone) + "</div>" : "") +
+        (biz.email ? "<div style='font-size:12px;color:#64748b;'>" + esc(biz.email) + "</div>" : "") +
+        (biz.website ? "<div style='font-size:12px;color:#64748b;'>" + esc(biz.website) + "</div>" : "") +
+        "</div>" +
+        "<div style='text-align:right;'>" +
+        "<div style='font-size:24px;font-weight:800;letter-spacing:2px;'>" + typeLabel + "</div>" +
+        "<div><strong>#</strong> " + esc(inv.number) + "</div>" +
+        "<div style='font-size:12px;color:#64748b;'>Date: " + (inv.date || "") + "</div>" +
+        (inv.due ? "<div style='font-size:12px;color:#64748b;'>Due: " + inv.due + "</div>" : "") +
+        "</div></div>" +
+        "<div style='margin-bottom:20px;padding:12px;background:#f8fafc;border-radius:4px;'>" +
+        "<div style='font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;margin-bottom:4px;'>Bill To</div>" +
+        "<div style='font-weight:600;'>" + esc(inv.billName || "") + "</div>" +
+        (inv.billAddress ? "<div style='color:#64748b;font-size:12px;'>" + esc(inv.billAddress) + "</div>" : "") +
+        (inv.billPhone ? "<div style='color:#64748b;font-size:12px;'>" + esc(inv.billPhone) + "</div>" : "") +
+        (inv.billEmail ? "<div style='color:#64748b;font-size:12px;'>" + esc(inv.billEmail) + "</div>" : "") +
+        "</div>" +
+        (hasItems
+          ? "<table style='margin-bottom:20px;'><thead><tr>" +
+          "<th>Description</th><th style='text-align:center;width:80px;'>Qty / Hrs</th>" +
+          "<th style='text-align:right;width:90px;'>Unit Price</th><th style='text-align:right;width:90px;'>Amount</th>" +
+          "</tr></thead><tbody>" + partRows + laborRows + "</tbody></table>"
+          : "") +
+        "<table class='tot' style='width:300px;margin-left:auto;'>" +
+        "<tr><td>Subtotal</td><td>$" + Number(inv.subtotal || 0).toFixed(2) + "</td></tr>" +
+        "<tr><td>Tax (" + (inv.taxPercent || 0) + "%)</td><td>$" + Number(inv.taxAmount || 0).toFixed(2) + "</td></tr>" +
+        "<tr class='grand'><td>Total</td><td>$" + Number(inv.total || 0).toFixed(2) + "</td></tr>" +
+        (inv.amountPaid > 0
+          ? "<tr><td>Amount Paid</td><td>($" + Number(inv.amountPaid).toFixed(2) + ")</td></tr>" +
+          "<tr class='grand'><td>Balance Due</td><td>$" + balanceDue.toFixed(2) + "</td></tr>"
+          : "") +
+        "</table>" +
+        (inv.notes ? "<div style='margin-top:24px;padding-top:12px;border-top:1px solid #e2e8f0;font-size:12px;color:#64748b;white-space:pre-wrap;'>" + esc(inv.notes) + "</div>" : "") +
+        "<div style='text-align:center;margin-top:36px;'>" +
+        "<button onclick='window.print()' style='padding:8px 28px;font-size:14px;cursor:pointer;border:1px solid #94a3b8;border-radius:4px;background:#f1f5f9;'>Print / Save PDF</button>" +
+        "</div></div><" + "/body><" + "/html>";
+
+      var win = window.open("", "_blank", "width=960,height=760");
+      win.document.write(doc);
+      win.document.close();
+    }
+  </script>
+</body>
+
+</html>

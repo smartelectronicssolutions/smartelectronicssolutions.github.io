@@ -150,7 +150,21 @@ function fetchWithFallback(targetId, primaryPath, fallbackPath) {
           return res.text();
         })
         .then((data) => {
-          document.getElementById(targetId).innerHTML = data;
+          const el = document.getElementById(targetId);
+          el.innerHTML = data;
+          // Rebase relative links — fallback means we're one level deep (e.g. online/)
+          el.querySelectorAll("a[href]").forEach((a) => {
+            const href = a.getAttribute("href");
+            if (href && !href.startsWith("http") && !href.startsWith("/") && !href.startsWith("#") && !href.startsWith("..") && !href.startsWith("mailto:")) {
+              a.setAttribute("href", "../" + href);
+            }
+          });
+          el.querySelectorAll("[src]").forEach((node) => {
+            const src = node.getAttribute("src");
+            if (src && !src.startsWith("http") && !src.startsWith("/") && !src.startsWith("..") && !src.startsWith("data:")) {
+              node.setAttribute("src", "../" + src);
+            }
+          });
         })
         .catch((err) => {
           console.error(`Failed to load ${targetId}:`, err);
