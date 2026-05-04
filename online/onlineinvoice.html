@@ -110,25 +110,7 @@
       text-align: right;
     }
 
-    .status-paid {
-      color: #4caf50;
-      font-weight: 600;
-    }
-
-    .status-unpaid {
-      color: var(--danger);
-      font-weight: 600;
-    }
-
-    .inv-row-paid td {
-      opacity: 0.65;
-    }
-
-    .inv-row-paid td:first-child {
-      opacity: 1;
-    }
-
-    .btn-row {
+.btn-row {
       display: flex;
       gap: 6px;
       flex-wrap: wrap;
@@ -390,28 +372,6 @@
       <div id="invMsg"></div>
     </section>
 
-    <!-- SAVED INVOICES -->
-    <section>
-      <div class="section-title">Saved Invoices</div>
-      <input id="savedSearch" type="text" placeholder="Search name, number, status..."
-        style="max-width:300px;margin-bottom:8px;" />
-      <div style="overflow-x:auto;">
-        <table>
-          <thead>
-            <tr>
-              <th>Type</th>
-              <th>Inv #</th>
-              <th>Date</th>
-              <th>Customer</th>
-              <th>Total</th>
-              <th>Status</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="savedBody"></tbody>
-        </table>
-      </div>
-    </section>
 
   </main>
 
@@ -660,6 +620,7 @@
       var price = parseFloat(tr.querySelector("[name=part-price]").value) || 0;
       tr.querySelector("[name=part-total]").value = (qty * price).toFixed(2);
       updateTotals();
+      updatePriceDiff();
     }
 
     function updatePriceDiff() {
@@ -746,10 +707,9 @@
             var o = document.createElement("option");
             o.value = id;
             var label = (t.customerName || "Unnamed") + " - " + (t.project || "No Project");
-            o.textContent = t.invoice ? "✓ " + label : label;
+            o.textContent = t.invoiceSaved ? "✓ " + label : label;
             sel.appendChild(o);
           });
-        renderSaved(document.getElementById("savedSearch").value);
       });
     }
 
@@ -760,8 +720,8 @@
 
       currentTaskId = taskId;
 
-      if (t.invoice) {
-        loadInvoice(t.invoice, taskId);
+      if (t.invoiceSaved) {
+        loadInvoice(t, taskId);
         setMsg("Invoice loaded from task.");
         return;
       }
@@ -770,27 +730,35 @@
       document.getElementById("billPhone").value = t.customerPhone || "";
       document.getElementById("billEmail").value = t.customerEmail || "";
       document.getElementById("billAddress").value = t.customerAddress || "";
+      if (t.invoiceDate) document.getElementById("invDate").value = t.invoiceDate;
+      if (t.taxPercent) document.getElementById("taxPercent").value = t.taxPercent;
       if (!document.getElementById("invNotes").value)
-        document.getElementById("invNotes").value = getBiz().terms || "";
+        document.getElementById("invNotes").value = t.notes || getBiz().terms || "";
 
-      var workMs = 0, travelMs = 0;
-      if (t.segments && t.segments.length) {
-        t.segments.forEach(function (s) {
-          if (!s.startTime || !s.endTime) return;
-          var dur = new Date(s.endTime) - new Date(s.startTime);
-          if (s.type === "work") workMs += dur;
-          else travelMs += dur;
-        });
-      } else if (t.startTime && t.endTime) {
-        workMs = t.endTime - t.startTime;
+      if (t.parts && t.parts.length)
+        t.parts.forEach(function (p) { addPartRow(p); });
+
+      if (t.labor && t.labor.length) {
+        t.labor.forEach(function (l) { addLaborRow(l.description || "", l.hours || 0, l.rate || 0); });
+      } else {
+        var workMs = 0, travelMs = 0;
+        if (t.segments && t.segments.length) {
+          t.segments.forEach(function (s) {
+            if (!s.startTime || !s.endTime) return;
+            var dur = new Date(s.endTime) - new Date(s.startTime);
+            if (s.type === "work") workMs += dur;
+            else travelMs += dur;
+          });
+        } else if (t.startTime && t.endTime) {
+          workMs = t.endTime - t.startTime;
+        }
+        var workHrs = workMs / 3600000;
+        var travelHrs = travelMs / 3600000;
+        var mileage = parseFloat(t.mileage) || 0;
+        if (workHrs > 0) addLaborRow("Labor", +workHrs.toFixed(3), 0);
+        if (travelHrs > 0) addLaborRow("Travel", +travelHrs.toFixed(3), 0);
+        if (mileage > 0) addLaborRow("Mileage (" + mileage + " mi)", mileage, 0);
       }
-      var workHrs = workMs / 3600000;
-      var travelHrs = travelMs / 3600000;
-      var mileage = parseFloat(t.mileage) || 0;
-
-      if (workHrs > 0) addLaborRow("Labor", +workHrs.toFixed(3), 0);
-      if (travelHrs > 0) addLaborRow("Travel", +travelHrs.toFixed(3), 0);
-      if (mileage > 0) addLaborRow("Mileage (" + mileage + " mi)", mileage, 0);
 
       setMsg("Task imported — set rates on labor rows then save.");
     });
@@ -848,29 +816,29 @@
           total: r.querySelector("[name=labor-total]").value,
         };
       });
-      var id = currentTaskId ? ("inv-" + currentTaskId) : ("inv-" + Date.now());
       return {
-        id: id,
         invoiceType: document.getElementById("invoiceType").value,
         number: document.getElementById("invNumber").value.trim(),
-        date: document.getElementById("invDate").value,
+        invoiceDate: document.getElementById("invDate").value,
         due: document.getElementById("invDue").value,
-        billName: document.getElementById("billName").value.trim(),
-        billPhone: document.getElementById("billPhone").value.trim(),
-        billEmail: document.getElementById("billEmail").value.trim(),
-        billAddress: document.getElementById("billAddress").value.trim(),
+        customerName: document.getElementById("billName").value.trim(),
+        customerPhone: document.getElementById("billPhone").value.trim(),
+        customerEmail: document.getElementById("billEmail").value.trim(),
+        customerAddress: document.getElementById("billAddress").value.trim(),
         notes: document.getElementById("invNotes").value.trim(),
         parts: parts,
         labor: labor,
         taxPercent: parseFloat(document.getElementById("taxPercent").value) || 0,
         subtotal: strip("totSubtotal"),
-        taxAmount: strip("totTax"),
+        tax: strip("totTax"),
         total: strip("totTotal"),
         amountPaid: parseFloat(document.getElementById("amountPaid").value) || 0,
         paidDate: document.getElementById("paidDate").value,
+        invoiceTitle: getBiz().name,
         biz: getBiz(),
         paid: !!paid,
         savedAt: Date.now(),
+        invoiceSaved: true,
       };
     }
 
@@ -880,115 +848,61 @@
     document.getElementById("saveInvBtn").addEventListener("click", async function () {
       if (!DB) { setMsg("Sign in to save.", true); return; }
       if (!currentTaskId) { setMsg("Import a task first.", true); return; }
-      var existing = jobTasks[currentTaskId] && jobTasks[currentTaskId].invoice;
-      var wasPaid = existing ? existing.paid : false;
+      var existing = jobTasks[currentTaskId] || {};
+      var wasPaid = existing.paid || false;
       var inv = collectInvoice(wasPaid);
-      await set(ref(database, DB + "/tasks/" + currentTaskId + "/invoice"), inv);
-      if (inv.amountPaid > 0) await upsertPaymentTx(inv);
+      await update(ref(database, DB + "/tasks/" + currentTaskId), inv);
+      await upsertPaymentTx(inv);
       setMsg("Invoice saved.");
     });
 
     // ──────────────────────────────────────────────
     // LEDGER TX
     // ──────────────────────────────────────────────
+    function utcNoonTS(dateStr) {
+      if (!dateStr || typeof dateStr !== "string") return Date.now();
+      var ymd = dateStr.slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return Date.now();
+      return Date.UTC(+ymd.slice(0, 4), +ymd.slice(5, 7) - 1, +ymd.slice(8, 10), 12, 0, 0);
+    }
+
     async function upsertPaymentTx(inv) {
-      var existing = (currentTaskId && jobTasks[currentTaskId] && jobTasks[currentTaskId].invoice) ? jobTasks[currentTaskId].invoice : {};
+      var existing = (currentTaskId && jobTasks[currentTaskId]) ? jobTasks[currentTaskId] : {};
       var prevTxId = existing.paymentTxId || "";
       var prevTxYear = Number(existing.paymentTxYear || 0) || null;
+      var amountPaid = Math.round(Math.abs(Number(inv.amountPaid || 0)) * 100) / 100;
 
-      var dateTS = Date.now();
-      if (inv.paidDate) {
-        var p = inv.paidDate.split("-");
-        dateTS = Date.UTC(+p[0], +p[1] - 1, +p[2], 12, 0, 0);
+      if (!amountPaid) {
+        if (prevTxId && prevTxYear)
+          await set(ref(database, DB + "/ledgerTx/" + prevTxYear + "/" + prevTxId), null);
+        await update(ref(database, DB + "/tasks/" + currentTaskId), { paymentTxId: "", paymentTxYear: "" });
+        return;
       }
+
+      var dateTS = utcNoonTS(inv.paidDate || inv.invoiceDate || inv.startTime || "");
       var year = new Date(dateTS).getUTCFullYear();
       var txId = prevTxId || String(Date.now());
 
       if (prevTxId && prevTxYear && prevTxYear !== year)
         await set(ref(database, DB + "/ledgerTx/" + prevTxYear + "/" + prevTxId), null);
 
+      var customer = (inv.customerName || "").trim();
+      var project = (inv.project || "").trim();
+      var name = "Invoice Payment — " + (customer || "Unknown")
+        + (project ? " (" + project + ")" : "");
+
       var tx = {
-        amt: inv.amountPaid, cat: "", sub: "", sku: "", link: "", img: "", imgPath: "",
-        name: "Invoice Payment - " + (inv.billName || "Unknown") + " - " + inv.number,
-        desc: "Invoice ID: " + inv.id,
+        amt: amountPaid, cat: "", sub: "", sku: "", link: "", img: "", imgPath: "",
+        name: name,
+        desc: "Source invoiceId: " + currentTaskId,
         tags: ["invoice", "payment"],
         type: "income",
         date: dateTS,
       };
       await set(ref(database, DB + "/ledgerTx/" + year + "/" + txId), tx);
-      await update(ref(database, DB + "/tasks/" + currentTaskId + "/invoice"), { paymentTxId: txId, paymentTxYear: year });
+      await update(ref(database, DB + "/tasks/" + currentTaskId), { paymentTxId: txId, paymentTxYear: year });
     }
 
-    // ──────────────────────────────────────────────
-    // SAVED INVOICES (derived from tasks)
-    // ──────────────────────────────────────────────
-    function renderSaved(filter) {
-      var body = document.getElementById("savedBody");
-      body.innerHTML = "";
-      var q = (filter || "").toLowerCase();
-      var list = Object.entries(jobTasks)
-        .filter(function (e) { return e[1].invoice; })
-        .map(function (e) { return { taskId: e[0], inv: e[1].invoice }; })
-        .filter(function (item) {
-          if (!q) return true;
-          var inv = item.inv;
-          return [inv.number, inv.billName, inv.invoiceType, inv.paid ? "paid" : "unpaid"]
-            .some(function (v) { return String(v || "").toLowerCase().indexOf(q) >= 0; });
-        })
-        .sort(function (a, b) { return (b.inv.savedAt || 0) - (a.inv.savedAt || 0); });
-
-      if (!list.length) {
-        body.innerHTML = "<tr><td colspan='7' style='color:var(--muted);padding:8px;'>" +
-          (q ? "No matches." : "No saved invoices.") + "</td></tr>";
-        return;
-      }
-
-      list.forEach(function (item) {
-        var taskId = item.taskId, inv = item.inv;
-        var tr = document.createElement("tr");
-        if (inv.paid) tr.classList.add("inv-row-paid");
-        tr.dataset.taskid = taskId;
-        tr.innerHTML =
-          "<td>" + esc(inv.invoiceType || "invoice") + "</td>" +
-          "<td>" + esc(inv.number) + "</td>" +
-          "<td>" + (inv.date || "") + "</td>" +
-          "<td>" + esc(inv.billName) + "</td>" +
-          "<td>" + fmt(inv.total) + "</td>" +
-          "<td class='" + (inv.paid ? "status-paid" : "status-unpaid") + "'>" + (inv.paid ? "PAID" : "UNPAID") + "</td>" +
-          "<td style='white-space:nowrap;'>" +
-          "<button data-action='load' style='font-size:11px;padding:2px 5px;'>Load</button> " +
-          "<button data-action='paid' style='font-size:11px;padding:2px 5px;'>" + (inv.paid ? "Unpaid" : "Mark Paid") + "</button> " +
-          "<button data-action='print' style='font-size:11px;padding:2px 5px;'>Print</button> " +
-          "<button data-action='del' class='clear-button' style='font-size:11px;padding:2px 5px;'>Del</button>" +
-          "</td>";
-        body.appendChild(tr);
-      });
-    }
-
-    document.getElementById("savedSearch").addEventListener("input", function () { renderSaved(this.value); });
-
-    document.getElementById("savedBody").addEventListener("click", async function (e) {
-      var btn = e.target.closest("button");
-      if (!btn || !DB) return;
-      var action = btn.dataset.action;
-      if (!action) return;
-      var row = btn.closest("tr");
-      var taskId = row ? row.dataset.taskid : null;
-      if (!taskId || !jobTasks[taskId]) return;
-      var inv = jobTasks[taskId].invoice;
-      if (!inv) return;
-
-      if (action === "load") { loadInvoice(inv, taskId); return; }
-      if (action === "paid") {
-        await update(ref(database, DB + "/tasks/" + taskId + "/invoice"), { paid: !inv.paid });
-        return;
-      }
-      if (action === "print") { printInvoice(inv); return; }
-      if (action === "del") {
-        if (!confirm("Delete this invoice?")) return;
-        await remove(ref(database, DB + "/tasks/" + taskId + "/invoice"));
-      }
-    });
 
     // ──────────────────────────────────────────────
     // LOAD
@@ -998,12 +912,12 @@
       currentTaskId = taskId || null;
       document.getElementById("invoiceType").value = inv.invoiceType || "invoice";
       document.getElementById("invNumber").value = inv.number || "";
-      document.getElementById("invDate").value = inv.date || today();
+      document.getElementById("invDate").value = inv.invoiceDate || today();
       document.getElementById("invDue").value = inv.due || dueIn(30);
-      document.getElementById("billName").value = inv.billName || "";
-      document.getElementById("billPhone").value = inv.billPhone || "";
-      document.getElementById("billEmail").value = inv.billEmail || "";
-      document.getElementById("billAddress").value = inv.billAddress || "";
+      document.getElementById("billName").value = inv.customerName || "";
+      document.getElementById("billPhone").value = inv.customerPhone || "";
+      document.getElementById("billEmail").value = inv.customerEmail || "";
+      document.getElementById("billAddress").value = inv.customerAddress || "";
       document.getElementById("invNotes").value = inv.notes || "";
       document.getElementById("taxPercent").value = inv.taxPercent || "0";
       document.getElementById("amountPaid").value = inv.amountPaid || "";
@@ -1064,7 +978,7 @@
         "<div style='position:relative;'>" + paidStamp +
         "<div style='display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;'>" +
         "<div>" +
-        "<div style='font-size:20px;font-weight:700;'>" + esc(biz.name || "") + "</div>" +
+        "<div style='font-size:20px;font-weight:700;'>" + esc(inv.invoiceTitle || biz.name || "") + "</div>" +
         (biz.address ? "<div style='font-size:12px;color:#64748b;margin-top:3px;'>" + esc(biz.address) + "</div>" : "") +
         (biz.phone ? "<div style='font-size:12px;color:#64748b;'>" + esc(biz.phone) + "</div>" : "") +
         (biz.email ? "<div style='font-size:12px;color:#64748b;'>" + esc(biz.email) + "</div>" : "") +
@@ -1073,15 +987,15 @@
         "<div style='text-align:right;'>" +
         "<div style='font-size:24px;font-weight:800;letter-spacing:2px;'>" + typeLabel + "</div>" +
         "<div><strong>#</strong> " + esc(inv.number) + "</div>" +
-        "<div style='font-size:12px;color:#64748b;'>Date: " + (inv.date || "") + "</div>" +
+        "<div style='font-size:12px;color:#64748b;'>Date: " + (inv.invoiceDate || "") + "</div>" +
         (inv.due ? "<div style='font-size:12px;color:#64748b;'>Due: " + inv.due + "</div>" : "") +
         "</div></div>" +
         "<div style='margin-bottom:20px;padding:12px;background:#f8fafc;border-radius:4px;'>" +
         "<div style='font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;margin-bottom:4px;'>Bill To</div>" +
-        "<div style='font-weight:600;'>" + esc(inv.billName || "") + "</div>" +
-        (inv.billAddress ? "<div style='color:#64748b;font-size:12px;'>" + esc(inv.billAddress) + "</div>" : "") +
-        (inv.billPhone ? "<div style='color:#64748b;font-size:12px;'>" + esc(inv.billPhone) + "</div>" : "") +
-        (inv.billEmail ? "<div style='color:#64748b;font-size:12px;'>" + esc(inv.billEmail) + "</div>" : "") +
+        "<div style='font-weight:600;'>" + esc(inv.customerName || "") + "</div>" +
+        (inv.customerAddress ? "<div style='color:#64748b;font-size:12px;'>" + esc(inv.customerAddress) + "</div>" : "") +
+        (inv.customerPhone ? "<div style='color:#64748b;font-size:12px;'>" + esc(inv.customerPhone) + "</div>" : "") +
+        (inv.customerEmail ? "<div style='color:#64748b;font-size:12px;'>" + esc(inv.customerEmail) + "</div>" : "") +
         "</div>" +
         (hasItems
           ? "<table style='margin-bottom:20px;'><thead><tr>" +
@@ -1091,7 +1005,7 @@
           : "") +
         "<table class='tot' style='width:300px;margin-left:auto;'>" +
         "<tr><td>Subtotal</td><td>$" + Number(inv.subtotal || 0).toFixed(2) + "</td></tr>" +
-        "<tr><td>Tax (" + (inv.taxPercent || 0) + "%)</td><td>$" + Number(inv.taxAmount || 0).toFixed(2) + "</td></tr>" +
+        "<tr><td>Tax (" + (inv.taxPercent || 0) + "%)</td><td>$" + Number(inv.tax || 0).toFixed(2) + "</td></tr>" +
         "<tr class='grand'><td>Total</td><td>$" + Number(inv.total || 0).toFixed(2) + "</td></tr>" +
         (inv.amountPaid > 0
           ? "<tr><td>Amount Paid</td><td>($" + Number(inv.amountPaid).toFixed(2) + ")</td></tr>" +
