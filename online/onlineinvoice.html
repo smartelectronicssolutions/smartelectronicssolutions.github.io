@@ -424,8 +424,7 @@
     // ── state ──
     let DB = null;
     let jobTasks = {};
-    let invoices = {};
-    let currentInvId = null;
+    let currentTaskId = null;
     let INVENTORY_ITEMS = [];
 
     const ALL = "__ALL__";
@@ -438,7 +437,6 @@
       if (user) {
         loadInventory();
         loadJobTasks();
-        listenInvoices();
       }
     });
 
@@ -742,14 +740,16 @@
         var sel = document.getElementById("jobTaskSelect");
         sel.innerHTML = "<option value=''>-- select task --</option>";
         Object.entries(jobTasks)
-          .sort(function (a, b) { return (b[1].startTime || 0) - (a[1].startTime || 0); })
+          .sort(function (a, b) { return new Date(b[1].startTime) - new Date(a[1].startTime); })
           .forEach(function (entry) {
             var id = entry[0], t = entry[1];
             var o = document.createElement("option");
             o.value = id;
-            o.textContent = [t.jobNumber, t.customerName, t.date].filter(Boolean).join(" - ") || id.slice(0, 12);
+            var label = (t.customerName || "Unnamed") + " - " + (t.project || "No Project");
+            o.textContent = t.invoice ? "✓ " + label : label;
             sel.appendChild(o);
           });
+        renderSaved(document.getElementById("savedSearch").value);
       });
     }
 
@@ -758,20 +758,28 @@
       var t = jobTasks[taskId];
       if (!t) { setMsg("Select a task first."); return; }
 
+      currentTaskId = taskId;
+
+      if (t.invoice) {
+        loadInvoice(t.invoice, taskId);
+        setMsg("Invoice loaded from task.");
+        return;
+      }
+
       document.getElementById("billName").value = t.customerName || "";
       document.getElementById("billPhone").value = t.customerPhone || "";
       document.getElementById("billEmail").value = t.customerEmail || "";
-      document.getElementById("billAddress").value = t.jobAddress || "";
+      document.getElementById("billAddress").value = t.customerAddress || "";
       if (!document.getElementById("invNotes").value)
         document.getElementById("invNotes").value = getBiz().terms || "";
 
       var workMs = 0, travelMs = 0;
       if (t.segments && t.segments.length) {
         t.segments.forEach(function (s) {
-          if (!s.start || !s.end) return;
-          var dur = s.end - s.start;
+          if (!s.startTime || !s.endTime) return;
+          var dur = new Date(s.endTime) - new Date(s.startTime);
           if (s.type === "work") workMs += dur;
-          if (s.type === "travel") travelMs += dur;
+          else travelMs += dur;
         });
       } else if (t.startTime && t.endTime) {
         workMs = t.endTime - t.startTime;
@@ -784,14 +792,14 @@
       if (travelHrs > 0) addLaborRow("Travel", +travelHrs.toFixed(3), 0);
       if (mileage > 0) addLaborRow("Mileage (" + mileage + " mi)", mileage, 0);
 
-      setMsg("Task imported - set rates on labor rows then save.");
+      setMsg("Task imported — set rates on labor rows then save.");
     });
 
     // ──────────────────────────────────────────────
     // FORM STATE
     // ──────────────────────────────────────────────
     function resetForm() {
-      currentInvId = null;
+      currentTaskId = null;
       document.getElementById("invoiceType").value = "invoice";
       document.getElementById("invNumber").value = genInvNum();
       document.getElementById("invDate").value = today();
@@ -840,7 +848,7 @@
           total: r.querySelector("[name=labor-total]").value,
         };
       });
-      var id = currentInvId || ("inv-" + Date.now());
+      var id = currentTaskId ? ("inv-" + currentTaskId) : ("inv-" + Date.now());
       return {
         id: id,
         invoiceType: document.getElementById("invoiceType").value,
@@ -871,10 +879,11 @@
     // ──────────────────────────────────────────────
     document.getElementById("saveInvBtn").addEventListener("click", async function () {
       if (!DB) { setMsg("Sign in to save.", true); return; }
-      var wasPaid = invoices[currentInvId] ? invoices[currentInvId].paid : false;
+      if (!currentTaskId) { setMsg("Import a task first.", true); return; }
+      var existing = jobTasks[currentTaskId] && jobTasks[currentTaskId].invoice;
+      var wasPaid = existing ? existing.paid : false;
       var inv = collectInvoice(wasPaid);
-      currentInvId = inv.id;
-      await set(ref(database, DB + "/invoices/" + inv.id), inv);
+      await set(ref(database, DB + "/tasks/" + currentTaskId + "/invoice"), inv);
       if (inv.amountPaid > 0) await upsertPaymentTx(inv);
       setMsg("Invoice saved.");
     });
@@ -883,7 +892,7 @@
     // LEDGER TX
     // ──────────────────────────────────────────────
     async function upsertPaymentTx(inv) {
-      var existing = invoices[inv.id] || {};
+      var existing = (currentTaskId && jobTasks[currentTaskId] && jobTasks[currentTaskId].invoice) ? jobTasks[currentTaskId].invoice : {};
       var prevTxId = existing.paymentTxId || "";
       var prevTxYear = Number(existing.paymentTxYear || 0) || null;
 
@@ -907,31 +916,26 @@
         date: dateTS,
       };
       await set(ref(database, DB + "/ledgerTx/" + year + "/" + txId), tx);
-      await update(ref(database, DB + "/invoices/" + inv.id), { paymentTxId: txId, paymentTxYear: year });
+      await update(ref(database, DB + "/tasks/" + currentTaskId + "/invoice"), { paymentTxId: txId, paymentTxYear: year });
     }
 
     // ──────────────────────────────────────────────
-    // SAVED INVOICES
+    // SAVED INVOICES (derived from tasks)
     // ──────────────────────────────────────────────
-    function listenInvoices() {
-      if (!DB) return;
-      onValue(ref(database, DB + "/invoices"), function (snap) {
-        invoices = snap.val() || {};
-        renderSaved(document.getElementById("savedSearch").value);
-      });
-    }
-
     function renderSaved(filter) {
       var body = document.getElementById("savedBody");
       body.innerHTML = "";
       var q = (filter || "").toLowerCase();
-      var list = Object.values(invoices)
-        .filter(function (inv) {
+      var list = Object.entries(jobTasks)
+        .filter(function (e) { return e[1].invoice; })
+        .map(function (e) { return { taskId: e[0], inv: e[1].invoice }; })
+        .filter(function (item) {
           if (!q) return true;
+          var inv = item.inv;
           return [inv.number, inv.billName, inv.invoiceType, inv.paid ? "paid" : "unpaid"]
             .some(function (v) { return String(v || "").toLowerCase().indexOf(q) >= 0; });
         })
-        .sort(function (a, b) { return (b.savedAt || 0) - (a.savedAt || 0); });
+        .sort(function (a, b) { return (b.inv.savedAt || 0) - (a.inv.savedAt || 0); });
 
       if (!list.length) {
         body.innerHTML = "<tr><td colspan='7' style='color:var(--muted);padding:8px;'>" +
@@ -939,9 +943,11 @@
         return;
       }
 
-      list.forEach(function (inv) {
+      list.forEach(function (item) {
+        var taskId = item.taskId, inv = item.inv;
         var tr = document.createElement("tr");
         if (inv.paid) tr.classList.add("inv-row-paid");
+        tr.dataset.taskid = taskId;
         tr.innerHTML =
           "<td>" + esc(inv.invoiceType || "invoice") + "</td>" +
           "<td>" + esc(inv.number) + "</td>" +
@@ -950,10 +956,10 @@
           "<td>" + fmt(inv.total) + "</td>" +
           "<td class='" + (inv.paid ? "status-paid" : "status-unpaid") + "'>" + (inv.paid ? "PAID" : "UNPAID") + "</td>" +
           "<td style='white-space:nowrap;'>" +
-          "<button data-load='" + inv.id + "' style='font-size:11px;padding:2px 5px;'>Load</button> " +
-          "<button data-paid='" + inv.id + "' style='font-size:11px;padding:2px 5px;'>" + (inv.paid ? "Unpaid" : "Mark Paid") + "</button> " +
-          "<button data-print='" + inv.id + "' style='font-size:11px;padding:2px 5px;'>Print</button> " +
-          "<button data-del='" + inv.id + "' class='clear-button' style='font-size:11px;padding:2px 5px;'>Del</button>" +
+          "<button data-action='load' style='font-size:11px;padding:2px 5px;'>Load</button> " +
+          "<button data-action='paid' style='font-size:11px;padding:2px 5px;'>" + (inv.paid ? "Unpaid" : "Mark Paid") + "</button> " +
+          "<button data-action='print' style='font-size:11px;padding:2px 5px;'>Print</button> " +
+          "<button data-action='del' class='clear-button' style='font-size:11px;padding:2px 5px;'>Del</button>" +
           "</td>";
         body.appendChild(tr);
       });
@@ -964,25 +970,32 @@
     document.getElementById("savedBody").addEventListener("click", async function (e) {
       var btn = e.target.closest("button");
       if (!btn || !DB) return;
-      if (btn.dataset.load) { loadInvoice(invoices[btn.dataset.load]); return; }
-      if (btn.dataset.paid) {
-        var inv = invoices[btn.dataset.paid];
-        if (inv) await update(ref(database, DB + "/invoices/" + inv.id), { paid: !inv.paid });
+      var action = btn.dataset.action;
+      if (!action) return;
+      var row = btn.closest("tr");
+      var taskId = row ? row.dataset.taskid : null;
+      if (!taskId || !jobTasks[taskId]) return;
+      var inv = jobTasks[taskId].invoice;
+      if (!inv) return;
+
+      if (action === "load") { loadInvoice(inv, taskId); return; }
+      if (action === "paid") {
+        await update(ref(database, DB + "/tasks/" + taskId + "/invoice"), { paid: !inv.paid });
         return;
       }
-      if (btn.dataset.print) { printInvoice(invoices[btn.dataset.print]); return; }
-      if (btn.dataset.del) {
+      if (action === "print") { printInvoice(inv); return; }
+      if (action === "del") {
         if (!confirm("Delete this invoice?")) return;
-        await remove(ref(database, DB + "/invoices/" + btn.dataset.del));
+        await remove(ref(database, DB + "/tasks/" + taskId + "/invoice"));
       }
     });
 
     // ──────────────────────────────────────────────
     // LOAD
     // ──────────────────────────────────────────────
-    function loadInvoice(inv) {
+    function loadInvoice(inv, taskId) {
       if (!inv) return;
-      currentInvId = inv.id;
+      currentTaskId = taskId || null;
       document.getElementById("invoiceType").value = inv.invoiceType || "invoice";
       document.getElementById("invNumber").value = inv.number || "";
       document.getElementById("invDate").value = inv.date || today();
@@ -1012,7 +1025,7 @@
     // PRINT POPUP
     // ──────────────────────────────────────────────
     document.getElementById("printInvBtn").addEventListener("click", function () {
-      var isPaid = currentInvId && invoices[currentInvId] ? invoices[currentInvId].paid : false;
+      var isPaid = currentTaskId && jobTasks[currentTaskId] && jobTasks[currentTaskId].invoice ? jobTasks[currentTaskId].invoice.paid : false;
       printInvoice(collectInvoice(isPaid));
     });
 
