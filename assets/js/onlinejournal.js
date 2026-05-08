@@ -34,19 +34,22 @@ export function renderArticleContent(article) {
     }
 
     (section.content || []).forEach((item) => {
-      if (item.type === "text") {
+      if (item.type === "text" && item.value) {
         html += `<p>${item.value}</p>`;
       }
 
-      if (item.type === "image") {
+      if (item.type === "image" && item.src) {
         html += `
           <a href="${item.src}" target="_blank">
             <img src="${item.src}" class="article-img">
           </a>
         `;
+        if (item.caption) {
+          html += `<p class="img-caption">${escapeHtml(item.caption)}</p>`;
+        }
       }
 
-      if (item.type === "list") {
+      if (item.type === "list" && Array.isArray(item.items) && item.items.length) {
         html += `<ul>${item.items.map((i) => `<li>${escapeHtml(i)}</li>`).join("")}</ul>`;
       }
 

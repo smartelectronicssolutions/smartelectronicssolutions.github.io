@@ -317,6 +317,7 @@
     let isShowingAll = false;
     let allTasks = [];
     let isLoadingImages = false;
+    let imageLoadGen = 0;
     const initialLoadCount = 50;
 
     function snap15(date) {
@@ -880,16 +881,15 @@
 
     // ── Timer images ──
     async function loadTimerImages(project) {
-      if (isLoadingImages) return;
-      isLoadingImages = true;
-
+      const gen = ++imageLoadGen;
       imgGallery.innerHTML = "";
       timerLoadingIndicator.style.display = "block";
+      isLoadingImages = true;
 
       try {
         const folder = getActiveImageFolder();
-
         const snap = await listAll(storageRef(storage, folder));
+        if (gen !== imageLoadGen) return;
 
         const all = await Promise.all(
           snap.items
@@ -900,8 +900,8 @@
               fullPath: item.fullPath
             }))
         );
+        if (gen !== imageLoadGen) return;
 
-        // ✅ DEDUPE FIX
         const seen = new Set();
         const unique = all.filter(img => {
           if (seen.has(img.name)) return false;
@@ -943,8 +943,10 @@
       } catch (e) {
         console.error(e);
       } finally {
-        timerLoadingIndicator.style.display = "none";
-        isLoadingImages = false;
+        if (gen === imageLoadGen) {
+          timerLoadingIndicator.style.display = "none";
+          isLoadingImages = false;
+        }
       }
     }
 
@@ -1021,7 +1023,7 @@
     // DETAILS
     // ════════════════════════════════════
     let currentProject = "", modalItems = [], modalIndex = 0;
-    let isLoadingProject = false, currentProjectName = "", currentCustomerName = "", metaOwnerTaskId = "", allProjects = [];
+    let isLoadingProject = false, projectLoadGen = 0, currentProjectName = "", currentCustomerName = "", metaOwnerTaskId = "", allProjects = [];
 
     const sanitize = s => (s || "").trim().replace(/\s+/g, "_");
     const normKey = s => (s || "").trim().toLowerCase();
@@ -1359,16 +1361,20 @@
     }
 
     async function loadProject(id) {
-      if (isLoadingProject) return; isLoadingProject = true;
+      const gen = ++projectLoadGen;
+      isLoadingProject = true;
+      currentDeviceLists = {}; activeDeviceListId = ""; currentDailyTasks = {};
+      renderDeviceListDropdown(); renderDeviceTable(); renderDailyTasks();
       try {
         currentProject = id; localStorage.setItem("lastProject", id);
         const snap = await get(dbRef(database, `${DB}/tasks/${id}`)); if (!snap.exists()) throw new Error("No task");
+        if (gen !== projectLoadGen) return;
         const data = snap.val(); currentProjectName = data.project || ""; currentCustomerName = (data.customerName || "").trim();
         await resolveMetaOwnerTaskId();
-        const ownerSnap = await get(dbRef(database, `${DB}/tasks/${metaOwnerTaskId}`));
+        if (gen !== projectLoadGen) return;
         await loadImageFolders(); await loadDeviceLists(); await loadDailyTasks();
       } catch (e) { console.error(e); alert("Failed to load project."); }
-      finally { isLoadingProject = false; }
+      finally { if (gen === projectLoadGen) isLoadingProject = false; }
     }
 
     function filterDailyTasks() {
