@@ -623,6 +623,7 @@
       document.getElementById("totalTasks").innerText = tasks.length;
       checkOngoingTask(tasks); updateTotalHours(tasks); processDaily(tasks); populateTaskDropdown(tasks);
       if (!isShowingAll && tasks.length > initialLoadCount) addLoadAllBtn();
+      reapplyDateFilter();
     }
 
     function checkOngoingTask(tasks) {
@@ -698,7 +699,25 @@
       if (soC) soC.onblur = () => updateTaskField(key, "startOdometer", soC.innerText);
       if (eoC) eoC.onblur = () => updateTaskField(key, "endOdometer", eoC.innerText);
       if (stC) stC.onblur = () => { const raw = stC.innerText.trim(); const full = new Date(raw); const s = isValidDate(full) ? snap15(full) : parseTimeEdit(raw, task.startTime); if (s) { task.startTime = s.toISOString(); stC.innerText = fmtDt(s); if (lenC) lenC.innerText = task.endTime ? calcLength(task) : ""; updateTaskField(key, "startTime", s.toISOString()); } };
-      if (etC) etC.onblur = () => { const raw = etC.innerText.trim(); const full = new Date(raw); const s = isValidDate(full) ? snap15(full) : parseTimeEdit(raw, task.endTime || task.startTime); if (s) { task.endTime = s.toISOString(); etC.innerText = fmtDt(s); if (lenC) lenC.innerText = calcLength(task); updateTaskField(key, "endTime", s.toISOString()); } };
+      if (etC) etC.onblur = () => {
+        const raw = etC.innerText.trim();
+        const full = new Date(raw);
+        const s = isValidDate(full) ? snap15(full) : parseTimeEdit(raw, task.endTime || task.startTime);
+        if (s) {
+          const oldEnd = task.endTime;
+          task.endTime = s.toISOString();
+          etC.innerText = fmtDt(s);
+          if (lenC) lenC.innerText = calcLength(task);
+          // If the last segment was closed at the same time the task ended, keep them in sync
+          const segs = ensureSegs(task);
+          const last = segs[segs.length - 1];
+          if (last && last.endTime === oldEnd) {
+            last.endTime = s.toISOString();
+            if (task === currentTask) updateSegSummary();
+          }
+          saveTask(task);
+        }
+      };
       if (notesC) notesC.onblur = () => updateTaskField(key, "notes", notesC.innerText);
       if (phoneC) phoneC.onblur = () => updateTaskField(key, "customerPhone", phoneC.innerText);
       if (emailC) emailC.onblur = () => updateTaskField(key, "customerEmail", emailC.innerText);
@@ -827,22 +846,36 @@
       } catch (e) { console.error(e); }
     }
 
-    function calcHoursBetweenDates() {
-      const s = safeDate(document.getElementById("startDate").value), e = safeDate(document.getElementById("endDate").value);
-      if (!s || !e) { alert("Select valid dates."); return; } e.setHours(23, 59, 59, 999);
+    function reapplyDateFilter() {
+      const s = safeDate(document.getElementById("startDate")?.value);
+      const e = safeDate(document.getElementById("endDate")?.value);
+      const rows = Array.from(document.querySelectorAll("#task-log tbody tr"));
+      if (!s || !e) {
+        rows.forEach(r => r.classList.remove("excluded-by-date"));
+        applySearchFilter();
+        return;
+      }
+      e.setHours(23, 59, 59, 999);
       let total = 0; const t0 = performance.now();
-      Array.from(document.querySelectorAll("#task-log tbody tr")).forEach(row => {
+      rows.forEach(row => {
         if (performance.now() - t0 > CALC_DEADLINE_MS) return;
         const sc = row.querySelector(".start-time-column"), ec = row.querySelector(".end-time-column");
-        if (!sc || !ec) { row.classList.add("excluded-by-date"); row.style.display = "none"; return; }
+        if (!sc || !ec) { row.classList.add("excluded-by-date"); return; }
         const ts = safeDate(sc.innerText), te = safeDate(ec.innerText);
-        if (!ts || !te) { row.classList.add("excluded-by-date"); row.style.display = "none"; return; }
+        if (!ts || !te) { row.classList.add("excluded-by-date"); return; }
         const es = ts < s ? s : ts, ee = te > e ? e : te;
         if (es <= ee) { total += (ee - es) / 1000; row.classList.remove("excluded-by-date"); }
         else row.classList.add("excluded-by-date");
       });
       document.getElementById("calculatedHours").innerText = `${Math.floor(total / 3600)}h ${Math.floor((total % 3600) / 60)}m (${(total / 3600).toFixed(2)})`;
       applySearchFilter();
+    }
+
+    function calcHoursBetweenDates() {
+      const s = safeDate(document.getElementById("startDate").value);
+      const e = safeDate(document.getElementById("endDate").value);
+      if (!s || !e) { alert("Select valid dates."); return; }
+      reapplyDateFilter();
     }
 
     // ── Timer images ──
@@ -992,6 +1025,7 @@
 
     const sanitize = s => (s || "").trim().replace(/\s+/g, "_");
     const normKey = s => (s || "").trim().toLowerCase();
+    const toImgArray = (val) => Array.isArray(val) ? val : (val && typeof val === 'object' ? Object.values(val) : []);
     let currentDeviceLists = {}, activeDeviceListId = "";
     const DEVICE_RESERVED = new Set(["_name", "createdAt", "meta", "items"]);
     function getDeviceListItems(listObj) { if (!listObj || typeof listObj !== "object") return {}; const out = {}; for (const [k, v] of Object.entries(listObj)) { if (DEVICE_RESERVED.has(k)) continue; out[k] = v; } return out; }
@@ -1110,7 +1144,7 @@
 
     function buildDeviceThumbStrip(d, basePath) {
       const strip = document.createElement("div"); strip.className = "thumb-strip";
-      const images = Array.isArray(d.images) ? d.images : [];
+      const images = toImgArray(d.images);
       images.forEach((img, idx) => {
         const w = document.createElement("div"); w.className = "thumb-wrapper";
         const thumb = document.createElement("img"); thumb.className = "thumb-img"; thumb.src = img.url; thumb.title = img.note || "";
@@ -1160,7 +1194,7 @@
         if (applyMarkup) blob = await stampImg(blob, autoText);
         await uploadBytes(storageRef(storage, path), blob, { contentType: "image/jpeg" });
         const url = await getDownloadURL(storageRef(storage, path));
-        const imgs = Array.isArray(d.images) ? [...d.images] : [];
+        const imgs = [...toImgArray(d.images)];
         imgs.push({ url, path, note: "", markup: autoText });
         d.images = imgs;
         await set(dbRef(database, `${basePath}/images`), imgs);
@@ -1241,8 +1275,9 @@
         const delBtn = document.createElement("button"); delBtn.textContent = "✕"; delBtn.className = "clear-button";
         delBtn.onclick = async () => {
           if (!confirm("Delete this daily task?")) return;
-          if (Array.isArray(t.images)) {
-            await Promise.all(t.images.filter(i => i?.path).map(i => deleteObject(storageRef(storage, i.path)).catch(() => { })));
+          const tImgs = toImgArray(t.images);
+          if (tImgs.length) {
+            await Promise.all(tImgs.filter(i => i?.path).map(i => deleteObject(storageRef(storage, i.path)).catch(() => { })));
           }
           await remove(dbRef(database, basePath));
           delete currentDailyTasks[key]; renderDailyTasks();
@@ -1257,7 +1292,8 @@
 
     function buildDailyThumbStrip(t, basePath) {
       const strip = document.createElement("div"); strip.className = "thumb-strip";
-      const imgs = Array.isArray(t.images) ? t.images : [];
+      if (!Array.isArray(t.images)) t.images = toImgArray(t.images);
+      const imgs = t.images;
       imgs.forEach((img, idx) => {
         if (!img?.url) return;
         const wrap = document.createElement("div"); wrap.className = "thumb-wrapper";
@@ -1286,7 +1322,7 @@
       const sRef = storageRef(storage, path);
       await uploadBytes(sRef, file);
       const url = await getDownloadURL(sRef);
-      if (!Array.isArray(t.images)) t.images = [];
+      if (!Array.isArray(t.images)) t.images = toImgArray(t.images);
       t.images.push({ url, path, note: "" });
       await set(dbRef(database, `${basePath}/images`), t.images);
       renderDailyTasks();
@@ -1372,7 +1408,7 @@
       const listName = currentDeviceLists[activeDeviceListId]._name || "devices";
       const items = getDeviceListItems(currentDeviceLists[activeDeviceListId]);
       const rows = [["Counted", "Label", "Serial", "Model", "Type", "Location", "Status", "IP", "MAC", "Notes", "Images"]];
-      Object.entries(items).forEach(([, d]) => rows.push([d.counted ? "Y" : "N", d.id || d.label || "", d.serial || "", d.model || "", d.type || "", d.location || "", d.status || "", d.ip || "", d.mac || "", (d.notes || "").replace(/,/g, ";"), Array.isArray(d.images) ? d.images.length : 0]));
+      Object.entries(items).forEach(([, d]) => rows.push([d.counted ? "Y" : "N", d.id || d.label || "", d.serial || "", d.model || "", d.type || "", d.location || "", d.status || "", d.ip || "", d.mac || "", (d.notes || "").replace(/,/g, ";"), toImgArray(d.images).length]));
       const a = document.createElement("a"); a.href = "data:text/csv," + encodeURIComponent(rows.map(r => r.join(",")).join("\n")); a.download = `${sanitize(listName)}_devices.csv`; a.click();
     };
 
