@@ -4,7 +4,6 @@
     <meta charset="utf-8" />
     <title>J&E Admin Dashboard</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <script type="module" src="../../apps/assets/js/login.js" defer></script>
 
     <style>
       :root {
@@ -262,7 +261,7 @@
 
       iframe {
         width: 100%;
-        height: 100%;
+        height: 90%;
         border: 0;
         background: white;
       }
@@ -365,14 +364,14 @@
             <div class="workspace-buttons">
               <button
                 class="btn"
-                data-app="../../apps/online/onlinetasker.html"
+                data-app="../online/onlinejob.html"
               >
                 Open Tasker
               </button>
 
               <button
                 class="btn"
-                data-app="../../apps/online/onlineinvoice.html"
+                data-app="../online/onlineinvoice.html"
               >
                 Open Invoice
               </button>
@@ -397,11 +396,33 @@
         ref,
         set,
         get,
+        remove,
         onValue,
         signOut,
         onAuthStateChanged,
         signInWithEmailAndPassword,
       } from "../../assets/js/firebase-init.js";
+
+      const loginForm  = document.getElementById("login-form");
+      const logoutBtn  = document.getElementById("logout");
+
+      loginForm?.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const email = document.getElementById("username").value.trim();
+        const pass  = document.getElementById("password").value;
+        try {
+          await signInWithEmailAndPassword(auth, email, pass);
+        } catch (err) {
+          alert("Sign-in failed: " + err.message);
+        }
+      });
+
+      logoutBtn?.addEventListener("click", () => signOut(auth));
+
+      onAuthStateChanged(auth, (user) => {
+        if (loginForm)  loginForm.style.display  = user ? "none"  : "";
+        if (logoutBtn)  logoutBtn.style.display   = user ? ""     : "none";
+      });
 
       const adminPanel = document.getElementById("adminPanel");
       const adminStatus = document.getElementById("adminStatus");
@@ -604,6 +625,10 @@
                 Open Invoice
               </button>
 
+              <button class="btn btn-danger" data-delete="true">
+                Delete
+              </button>
+
             </div>
 
           </div>
@@ -627,11 +652,20 @@
           });
 
           card.querySelector("[data-tasker]").addEventListener("click", () => {
-            openIframe("./onlinetasker.html");
+            openIframe("../online/onlinejob.html");
           });
 
           card.querySelector("[data-invoice]").addEventListener("click", () => {
-            openIframe("./onlineinvoice.html");
+            openIframe("../online/onlineinvoice.html");
+          });
+
+          card.querySelector("[data-delete]").addEventListener("click", async () => {
+            if (!confirm(`Delete ticket ${ticket.ticketNumber || ticket.id}? This cannot be undone.`)) return;
+            try {
+              await remove(ref(database, `public/serviceTickets/${ticket.id}`));
+            } catch (err) {
+              alert("Delete failed: " + err.message);
+            }
           });
 
           requestsEl.appendChild(card);
