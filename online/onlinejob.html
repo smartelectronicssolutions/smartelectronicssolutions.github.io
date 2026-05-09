@@ -149,17 +149,11 @@
 
     <section id="sec-device-details" class="collapsible-section">
       <h3 class="collapsible-header">Devices</h3>
-      <div class="table">
-        <table>
-          <tr>
-            <td><select id="deviceListSelect">
-                <option value="">select list</option>
-              </select></td>
-            <td><input type="text" id="newDeviceListName" placeholder="List name" /></td>
-            <td><button id="addDeviceListBtn">+ List</button></td>
-            <td><button id="delDeviceListBtn" class="clear-button">Delete List</button></td>
-          </tr>
-        </table>
+      <div class="ctrl-row">
+        <select id="deviceListSelect"><option value="">— select list —</option></select>
+        <input type="text" id="newDeviceListName" placeholder="List name" />
+        <button id="addDeviceListBtn">+ List</button>
+        <button id="delDeviceListBtn" class="clear-button">Delete List</button>
       </div>
       <div id="deviceAddRow" style="display:none">
         <input type="text" id="newDeviceLabel" placeholder="Label / ID" />
@@ -193,16 +187,12 @@
 
     <section id="sec-images" class="collapsible-section">
       <h3 class="collapsible-header">Images</h3>
-      <table>
-        <tr>
-          <td><select id="imgFolderSelect">
-              <option value="">Root</option>
-            </select></td>
-          <td><input type="text" id="newListName" placeholder="New folder name" /></td>
-          <td><button id="addListBtn">+ Add</button></td>
-          <td><button id="delListBtn" class="clear-button">Delete Folder</button></td>
-        </tr>
-      </table>
+      <div class="ctrl-row">
+        <select id="imgFolderSelect"><option value="">Root</option></select>
+        <input type="text" id="newListName" placeholder="New folder name" />
+        <button id="addListBtn">+ Add</button>
+        <button id="delListBtn" class="clear-button">Delete Folder</button>
+      </div>
 
       <div id="imgUpload-task" class="table">
         <table>
@@ -214,7 +204,11 @@
           </tr>
         </table>
         <div id="timerLoadingIndicator" style="display:none">Loading images...</div>
-        <button id="timerDownloadAllBtn">Download All</button>
+        <div class="ctrl-row">
+          <select id="imgPickerSelect"><option value="">— select image —</option></select>
+          <button id="imgPickerViewBtn" class="btn-sm">View</button>
+          <button id="timerDownloadAllBtn">Download All</button>
+        </div>
         <div id="imgGallery"></div>
       </div>
     </section>
@@ -911,6 +905,12 @@
 
         modalItems = unique;
 
+        const picker = document.getElementById("imgPickerSelect");
+        if (picker) {
+          picker.innerHTML = '<option value="">— select image —</option>';
+          unique.forEach(({ name }, idx) => picker.appendChild(new Option(name, idx)));
+        }
+
         unique.forEach(({ name, url, fullPath }, idx) => {
           const card = document.createElement("div");
           card.className = "img-card";
@@ -918,7 +918,7 @@
           const img = document.createElement("img");
           img.src = url; img.title = name;
           img.className = "img-thumb";
-          img.addEventListener("click", () => openModal(idx));
+          img.addEventListener("click", () => { modalItems = unique; openModal(idx); });
 
           const del = document.createElement("button");
           del.textContent = "🗑";
@@ -953,12 +953,14 @@
     function openModal(index) {
       if (!modalItems.length) return;
       modalIndex = index;
-      const { url, name } = modalItems[modalIndex];
-      document.getElementById("modalImage").src = url;
-      document.getElementById("modalFileName").textContent = name;
-      document.getElementById("downloadButton").onclick = () => window.open(url, "_blank");
+      const item = modalItems[modalIndex];
+      if (!item) return;
+      document.getElementById("modalImage").src = item.url;
+      document.getElementById("modalFileName").textContent = item.name || "";
+      document.getElementById("downloadButton").onclick = () => window.open(item.url, "_blank");
       document.getElementById("modalPrev").disabled = modalItems.length <= 1;
       document.getElementById("modalNext").disabled = modalItems.length <= 1;
+      document.getElementById("deleteButton").style.display = item.fullPath ? "" : "none";
       document.getElementById("modal").style.display = "flex";
     }
 
@@ -990,6 +992,10 @@
     document.getElementById("startWorkBtn").addEventListener("click", () => promptAndStartSegment("work"));
     updateTaskBtn.addEventListener("click", updateTask);
     document.getElementById("timerUploadBtn").addEventListener("click", uploadTimerImage);
+    document.getElementById("imgPickerViewBtn").addEventListener("click", () => {
+      const idx = parseInt(document.getElementById("imgPickerSelect").value);
+      if (!isNaN(idx) && modalItems[idx]) openModal(idx);
+    });
     document.getElementById("timerDownloadAllBtn").addEventListener("click", async () => {
       const p = projectInput.value.trim(); if (!p) { alert("Select a task first."); return; }
       const snap = await listAll(storageRef(storage, getActiveImageFolder()));
@@ -1009,6 +1015,7 @@
       endTaskBtn.style.display = task.endTime ? "none" : "inline-block";
       loadProject(id);
     });
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") loadTasks(); });
     searchTaskInput.addEventListener("input", applySearchFilter);
     document.getElementById("calculateHoursBtn").addEventListener("click", calcHoursBetweenDates);
     document.querySelectorAll(".toggle-column").forEach(cb => cb.addEventListener("change", () => { saveColVis(); applyColVis(); }));
@@ -1079,6 +1086,7 @@
     async function loadDeviceLists() {
       if (!metaOwnerTaskId) return;
       const snap = await get(dbRef(database, `${DB}/tasks/${metaOwnerTaskId}/lists`));
+      console.log("[lists] loadDeviceLists — task:", metaOwnerTaskId, "exists:", snap.exists(), "keys:", snap.exists() ? Object.keys(snap.val()) : []);
       currentDeviceLists = snap.exists() ? snap.val() : {};
       activeDeviceListId = "";
       renderDeviceListDropdown();
@@ -1124,8 +1132,8 @@
         const fileInput = document.createElement("input"); fileInput.type = "file"; fileInput.accept = "image/*"; fileInput.className = "hidden";
         const markupChk = document.createElement("input"); markupChk.type = "checkbox"; markupChk.checked = true;
         const markupLbl = document.createElement("label"); markupLbl.className = "markup-label";
-        markupLbl.append(markupChk, "Markup");
-        const upBtn = document.createElement("button"); upBtn.textContent = "📷 Add Image";
+        markupLbl.append(markupChk, "Label");
+        const upBtn = document.createElement("button"); upBtn.textContent = "📷 Add"; upBtn.className = "btn-sm";
         upBtn.onclick = () => fileInput.click();
         fileInput.onchange = async () => { const file = fileInput.files[0]; if (!file) return; await uploadDeviceImage(activeDeviceListId, itemId, file, d, basePath, markupChk.checked); fileInput.value = ""; };
         tdImages.appendChild(markupLbl); tdImages.appendChild(upBtn); tdImages.appendChild(fileInput);
@@ -1150,7 +1158,10 @@
       images.forEach((img, idx) => {
         const w = document.createElement("div"); w.className = "thumb-wrapper";
         const thumb = document.createElement("img"); thumb.className = "thumb-img"; thumb.src = img.url; thumb.title = img.note || "";
-        thumb.onclick = () => window.open(img.url, "_blank");
+        thumb.onclick = () => {
+          modalItems = images.map(i => ({ url: i.url, name: i.markup || i.note || "Image" }));
+          openModal(idx);
+        };
         const del = document.createElement("button"); del.className = "thumb-delete"; del.textContent = "×";
         del.onclick = async () => {
           if (!confirm("Delete image?")) return;
@@ -1159,10 +1170,10 @@
           if (removed?.path) { try { await deleteObject(storageRef(storage, removed.path)); } catch { } }
           renderDeviceTable();
         };
-        const markupInp = document.createElement("input"); markupInp.type = "text"; markupInp.className = "thumb-markup"; markupInp.placeholder = "Markup text"; markupInp.value = img.markup || "";
-        const markupBtn = document.createElement("button"); markupBtn.textContent = "Stamp"; markupBtn.classList.add("btn-sm");
+        const markupInp = document.createElement("input"); markupInp.type = "text"; markupInp.className = "thumb-markup"; markupInp.placeholder = "Label"; markupInp.value = img.markup || "";
+        const markupBtn = document.createElement("button"); markupBtn.textContent = "Apply"; markupBtn.classList.add("btn-sm");
         markupBtn.onclick = async () => {
-          const text = markupInp.value.trim(); if (!text) { alert("Enter markup text"); return; }
+          const text = markupInp.value.trim(); if (!text) { alert("Enter label text"); return; }
           try {
             const res = await fetch(img.url); const blob = await res.blob();
             const stamped = await stampImg(blob, text);
@@ -1172,7 +1183,7 @@
             const imgs = [...images]; imgs[idx] = { ...imgs[idx], url: newUrl, markup: text }; d.images = imgs;
             await set(dbRef(database, `${basePath}/images`), imgs);
             renderDeviceTable();
-          } catch (e) { console.error(e); alert("Markup failed"); }
+          } catch (e) { console.error(e); alert("Apply failed"); }
         };
         const noteEl = document.createElement("textarea"); noteEl.className = "thumb-note"; noteEl.rows = 2; noteEl.placeholder = "Notes…"; noteEl.value = img.note || "";
         noteEl.onblur = async () => {
@@ -1299,9 +1310,12 @@
       imgs.forEach((img, idx) => {
         if (!img?.url) return;
         const wrap = document.createElement("div"); wrap.className = "thumb-wrapper";
-        const a = document.createElement("a"); a.href = img.url; a.target = "_blank";
         const thumb = document.createElement("img"); thumb.src = img.url; thumb.className = "thumb-img"; thumb.loading = "lazy";
-        a.appendChild(thumb);
+        thumb.onclick = () => {
+          const valid = imgs.filter(i => i?.url);
+          modalItems = valid.map(i => ({ url: i.url, name: i.note || "Photo" }));
+          openModal(Math.max(0, valid.indexOf(img)));
+        };
         const delBtn = document.createElement("button"); delBtn.textContent = "✕"; delBtn.className = "thumb-delete";
         delBtn.onclick = async () => {
           if (!confirm("Delete image?")) return;
@@ -1312,7 +1326,7 @@
         };
         const noteEl = document.createElement("textarea"); noteEl.className = "thumb-note"; noteEl.rows = 2; noteEl.placeholder = "Note..."; noteEl.value = img.note || "";
         noteEl.onblur = () => { img.note = noteEl.value; set(dbRef(database, `${basePath}/images`), t.images); };
-        wrap.append(a, delBtn, noteEl);
+        wrap.append(thumb, delBtn, noteEl);
         strip.appendChild(wrap);
       });
       return strip;
@@ -1351,13 +1365,18 @@
     function bestTime(task, id) { return Math.max(Number(task.updatedAt) || 0, Number(task.createdAt) || 0, Number(task.startTime) || 0, Number(task.timestamp) || 0, Number(id) || 0); }
     async function resolveMetaOwnerTaskId() {
       metaOwnerTaskId = currentProject;
-      const projKey = normKey(currentProjectName), custKey = normKey(currentCustomerName);
-      if (!projKey && !custKey) return metaOwnerTaskId;
+      const projKey = normKey(currentProjectName);
+      if (!projKey) return metaOwnerTaskId;
       const snap = await get(dbRef(database, `${DB}/tasks`)); if (!snap.exists()) return metaOwnerTaskId;
       const tasks = snap.val();
-      const matches = Object.entries(tasks).filter(([, t]) => normKey(t.project) === projKey && normKey(t.customerName) === custKey);
+      const matches = Object.entries(tasks).filter(([, t]) => normKey(t.project) === projKey);
       if (!matches.length) return metaOwnerTaskId;
-      matches.sort((a, b) => bestTime(a[1], a[0]) - bestTime(b[1], b[0])); metaOwnerTaskId = matches[0][0]; return metaOwnerTaskId;
+      // Prefer oldest task that owns lists; fall back to oldest any match
+      const withLists = matches.filter(([, t]) => t.lists);
+      const pool = withLists.length ? withLists : matches;
+      pool.sort((a, b) => bestTime(a[1], a[0]) - bestTime(b[1], b[0]));
+      metaOwnerTaskId = pool[0][0];
+      return metaOwnerTaskId;
     }
 
     async function loadProject(id) {
