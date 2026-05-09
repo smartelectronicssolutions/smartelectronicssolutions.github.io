@@ -33,6 +33,14 @@
       .upload-status { font-size: .75rem; margin-top: 4px; min-height: 14px; }
       .upload-status.ok { color: #4ade80; }
       .upload-status.err { color: #f87171; }
+      .cat-section { margin-bottom: 28px; }
+      .cat-label { font-weight: 700; font-size: .8rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 12px; }
+      .storage-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px; }
+      .storage-card { background: rgba(255,255,255,.03); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; position: relative; }
+      .storage-card img { width: 100%; height: 120px; object-fit: cover; display: block; }
+      .storage-card .card-name { padding: 8px 10px 4px; font-size: .8rem; font-weight: 700; word-break: break-all; }
+      .storage-card .card-del { display: block; width: 100%; padding: 6px; font-size: .75rem; background: transparent; border: none; border-top: 1px solid var(--border); color: #f87171; cursor: pointer; }
+      .storage-card .card-del:hover { background: rgba(248,113,113,.1); }
       .progress-bar { height: 4px; background: var(--border); border-radius: 2px; margin-top: 6px; overflow: hidden; }
       .progress-fill { height: 100%; background: var(--accent); width: 0%; transition: width .15s; }
       .checkbox-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; color: var(--muted); font-size: .9rem; }
@@ -118,13 +126,23 @@
         <h2>Preview</h2>
         <div id="previewGrid" class="preview-grid"></div>
       </div>
+
+      <!-- Uploaded -->
+      <div class="panel">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
+          <h2 style="margin:0;">Uploaded to Firebase</h2>
+          <button id="refreshStorageBtn" class="btn-secondary" style="padding:8px 16px;">Refresh</button>
+          <span id="storageStatus" style="color:var(--muted);font-size:.85rem;"></span>
+        </div>
+        <div id="storageGrid"></div>
+      </div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
     <script type="module">
       import {
-        storage, storageRef, uploadBytesResumable, getDownloadURL,
+        storage, storageRef, uploadBytesResumable, getDownloadURL, listAll, deleteObject,
         auth, onAuthStateChanged, signInWithEmailAndPassword, signOut
       } from "../../assets/js/firebase-init.js";
 
@@ -313,6 +331,116 @@
         a.download = "jem-gallery-images.zip";
         a.click();
       });
+    </script>
+    <script type="module">
+      import {
+        storage, storageRef, listAll, getDownloadURL, deleteObject,
+        auth, onAuthStateChanged
+      } from "../../assets/js/firebase-init.js";
+
+      const CATS = [
+        { prefix: "d", label: "d — Detailing" },
+        { prefix: "m", label: "m — Mechanic" },
+        { prefix: "c", label: "c — Decals" },
+        { prefix: "p", label: "p — Pressure Wash" },
+      ];
+
+      const storageGrid   = document.getElementById("storageGrid");
+      const storageStatus = document.getElementById("storageStatus");
+      const refreshBtn    = document.getElementById("refreshStorageBtn");
+
+      let canDelete = false;
+      onAuthStateChanged(auth, u => { canDelete = !!u; });
+
+      function sortItems(items) {
+        return [...items].sort((a, b) => {
+          const parse = name => {
+            const m = name.match(/^[a-z](\d+)([ba]?)\.jpg$/i);
+            if (!m) return [0, 0];
+            return [parseInt(m[1]), m[2] === "b" ? 0 : m[2] === "a" ? 1 : 0];
+          };
+          const [an, aw] = parse(a.name);
+          const [bn, bw] = parse(b.name);
+          return an !== bn ? an - bn : aw - bw;
+        });
+      }
+
+      async function loadStorageView() {
+        storageGrid.innerHTML = "";
+        storageStatus.textContent = "Loading…";
+        refreshBtn.disabled = true;
+
+        try {
+          const folder = storageRef(storage, "public/jeb/images/");
+          const result = await listAll(folder);
+          const allItems = result.items;
+
+          let total = 0;
+
+          for (const cat of CATS) {
+            const items = sortItems(allItems.filter(i => i.name.startsWith(cat.prefix)));
+            if (!items.length) continue;
+            total += items.length;
+
+            const section = document.createElement("div");
+            section.className = "cat-section";
+            section.innerHTML = `<div class="cat-label">${cat.label} — ${items.length} photo${items.length !== 1 ? "s" : ""}</div>`;
+
+            const grid = document.createElement("div");
+            grid.className = "storage-grid";
+
+            for (const item of items) {
+              const card = document.createElement("div");
+              card.className = "storage-card";
+              card.id = "sc-" + item.name;
+
+              const img = document.createElement("img");
+              img.alt = item.name;
+              img.loading = "lazy";
+              img.src = "";
+
+              const name = document.createElement("div");
+              name.className = "card-name";
+              name.textContent = item.name;
+
+              const del = document.createElement("button");
+              del.className = "card-del";
+              del.textContent = "Delete";
+              del.addEventListener("click", async () => {
+                if (!canDelete) { alert("Sign in to delete."); return; }
+                if (!confirm(`Delete ${item.name}?`)) return;
+                del.disabled = true;
+                del.textContent = "Deleting…";
+                try {
+                  await deleteObject(item);
+                  card.remove();
+                } catch (e) {
+                  del.disabled = false;
+                  del.textContent = "Delete";
+                  alert("Delete failed: " + e.message);
+                }
+              });
+
+              card.append(img, name, del);
+              grid.appendChild(card);
+
+              getDownloadURL(item).then(url => { img.src = url; }).catch(() => { img.alt = item.name + " (load failed)"; });
+            }
+
+            section.appendChild(grid);
+            storageGrid.appendChild(section);
+          }
+
+          storageStatus.textContent = total ? `${total} photo${total !== 1 ? "s" : ""} total` : "No photos found.";
+        } catch (err) {
+          storageStatus.textContent = "Error: " + err.message;
+        }
+
+        refreshBtn.disabled = false;
+      }
+
+      refreshBtn.addEventListener("click", loadStorageView);
+      loadStorageView();
     </script>
   </body>
 </html>

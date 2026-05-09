@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Saved Links</title>
+  <link rel="stylesheet" href="assets/css/online.css" />
+  <link rel="icon" href="../assets/img/favicon.ico" />
+  <script>
+    (function () {
+      const t = localStorage.getItem("ss-theme");
+      if (t === "light") document.documentElement.classList.add("light");
+    })();
+  </script>
+  <script src="../assets/js/search.js" defer></script>
+  <style>
+    #linksList {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+
+    #linksList li {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 4px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    #linksList li:last-child {
+      border-bottom: none;
+    }
+
+    #linksList a {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 13px;
+    }
+
+    .edit-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 11px;
+      padding: 2px 6px;
+      cursor: pointer;
+      border-radius: var(--radius);
+      flex-shrink: 0;
+    }
+
+    .edit-btn:hover {
+      border-color: var(--primary);
+      color: var(--primary);
+      opacity: 1;
+    }
+
+    .form-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+
+    .form-row input {
+      flex: 1;
+      min-width: 120px;
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+
+    .filter-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+
+    .filter-row input,
+    .filter-row select {
+      flex: 1;
+      min-width: 100px;
+    }
+
+    .links-shell {
+      max-width: 900px;
+      margin: auto;
+      padding: 12px;
+    }
+  </style>
+</head>
+
+<body>
+
+  <header style="position:relative;">
+    <div class="logo-box"><a href="../index.html"><img src="../assets/img/logo.png" alt="Smart Solutions"></a></div>
+    <h1>Saved Links</h1>
+    <div class="auth-bar">
+      <span id="auth-label">Not signed in</span>
+      <button id="auth-btn">Sign In</button>
+    </div>
+    <button id="theme-toggle" title="Toggle theme">☀️</button>
+    <script>
+      (function () {
+        const btn = document.getElementById("theme-toggle");
+        const html = document.documentElement;
+        btn.textContent = html.classList.contains("light") ? "🌙" : "☀️";
+        btn.addEventListener("click", function () {
+          const next = html.classList.contains("light") ? "dark" : "light";
+          html.classList.toggle("light", next === "light");
+          localStorage.setItem("ss-theme", next);
+          btn.textContent = next === "light" ? "🌙" : "☀️";
+        });
+      })();
+    </script>
+    <div id="login-inline">
+      <h3>Sign In</h3>
+      <input type="email" id="email-in" placeholder="Email" />
+      <input type="password" id="pass-in" placeholder="Password" />
+      <button id="do-login">Sign In</button>
+      <p id="auth-err"></p>
+    </div>
+  </header>
+
+  <main>
+    <div class="links-shell">
+
+      <div class="form-row">
+        <input type="text" id="linkInput" placeholder="URL" />
+        <input type="text" id="titleInput" placeholder="Title" />
+        <input type="text" id="categoryInput" placeholder="Categories (comma separated)" />
+      </div>
+      <div class="btn-row">
+        <button id="saveLinkButton">Save</button>
+        <button id="updateLinkButton" style="display:none">Update</button>
+        <button id="deleteCurrentLink" class="clear-button" style="display:none">Delete</button>
+        <button id="cancelEditBtn" class="btn-outline" style="display:none">Cancel</button>
+      </div>
+      <div class="filter-row">
+        <input id="searchInput" type="text" placeholder="Search…" />
+        <select id="categoryFilter"><option value="">All Categories</option></select>
+      </div>
+      <ul id="linksList"></ul>
+
+    </div>
+  </main>
+
+  <script type="module">
+    import {
+      auth, database, ref, push, set, onValue, remove, update,
+      onAuthStateChanged, signInWithEmailAndPassword, signOut
+    } from "../assets/js/firebase-init.js";
+
+    let DB = "public";
+    let editingKey = null;
+    let cachedLinks = [];
+    let unsubLinks = null;
+
+    /* ── auth UI ── */
+    const authLabel = document.getElementById("auth-label");
+    const authBtn   = document.getElementById("auth-btn");
+    const loginBox  = document.getElementById("login-inline");
+    const doLogin   = document.getElementById("do-login");
+    const emailIn   = document.getElementById("email-in");
+    const passIn    = document.getElementById("pass-in");
+    const authErr   = document.getElementById("auth-err");
+
+    authBtn.addEventListener("click", () => {
+      if (auth.currentUser) {
+        signOut(auth);
+      } else {
+        loginBox.style.display = loginBox.style.display === "block" ? "none" : "block";
+      }
+    });
+
+    doLogin.addEventListener("click", async () => {
+      try {
+        await signInWithEmailAndPassword(auth, emailIn.value, passIn.value);
+        loginBox.style.display = "none";
+        authErr.textContent = "";
+      } catch {
+        authErr.textContent = "Invalid login.";
+      }
+    });
+
+    onAuthStateChanged(auth, (user) => {
+      DB = user ? user.uid : "public";
+      authLabel.textContent = user ? user.email : "Not signed in";
+      authBtn.textContent   = user ? "Logout" : "Sign In";
+      fetchLinks();
+    });
+
+    /* ── elements ── */
+    const linkInput     = document.getElementById("linkInput");
+    const titleInput    = document.getElementById("titleInput");
+    const categoryInput = document.getElementById("categoryInput");
+    const saveBtn       = document.getElementById("saveLinkButton");
+    const updateBtn     = document.getElementById("updateLinkButton");
+    const deleteBtn     = document.getElementById("deleteCurrentLink");
+    const cancelBtn     = document.getElementById("cancelEditBtn");
+    const linksList     = document.getElementById("linksList");
+    const catFilter     = document.getElementById("categoryFilter");
+    const searchInput   = document.getElementById("searchInput");
+
+    const searchHelper = window.SearchEngine?.attachAuto
+      ? window.SearchEngine.attachAuto(searchInput, {
+          defaultFields: ["title", "url", "categories"],
+          placeholderAdvanced: 'Search (e.g. title:"github")'
+        })
+      : null;
+    const queryEngine = searchHelper ? searchHelper.engine : null;
+
+    /* ── CRUD ── */
+    saveBtn.addEventListener("click", () => {
+      const url = linkInput.value.trim();
+      if (!url) { alert("Enter a URL."); return; }
+      const cats = parseCats();
+      push(ref(database, `${DB}/links`), { url, title: titleInput.value.trim() || null, categories: cats.length ? cats : null })
+        .then(clearForm);
+    });
+
+    updateBtn.addEventListener("click", () => {
+      const url = linkInput.value.trim();
+      if (!url || !editingKey) return;
+      const cats = parseCats();
+      update(ref(database, `${DB}/links/${editingKey}`), { url, title: titleInput.value.trim() || null, categories: cats.length ? cats : null })
+        .then(clearForm);
+    });
+
+    deleteBtn.addEventListener("click", () => {
+      if (!editingKey || !confirm("Delete this link?")) return;
+      remove(ref(database, `${DB}/links/${editingKey}`)).then(clearForm);
+    });
+
+    cancelBtn.addEventListener("click", clearForm);
+
+    /* ── filters ── */
+    catFilter.addEventListener("change", renderList);
+    searchInput.addEventListener("input", renderList);
+
+    /* ── data ── */
+    function fetchLinks() {
+      if (unsubLinks) unsubLinks();
+      const r = ref(database, `${DB}/links`);
+      unsubLinks = onValue(r, (snap) => {
+        const data = snap.val();
+        if (data) {
+          cachedLinks = Object.entries(data).map(([key, v]) => ({
+            key,
+            url: v?.url || "",
+            title: v?.title || "",
+            categories: Array.isArray(v?.categories) ? v.categories : v?.categories ? [v.categories] : []
+          }));
+          buildCatFilter();
+          renderList();
+        } else {
+          cachedLinks = [];
+          linksList.innerHTML = "<li style='color:var(--muted);padding:8px 0;font-size:13px;'>No saved links</li>";
+          catFilter.innerHTML = '<option value="">All Categories</option>';
+        }
+      });
+    }
+
+    function renderList() {
+      linksList.innerHTML = "";
+      const cat = catFilter.value;
+      const q   = (searchInput.value || "").trim();
+      let rows = [...cachedLinks];
+      if (cat) rows = rows.filter(r => r.categories.includes(cat));
+      if (q) {
+        rows = queryEngine
+          ? queryEngine.filter(rows, q)
+          : rows.filter(r => {
+              const n = q.toLowerCase();
+              return r.title.toLowerCase().includes(n) ||
+                     r.url.toLowerCase().includes(n) ||
+                     r.categories.some(c => c.toLowerCase().includes(n));
+            });
+      }
+      rows.sort((a, b) => (a.title || a.url).toLowerCase().localeCompare((b.title || b.url).toLowerCase()));
+
+      if (!rows.length) {
+        linksList.innerHTML = "<li style='color:var(--muted);padding:8px 0;font-size:13px;'>No matching links</li>";
+        return;
+      }
+
+      rows.forEach(rec => {
+        const li = document.createElement("li");
+        const a  = document.createElement("a");
+        a.href = rec.url;
+        a.textContent = rec.title || rec.url;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        const btn = document.createElement("button");
+        btn.className = "edit-btn";
+        btn.textContent = "✏";
+        btn.onclick = () => editLink(rec.key, rec);
+        li.append(a, btn);
+        linksList.appendChild(li);
+      });
+    }
+
+    function buildCatFilter() {
+      const cats = new Set();
+      cachedLinks.forEach(r => r.categories.forEach(c => cats.add(c)));
+      const cur = catFilter.value;
+      catFilter.innerHTML = '<option value="">All Categories</option>';
+      [...cats].sort().forEach(c => {
+        const o = document.createElement("option");
+        o.value = c; o.textContent = c;
+        catFilter.appendChild(o);
+      });
+      catFilter.value = cur;
+    }
+
+    function editLink(key, rec) {
+      editingKey = key;
+      linkInput.value     = rec.url;
+      titleInput.value    = rec.title || "";
+      categoryInput.value = rec.categories.join(", ");
+      saveBtn.style.display   = "none";
+      updateBtn.style.display = "inline-block";
+      deleteBtn.style.display = "inline-block";
+      cancelBtn.style.display = "inline-block";
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function clearForm() {
+      editingKey = null;
+      linkInput.value = titleInput.value = categoryInput.value = "";
+      saveBtn.style.display   = "inline-block";
+      updateBtn.style.display = "none";
+      deleteBtn.style.display = "none";
+      cancelBtn.style.display = "none";
+    }
+
+    function parseCats() {
+      return categoryInput.value.split(",").map(c => c.trim()).filter(Boolean);
+    }
+  </script>
+
+</body>
+</html>

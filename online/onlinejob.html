@@ -14,6 +14,7 @@
   </script>
   <script type="module" src="../assets/js/auth.js"></script>
   <script src="../assets/js/search.js" defer></script>
+  <script src="../assets/js/links-aside.js" defer></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
 </head>
 
@@ -304,6 +305,7 @@
       : null;
 
     let sortOrder = "asc";
+    let sortOrderEnd = "asc";
     let currentTask = null;
     let timerInterval = null;
     let currentTaskId = null;
@@ -379,14 +381,24 @@
     function saveSegTime(idx, field, text) {
       const segs = ensureSegs(currentTask);
       if (!segs[idx]) return;
-      // Always anchor to the task's own startTime so corrupt segment dates can't cascade.
-      // "6:00 PM" → resolves on task-start day. "5:15 AM" → before task start → advance +1d.
-      const snapped = parseTimeEdit(text, currentTask.startTime);
+      const t = text.trim();
+      // If the input contains a date (m/d or 4-digit year), parse it as a full datetime.
+      // Otherwise anchor to the task start day and advance +1d if before task start.
+      const hasDate = /\d{1,2}\/\d{1,2}/.test(t) || /\d{4}/.test(t);
+      let snapped;
+      if (hasDate) {
+        const d = new Date(t);
+        snapped = isValidDate(d) ? snap15(d) : null;
+      } else {
+        snapped = parseTimeEdit(t, currentTask.startTime);
+        if (snapped) {
+          const taskStart = new Date(currentTask.startTime);
+          if (snapped < taskStart) snapped.setDate(snapped.getDate() + 1);
+        }
+      }
       if (!snapped) return;
-      const taskStart = new Date(currentTask.startTime);
-      if (snapped < taskStart) snapped.setDate(snapped.getDate() + 1);
       segs[idx][field] = snapped.toISOString();
-      if (field === "startTime" && snapped < taskStart)
+      if (field === "startTime" && snapped < new Date(currentTask.startTime))
         currentTask.startTime = snapped.toISOString();
       saveTask(currentTask);
     }
@@ -408,16 +420,16 @@
         span.className = "seg-time";
         span.contentEditable = true;
         span.textContent = fmtT(isoVal);
-        span.title = `Edit ${field === 'startTime' ? 'start' : 'end'} time`;
+        span.title = `Edit ${field === 'startTime' ? 'start' : 'end'} time — e.g. "6:00 PM" or "4/28 6:00 PM" to change date`;
         span.addEventListener("blur", () => { saveSegTime(idx, field, span.textContent); updateSegSummary(); });
         span.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); span.blur(); } });
         wrap.appendChild(span);
         if (_taskStartMidnight) {
           const dayDiff = Math.round((new Date(new Date(isoVal).toDateString()) - _taskStartMidnight) / 86400000);
-          if (dayDiff > 0) {
+          if (dayDiff !== 0) {
             const badge = document.createElement("span");
             badge.textContent = ` ${new Date(isoVal).toLocaleDateString([], { month: 'short', day: 'numeric' })}`;
-            badge.style.cssText = "font-size:0.75em;opacity:0.6;pointer-events:none;user-select:none";
+            badge.style.cssText = `font-size:0.75em;opacity:0.6;pointer-events:none;user-select:none${dayDiff < 0 ? ";color:var(--danger)" : ""}`;
             wrap.appendChild(badge);
           }
         }
@@ -617,11 +629,13 @@
     function handleTasksUpdate(tasks) {
       taskLogTbody.innerHTML = ""; allTasks = tasks;
       tasks.sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
-      if (tasks.length <= initialLoadCount) isShowingAll = true;
-      (isShowingAll ? tasks : tasks.slice(0, initialLoadCount)).forEach(addTaskToTable);
+      const cutoff = Date.now() - 14 * 24 * 3600 * 1000;
+      const recent = tasks.filter(t => t.startTime && new Date(t.startTime) >= cutoff);
+      isShowingAll = recent.length === tasks.length;
+      (isShowingAll ? tasks : recent).forEach(addTaskToTable);
       document.getElementById("totalTasks").innerText = tasks.length;
       checkOngoingTask(tasks); updateTotalHours(tasks); processDaily(tasks); populateTaskDropdown(tasks);
-      if (!isShowingAll && tasks.length > initialLoadCount) addLoadAllBtn();
+      if (!isShowingAll) addLoadAllBtn();
       reapplyDateFilter();
     }
 
@@ -640,6 +654,8 @@
       endTaskBtn.style.display = "inline-block";
       updateTaskBtn.style.display = "inline-block";
       if (currentProject !== open[0].id) loadProject(open[0].id);
+      const openRow = document.querySelector(`[data-task-id="${open[0].id}"]`);
+      if (openRow) openRow.classList.add("task-row-active");
     }
 
     function addTaskToTable(task) {
@@ -697,20 +713,18 @@
       if (projC) projC.onblur = () => updateTaskField(key, "project", projC.innerText);
       if (soC) soC.onblur = () => updateTaskField(key, "startOdometer", soC.innerText);
       if (eoC) eoC.onblur = () => updateTaskField(key, "endOdometer", eoC.innerText);
-      if (stC) stC.onblur = () => { const raw = stC.innerText.trim(); const full = new Date(raw); const s = isValidDate(full) ? snap15(full) : parseTimeEdit(raw, task.startTime); if (s) { task.startTime = s.toISOString(); stC.innerText = fmtDt(s); if (lenC) lenC.innerText = task.endTime ? calcLength(task) : ""; updateTaskField(key, "startTime", s.toISOString()); } };
+      if (stC) stC.onblur = () => { const raw = stC.innerText.trim(); const full = new Date(raw); const s = isValidDate(full) ? snap15(full) : parseTimeEdit(raw, task.startTime); if (s) { task.startTime = s.toISOString(); stC.innerText = fmtDt(s); if (lenC) lenC.innerText = task.endTime ? calcLength(task) : ""; const segs = ensureSegs(task); const first = segs[0]; if (first) { first.startTime = s.toISOString(); if (task === currentTask) updateSegSummary(); } saveTask(task); } };
       if (etC) etC.onblur = () => {
         const raw = etC.innerText.trim();
         const full = new Date(raw);
         const s = isValidDate(full) ? snap15(full) : parseTimeEdit(raw, task.endTime || task.startTime);
         if (s) {
-          const oldEnd = task.endTime;
           task.endTime = s.toISOString();
           etC.innerText = fmtDt(s);
           if (lenC) lenC.innerText = calcLength(task);
-          // If the last segment was closed at the same time the task ended, keep them in sync
           const segs = ensureSegs(task);
           const last = segs[segs.length - 1];
-          if (last && last.endTime === oldEnd) {
+          if (last) {
             last.endTime = s.toISOString();
             if (task === currentTask) updateSegSummary();
           }
@@ -724,6 +738,9 @@
     }
 
     async function loadTaskForEditing(taskKey) {
+      document.querySelectorAll(".task-row-active").forEach(r => r.classList.remove("task-row-active"));
+      const activeRow = document.querySelector(`[data-task-id="${taskKey}"]`);
+      if (activeRow) activeRow.classList.add("task-row-active");
       currentTaskId = taskKey;
       const snap = await get(dbRef(database, `${DB}/tasks/${taskKey}`));
       if (!snap.exists()) return;
@@ -784,7 +801,14 @@
     function addLoadAllBtn() {
       const c = document.getElementById("timerButtons"); if (document.getElementById("loadAllBtn")) return;
       const btn = document.createElement("button"); btn.id = "loadAllBtn"; btn.innerText = "Show All";
-      btn.onclick = () => { isShowingAll = true; allTasks.slice(initialLoadCount).forEach(addTaskToTable); btn.remove(); document.getElementById("totalTasks").innerText = allTasks.length; processDaily(allTasks); updateTotalHours(allTasks); applySearchFilter(); };
+      btn.onclick = () => {
+        isShowingAll = true;
+        const shown = new Set(Array.from(taskLogTbody.querySelectorAll("tr")).map(r => r.dataset.taskId));
+        allTasks.filter(t => !shown.has(t.id)).forEach(addTaskToTable);
+        btn.remove();
+        document.getElementById("totalTasks").innerText = allTasks.length;
+        processDaily(allTasks); updateTotalHours(allTasks); applySearchFilter();
+      };
       c.appendChild(btn);
     }
 
@@ -1026,6 +1050,10 @@
     document.querySelector("#task-log th.start-time-column").addEventListener("click", () => {
       const sorted = [...allTasks].sort((a, b) => { const d = new Date(a.startTime) - new Date(b.startTime); return sortOrder === "asc" ? d : -d; });
       taskLogTbody.innerHTML = ""; sorted.forEach(addTaskToTable); sortOrder = sortOrder === "asc" ? "desc" : "asc";
+    });
+    document.querySelector("#task-log th.end-time-column").addEventListener("click", () => {
+      const sorted = [...allTasks].sort((a, b) => { const d = String(a.id || "").localeCompare(String(b.id || "")); return sortOrderEnd === "asc" ? d : -d; });
+      taskLogTbody.innerHTML = ""; sorted.forEach(addTaskToTable); sortOrderEnd = sortOrderEnd === "asc" ? "desc" : "asc";
     });
 
     document.addEventListener("DOMContentLoaded", () => { loadColVis(); applyColVis(); createTimerButtons(); createScrollToTopButton(); });
