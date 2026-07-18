@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Radar Tools Access Notice</title>
+  <style>
+    body {
+      font-family: "Segoe UI", Arial, sans-serif;
+      margin: 0;
+      background: #0f172a;
+      color: #e5e7eb;
+      display: flex;
+      min-height: 100vh;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .card {
+      max-width: 640px;
+      background: #111827;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+    }
+
+    h1 {
+      margin-top: 0;
+      font-size: 1.5rem;
+    }
+
+    .notice {
+      background: rgba(59, 130, 246, 0.12);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      padding: 12px 14px;
+      border-radius: 12px;
+      margin: 16px 0;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 20px;
+    }
+
+    button,
+    a.button-link {
+      border: none;
+      border-radius: 10px;
+      padding: 10px 16px;
+      cursor: pointer;
+      font-weight: 600;
+      text-decoration: none;
+      color: #fff;
+      background: #2563eb;
+    }
+
+    a.button-link {
+      display: inline-flex;
+      align-items: center;
+    }
+
+    .muted {
+      color: #9ca3af;
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Radar Tools Access Notice</h1>
+    <p>
+      This tool contains sensitive project data. Access is limited to authorized users only.
+    </p>
+    <div class="notice">
+      <strong>Login requirement:</strong>
+      Use <strong>telaid@telaid.com</strong> and a password provided directly by Luis or Emma.
+    </div>
+    <p class="muted">By continuing, you agree that you have read and understand the access requirements above.</p>
+
+    <div class="notice" style="margin-top:16px;">
+      <strong>Login required</strong> to continue. Microsoft login is optional for OneDrive features.
+    </div>
+
+    <section id="login-section" style="margin-top:16px;">
+      <form id="login-form" class="center" style="display:flex; flex-direction:column; gap:10px;">
+        <label for="username">Email:</label>
+        <input type="email" id="username" required>
+
+        <label for="password">Password:</label>
+        <input type="password" id="password" required>
+
+        <button type="submit">Sign in</button>
+      </form>
+
+      <button id="logout" style="display:none; margin-top:10px;">Logout</button>
+
+      <div class="ms" style="margin-top:16px;">
+        <button id="loginButton">Login to Microsoft</button>
+        <button id="logoutButton" style="display:none">Logout of Microsoft</button>
+        <p id="loginStatus">Login status...</p>
+      </div>
+    </section>
+
+    <div class="notice" style="margin-top:16px;">
+      <strong>Choose destination:</strong>
+      <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:10px;">
+        <label class="muted" style="display:flex; gap:8px; align-items:center;">
+          <input type="radio" name="destination" value="checklist" checked />
+          Radar Checklist
+        </label>
+        <label class="muted" style="display:flex; gap:8px; align-items:center;">
+          <input type="radio" name="destination" value="dashboard" />
+          Radar Dashboard
+        </label>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="continueBtn" disabled>Continue to Radar Tools</button>
+    </div>
+  </div>
+
+  <script type="module" src="../assets/js/login.js"></script>
+  <script type="module" src="../assets/js/microsoftAuth.js"></script>
+  <script>
+    const DESTINATION_KEY = "radarToolsDestination";
+    const TARGETS = {
+      checklist: "./radar-tools.html",
+      dashboard: "./radar-dashboard.html"
+    };
+    const REDIRECT_DELAY_MS = 3000;
+    const continueBtn = document.getElementById("continueBtn");
+    const destinationRadios = Array.from(document.querySelectorAll('input[name="destination"]'));
+    let redirectTimer = null;
+
+    function getSelectedDestination() {
+      const stored = localStorage.getItem(DESTINATION_KEY);
+      const checked = destinationRadios.find(radio => radio.checked);
+      return checked?.value || stored || "checklist";
+    }
+
+    function setSelectedDestination(value) {
+      destinationRadios.forEach((radio) => {
+        radio.checked = radio.value === value;
+      });
+    }
+
+    function getTargetUrl() {
+      return TARGETS[getSelectedDestination()] || TARGETS.checklist;
+    }
+
+    function clearRedirectTimer() {
+      if (redirectTimer) {
+        clearTimeout(redirectTimer);
+        redirectTimer = null;
+      }
+    }
+
+    function scheduleRedirect() {
+      if (!isFirebaseLoggedIn()) return;
+      clearRedirectTimer();
+      redirectTimer = setTimeout(() => {
+        window.location.href = getTargetUrl();
+      }, REDIRECT_DELAY_MS);
+    }
+
+    function isFirebaseLoggedIn() {
+      return Boolean(localStorage.getItem("currentUserUID"));
+    }
+
+    function updateContinueState() {
+      const ok = isFirebaseLoggedIn();
+      if (continueBtn) continueBtn.disabled = !ok;
+    }
+
+    if (continueBtn) {
+      continueBtn.addEventListener("click", () => {
+        if (!isFirebaseLoggedIn()) return;
+        scheduleRedirect();
+      });
+    }
+
+    destinationRadios.forEach((radio) => {
+      radio.addEventListener("change", () => {
+        localStorage.setItem(DESTINATION_KEY, radio.value);
+        updateContinueState();
+      });
+    });
+
+    const initialDestination = localStorage.getItem(DESTINATION_KEY) || "checklist";
+    setSelectedDestination(initialDestination);
+
+    if (isFirebaseLoggedIn()) {
+      scheduleRedirect();
+    }
+
+    window.addEventListener("storage", (event) => {
+      if (event.key === "currentUserUID") {
+        updateContinueState();
+        if (isFirebaseLoggedIn()) {
+          scheduleRedirect();
+        } else {
+          clearRedirectTimer();
+        }
+      }
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        clearRedirectTimer();
+      }
+    });
+
+  updateContinueState();
+  </script>
+</body>
+</html>

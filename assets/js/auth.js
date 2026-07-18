@@ -1,130 +1,154 @@
-import { firebaseConfig } from "./firebase-config.js";
-import {
-  getAuth,
-  signInWithEmailAndPassword,
-  signOut,
-  onAuthStateChanged,
-} from "https://www.gstatic.com/firebasejs/9.1.3/firebase-auth.js";
-import { initializeApp } from "https://www.gstatic.com/firebasejs/9.1.3/firebase-app.js";
+import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js";
+import { getAuth, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
 
-const app = initializeApp(firebaseConfig);
+const firebaseConfig = {
+    apiKey: "AIzaSyCv2cQGWeXS-w7psrQiZD8dn4R7hStmY1o",
+    authDomain: "persinfo-df93f.firebaseapp.com",
+    databaseURL: "https://persinfo-df93f-default-rtdb.firebaseio.com",
+    projectId: "persinfo-df93f",
+    storageBucket: "persinfo-df93f.appspot.com",
+    messagingSenderId: "218680336647",
+    appId: "1:218680336647:web:7786091136b9e6b28565a2"
+};
+
+const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 const auth = getAuth(app);
 
-let currentUserUID = null;
+document.addEventListener('DOMContentLoaded', () => {
+  // DOM elements
+  const authSection = document.getElementById('auth-section');
+  const appsSection = document.getElementById('apps-section');
+  const userInfo = document.getElementById('user-info');
+  const logoutButton = document.getElementById('logout-button');
 
-// 🌐 GLOBAL DOM REFERENCES (KEY FIX)
-let authBtn, authLabel, loginBox;
-let emailInput, passwordInput, doLogin;
-
-// 🔔 GLOBAL AUTH LISTENERS
-window.__authListeners = [];
-
-export function onUserReady(callback) {
-  window.__authListeners.push(callback);
-
-  // If already logged in, fire immediately
-  if (window.currentUser !== undefined) {
-    callback(window.currentUser);
-  }
-}
-
-// 🔐 AUTH STATE LISTENER
-if (!window.authListenerAttached) {
-  window.authListenerAttached = true;
+  // Auth UI not present on this page — skip
+  if (!userInfo) return;
 
   onAuthStateChanged(auth, (user) => {
     if (user) {
-      currentUserUID = user.uid;
-      localStorage.setItem("currentUserUID", currentUserUID);
-
-      if (authLabel) authLabel.textContent = user.email;
-      if (authBtn) authBtn.textContent = "Logout";
-      if (loginBox) loginBox.style.display = "none";
-
-      window.currentUser = user;
-
-      console.log("Logged in:", user.email);
+      displayUserInfo(user);
+      displayApps(true); // User is logged in
     } else {
-      currentUserUID = null;
-      localStorage.removeItem("currentUserUID");
-
-      if (authLabel) authLabel.textContent = "Not signed in";
-      if (authBtn) authBtn.textContent = "Sign In";
-
-      window.currentUser = null;
-
-      console.log("No user");
-    }
-
-    // 🔥 NEW: notify all listeners
-    window.__authListeners.forEach((cb) => cb(user));
-  });
-}
-
-// 🧠 DOM READY
-document.addEventListener("DOMContentLoaded", () => {
-  authBtn = document.getElementById("auth-btn");
-  authLabel = document.getElementById("auth-label");
-  loginBox = document.getElementById("login-inline");
-
-  emailInput = document.getElementById("email-in");
-  passwordInput = document.getElementById("pass-in");
-  doLogin = document.getElementById("do-login");
-
-  // 🔑 LOGIN
-  doLogin?.addEventListener("click", async () => {
-    try {
-      const userCredential = await signInWithEmailAndPassword(
-        auth,
-        emailInput.value,
-        passwordInput.value,
-      );
-
-      currentUserUID = userCredential.user.uid;
-      localStorage.setItem("currentUserUID", currentUserUID);
-
-      if (loginBox) loginBox.style.display = "none";
-    } catch (error) {
-      alert("Invalid login. Please check your email and password.");
-      console.log(error);
+      displayAuthForms();
+      displayApps(false); // User is not logged in
     }
   });
 
-  // 🔓 LOGIN / LOGOUT BUTTON
-  authBtn?.addEventListener("click", () => {
-    if (auth.currentUser) {
-      signOut(auth);
-    } else {
-      loginBox.style.display =
-        loginBox.style.display === "block" ? "none" : "block";
-    }
-  });
-});
-
-// 🎛️ DEBUG TOGGLE (optional)
-document.addEventListener("DOMContentLoaded", () => {
-  const headerTitle = document.querySelector("header h1");
-  let loginSections = Array.from(document.querySelectorAll(".logins-section"));
-
-  if (!loginSections.length) {
-    const legacySection = document.getElementById("login-section");
-    if (legacySection) {
-      legacySection.classList.add("logins-section");
-      loginSections = [legacySection];
-    }
+  function displayUserInfo(user) {
+    userInfo.textContent = `Logged in as: ${user.email}`;
+    logoutButton.style.display = 'inline-block';
+    logoutButton.addEventListener('click', () => {
+      signOut(auth).catch((error) => {
+        console.error("Error signing out:", error);
+      });
+    });
   }
 
-  if (!headerTitle || !loginSections.length) return;
+  function displayApps(userLoggedIn) {
+    authSection.style.display = userLoggedIn ? 'none' : 'block';
+    appsSection.style.display = 'block';
+    populateThumbnails(apps, 'apps-container', userLoggedIn);
+  }
 
-  headerTitle.addEventListener("dblclick", () => {
-    loginSections.forEach((section) => {
-      section.style.display =
-        getComputedStyle(section).display === "none" ? "block" : "none";
-    });
-  });
+  function displayAuthForms() {
+    authSection.style.display = 'block';
+    appsSection.style.display = 'block'; // Keep apps section visible
+    userInfo.textContent = ''; // Clear user info
+    logoutButton.style.display = 'none'; // Hide logout button
+
+    authSection.innerHTML = `
+      <div id="log-reg">
+        <section>
+          <!-- Login Form -->
+          <div class="login-container">
+            <h1>Login</h1>
+            <form id="login-form">
+              <label for="login-email">Email:</label>
+              <input type="email" id="login-email" name="email" required>
+              <label for="login-password">Password:</label>
+              <input type="password" id="login-password" name="password" required>
+              <button id="login-button" type="submit">Login</button>
+            </form>
+            <p>Don't have an account? <br><a href="#" id="toggle-register">Register here</a></p>
+          </div>
+
+          <!-- Register Form -->
+          <div class="register-container" style="display: none;">
+            <h1>Register</h1>
+            <form id="registration-form">
+              <label for="reg-email">Email:</label>
+              <input type="email" id="reg-email" name="email" required>
+              <label for="reg-password">Password:</label>
+              <input type="password" id="reg-password" name="password" required>
+              <label for="reg-confirm-password">Confirm Password:</label>
+              <input type="password" id="reg-confirm-password" name="confirm-password" required>
+              <label for="agree-terms">
+                <input type="checkbox" id="agree-terms" name="agree-terms" required>
+                Agree to <a href="terms.html" target="_blank">Terms and Conditions</a>
+              </label>
+              <button id="register-button" type="submit">Register</button>
+            </form>
+            <p>Already have an account? <br><a href="#" id="toggle-login">Login here</a></p>
+          </div>
+        </section>
+      </div>
+    `;
+
+    // Attach event listeners
+    document.getElementById('login-form').addEventListener('submit', loginUser);
+    document.getElementById('registration-form').addEventListener('submit', registerUser);
+    document.getElementById('toggle-register').addEventListener('click', showRegisterForm);
+    document.getElementById('toggle-login').addEventListener('click', showLoginForm);
+
+    // Populate thumbnails with userLoggedIn = false
+    populateThumbnails(apps, 'apps-container', false);
+  }
+
+  function loginUser(event) {
+    event.preventDefault();
+    const email = document.getElementById('login-email').value.trim();
+    const password = document.getElementById('login-password').value.trim();
+
+    signInWithEmailAndPassword(auth, email, password)
+      .catch((error) => {
+        console.error('Login error:', error);
+        alert("Error during login: " + error.message);
+      });
+  }
+
+  function registerUser(event) {
+    event.preventDefault();
+    const email = document.getElementById('reg-email').value.trim();
+    const password = document.getElementById('reg-password').value.trim();
+    const confirmPassword = document.getElementById('reg-confirm-password').value.trim();
+
+    if (password !== confirmPassword) {
+      alert("Passwords do not match. Please try again.");
+      return;
+    }
+
+    createUserWithEmailAndPassword(auth, email, password)
+      .then(() => {
+        alert("Registration successful! Please log in.");
+        showLoginForm();
+      })
+      .catch((error) => {
+        console.error('Error registering user:', error);
+        alert("Registration failed: " + error.message);
+      });
+
+    document.getElementById("registration-form").reset();
+  }
+
+  function showRegisterForm(event) {
+    event.preventDefault();
+    document.querySelector('.login-container').style.display = 'none';
+    document.querySelector('.register-container').style.display = 'block';
+  }
+
+  function showLoginForm(event) {
+    event.preventDefault();
+    document.querySelector('.register-container').style.display = 'none';
+    document.querySelector('.login-container').style.display = 'block';
+  }
 });
-
-// 📦 EXPORT
-export function getCurrentUserUID() {
-  return localStorage.getItem("currentUserUID");
-}

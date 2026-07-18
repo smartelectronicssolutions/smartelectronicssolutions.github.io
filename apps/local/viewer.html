@@ -1,0 +1,271 @@
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Combined Viewer</title>
+    <style>
+        body {
+            height: 800px;
+        }
+
+        .viewarea {
+            overflow: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th,
+        td {
+            padding: 8px;
+            border: 1px solid #ddd;
+            text-align: left;
+        }
+
+        .nested {
+            margin-top: 10px;
+            border: 2px solid #aaa;
+        }
+    </style>
+</head>
+
+<body>
+    <section class="viewarea">
+        <input type="file" id="inputFile" accept=".json,.csv" />
+        <table id="output"></table>
+        <button id="saveJSON">Save JSON</button>
+        <button id="saveCSV">Save CSV</button>
+    </section>
+    <script>
+        const inputFile = document.getElementById('inputFile');
+        const outputTable = document.getElementById('output');
+        const saveJSONButton = document.getElementById('saveJSON');
+        const saveCSVButton = document.getElementById('saveCSV');
+
+        function saveJSONFile(data, filename) {
+            var jsonData = JSON.stringify(data, null, 2);
+            var blob = new Blob([jsonData], { type: 'application/json' });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function saveCSVFile(data, filename) {
+            var csvContent = 'data:text/csv;charset=utf-8,';
+            // Assuming data is an array of objects
+            var headers = Object.keys(data[0]);
+            // Create the header row with each header cell enclosed in quotes
+            csvContent += '"' + headers.join('","') + '"\r\n';
+
+            data.forEach(function (row) {
+                var rowData = headers.map(header => {
+                    var cellData = row[header] == null ? '' : row[header].toString();
+                    // Enclose each piece of cell data in quotes, and escape existing quotes by doubling them
+                    return '"' + cellData.replace(/"/g, '""') + '"';
+                }).join(',');
+                csvContent += rowData + '\r\n';
+            });
+
+            var encodedUri = encodeURI(csvContent);
+            var link = document.createElement('a');
+            link.setAttribute('href', encodedUri);
+            link.setAttribute('download', filename);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        saveJSONButton.addEventListener('click', function () {
+            var tableRows = Array.from(document.querySelectorAll('#output tr'));
+            var jsonData = [];
+            var headerCells = tableRows[0].querySelectorAll('th');
+            var dataCells = tableRows.slice(1).map(row => row.querySelectorAll('td'));
+
+            dataCells.forEach(function (cells) {
+                var entry = {};
+                cells.forEach(function (cell, index) {
+                    entry[headerCells[index].textContent] = cell.textContent;
+                });
+                jsonData.push(entry);
+            });
+
+            var filename = 'tableData.json';
+            saveJSONFile(jsonData, filename);
+        });
+
+        saveCSVButton.addEventListener('click', function () {
+            var tableRows = Array.from(document.querySelectorAll('#output tr'));
+            var csvData = [];
+            var headerCells = tableRows[0].querySelectorAll('th');
+            var dataCells = tableRows.slice(1).map(row => row.querySelectorAll('td'));
+
+            // Prepare CSV data array
+            dataCells.forEach(function (cells) {
+                var rowData = [];
+                cells.forEach(function (cell) {
+                    rowData.push(cell.textContent);
+                });
+                csvData.push(rowData);
+            });
+
+            var filename = 'tableData.csv';
+            saveCSVFile(csvData, filename);
+        });
+
+        inputFile.addEventListener('change', function (evt) {
+            var file = evt.target.files[0];
+            var reader = new FileReader();
+            reader.onload = function (e) {
+                var contents = e.target.result;
+                var output = document.getElementById('output');
+                output.innerHTML = '';
+
+                try {
+                    var data = JSON.parse(contents);
+                    if (Array.isArray(data)) {
+                        displayTableFromJSON(data);
+                    } else if (typeof data === 'object') {
+                        displayTableFromJSON([data]);
+                    }
+                } catch (jsonError) {
+                    try {
+                        var rows = contents.split('\n');
+                        if (rows.length > 0) {
+                            var csvData = [];
+                            var headers = rows[0].split(',');
+                            for (var i = 1; i < rows.length; i++) {
+                                var cols = rows[i].split(',');
+                                if (cols.length === headers.length) {
+                                    var rowData = {};
+                                    for (var j = 0; j < headers.length; j++) {
+                                        rowData[headers[j]] = cols[j];
+                                    }
+                                    csvData.push(rowData);
+                                }
+                            }
+                            if (csvData.length > 0) {
+                                displayTableFromJSON(csvData);
+                            }
+                        }
+                    } catch (csvError) {
+                        output.textContent = "Error: Invalid file format";
+                    }
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        function displayTableFromJSON(jsonData) {
+            if (jsonData.length === 0) return;
+
+            outputTable.innerHTML = '';
+
+            var headers = Object.keys(jsonData[0]);
+            var extendedHeaders = [];
+
+            headers.forEach(function (header) {
+                if (header === 'parts' || header === 'labor') {
+                    if (Array.isArray(jsonData[0][header]) && jsonData[0][header].length > 0) {
+                        var subHeaders = Object.keys(jsonData[0][header][0]);
+                        subHeaders.forEach(subHeader => {
+                            extendedHeaders.push(`${header}_${subHeader}`);
+                        });
+                    }
+                } else {
+                    extendedHeaders.push(header);
+                }
+            });
+
+            var headerRow = document.createElement('tr');
+            extendedHeaders.forEach(function (header) {
+                var headerCell = document.createElement('th');
+                headerCell.textContent = header;
+                headerRow.appendChild(headerCell);
+            });
+            outputTable.appendChild(headerRow);
+
+            jsonData.forEach(function (entry) {
+                var maxSubItemsLength = Math.max(
+                    entry.parts ? entry.parts.length : 0,
+                    entry.labor ? entry.labor.length : 0
+                );
+
+                for (let i = 0; i < maxSubItemsLength; i++) {
+                    var row = document.createElement('tr');
+
+                    extendedHeaders.forEach(function (extendedHeader) {
+                        var cell = document.createElement('td');
+
+                        var [originalKey, subKey] = extendedHeader.split('_');
+                        if (originalKey === 'parts' || originalKey === 'labor') {
+                            if (entry[originalKey] && entry[originalKey][i] && subKey) {
+                                cell.textContent = entry[originalKey][i][subKey];
+                                cell.setAttribute('data-label', subKey); // Set the data-label attribute
+                            }
+                        } else if (i === 0) {
+                            cell.textContent = entry[extendedHeader];
+                            cell.setAttribute('data-label', extendedHeader); // Set the data-label attribute
+                        }
+                        row.appendChild(cell);
+                    });
+
+                    outputTable.appendChild(row);
+                }
+            });
+        }
+
+        function displayData(data, table) {
+            if (typeof data !== 'object' || data === null) {
+                const row = table.insertRow();
+                const cell = row.insertCell();
+                cell.textContent = data;
+                return;
+            }
+
+            for (const [key, value] of Object.entries(data)) {
+                if (typeof value === 'object' && value !== null) {
+                    const header = table.createTHead();
+                    const row = header.insertRow();
+                    const cell = row.insertCell();
+                    cell.textContent = key;
+                    cell.colSpan = 2;
+                    const nestedTable = document.createElement('table');
+                    nestedTable.className = 'nested';
+                    displayData(value, nestedTable);
+                    const nestedRow = table.insertRow();
+                    const nestedCell = nestedRow.insertCell();
+                    nestedCell.appendChild(nestedTable);
+                    nestedCell.colSpan = 2;
+                } else {
+                    const row = table.insertRow();
+                    const keyCell = row.insertCell();
+                    keyCell.textContent = key;
+                    const valueCell = row.insertCell();
+                    valueCell.textContent = value;
+                }
+            }
+        }
+
+        inputFile.addEventListener('change', function (evt) {
+            var file = evt.target.files[0];
+            var reader = new FileReader();
+            reader.onload = function (e) {
+                var contents = e.target.result;
+                var output = document.getElementById('output');
+                output.innerHTML = '';
+
+                try {
+                    var data = JSON.parse(contents);
+                    displayData(data, output);
+                } catch (error) {
+                    output.textContent = "Error: Invalid file format";
+                }
+            };
+            reader.readAsText(file);
+        });
+    </script>
+</body>

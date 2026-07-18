@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calculator Tools</title>
+    <link rel="stylesheet" href="../../assets/css/app-styles.css">
+    <style>
+        body { max-width: 480px; margin: 0 auto; padding: 16px; }
+
+        .tab-bar {
+            display: flex; gap: 4px; margin-bottom: 16px; flex-wrap: wrap;
+        }
+        .tab {
+            flex: 1; padding: 8px 4px; font-size: 0.82rem;
+            background: var(--surface, #1a2a3a); border: 1px solid var(--border, #2a3a4a);
+            color: var(--muted, #7a9ab0); border-radius: 6px; cursor: pointer;
+            transition: background .15s, color .15s;
+        }
+        .tab.active {
+            background: var(--accent, steelblue); border-color: var(--accent, steelblue);
+            color: #fff;
+        }
+        .tab:hover:not(.active) { color: var(--text, #e0eaf4); }
+
+        .panel { display: none; }
+        .panel.active { display: block; }
+
+        /* ── Standard calculator ── */
+        .calc-display {
+            background: var(--bg, #0d1b2a); border: 1px solid var(--border, #2a3a4a);
+            border-radius: 8px; padding: 12px 14px; margin-bottom: 10px;
+            text-align: right; min-height: 64px;
+        }
+        .calc-prev {
+            font-size: 0.8rem; color: var(--muted, #7a9ab0); min-height: 1.2em;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .calc-curr {
+            font-size: 1.8rem; color: var(--text, #e0eaf4); font-variant-numeric: tabular-nums;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .calc-grid {
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+        }
+        .calc-grid button {
+            padding: 16px 8px; font-size: 1rem; border-radius: 8px;
+            border: 1px solid var(--border, #2a3a4a);
+            background: var(--surface, #1a2a3a); color: var(--text, #e0eaf4);
+            cursor: pointer; transition: background .1s;
+        }
+        .calc-grid button:hover { background: var(--border, #2a3a4a); }
+        .calc-grid button:active { transform: scale(.96); }
+        .btn-op  { color: var(--accent, steelblue); }
+        .btn-eq  { background: var(--accent, steelblue) !important; color: #fff; border-color: var(--accent, steelblue) !important; }
+        .btn-fn  { color: var(--muted, #7a9ab0); }
+        .span2   { grid-column: span 2; }
+
+        /* ── Shared form styles ── */
+        .panel label { font-size: 0.82rem; color: var(--muted, #7a9ab0); display: block; margin: 10px 0 4px; }
+        .panel input[type=number], .panel input[type=text], .panel input[type=date],
+        .panel input[type=time], .panel select {
+            width: 100%; box-sizing: border-box;
+            background: var(--bg, #0d1b2a); border: 1px solid var(--border, #2a3a4a);
+            color: var(--text, #e0eaf4); padding: 9px 11px; border-radius: 6px;
+            font-size: 0.9rem;
+        }
+        .panel input:focus, .panel select:focus { outline: none; border-color: var(--accent, steelblue); }
+        .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .action-btn {
+            width: 100%; margin-top: 12px; padding: 10px;
+            background: var(--accent, steelblue); border: none; color: #fff;
+            border-radius: 8px; font-size: 0.9rem; cursor: pointer;
+        }
+        .action-btn:hover { opacity: .9; }
+        .result-box {
+            margin-top: 12px; padding: 12px 14px; border-radius: 8px;
+            background: var(--bg, #0d1b2a); border: 1px solid var(--border, #2a3a4a);
+            color: var(--text, #e0eaf4); font-size: 0.95rem; min-height: 42px;
+        }
+        .result-label { font-size: 0.72rem; color: var(--muted, #7a9ab0); margin-bottom: 4px; }
+        .result-val { font-size: 1.1rem; font-variant-numeric: tabular-nums; }
+
+        /* ── Money counter ── */
+        .denom-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+        .denom-grid input { font-size: 0.85rem; padding: 7px 10px; }
+        .denom-label { font-size: 0.72rem; color: var(--muted, #7a9ab0); margin-bottom: 2px; }
+
+        /* ── Section divider ── */
+        .section-title {
+            font-size: 0.65rem; text-transform: uppercase; letter-spacing: 2px;
+            color: var(--muted, #7a9ab0); margin: 20px 0 10px;
+            padding-bottom: 6px; border-bottom: 1px solid var(--border, #2a3a4a);
+        }
+    </style>
+</head>
+<body>
+
+<header><h1>Calculator Tools</h1></header>
+
+<main>
+    <div class="tab-bar">
+        <button class="tab active" data-tab="standard">Calc</button>
+        <button class="tab" data-tab="converter">Convert</button>
+        <button class="tab" data-tab="percent">Percent</button>
+        <button class="tab" data-tab="money">Money</button>
+        <button class="tab" data-tab="time">Time</button>
+    </div>
+
+    <!-- ── Standard Calculator ── -->
+    <div id="standard" class="panel active">
+        <div class="calc-display">
+            <div class="calc-prev" id="calcPrev"></div>
+            <div class="calc-curr" id="calcCurr">0</div>
+        </div>
+        <div class="calc-grid">
+            <button class="btn-fn" onclick="calcAC()">AC</button>
+            <button class="btn-fn" onclick="calcSign()">±</button>
+            <button class="btn-fn" onclick="calcPct()">%</button>
+            <button class="btn-op" onclick="calcOp('÷')">÷</button>
+
+            <button onclick="calcNum('7')">7</button>
+            <button onclick="calcNum('8')">8</button>
+            <button onclick="calcNum('9')">9</button>
+            <button class="btn-op" onclick="calcOp('×')">×</button>
+
+            <button onclick="calcNum('4')">4</button>
+            <button onclick="calcNum('5')">5</button>
+            <button onclick="calcNum('6')">6</button>
+            <button class="btn-op" onclick="calcOp('−')">−</button>
+
+            <button onclick="calcNum('1')">1</button>
+            <button onclick="calcNum('2')">2</button>
+            <button onclick="calcNum('3')">3</button>
+            <button class="btn-op" onclick="calcOp('+')">+</button>
+
+            <button class="span2" onclick="calcNum('0')">0</button>
+            <button onclick="calcNum('.')">.</button>
+            <button class="btn-eq" onclick="calcEquals()">=</button>
+        </div>
+        <div style="margin-top:8px;text-align:right;font-size:0.72rem;color:var(--muted,#7a9ab0)">
+            Keyboard: digits · + − * / Enter · Backspace · Esc
+        </div>
+    </div>
+
+    <!-- ── Unit Converter ── -->
+    <div id="converter" class="panel">
+        <label>Category</label>
+        <select id="convCat">
+            <option value="length">Length</option>
+            <option value="weight">Weight</option>
+            <option value="temp">Temperature</option>
+            <option value="time">Time</option>
+            <option value="area">Area</option>
+            <option value="speed">Speed</option>
+        </select>
+        <label>Value</label>
+        <input type="number" id="convVal" step="any" placeholder="Enter value">
+        <div class="row2" style="margin-top:10px">
+            <div>
+                <div class="result-label">From</div>
+                <select id="convFrom"></select>
+            </div>
+            <div>
+                <div class="result-label">To</div>
+                <select id="convTo"></select>
+            </div>
+        </div>
+        <button class="action-btn" onclick="doConvert()">Convert</button>
+        <div class="result-box">
+            <div class="result-label">Result</div>
+            <div class="result-val" id="convResult">—</div>
+        </div>
+    </div>
+
+    <!-- ── Percentage ── -->
+    <div id="percent" class="panel">
+        <div class="section-title">X% of Y</div>
+        <div class="row2">
+            <div><label>Percentage (%)</label><input type="number" id="pctRate" placeholder="e.g. 15"></div>
+            <div><label>Amount</label><input type="number" id="pctAmt" placeholder="e.g. 80"></div>
+        </div>
+        <button class="action-btn" onclick="doPct()">Calculate</button>
+        <div class="result-box">
+            <div class="result-label">Result</div>
+            <div class="result-val" id="pctResult">—</div>
+        </div>
+
+        <div class="section-title">Tip / Discount</div>
+        <div class="row2">
+            <div><label>Bill total ($)</label><input type="number" id="tipBill" placeholder="e.g. 45.00"></div>
+            <div><label>Tip %</label><input type="number" id="tipRate" placeholder="e.g. 18"></div>
+        </div>
+        <button class="action-btn" onclick="doTip()">Calculate</button>
+        <div class="result-box">
+            <div class="result-label">Result</div>
+            <div class="result-val" id="tipResult">—</div>
+        </div>
+
+        <div class="section-title">Percentage Change</div>
+        <div class="row2">
+            <div><label>From</label><input type="number" id="chgFrom" placeholder="Original"></div>
+            <div><label>To</label><input type="number" id="chgTo" placeholder="New value"></div>
+        </div>
+        <button class="action-btn" onclick="doChange()">Calculate</button>
+        <div class="result-box">
+            <div class="result-label">Result</div>
+            <div class="result-val" id="chgResult">—</div>
+        </div>
+    </div>
+
+    <!-- ── Money Counter ── -->
+    <div id="money" class="panel">
+        <div class="section-title">Bill &amp; Coin Counter</div>
+        <div class="denom-grid">
+            <div><div class="denom-label">$100 bills</div><input type="number" id="d100" min="0" placeholder="0"></div>
+            <div><div class="denom-label">$50 bills</div><input type="number" id="d50" min="0" placeholder="0"></div>
+            <div><div class="denom-label">$20 bills</div><input type="number" id="d20" min="0" placeholder="0"></div>
+            <div><div class="denom-label">$10 bills</div><input type="number" id="d10" min="0" placeholder="0"></div>
+            <div><div class="denom-label">$5 bills</div><input type="number" id="d5" min="0" placeholder="0"></div>
+            <div><div class="denom-label">$1 bills</div><input type="number" id="d1" min="0" placeholder="0"></div>
+            <div><div class="denom-label">25¢ coins</div><input type="number" id="d025" min="0" placeholder="0"></div>
+            <div><div class="denom-label">10¢ coins</div><input type="number" id="d010" min="0" placeholder="0"></div>
+            <div><div class="denom-label">5¢ coins</div><input type="number" id="d005" min="0" placeholder="0"></div>
+            <div><div class="denom-label">1¢ coins</div><input type="number" id="d001" min="0" placeholder="0"></div>
+        </div>
+        <button class="action-btn" onclick="doMoney()">Calculate Total</button>
+        <div class="result-box">
+            <div class="result-label">Total</div>
+            <div class="result-val" id="moneyResult">$0.00</div>
+        </div>
+
+        <div class="section-title">Amount Splitter</div>
+        <div class="row2">
+            <div><label>Total ($)</label><input type="number" id="splitAmt" placeholder="e.g. 500"></div>
+            <div><label>Split by (days / people)</label><input type="number" id="splitBy" placeholder="e.g. 7"></div>
+        </div>
+        <button class="action-btn" onclick="doSplit()">Split</button>
+        <div class="result-box">
+            <div class="result-label">Result</div>
+            <div class="result-val" id="splitResult">—</div>
+        </div>
+    </div>
+
+    <!-- ── Time Tools ── -->
+    <div id="time" class="panel">
+        <div class="section-title">Date &amp; Time Zone Converter</div>
+        <div class="row2">
+            <div><label>Date</label><input type="date" id="tzDate"></div>
+            <div><label>Time</label><input type="time" id="tzTime" step="1" value="00:00:00"></div>
+        </div>
+        <label>Input Time Zone</label>
+        <select id="tzFrom">
+            <option value="UTC">UTC</option>
+            <option value="America/New_York">Eastern (US)</option>
+            <option value="America/Chicago">Central (US)</option>
+            <option value="America/Denver">Mountain (US)</option>
+            <option value="America/Los_Angeles">Pacific (US)</option>
+            <option value="America/Anchorage">Alaska</option>
+            <option value="Pacific/Honolulu">Hawaii</option>
+            <option value="Europe/London">London</option>
+            <option value="Europe/Berlin">Berlin / Paris</option>
+            <option value="Europe/Moscow">Moscow</option>
+            <option value="Asia/Dubai">Dubai</option>
+            <option value="Asia/Kolkata">India (IST)</option>
+            <option value="Asia/Shanghai">China (CST)</option>
+            <option value="Asia/Tokyo">Tokyo</option>
+            <option value="Australia/Sydney">Sydney</option>
+        </select>
+        <label>Output Time Zone</label>
+        <select id="tzTo">
+            <option value="UTC" selected>UTC</option>
+            <option value="America/New_York">Eastern (US)</option>
+            <option value="America/Chicago">Central (US)</option>
+            <option value="America/Denver">Mountain (US)</option>
+            <option value="America/Los_Angeles">Pacific (US)</option>
+            <option value="America/Anchorage">Alaska</option>
+            <option value="Pacific/Honolulu">Hawaii</option>
+            <option value="Europe/London">London</option>
+            <option value="Europe/Berlin">Berlin / Paris</option>
+            <option value="Europe/Moscow">Moscow</option>
+            <option value="Asia/Dubai">Dubai</option>
+            <option value="Asia/Kolkata">India (IST)</option>
+            <option value="Asia/Shanghai">China (CST)</option>
+            <option value="Asia/Tokyo">Tokyo</option>
+            <option value="Australia/Sydney">Sydney</option>
+        </select>
+        <button class="action-btn" onclick="doTzConvert()">Convert</button>
+        <div class="result-box">
+            <div class="result-label">Result</div>
+            <div id="tzResult" class="result-val" style="font-size:0.9rem;line-height:1.6">—</div>
+        </div>
+
+        <div class="section-title">Unix Timestamp</div>
+        <label>Timestamp (ms or s)</label>
+        <input type="number" id="unixIn" placeholder="e.g. 1716000000">
+        <button class="action-btn" onclick="doUnix()">Decode</button>
+        <div class="result-box">
+            <div class="result-label">Result</div>
+            <div class="result-val" id="unixResult">—</div>
+        </div>
+    </div>
+</main>
+
+<script>
+// ── Tab switching ──────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(btn.dataset.tab).classList.add('active');
+    });
+});
+
+// ── Standard Calculator ────────────────────────────────────────
+let cCurr = '', cPrev = '', cOp = null, cFresh = false;
+
+function calcDisplay() {
+    document.getElementById('calcCurr').textContent = cCurr || '0';
+    document.getElementById('calcPrev').textContent = cPrev && cOp ? `${cPrev} ${cOp}` : '';
+}
+function calcAC() { cCurr = ''; cPrev = ''; cOp = null; cFresh = false; calcDisplay(); }
+function calcNum(n) {
+    if (cFresh) { cCurr = ''; cFresh = false; }
+    if (n === '.' && cCurr.includes('.')) return;
+    if (cCurr === '0' && n !== '.') cCurr = n;
+    else cCurr += n;
+    calcDisplay();
+}
+function calcSign() {
+    if (!cCurr) return;
+    cCurr = cCurr.startsWith('-') ? cCurr.slice(1) : '-' + cCurr;
+    calcDisplay();
+}
+function calcPct() {
+    if (!cCurr) return;
+    const v = parseFloat(cCurr);
+    cCurr = cPrev && cOp ? String((parseFloat(cPrev) * v) / 100) : String(v / 100);
+    calcDisplay();
+}
+function calcOp(op) {
+    if (cCurr === '' && cPrev === '') return;
+    if (cPrev !== '' && cCurr !== '') calcEquals(true);
+    cOp = op;
+    cPrev = cCurr || cPrev;
+    cCurr = '';
+    calcDisplay();
+}
+function calcEquals(chain = false) {
+    if (!cOp || cPrev === '' || cCurr === '') return;
+    const a = parseFloat(cPrev), b = parseFloat(cCurr);
+    let r;
+    if      (cOp === '+') r = a + b;
+    else if (cOp === '−') r = a - b;
+    else if (cOp === '×') r = a * b;
+    else if (cOp === '÷') r = b !== 0 ? a / b : 'Error';
+    cCurr = typeof r === 'number' ? String(parseFloat(r.toPrecision(12))) : r;
+    if (!chain) { cPrev = ''; cOp = null; cFresh = true; }
+    calcDisplay();
+}
+
+document.addEventListener('keydown', e => {
+    if (document.getElementById('standard').classList.contains('active')) {
+        if (e.key >= '0' && e.key <= '9') calcNum(e.key);
+        else if (e.key === '.') calcNum('.');
+        else if (e.key === '+') calcOp('+');
+        else if (e.key === '-') calcOp('−');
+        else if (e.key === '*') calcOp('×');
+        else if (e.key === '/') { e.preventDefault(); calcOp('÷'); }
+        else if (e.key === 'Enter' || e.key === '=') calcEquals();
+        else if (e.key === 'Backspace') { cCurr = cCurr.slice(0, -1); calcDisplay(); }
+        else if (e.key === 'Escape') calcAC();
+    }
+});
+
+// ── Unit Converter ─────────────────────────────────────────────
+const UNITS = {
+    length:  { Meters: 1, Feet: 3.28084, Inches: 39.3701, Centimeters: 100, Millimeters: 1000, Kilometers: 0.001, Miles: 0.000621371, Yards: 1.09361 },
+    weight:  { Kilograms: 1, Pounds: 2.20462, Grams: 1000, Ounces: 35.274, Stone: 0.157473, 'Metric Tons': 0.001 },
+    time:    { Seconds: 1, Minutes: 1/60, Hours: 1/3600, Days: 1/86400, Weeks: 1/604800 },
+    area:    { 'Sq Meters': 1, 'Sq Feet': 10.7639, 'Sq Inches': 1550, 'Sq Kilometers': 1e-6, 'Sq Miles': 3.861e-7, Acres: 0.000247105, Hectares: 0.0001 },
+    speed:   { 'km/h': 1, 'mph': 0.621371, 'm/s': 0.277778, Knots: 0.539957 },
+};
+
+function populateConvUnits() {
+    const cat = document.getElementById('convCat').value;
+    const from = document.getElementById('convFrom');
+    const to   = document.getElementById('convTo');
+    if (cat === 'temp') {
+        const temps = ['Celsius', 'Fahrenheit', 'Kelvin'];
+        from.innerHTML = to.innerHTML = temps.map(t => `<option>${t}</option>`).join('');
+        to.value = 'Fahrenheit';
+    } else {
+        const opts = Object.keys(UNITS[cat]).map(u => `<option>${u}</option>`).join('');
+        from.innerHTML = to.innerHTML = opts;
+        to.selectedIndex = 1;
+    }
+    document.getElementById('convResult').textContent = '—';
+}
+document.getElementById('convCat').addEventListener('change', populateConvUnits);
+populateConvUnits();
+
+function doConvert() {
+    const cat  = document.getElementById('convCat').value;
+    const val  = parseFloat(document.getElementById('convVal').value);
+    const from = document.getElementById('convFrom').value;
+    const to   = document.getElementById('convTo').value;
+    if (isNaN(val)) { document.getElementById('convResult').textContent = 'Enter a number.'; return; }
+    let result;
+    if (cat === 'temp') {
+        let c;
+        if (from === 'Celsius')    c = val;
+        if (from === 'Fahrenheit') c = (val - 32) * 5/9;
+        if (from === 'Kelvin')     c = val - 273.15;
+        if (to === 'Celsius')    result = c;
+        if (to === 'Fahrenheit') result = c * 9/5 + 32;
+        if (to === 'Kelvin')     result = c + 273.15;
+    } else {
+        result = (val / UNITS[cat][from]) * UNITS[cat][to];
+    }
+    document.getElementById('convResult').textContent =
+        `${parseFloat(result.toPrecision(8))} ${to}`;
+}
+
+// ── Percentage ─────────────────────────────────────────────────
+function doPct() {
+    const rate = parseFloat(document.getElementById('pctRate').value);
+    const amt  = parseFloat(document.getElementById('pctAmt').value);
+    if (isNaN(rate) || isNaN(amt)) { document.getElementById('pctResult').textContent = 'Enter valid values.'; return; }
+    const part = amt * (rate / 100);
+    document.getElementById('pctResult').textContent =
+        `${rate}% of ${amt} = ${part.toFixed(2)}  |  Total with: ${(amt + part).toFixed(2)}`;
+}
+function doTip() {
+    const bill = parseFloat(document.getElementById('tipBill').value);
+    const rate = parseFloat(document.getElementById('tipRate').value);
+    if (isNaN(bill) || isNaN(rate)) { document.getElementById('tipResult').textContent = 'Enter valid values.'; return; }
+    const tip = bill * (rate / 100);
+    document.getElementById('tipResult').textContent =
+        `Tip: $${tip.toFixed(2)}  ·  Total: $${(bill + tip).toFixed(2)}`;
+}
+function doChange() {
+    const from = parseFloat(document.getElementById('chgFrom').value);
+    const to   = parseFloat(document.getElementById('chgTo').value);
+    if (isNaN(from) || isNaN(to) || from === 0) { document.getElementById('chgResult').textContent = 'Enter valid values.'; return; }
+    const pct = ((to - from) / Math.abs(from)) * 100;
+    const sign = pct >= 0 ? '+' : '';
+    document.getElementById('chgResult').textContent =
+        `${sign}${pct.toFixed(2)}%  (${from} → ${to})`;
+}
+
+// ── Money Counter ──────────────────────────────────────────────
+function doMoney() {
+    const g = id => parseFloat(document.getElementById(id).value) || 0;
+    const total = g('d100')*100 + g('d50')*50 + g('d20')*20 + g('d10')*10 +
+                  g('d5')*5 + g('d1')*1 + g('d025')*0.25 + g('d010')*0.10 +
+                  g('d005')*0.05 + g('d001')*0.01;
+    document.getElementById('moneyResult').textContent = `$${total.toFixed(2)}`;
+}
+function doSplit() {
+    const amt = parseFloat(document.getElementById('splitAmt').value);
+    const by  = parseInt(document.getElementById('splitBy').value);
+    if (isNaN(amt) || isNaN(by) || by <= 0) { document.getElementById('splitResult').textContent = 'Enter valid values.'; return; }
+    const per = amt / by;
+    document.getElementById('splitResult').textContent =
+        `$${per.toFixed(2)} each  (${by} × $${per.toFixed(2)} = $${(per * by).toFixed(2)})`;
+}
+
+// ── Time Zone Converter ────────────────────────────────────────
+function doTzConvert() {
+    const dateVal = document.getElementById('tzDate').value;
+    const timeVal = document.getElementById('tzTime').value || '00:00:00';
+    const fromTz  = document.getElementById('tzFrom').value;
+    const toTz    = document.getElementById('tzTo').value;
+    if (!dateVal) { document.getElementById('tzResult').textContent = 'Select a date.'; return; }
+
+    // Build an absolute instant: interpret the entered date+time as being in fromTz
+    // by formatting a known UTC instant into fromTz and finding the offset.
+    const localStr = `${dateVal}T${timeVal}`;
+    // Parse as if it were UTC, then adjust using Intl to find the true UTC instant
+    const utcGuess = new Date(localStr + 'Z');
+    // Get what Intl shows for this UTC guess in the source timezone
+    const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: fromTz, year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+    }).formatToParts(utcGuess);
+    const pv = k => parts.find(p => p.type === k).value;
+    const tzStr = `${pv('year')}-${pv('month')}-${pv('day')}T${pv('hour')}:${pv('minute')}:${pv('second')}Z`;
+    const tzDate = new Date(tzStr);
+    // Difference between what Intl showed (UTC) and what user entered = offset
+    const userMs = utcGuess.getTime();
+    const tzMs   = tzDate.getTime();
+    const offset = userMs - tzMs;   // ms to add to get true UTC
+    const trueUTC = new Date(utcGuess.getTime() + offset);
+
+    const fmt = tz => new Intl.DateTimeFormat('en-US', {
+        timeZone: tz, year: 'numeric', month: 'short', day: 'numeric',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true,
+        timeZoneName: 'short'
+    }).format(trueUTC);
+
+    document.getElementById('tzResult').innerHTML =
+        `<span style="color:var(--muted,#7a9ab0);font-size:0.75rem">Input (${fromTz})</span><br>${fmt(fromTz)}<br>` +
+        `<span style="color:var(--muted,#7a9ab0);font-size:0.75rem">Output (${toTz})</span><br>${fmt(toTz)}<br>` +
+        `<span style="color:var(--muted,#7a9ab0);font-size:0.75rem">Unix timestamp</span><br>${trueUTC.getTime()}`;
+}
+
+function doUnix() {
+    let ts = parseInt(document.getElementById('unixIn').value);
+    if (isNaN(ts)) { document.getElementById('unixResult').textContent = 'Enter a timestamp.'; return; }
+    // Auto-detect seconds vs milliseconds
+    if (ts < 1e10) ts *= 1000;
+    const d = new Date(ts);
+    document.getElementById('unixResult').textContent =
+        d.toLocaleString('en-US', { timeZoneName: 'short' }) + `  (UTC: ${d.toISOString()})`;
+}
+</script>
+</body>
+</html>
