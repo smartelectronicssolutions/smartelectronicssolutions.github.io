@@ -896,10 +896,7 @@
           <button class="ws-btn" data-panel="account" id="acctBtn" style="display:none">Account</button>
           <small>Quick</small>
           <button class="ws-btn" id="cmd-open-btn" title="Open command palette (Ctrl+K)">🔍 Quick Open</button>
-          <a class="ws-btn" href="apps/online/onlinejournal.html">Journal ↗</a>
-          <a class="ws-btn" href="apps/online/onlinejob.html">Job App ↗</a>
-          <a class="ws-btn" href="apps/online/onlinelinks.html">Bookmarks ↗</a>
-          <a class="ws-btn" href="apps/online/onlinefinancials.html">Financials ↗</a>
+          <div id="quick-links"></div>
           <small>Theme</small>
           <select id="ws-theme-select" class="ws-btn"
             style="cursor:pointer;color:var(--text);background:var(--bg);border:1px solid var(--border);font-family:var(--font);">
@@ -1183,6 +1180,43 @@
         }
         unvisited.forEach(i => addCard(i, false));
       }
+
+      renderQuick();
+    }
+
+    // ── Sidebar Quick: top frequents (falls back to defaults until there's history) ──
+    const QUICK_DEFAULTS = [
+      { title: 'Journal', url: 'apps/online/onlinejournal.html' },
+      { title: 'Job App', url: 'apps/online/onlinejob.html' },
+      { title: 'Bookmarks', url: 'apps/online/onlinelinks.html' },
+      { title: 'Financials', url: 'apps/online/onlinefinancials.html' },
+    ];
+
+    function renderQuick() {
+      const box = document.getElementById('quick-links');
+      if (!box) return;
+      const counts = getCounts();
+      const top = buildHubItems()
+        .filter(i => (counts[i.id] || 0) > 0)
+        .sort((a, b) => ((counts[b.id] || 0) - (counts[a.id] || 0)) || a.title.localeCompare(b.title))
+        .slice(0, 5);
+      const items = top.length
+        ? top
+        : QUICK_DEFAULTS.map(d => ({ id: d.url, title: d.title, url: d.url }));
+      box.innerHTML = '';
+      items.forEach(item => {
+        const a = document.createElement('a');
+        a.className = 'ws-btn';
+        a.href = item.url;
+        a.textContent = item.title + ' ↗';
+        a.addEventListener('click', e => {
+          e.preventDefault();
+          bump(item.id);
+          renderHub();
+          (window.wsNavigate || ((u, o) => o?.newTab ? window.open(u, '_blank', 'noopener') : (window.location.href = u)))(item.url, { newTab: e.shiftKey });
+        });
+        box.appendChild(a);
+      });
     }
 
     // ── Sites panel ──
