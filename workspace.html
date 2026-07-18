@@ -1078,6 +1078,12 @@
     }
 
     // ── Data ──
+    // Apps + sites data live in the LS repo ONLY. Mirrors (the SES site) load
+    // them cross-domain from LS, so this same file works unchanged in both
+    // repos (L's flow: update LS first, copy to SES).
+    const LS_ORIGIN = 'https://luissolutions.github.io/';
+    const DATA_BASE = location.hostname.includes('smartelectronics') ? LS_ORIGIN : '';
+
     const EXTRA_APPS = [];
 
     let ALL_SITES = [];
@@ -1186,10 +1192,10 @@
 
     // ── Sidebar Quick: top frequents (falls back to defaults until there's history) ──
     const QUICK_DEFAULTS = [
-      { title: 'Journal', url: 'apps/online/onlinejournal.html' },
-      { title: 'Job App', url: 'apps/online/onlinejob.html' },
-      { title: 'Bookmarks', url: 'apps/online/onlinelinks.html' },
-      { title: 'Financials', url: 'apps/online/onlinefinancials.html' },
+      { title: 'Journal', url: DATA_BASE + 'apps/online/onlinejournal.html' },
+      { title: 'Job App', url: DATA_BASE + 'apps/online/onlinejob.html' },
+      { title: 'Bookmarks', url: DATA_BASE + 'apps/online/onlinelinks.html' },
+      { title: 'Financials', url: DATA_BASE + 'apps/online/onlinefinancials.html' },
     ];
 
     function renderQuick() {
@@ -1306,11 +1312,12 @@
 
     // ── Boot ──
     Promise.all([
-      fetchJSON('websites/sites.json'),
-      fetchJSON('apps/apps.json'),
+      fetchJSON(DATA_BASE + 'websites/sites.json'),
+      fetchJSON(DATA_BASE + 'apps/apps.json'),
     ]).then(([sites, apps]) => {
       ALL_SITES = sites;
-      ALL_APPS = [...EXTRA_APPS, ...apps];
+      ALL_APPS = [...EXTRA_APPS, ...apps].map(a =>
+        /^https?:/.test(a.link) ? a : { ...a, link: DATA_BASE + a.link });
       renderHub();
       renderSites();
       renderApps();
@@ -1421,11 +1428,19 @@
       document.body.classList.remove('iframe-active');
     }
     function bmaActive() { return document.body.classList.contains('theme-bma'); }
+    function sameOrigin(url) {
+      try { return new URL(url, location.href).origin === location.origin; } catch { return false; }
+    }
     function wsNavigate(url, opts = {}) {
       if (opts.newTab) {
         window.open(url, '_blank', 'noopener');
-      } else if (bmaActive()) {
+      } else if (bmaActive() && sameOrigin(url)) {
         showBmaIframe(url);
+      } else if (bmaActive()) {
+        // Cross-origin apps (LS apps viewed from the SES mirror) get a real
+        // tab: browsers partition storage in cross-site iframes, so Firebase
+        // login can never stick inside the embed.
+        window.open(url, '_blank', 'noopener');
       } else {
         window.location.href = url;
       }
