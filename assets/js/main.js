@@ -5,6 +5,7 @@ document.addEventListener("DOMContentLoaded", () => {
     "components/header.html",
     "../components/header.html",
   ).then(() => {
+    import("./header-auth.js").then(m => m.init()).catch(() => {});
     // Theme toggle — AFTER header loads
     const html = document.documentElement;
     const btn = document.getElementById("theme-toggle");
@@ -56,6 +57,8 @@ document.addEventListener("DOMContentLoaded", () => {
     "components/footer.html",
     "../components/footer.html",
   );
+
+  import('./visitLogger.js').then(m => m.getIP().then(ip => m.updateVisitCount(ip))).catch(() => {});
 
   if (document.getElementById("projects-container")) {
     populateThumbnails(projects, "projects-container");

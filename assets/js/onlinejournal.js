@@ -2,12 +2,21 @@
 // ONLINE JOURNAL CORE
 // =========================
 
-// Escape HTML safely
+// Escape HTML safely (incl. quotes — values are injected into attributes)
 export function escapeHtml(v) {
   return String(v ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+// Only allow http(s)/relative URLs — blocks javascript:, data:, etc.
+// Returns "" for anything unsafe so callers can skip rendering.
+function safeUrl(u) {
+  const s = String(u ?? "").trim();
+  return /^(https?:\/\/|\/|\.\/)/i.test(s) ? s : "";
 }
 
 // =========================
@@ -19,9 +28,12 @@ export function renderArticleContent(article) {
 
   // Header image
   if (article.imageUrl && !article.imageUrl.includes("PLACEHOLDER")) {
-    html += `
-      <img src="${article.imageUrl}" class="article-header-image">
-    `;
+    const headerSrc = safeUrl(article.imageUrl);
+    if (headerSrc) {
+      html += `
+        <img src="${escapeHtml(headerSrc)}" class="article-header-image">
+      `;
+    }
   }
 
   (article.sections || []).forEach((section) => {
@@ -35,17 +47,20 @@ export function renderArticleContent(article) {
 
     (section.content || []).forEach((item) => {
       if (item.type === "text" && item.value) {
-        html += `<p>${item.value}</p>`;
+        html += `<p>${escapeHtml(item.value)}</p>`;
       }
 
       if (item.type === "image" && item.src) {
-        html += `
-          <a href="${item.src}" target="_blank">
-            <img src="${item.src}" class="article-img">
-          </a>
-        `;
-        if (item.caption) {
-          html += `<p class="img-caption">${escapeHtml(item.caption)}</p>`;
+        const imgSrc = safeUrl(item.src);
+        if (imgSrc) {
+          html += `
+            <a href="${escapeHtml(imgSrc)}" target="_blank" rel="noopener noreferrer">
+              <img src="${escapeHtml(imgSrc)}" class="article-img">
+            </a>
+          `;
+          if (item.caption) {
+            html += `<p class="img-caption">${escapeHtml(item.caption)}</p>`;
+          }
         }
       }
 
@@ -62,9 +77,10 @@ export function renderArticleContent(article) {
       }
 
       if (item.type === "link") {
+        const linkHref = safeUrl(item.href);
         html += `
           <p>
-            <a href="${item.href}" target="_blank" class="article-link">
+            <a href="${escapeHtml(linkHref)}" target="_blank" rel="noopener noreferrer" class="article-link">
               ${escapeHtml(item.label || item.href)}
             </a>
           </p>
@@ -72,8 +88,9 @@ export function renderArticleContent(article) {
       }
 
       if (item.type === "link_button") {
+        const btnHref = safeUrl(item.href);
         html += `
-          <a href="${item.href}" target="_blank" class="article-link-btn">
+          <a href="${escapeHtml(btnHref)}" target="_blank" rel="noopener noreferrer" class="article-link-btn">
             ${escapeHtml(item.label || "Open Link")}
           </a>
         `;
@@ -91,10 +108,11 @@ export function renderArticleContent(article) {
     html += `<div class="related-links"><h4>Related Resources</h4><ul>`;
 
     article.relatedLinks.forEach((link) => {
-      if (!link.url.includes("PLACEHOLDER")) {
+      if (link.url && !link.url.includes("PLACEHOLDER")) {
+        const relHref = safeUrl(link.url);
         html += `
           <li>
-            <a href="${escapeHtml(link.url)}" target="_blank" rel="noopener noreferrer">
+            <a href="${escapeHtml(relHref)}" target="_blank" rel="noopener noreferrer">
               ${escapeHtml(link.title)}
             </a>
           </li>
@@ -140,7 +158,7 @@ export function renderArticleCards(data, container) {
       `;
 
       div.onclick = () => {
-        window.location.href = `online/onlinejournal.html?id=${id}`;
+        window.location.href = `apps/online/onlinejournal.html?id=${id}`;
       };
 
       container.appendChild(div);
