@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="en" class="theme-kamehouse">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kame House — Tasks</title>
+  <link rel="stylesheet" href="../../assets/css/master.css">
+  <link rel="stylesheet" href="assets/css/kh.css">
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/img/icons/favicon-32x32.png">
+  <link rel="manifest" href="site.webmanifest">
+  <script src="assets/js/html.js" defer></script>
+  <script type="module" src="assets/js/kh-auth.js" defer></script>
+</head>
+<body class="todo">
+  <header class="kh-nav"></header>
+
+  <div class="wrap" style="width: stretch;">
+
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+      <h1 style="margin:0;font-size:1.3rem;">Tasks</h1>
+      <a href="discipline.html" style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;background:var(--surface);border:1px solid var(--primary);color:var(--primary);text-decoration:none;border-radius:6px;font-size:var(--sm);font-weight:600;">📋 Sunday Review →</a>
+    </div>
+
+    <!-- WEEK'S FIVE (mirrors discipline.html slots, read-and-tick surface) -->
+    <section class="card" id="weeks-five-card" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-bottom:14px;">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
+        <h2 style="margin:0;font-size:1rem;">📋 The Week's Five <span id="wf-week" style="font-weight:400;color:var(--muted);font-size:var(--sm);"></span></h2>
+        <a href="discipline.html" style="font-size:var(--sm);color:var(--primary);text-decoration:none;">edit →</a>
+      </div>
+      <div id="wf-slots"></div>
+      <p id="wf-empty" style="display:none;margin:8px 0 0;color:var(--muted);font-size:var(--sm);">No plan yet for this week. <a href="discipline.html" style="color:var(--primary);">Set it up →</a></p>
+    </section>
+
+    <!-- REVIEW NOTES (collapsed by default; same data as discipline.html) -->
+    <section class="card" id="review-card" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:0;margin-bottom:14px;overflow:hidden;">
+      <button type="button" id="review-toggle" style="all:unset;cursor:pointer;display:flex;justify-content:space-between;align-items:center;padding:14px 16px;width:100%;box-sizing:border-box;">
+        <span style="font-weight:600;">📝 Review Notes <span style="font-weight:400;color:var(--muted);font-size:var(--sm);">— this week</span></span>
+        <span id="review-chevron" style="color:var(--muted);font-size:.85rem;">▾</span>
+      </button>
+      <div id="review-body" style="display:none;padding:0 16px 14px;">
+        <textarea id="review-notes" placeholder="What worked. What didn't. What got killed. What carries." style="width:100%;box-sizing:border-box;min-height:96px;padding:8px 10px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:var(--sm);resize:vertical;"></textarea>
+        <small id="review-status" style="display:block;margin-top:4px;color:var(--muted);font-size:.72rem;">&nbsp;</small>
+      </div>
+    </section>
+
+    <section class="add-card">
+      <h2>Add a task</h2>
+      <form class="add-form" id="add-form">
+        <div class="span-full">
+          <label for="t-text">Task</label>
+          <input type="text" id="t-text" placeholder="Check Telaid emails, Update TX, Get EM cert…" required maxlength="120">
+        </div>
+        <div>
+          <label for="t-anchor">Anchor</label>
+          <select id="t-anchor">
+            <option value="work">Work</option>
+            <option value="training">Training</option>
+            <option value="properties">Properties</option>
+            <option value="capital">Capital</option>
+            <option value="household">Household</option>
+            <option value="wildcard">Wildcard</option>
+          </select>
+        </div>
+        <div>
+          <label for="t-type">Type</label>
+          <select id="t-type">
+            <option value="habit">Habit (chain)</option>
+            <option value="recurring">Recurring</option>
+            <option value="oneshot">One-shot goal</option>
+          </select>
+        </div>
+        <div class="freq-wrap" id="freq-wrap">
+          <label for="t-freq">Frequency</label>
+          <select id="t-freq">
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="biweekly">Every 2 weeks</option>
+            <option value="monthly">Monthly</option>
+            <option value="bimonthly">Every 2 months</option>
+            <option value="custom">Custom (every N days)</option>
+          </select>
+        </div>
+        <div class="freq-wrap" id="custom-days-wrap" style="display:none;">
+          <label for="t-custom-days">Every N days</label>
+          <input type="number" id="t-custom-days" min="1" max="365" value="14">
+        </div>
+        <div class="freq-wrap" id="assignee-wrap" style="display:none;">
+          <label for="t-assignee">Assignee (opt)</label>
+          <input type="text" id="t-assignee" maxlength="40" placeholder="Who?">
+        </div>
+        <div class="due-wrap" id="due-wrap">
+          <label for="t-due">Due date</label>
+          <input type="date" id="t-due">
+        </div>
+        <button type="submit">Add</button>
+      </form>
+    </section>
+
+    <div class="view-bar">
+      <button data-view="all" class="active">All</button>
+      <button data-view="due-today">Due today</button>
+      <button data-view="habits">Habits only</button>
+      <button data-view="open">Open one-shots</button>
+      <span class="spacer"></span>
+      <label style="font-size:.78rem;color:var(--muted);">Grid year: <select id="year-pick" class="year-pick"></select></label>
+    </div>
+
+    <section class="card" id="auth-gate" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;margin-bottom:16px;">
+      <p style="margin:0;">Sign in to use your todo list. Data lives under your Firebase uid; the Week's Five planner reads from this same list.</p>
+    </section>
+
+    <div id="anchors-container"></div>
+
+  </div>
+
+  <script>window.LINKS_ASIDE_HREF = '../../apps/online/onlinelinks.html';</script>
+  <script src="../../apps/assets/js/links-aside.js" defer></script>
+  <script type="module">
+    import { auth, onAuthStateChanged, database, ref, onValue, push, set, remove, update } from '../../assets/js/firebase-init.js';
+
+    await window.khHeaderReady;
+
+    const ANCHORS = [
+      { key: 'work',       label: 'Work' },
+      { key: 'training',   label: 'Training' },
+      { key: 'properties', label: 'Properties' },
+      { key: 'capital',    label: 'Capital' },
+      { key: 'household',  label: 'Household' },
+      { key: 'wildcard',   label: 'Wildcard' },
+    ];
+
+    // ---- Anchor reorder (drag + ↑↓ arrows, persisted in localStorage) ----
+    const ANCHOR_ORDER_KEY = 'kh_anchor_order';
+    function getAnchorOrder() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(ANCHOR_ORDER_KEY) || '[]');
+        if (!Array.isArray(saved)) return null;
+        return saved;
+      } catch { return null; }
+    }
+    function saveAnchorOrder(keys) {
+      localStorage.setItem(ANCHOR_ORDER_KEY, JSON.stringify(keys));
+    }
+    function orderedAnchors() {
+      const saved = getAnchorOrder();
+      if (!saved || !saved.length) return ANCHORS.slice();
+      const map = new Map(ANCHORS.map(a => [a.key, a]));
+      const result = [];
+      const seen = new Set();
+      for (const k of saved) {
+        if (map.has(k) && !seen.has(k)) { result.push(map.get(k)); seen.add(k); }
+      }
+      for (const a of ANCHORS) {
+        if (!seen.has(a.key)) result.push(a);
+      }
+      return result;
+    }
+    function moveAnchor(key, delta) {
+      const order = orderedAnchors().map(a => a.key);
+      const idx = order.indexOf(key);
+      if (idx === -1) return;
+      const target = idx + delta;
+      if (target < 0 || target >= order.length) return;
+      order.splice(idx, 1);
+      order.splice(target, 0, key);
+      saveAnchorOrder(order);
+      render();
+    }
+    function reorderByDrop(srcKey, dropKey, insertAfter) {
+      if (!srcKey || !dropKey || srcKey === dropKey) return;
+      const order = orderedAnchors().map(a => a.key);
+      const fromIdx = order.indexOf(srcKey);
+      if (fromIdx === -1) return;
+      order.splice(fromIdx, 1);
+      let toIdx = order.indexOf(dropKey);
+      if (toIdx === -1) toIdx = order.length;
+      if (insertAfter) toIdx += 1;
+      order.splice(toIdx, 0, srcKey);
+      saveAnchorOrder(order);
+      render();
+    }
+
+    const authGate = document.getElementById('auth-gate');
+    const container = document.getElementById('anchors-container');
+    let basePath = null;
+    let allTodos = {};
+    let unsubscribe = null;
+    let currentView = 'all';
+    let currentYear = new Date().getFullYear();
+
+    onAuthStateChanged(auth, user => {
+      basePath = user ? user.uid : null;
+      if (user) {
+        authGate.style.display = 'none';
+        subscribe();
+      } else {
+        authGate.style.display = 'block';
+        if (unsubscribe) unsubscribe();
+        if (wfUnsubscribe) wfUnsubscribe();
+        allTodos = {};
+        wfSlots = {};
+        wfReviewNotes = '';
+        container.innerHTML = '';
+        const wf = document.getElementById('weeks-five-card');
+        const rc = document.getElementById('review-card');
+        if (wf) wf.style.display = 'none';
+        if (rc) rc.style.display = 'none';
+      }
+    });
+
+    function subscribe() {
+      if (unsubscribe) unsubscribe();
+      const r = ref(database, `${basePath}/todos`);
+      unsubscribe = onValue(r, snap => {
+        allTodos = snap.val() || {};
+        render();
+      });
+      subscribeWeeksFive();
+    }
+
+    /* ============================================================
+       WEEK'S FIVE + REVIEW NOTES — mirror of discipline.html data.
+       Reads {basePath}/discipline/punchlist/{ISOweek} live and writes
+       back per-field on inline edits. Schema unchanged.
+       ============================================================ */
+    const WF_ANCHORS = ['Work','Properties','Training','Capital','Household','Wildcard'];
+    const WF_DAYS = ['','Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+
+    function wfIsoWeekKey(date) {
+      const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+      d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+      const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+      const week = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+      return `${d.getUTCFullYear()}-W${String(week).padStart(2,'0')}`;
+    }
+    function wfMondayOf(year, week) {
+      const simple = new Date(Date.UTC(year, 0, 1 + (week - 1) * 7));
+      const dow = simple.getUTCDay() || 7;
+      const monday = new Date(simple);
+      monday.setUTCDate(simple.getUTCDate() - dow + 1);
+      return monday;
+    }
+    function wfWeekRange(weekKey) {
+      const [yr, w] = weekKey.split('-W').map(Number);
+      const mon = wfMondayOf(yr, w);
+      const sun = new Date(mon); sun.setUTCDate(sun.getUTCDate() + 6);
+      const fmt = d => `${d.getUTCMonth()+1}/${d.getUTCDate()}`;
+      return `${fmt(mon)}–${fmt(sun)}`;
+    }
+
+    let wfUnsubscribe = null;
+    let wfActiveWeek = wfIsoWeekKey(new Date());
+    let wfSlots = {};   // {1:{anchor,text,dueDay,done}, ...}
+    let wfReviewNotes = '';
+    let wfReviewSaveTimer = null;
+    let wfSlotSaveTimers = {};
+
+    function subscribeWeeksFive() {
+      if (wfUnsubscribe) wfUnsubscribe();
+      wfActiveWeek = wfIsoWeekKey(new Date());
+      const r = ref(database, `${basePath}/discipline/punchlist/${wfActiveWeek}`);
+      wfUnsubscribe = onValue(r, snap => {
+        const data = snap.val() || {};
+        wfSlots = data.slots || {};
+        wfReviewNotes = data.reviewNotes || '';
+        renderWeeksFive();
+        const rn = document.getElementById('review-notes');
+        if (rn && document.activeElement !== rn) rn.value = wfReviewNotes;
+      });
+    }
+
+    function renderWeeksFive() {
+      const card = document.getElementById('weeks-five-card');
+      const reviewCard = document.getElementById('review-card');
+      card.style.display = '';
+      reviewCard.style.display = '';
+      document.getElementById('wf-week').textContent = `${wfActiveWeek} · ${wfWeekRange(wfActiveWeek)}`;
+
+      const slotsHost = document.getElementById('wf-slots');
+      const empty = document.getElementById('wf-empty');
+      const anySlot = Object.values(wfSlots).some(s => s && (s.text || '').trim());
+      if (!anySlot) {
+        slotsHost.innerHTML = '';
+        empty.style.display = '';
+        return;
+      }
+      empty.style.display = 'none';
+      slotsHost.innerHTML = '';
+      for (let i = 1; i <= 5; i++) {
+        const slot = wfSlots[i] || {};
+        if (!(slot.text || '').trim()) continue;
+        const row = document.createElement('div');
+        row.style.cssText = 'display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:6px 0;border-top:1px solid var(--border);';
+        if (slotsHost.children.length === 0) row.style.borderTop = '0';
+        const anchorLabel = slot.anchor || (i <= 4 ? WF_ANCHORS[i-1] : 'Wildcard');
+        const dueLabel = slot.dueDay ? `· ${slot.dueDay}` : '';
+        row.innerHTML = `
+          <input type="checkbox" data-slot="${i}" ${slot.done ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer;">
+          <div style="min-width:0;">
+            <span style="font-size:var(--sm);${slot.done ? 'text-decoration:line-through;color:var(--muted);' : ''}">${escHtml(slot.text)}</span>
+          </div>
+          <span style="font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;">${escHtml(anchorLabel)}</span>
+          <span style="font-size:.72rem;color:var(--muted);">${escHtml(dueLabel)}</span>
+        `;
+        row.querySelector('input').addEventListener('change', e => {
+          const i = +e.target.dataset.slot;
+          set(ref(database, `${basePath}/discipline/punchlist/${wfActiveWeek}/slots/${i}/done`), e.target.checked);
+        });
+        slotsHost.appendChild(row);
+      }
+    }
+
+    // Review notes collapsible + debounced save
+    document.getElementById('review-toggle')?.addEventListener('click', () => {
+      const body = document.getElementById('review-body');
+      const chev = document.getElementById('review-chevron');
+      const open = body.style.display !== 'none';
+      body.style.display = open ? 'none' : '';
+      chev.textContent = open ? '▾' : '▴';
+    });
+    document.getElementById('review-notes')?.addEventListener('input', e => {
+      wfReviewNotes = e.target.value;
+      const status = document.getElementById('review-status');
+      status.textContent = 'saving…';
+      clearTimeout(wfReviewSaveTimer);
+      wfReviewSaveTimer = setTimeout(async () => {
+        try {
+          await set(ref(database, `${basePath}/discipline/punchlist/${wfActiveWeek}/reviewNotes`), wfReviewNotes);
+          status.textContent = '✓ saved';
+          setTimeout(() => { status.innerHTML = '&nbsp;'; }, 1500);
+        } catch (err) {
+          status.textContent = 'save failed: ' + (err?.message || err);
+        }
+      }, 600);
+    });
+
+    function escHtml(s) {
+      return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
+    // ---- Year picker ----
+    (function initYearPicker() {
+      const sel = document.getElementById('year-pick');
+      const now = new Date().getFullYear();
+      for (let y = now - 2; y <= now + 1; y++) {
+        const opt = document.createElement('option');
+        opt.value = y;
+        opt.textContent = y;
+        if (y === now) opt.selected = true;
+        sel.appendChild(opt);
+      }
+      sel.addEventListener('change', () => { currentYear = +sel.value; render(); });
+    })();
+
+    // ---- Add form ----
+    const typeSel = document.getElementById('t-type');
+    const freqSel = document.getElementById('t-freq');
+    const freqWrap = document.getElementById('freq-wrap');
+    const customDaysWrap = document.getElementById('custom-days-wrap');
+    const assigneeWrap = document.getElementById('assignee-wrap');
+    const dueWrap = document.getElementById('due-wrap');
+    function updateAddFormFields() {
+      const t = typeSel.value;
+      const isHabitOrRecurring = t === 'habit' || t === 'recurring';
+      freqWrap.classList.toggle('show', isHabitOrRecurring);
+      assigneeWrap.style.display = isHabitOrRecurring ? 'block' : 'none';
+      customDaysWrap.style.display = (isHabitOrRecurring && freqSel.value === 'custom') ? 'block' : 'none';
+      dueWrap.classList.toggle('show', t === 'oneshot');
+    }
+    typeSel.addEventListener('change', updateAddFormFields);
+    freqSel.addEventListener('change', updateAddFormFields);
+    updateAddFormFields();
+
+    document.getElementById('add-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (!basePath) { alert('Sign in first.'); return; }
+      const text = document.getElementById('t-text').value.trim();
+      if (!text) return;
+      const anchor = document.getElementById('t-anchor').value;
+      const type = typeSel.value;
+      const payload = { text, anchor, type, createdAt: Date.now(), archived: false };
+      if (type === 'habit' || type === 'recurring') {
+        const freq = freqSel.value;
+        payload.frequency = freq;
+        if (freq === 'custom') {
+          payload.customDays = Math.max(1, parseInt(document.getElementById('t-custom-days').value, 10) || 14);
+        }
+        const assignee = document.getElementById('t-assignee').value.trim();
+        if (assignee) payload.assignee = assignee;
+      }
+      if (type === 'habit') {
+        payload.history = {};
+      } else if (type === 'recurring') {
+        payload.lastDone = 0;
+      } else if (type === 'oneshot') {
+        payload.done = false;
+        const due = document.getElementById('t-due').value;
+        if (due) payload.dueDate = due;
+        payload.subtasks = [];
+      }
+      push(ref(database, `${basePath}/todos`), payload);
+      e.target.reset();
+      typeSel.value = type;
+      updateAddFormFields();
+      document.getElementById('t-text').focus();
+    });
+
+    // ---- View bar ----
+    document.querySelectorAll('.view-bar button[data-view]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        currentView = btn.dataset.view;
+        document.querySelectorAll('.view-bar button[data-view]').forEach(b => b.classList.toggle('active', b === btn));
+        render();
+      });
+    });
+
+    // ---- Date helpers ----
+    function isoDate(d) { return d.toISOString().slice(0, 10); }
+    function todayISO() { return isoDate(new Date()); }
+    function dayMs() { return 86400000; }
+
+    function frequencyDays(t) {
+      const intervals = { daily: 1, weekly: 7, biweekly: 14, monthly: 30, bimonthly: 60 };
+      if (t.frequency === 'custom') return Math.max(1, +t.customDays || 14);
+      return intervals[t.frequency] || 7;
+    }
+    function frequencyLabel(t) {
+      const m = { daily: 'daily', weekly: 'weekly', biweekly: 'every 2 weeks',
+                  monthly: 'monthly', bimonthly: 'every 2 months' };
+      if (t.frequency === 'custom') return `every ${frequencyDays(t)}d`;
+      return m[t.frequency] || t.frequency || '';
+    }
+
+    function isTaskDueToday(t) {
+      const today = todayISO();
+      if (t.type === 'habit') {
+        return !(t.history && t.history[today]);
+      }
+      if (t.type === 'recurring') {
+        const interval = frequencyDays(t) * dayMs();
+        return Date.now() > (t.lastDone || 0) + interval;
+      }
+      if (t.type === 'oneshot') {
+        if (t.done) return false;
+        return !!(t.dueDate && t.dueDate <= today);
+      }
+      return false;
+    }
+
+    function recurringStatus(t) {
+      if (t.type !== 'recurring') return null;
+      const interval = frequencyDays(t) * dayMs();
+      const due = (t.lastDone || 0) + interval;
+      const now = Date.now();
+      if (now > due) return { cls: 'overdue', label: 'overdue' };
+      if (due - now < 2 * dayMs()) return { cls: 'due-today', label: 'due soon' };
+      return { cls: '', label: t.lastDone ? `done ${daysAgoLabel(t.lastDone)}` : 'never done' };
+    }
+    function daysAgoLabel(ms) {
+      const days = Math.floor((Date.now() - ms) / dayMs());
+      if (days === 0) return 'today';
+      if (days === 1) return 'yesterday';
+      return `${days}d ago`;
+    }
+
+    function oneshotMeta(t) {
+      if (t.done) return { cls: '', label: 'done' };
+      if (!t.dueDate) return { cls: '', label: 'no due date' };
+      const today = todayISO();
+      if (t.dueDate < today) return { cls: 'overdue', label: `overdue (${t.dueDate})` };
+      if (t.dueDate === today) return { cls: 'due-today', label: 'due today' };
+      return { cls: '', label: `due ${t.dueDate}` };
+    }
+
+    // ---- Year-grid ----
+    function buildYearGrid(habit, year) {
+      const wrap = document.createElement('div');
+      wrap.className = 'year-grid-wrap';
+
+      const monthLabels = document.createElement('div');
+      monthLabels.className = 'month-labels';
+      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+      const yearStart = new Date(year, 0, 1);
+      const yearEnd = new Date(year, 11, 31);
+      const startSunday = new Date(yearStart);
+      startSunday.setDate(startSunday.getDate() - startSunday.getDay());
+
+      const monthStarts = months.map((_, mi) => {
+        const firstOfMonth = new Date(year, mi, 1);
+        const daysSinceStart = Math.floor((firstOfMonth - startSunday) / dayMs());
+        return Math.floor(daysSinceStart / 7);
+      });
+
+      let lastCol = 0;
+      monthStarts.forEach((startCol, mi) => {
+        const span = document.createElement('span');
+        span.className = 'month-label';
+        const cols = (mi === 11 ? 53 : monthStarts[mi + 1]) - startCol;
+        const w = cols * 12 + (cols - 1) * 3;
+        span.style.width = w + 'px';
+        span.textContent = months[mi];
+        monthLabels.appendChild(span);
+        lastCol = startCol + cols;
+      });
+      wrap.appendChild(monthLabels);
+
+      const grid = document.createElement('div');
+      grid.className = 'year-grid';
+
+      const dayLabels = document.createElement('div');
+      dayLabels.className = 'day-labels';
+      ['Sun','','Tue','','Thu','','Sat'].forEach(d => {
+        const s = document.createElement('span'); s.textContent = d; dayLabels.appendChild(s);
+      });
+      grid.appendChild(dayLabels);
+
+      const today = todayISO();
+      const now = new Date();
+      for (let col = 0; col < 53; col++) {
+        const wcol = document.createElement('div');
+        wcol.className = 'week-col';
+        for (let row = 0; row < 7; row++) {
+          const d = new Date(startSunday);
+          d.setDate(d.getDate() + col * 7 + row);
+          const cell = document.createElement('div');
+          cell.className = 'cell';
+          const iso = isoDate(d);
+          cell.dataset.date = iso;
+          cell.title = iso;
+          if (d.getFullYear() !== year) {
+            cell.classList.add('out-of-year');
+          } else if (d > now) {
+            cell.classList.add('future');
+          } else {
+            if (habit.history && habit.history[iso]) cell.classList.add('done');
+            if (iso === today) cell.classList.add('today');
+            cell.addEventListener('click', () => toggleHabitDay(habit, iso));
+          }
+          wcol.appendChild(cell);
+        }
+        grid.appendChild(wcol);
+      }
+      wrap.appendChild(grid);
+
+      const stats = computeHabitStats(habit, year);
+      const statsLine = document.createElement('div');
+      statsLine.className = 'grid-stats';
+      statsLine.innerHTML = `
+        <span class="streak">🔥 ${stats.currentStreak}-day streak</span>
+        &nbsp;·&nbsp; ${stats.totalThisYear} days this year
+        &nbsp;·&nbsp; longest: ${stats.longestStreak}
+      `;
+      wrap.appendChild(statsLine);
+
+      return wrap;
+    }
+
+    function computeHabitStats(habit, year) {
+      const hist = habit.history || {};
+      const today = todayISO();
+      let currentStreak = 0;
+      const d = new Date();
+      if (!hist[todayISO()]) d.setDate(d.getDate() - 1);
+      while (hist[isoDate(d)]) {
+        currentStreak++;
+        d.setDate(d.getDate() - 1);
+      }
+      let totalThisYear = 0;
+      let longestStreak = 0;
+      let runningStreak = 0;
+      const yearStart = new Date(year, 0, 1);
+      const yearEnd = new Date(year, 11, 31);
+      const cursor = new Date(yearStart);
+      while (cursor <= yearEnd) {
+        const iso = isoDate(cursor);
+        if (hist[iso]) {
+          totalThisYear++;
+          runningStreak++;
+          if (runningStreak > longestStreak) longestStreak = runningStreak;
+        } else {
+          runningStreak = 0;
+        }
+        cursor.setDate(cursor.getDate() + 1);
+      }
+      return { currentStreak, totalThisYear, longestStreak };
+    }
+
+    function toggleHabitDay(habit, dateISO) {
+      const hist = habit.history || {};
+      const path = `${basePath}/todos/${habit.id}/history/${dateISO}`;
+      if (hist[dateISO]) {
+        set(ref(database, path), null);
+      } else {
+        set(ref(database, path), true);
+      }
+    }
+
+    function tickRecurring(t) {
+      set(ref(database, `${basePath}/todos/${t.id}/lastDone`), Date.now());
+    }
+
+    function toggleOneshot(t) {
+      set(ref(database, `${basePath}/todos/${t.id}/done`), !t.done);
+    }
+
+    function addSubtask(t, text) {
+      const subs = Array.isArray(t.subtasks) ? t.subtasks.slice() : [];
+      subs.push({ text, done: false });
+      set(ref(database, `${basePath}/todos/${t.id}/subtasks`), subs);
+    }
+    function toggleSubtask(t, idx) {
+      const subs = Array.isArray(t.subtasks) ? t.subtasks.slice() : [];
+      if (!subs[idx]) return;
+      subs[idx] = { ...subs[idx], done: !subs[idx].done };
+      set(ref(database, `${basePath}/todos/${t.id}/subtasks`), subs);
+    }
+    function removeSubtask(t, idx) {
+      const subs = Array.isArray(t.subtasks) ? t.subtasks.slice() : [];
+      subs.splice(idx, 1);
+      set(ref(database, `${basePath}/todos/${t.id}/subtasks`), subs);
+    }
+
+    function deleteTodo(t) {
+      if (!confirm(`Delete "${t.text}"? This wipes its history too.`)) return;
+      remove(ref(database, `${basePath}/todos/${t.id}`));
+    }
+
+    function downloadTaskIcs(t) {
+      // Pick a start date: oneshot uses its due date; recurring/habit defaults to today
+      let startDate;
+      if (t.type === 'oneshot' && t.due) startDate = new Date(t.due + 'T09:00:00');
+      else startDate = new Date(new Date().toDateString() + ' 09:00');
+      if (isNaN(startDate)) startDate = new Date();
+      const endDate = new Date(startDate.getTime() + 30 * 60 * 1000); // 30-min block
+
+      const fmt = d => d.getFullYear()
+        + String(d.getMonth()+1).padStart(2,'0')
+        + String(d.getDate()).padStart(2,'0') + 'T'
+        + String(d.getHours()).padStart(2,'0')
+        + String(d.getMinutes()).padStart(2,'0') + '00';
+      const esc = s => String(s||'').replace(/\\/g,'\\\\').replace(/,/g,'\\,').replace(/;/g,'\\;').replace(/\n/g,'\\n');
+
+      const summary = t.text || 'Task';
+      const anchor = t.anchor || 'task';
+      const descLines = [
+        `Anchor: ${anchor}`,
+        `Type: ${t.type || ''}`,
+        t.assignee ? `Assignee: ${t.assignee}` : '',
+        t.link ? `Link: ${t.link}` : '',
+      ].filter(Boolean).join('\n');
+
+      const ics = [
+        'BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//kh//Tasks//EN','METHOD:PUBLISH','CALSCALE:GREGORIAN',
+        'BEGIN:VEVENT',
+        `UID:kh-${t.id || Date.now()}@luissolutions`,
+        `DTSTAMP:${fmt(new Date())}`,
+        `DTSTART:${fmt(startDate)}`,
+        `DTEND:${fmt(endDate)}`,
+        `SUMMARY:${esc(summary)}`,
+        `DESCRIPTION:${esc(descLines)}`,
+        'BEGIN:VALARM','TRIGGER:-PT15M','ACTION:DISPLAY',`DESCRIPTION:${esc(summary)}`,'END:VALARM',
+        'END:VEVENT','END:VCALENDAR'
+      ].join('\r\n');
+
+      const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = (summary.replace(/[^a-z0-9]/gi,'_').slice(0,40) || 'task') + '.ics';
+      document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 100);
+    }
+
+    function render() {
+      container.innerHTML = '';
+      const byAnchor = {};
+      ANCHORS.forEach(a => byAnchor[a.key] = []);
+
+      Object.entries(allTodos).forEach(([id, t]) => {
+        if (!t || t.archived) return;
+        const entry = { id, ...t };
+        if (currentView === 'due-today' && !isTaskDueToday(entry)) return;
+        if (currentView === 'habits' && entry.type !== 'habit') return;
+        if (currentView === 'open' && (entry.type !== 'oneshot' || entry.done)) return;
+        const key = (entry.anchor || 'wildcard').toLowerCase();
+        if (!byAnchor[key]) byAnchor[key] = [];
+        byAnchor[key].push(entry);
+      });
+
+      const anchors = orderedAnchors();
+      anchors.forEach((a, idx) => {
+        const tasks = byAnchor[a.key] || [];
+        const section = document.createElement('section');
+        section.className = 'anchor-section';
+        section.dataset.anchorKey = a.key;
+        section.setAttribute('draggable', 'true');
+
+        const head = document.createElement('div');
+        head.className = 'anchor-head';
+        const upDisabled = idx === 0;
+        const dnDisabled = idx === anchors.length - 1;
+        head.innerHTML = `
+          <span class="drag-handle" title="Drag to reorder">⋮⋮</span>
+          <span class="anchor-pill pill-${a.key}">${a.label}</span>
+          <h3>${a.label}</h3>
+          <span class="count">${tasks.length} task${tasks.length === 1 ? '' : 's'}</span>
+          <button class="reorder-btn" data-dir="up"   ${upDisabled ? 'disabled' : ''} title="Move up">↑</button>
+          <button class="reorder-btn" data-dir="down" ${dnDisabled ? 'disabled' : ''} title="Move down">↓</button>
+        `;
+        head.querySelector('[data-dir="up"]').addEventListener('click', e => { e.stopPropagation(); moveAnchor(a.key, -1); });
+        head.querySelector('[data-dir="down"]').addEventListener('click', e => { e.stopPropagation(); moveAnchor(a.key, +1); });
+        section.appendChild(head);
+
+        if (tasks.length === 0) {
+          const empty = document.createElement('div');
+          empty.className = 'empty-anchor';
+          empty.textContent = `No ${a.label.toLowerCase()} tasks.`;
+          section.appendChild(empty);
+        } else {
+          const ul = document.createElement('ul');
+          ul.className = 'task-list';
+          tasks.sort((x, y) => {
+            const order = (t) => t.type === 'oneshot' && !t.done ? 0 : t.type === 'habit' ? 1 : t.type === 'recurring' ? 2 : 3;
+            return order(x) - order(y) || (x.createdAt || 0) - (y.createdAt || 0);
+          });
+          tasks.forEach(t => ul.appendChild(renderTask(t)));
+          section.appendChild(ul);
+        }
+
+        // Drag handlers
+        section.addEventListener('dragstart', e => {
+          e.dataTransfer.setData('text/plain', a.key);
+          e.dataTransfer.effectAllowed = 'move';
+          section.classList.add('dragging');
+        });
+        section.addEventListener('dragend', () => section.classList.remove('dragging'));
+        section.addEventListener('dragover', e => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          const rect = section.getBoundingClientRect();
+          const after = (e.clientY - rect.top) > rect.height / 2;
+          section.classList.toggle('drag-over-top', !after);
+          section.classList.toggle('drag-over-bottom', after);
+        });
+        section.addEventListener('dragleave', () => {
+          section.classList.remove('drag-over-top', 'drag-over-bottom');
+        });
+        section.addEventListener('drop', e => {
+          e.preventDefault();
+          const src = e.dataTransfer.getData('text/plain');
+          const rect = section.getBoundingClientRect();
+          const after = (e.clientY - rect.top) > rect.height / 2;
+          section.classList.remove('drag-over-top', 'drag-over-bottom');
+          reorderByDrop(src, a.key, after);
+        });
+
+        container.appendChild(section);
+      });
+    }
+
+    function renderTask(t) {
+      const li = document.createElement('li');
+      li.className = 'task';
+      if (t.type === 'oneshot' && t.done) li.classList.add('done');
+
+      const row = document.createElement('div');
+      row.className = 'task-row';
+
+      if (t.type === 'oneshot') {
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = !!t.done;
+        cb.addEventListener('change', () => toggleOneshot(t));
+        row.appendChild(cb);
+      } else if (t.type === 'recurring') {
+        const btn = document.createElement('button');
+        btn.className = 'del';
+        btn.style.cssText = 'background:var(--success,#1f8a3a);color:#fff;border:0;border-radius:4px;padding:3px 9px;font-size:.78rem;';
+        btn.textContent = '✓ Tick';
+        btn.title = 'Mark done now';
+        btn.addEventListener('click', () => tickRecurring(t));
+        row.appendChild(btn);
+      } else if (t.type === 'habit') {
+        const todayDone = !!(t.history && t.history[todayISO()]);
+        const btn = document.createElement('button');
+        btn.className = 'del';
+        btn.style.cssText = `background:${todayDone ? 'var(--surface2)' : 'var(--primary)'};color:${todayDone ? 'var(--muted)' : '#fff'};border:0;border-radius:4px;padding:3px 9px;font-size:.78rem;`;
+        btn.textContent = todayDone ? '✓ done today' : '+ done today';
+        btn.addEventListener('click', () => toggleHabitDay(t, todayISO()));
+        row.appendChild(btn);
+      }
+
+      const text = document.createElement('span');
+      text.className = 'text';
+      text.textContent = t.text || '';
+      row.appendChild(text);
+
+      if (t.link) {
+        const linkBtn = document.createElement('a');
+        linkBtn.href = t.link;
+        linkBtn.target = '_blank';
+        linkBtn.rel = 'noopener';
+        linkBtn.className = 'task-link';
+        linkBtn.textContent = '🔗';
+        linkBtn.title = t.link;
+        linkBtn.style.cssText = 'margin-left:6px;text-decoration:none;opacity:.7;';
+        row.appendChild(linkBtn);
+      }
+
+      const typeTag = document.createElement('span');
+      typeTag.className = `type-tag ${t.type}`;
+      typeTag.textContent = t.type === 'habit' ? `habit · ${frequencyLabel(t)}` :
+                            t.type === 'recurring' ? `recurring · ${frequencyLabel(t)}` :
+                            'one-shot';
+      row.appendChild(typeTag);
+
+      if (t.assignee) {
+        const assignTag = document.createElement('span');
+        assignTag.className = 'assignee-tag';
+        assignTag.textContent = `→ ${t.assignee}`;
+        assignTag.title = 'Assigned to';
+        row.appendChild(assignTag);
+      }
+
+      let meta = null;
+      if (t.type === 'recurring') {
+        const s = recurringStatus(t);
+        if (s) meta = `<span class="meta ${s.cls}">${escHtml(s.label)}</span>`;
+      } else if (t.type === 'oneshot') {
+        const s = oneshotMeta(t);
+        meta = `<span class="meta ${s.cls}">${escHtml(s.label)}</span>`;
+      }
+      if (meta) {
+        const span = document.createElement('span');
+        span.innerHTML = meta;
+        row.appendChild(span);
+      }
+
+      const cal = document.createElement('button');
+      cal.className = 'del';
+      cal.title = 'Add to Outlook / default calendar';
+      cal.textContent = '📅';
+      cal.style.cssText = 'background:transparent;border:0;cursor:pointer;font-size:1rem;padding:2px 4px;opacity:.7;';
+      cal.addEventListener('click', () => downloadTaskIcs(t));
+      row.appendChild(cal);
+
+      const del = document.createElement('button');
+      del.className = 'del';
+      del.title = 'Delete';
+      del.textContent = '✕';
+      del.addEventListener('click', () => deleteTodo(t));
+      row.appendChild(del);
+
+      li.appendChild(row);
+
+      if (t.type === 'habit') {
+        li.appendChild(buildYearGrid(t, currentYear));
+      }
+
+      if (t.type === 'oneshot') {
+        const sub = document.createElement('ul');
+        sub.className = 'subtasks';
+        const subs = Array.isArray(t.subtasks) ? t.subtasks : [];
+        subs.forEach((s, i) => {
+          const sli = document.createElement('li');
+          if (s.done) sli.classList.add('done');
+          const scb = document.createElement('input');
+          scb.type = 'checkbox';
+          scb.checked = !!s.done;
+          scb.addEventListener('change', () => toggleSubtask(t, i));
+          const stext = document.createElement('span');
+          stext.textContent = s.text;
+          stext.style.flex = '1';
+          const sdel = document.createElement('button');
+          sdel.className = 'del';
+          sdel.textContent = '✕';
+          sdel.addEventListener('click', () => removeSubtask(t, i));
+          sli.appendChild(scb); sli.appendChild(stext); sli.appendChild(sdel);
+          sub.appendChild(sli);
+        });
+        const addRow = document.createElement('div');
+        addRow.className = 'add-subtask';
+        const inp = document.createElement('input');
+        inp.type = 'text';
+        inp.placeholder = '+ add subtask';
+        const addBtn = document.createElement('button');
+        addBtn.textContent = 'Add';
+        addBtn.addEventListener('click', () => {
+          const v = inp.value.trim();
+          if (!v) return;
+          addSubtask(t, v);
+          inp.value = '';
+        });
+        inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addBtn.click(); } });
+        addRow.appendChild(inp); addRow.appendChild(addBtn);
+        sub.appendChild(addRow);
+        li.appendChild(sub);
+      }
+
+      return li;
+    }
+  </script>
+</body>
+</html>

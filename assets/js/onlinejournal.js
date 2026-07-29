@@ -158,10 +158,8 @@ export function renderArticleCards(data, container) {
       `;
 
       div.onclick = () => {
-        // apps live in the LS repo only; mirrors (SES site) link cross-domain
-        const base = location.hostname.includes('smartelectronics')
-          ? 'https://luissolutions.github.io/' : '';
-        window.location.href = `${base}apps/online/onlinejournal.html?id=${id}`;
+        // self-contained repo: apps live here, always same-origin
+        window.location.href = `apps/online/onlinejournal.html?id=${id}`;
       };
 
       container.appendChild(div);

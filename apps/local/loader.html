@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Site Loader</title>
+    <style>
+        body {
+            margin: 0;
+        }
+
+        iframe {
+            width: 100%;
+            height: 100vh;
+            border: none;
+        }
+
+        .menu-tab {
+            position: fixed;
+            top: 0;
+            left: 0;
+            background-color: #333;
+            color: #fff;
+            text-align: center;
+            cursor: pointer;
+            z-index: 100;
+            padding: 5px;
+        }
+
+        .menu {
+            position: fixed;
+            top: 0;
+            left: 0;
+            background-color: #f4f4f4;
+            padding: 10px;
+            border-bottom: 1px solid #ccc;
+            transform: translateY(-100%);
+            transition: transform 0.3s ease-in-out;
+            z-index: 99;
+        }
+
+        .menu.show {
+            transform: translateY(0);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="menu-tab" id="menuTab">Menu</div>
+    <section class="menu" id="menu">
+        <h1>Site Loader</h1>
+        <label for="filename">Enter Filename:</label>
+        <input type="text" id="filename" placeholder="Enter filename">
+        <br>
+        <label for="key">Enter Key:</label>
+        <input type="password" id="key" placeholder="Enter key">
+        <br>
+        <button id="loadPage">Load Page</button>
+    </section>
+    <iframe id="iframe"></iframe>
+
+    <script>
+        const menu = document.getElementById('menu');
+        const menuTab = document.getElementById('menuTab');
+        const iframe = document.getElementById('iframe');
+
+        menuTab.addEventListener('click', (e) => {
+            e.stopPropagation();
+            menu.classList.toggle('show');
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!menu.contains(e.target) && !menuTab.contains(e.target)) {
+                menu.classList.remove('show');
+            }
+        });
+
+        iframe.addEventListener('focus', () => {
+            menu.classList.remove('show');
+        });
+
+        iframe.addEventListener('load', () => {
+            iframe.contentWindow.addEventListener('click', () => {
+                menu.classList.remove('show');
+            });
+        });
+
+        document.getElementById('loadPage').addEventListener('click', async () => {
+            const filename = document.getElementById('filename').value.trim();
+            const key = document.getElementById('key').value.trim();
+
+            if (!filename) {
+                alert('Please enter the filename!');
+                return;
+            }
+
+            try {
+                const response = await fetch(filename);
+                if (!response.ok) {
+                    throw new Error(`Failed to load file: ${filename}`);
+                }
+                const fileContent = await response.text();
+
+                if (isBase64Encoded(fileContent)) {
+                    if (!key) {
+                        alert('Page wont load!');
+                        return;
+                    }
+                    const decryptedContent = decrypt(fileContent, key);
+
+                    const blob = new Blob([decryptedContent], { type: 'text/html' });
+                    const objectURL = URL.createObjectURL(blob);
+
+                    iframe.src = objectURL;
+
+                    iframe.onload = () => URL.revokeObjectURL(objectURL);
+                } else {
+                    iframe.src = filename;
+                }
+            } catch (error) {
+                console.error('Error:', error.message);
+                alert('Failed to load or process the file. Check the console for details.');
+            }
+        });
+
+        function decrypt(encryptedText, key) {
+            const seed = generateSeedFromKey(key);
+            const decryptedBytes = [];
+            const encryptedBytes = atob(encryptedText);
+
+            for (let i = 0; i < encryptedBytes.length; i++) {
+                const charCode = encryptedBytes.charCodeAt(i);
+                const seedValue = seed[i % seed.length];
+                decryptedBytes.push(charCode ^ seedValue);
+            }
+
+            return String.fromCharCode(...decryptedBytes);
+        }
+
+        function generateSeedFromKey(key) {
+            const seed = [];
+            for (let i = 0; i < key.length; i++) {
+                seed.push(key.charCodeAt(i));
+            }
+            return seed;
+        }
+
+        function isBase64Encoded(str) {
+            try {
+                const decoded = atob(str);
+                return /^[\x00-\x7F]*$/.test(decoded);
+            } catch (e) {
+                return false;
+            }
+        }
+    </script>
+</body>
+
+</html>

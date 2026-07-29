@@ -1,0 +1,235 @@
+<head>
+    <link rel="stylesheet" href="../../assets/css/app-styles.css" id="stylesheet">
+    <style>
+        .wire-usage-table {
+            overflow-x: auto;
+        }
+
+        .info-container {
+            display: none;
+            padding: 20px;
+            background-color: #f7f7f7;
+            border: 1px solid #ccc;
+            margin: 20px auto;
+            max-width: 800px;
+        }
+
+        .info-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .info-content {
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .show-info-btn {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <h1>Wire Tracking System</h1>
+    </header>
+    <main>
+        <section>
+            <form id="wire-form">
+                <label for="run-type">Run Type:</label>
+                <input type="text" id="run-type" value="">
+                <br>
+                <label for="wire-type">Wire Type:</label>
+                <input type="text" id="wire-type" value="">
+                <br>
+                <label for="unit-price">Price Per Foot:</label>
+                <input type="number" id="unit-price" min="0" step="0.01" value="0">
+                <br>
+                <label for="start-number">Start Number:</label>
+                <input type="number" id="start-number" min="0" step="1" value="0">
+                <br>
+                <label for="end-number">End Number:</label>
+                <input type="number" id="end-number" min="0" step="1" value="0">
+                <br>
+                <button type="button" onclick="addWireUsage()">Add Wire Usage</button>
+            </form>
+            <br>
+            <div class="wire-usage-table">
+                <table id="wire-usage-table">
+                    <tr>
+                        <th>Run Type</th>
+                        <th>Wire Type</th>
+                        <th>Unit Price</th>
+                        <th>Start Number</th>
+                        <th>End Number</th>
+                        <th>Total Footage</th>
+                        <th>Estimated Cost</th>
+                        <th>Actions</th>
+                    </tr>
+                    <!-- Wire usage data populated here by JavaScript -->
+                </table>
+            </div>
+            <br>
+            <h2>Total Expenses: <span id="total-expenses">0</span></h2>
+            <button type="button" onclick="exportData()">Export Data</button>
+        </section>
+        <div class="info-container" id="info-container">
+            <div class="info-title">Wire Tracking System Instructions</div>
+            <div class="info-content">
+                <p>Welcome to the Wire Tracking System! This application helps you track wire usage and expenses.</p>
+                <p>To get started, fill out the form with the details of your wire usage:</p>
+                <ul>
+                    <li>Run Type: Enter the type of run.</li>
+                    <li>Wire Type: Enter the type of wire.</li>
+                    <li>Price Per Foot: Enter the price per foot of wire.</li>
+                    <li>Start Number: Enter the start number of wire usage.</li>
+                    <li>End Number: Enter the end number of wire usage.</li>
+                </ul>
+                <p>Click the "Add Wire Usage" button to record the wire usage data. The table below will show the
+                    recorded
+                    data.</p>
+                <p>You can also export the data as a CSV file using the "Export Data" button.</p>
+                <p>Note: The app uses local storage for data persistence.</p>
+            </div>
+        </div>
+
+        <button class="show-info-btn" id="show-info-btn">Show Instructions</button>
+
+    </main>
+    <script>
+        // Show Info button click event
+        const showInfoBtn = document.getElementById('show-info-btn');
+        const infoContainer = document.getElementById('info-container');
+
+        showInfoBtn.addEventListener('click', function () {
+            if (infoContainer.style.display === 'block') {
+                infoContainer.style.display = 'none';
+                showInfoBtn.textContent = 'Show Instructions';
+            } else {
+                infoContainer.style.display = 'block';
+                showInfoBtn.textContent = 'Hide Instructions';
+            }
+        });
+    </script>
+    <script>
+        let wireUsageData = JSON.parse(localStorage.getItem('wireUsageData')) || [];
+        let totalExpenses = JSON.parse(localStorage.getItem('totalExpenses')) || 0;
+
+        function addWireUsage() {
+            const runTypeInput = document.getElementById('run-type');
+            const wireTypeInput = document.getElementById('wire-type'); // Change this line
+            const unitPriceInput = document.getElementById('unit-price');
+            const startNumberInput = document.getElementById('start-number');
+            const endNumberInput = document.getElementById('end-number');
+
+            const runType = runTypeInput.value;
+            const wireType = wireTypeInput.value; // Change this line
+            const unitPrice = parseFloat(unitPriceInput.value);
+            const startNumber = parseFloat(startNumberInput.value);
+            const endNumber = parseFloat(endNumberInput.value);
+
+            if (isNaN(startNumber) || isNaN(endNumber)) {
+                alert('Invalid start or end number. Please enter valid numbers.');
+                return;
+            }
+
+            const totalFootage = Math.abs(endNumber - startNumber);
+            const expense = unitPrice * totalFootage;
+
+            wireUsageData.push({
+                runType: runType,
+                wireType: wireType,
+                unitPrice: unitPrice,
+                startNumber: startNumber,
+                endNumber: endNumber,
+                totalFootage: totalFootage,
+                expense: expense
+            });
+
+            totalExpenses += expense;
+            localStorage.setItem('wireUsageData', JSON.stringify(wireUsageData));
+            localStorage.setItem('totalExpenses', JSON.stringify(totalExpenses));
+
+            document.getElementById('total-expenses').textContent = totalExpenses.toFixed(2);
+
+            updateWireUsageTable();
+
+            // Reset the form for the next entry
+            runTypeInput.value = '';
+            wireTypeSelect.value = 'Keypad 22/4';
+            unitPriceInput.value = 0;
+            startNumberInput.value = 0;
+            endNumberInput.value = 0;
+        }
+
+        function deleteWireUsage(index) {
+            totalExpenses -= wireUsageData[index].expense;
+            wireUsageData.splice(index, 1);
+            localStorage.setItem('wireUsageData', JSON.stringify(wireUsageData));
+            localStorage.setItem('totalExpenses', JSON.stringify(totalExpenses));
+            document.getElementById('total-expenses').textContent = totalExpenses.toFixed(2);
+            updateWireUsageTable();
+        }
+
+        function updateWireUsageTable() {
+            const wireUsageTable = document.getElementById('wire-usage-table');
+            wireUsageTable.innerHTML = `
+                <tr>
+                    <th>Run Type</th>
+                    <th>Wire Type</th>
+                    <th>Unit Price</th>
+                    <th>Start Number</th>
+                    <th>End Number</th>
+                    <th>Total Footage</th>
+                    <th>Estimated Cost</th>
+                    <th>Actions</th>
+                </tr>
+            `;
+
+            for (let i = 0; i < wireUsageData.length; i++) {
+                const item = wireUsageData[i];
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${item.runType}</td>
+                    <td>${item.wireType}</td>
+                    <td>$${item.unitPrice.toFixed(2)}</td>
+                    <td>${item.startNumber}</td>
+                    <td>${item.endNumber}</td>
+                    <td>${item.totalFootage}</td>
+                    <td>$${item.expense.toFixed(2)}</td>
+                    <td><button onclick="deleteWireUsage(${i})">Delete</button></td>
+                `;
+                wireUsageTable.appendChild(row);
+            }
+        }
+
+        function exportData() {
+            let csvContent = "data:text/csv;charset=utf-8,";
+            csvContent += "Run Type,Wire Type,Unit Price,Start Number,End Number,Total Footage,Estimated Cost\n";
+
+            wireUsageData.forEach(item => {
+                csvContent +=
+                    item.runType + "," +
+                    item.wireType + "," +
+                    item.unitPrice.toFixed(2) + "," +
+                    item.startNumber + "," +
+                    item.endNumber + "," +
+                    item.totalFootage + "," +
+                    item.expense.toFixed(2) + "\n";
+            });
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", "wire_usage_data.csv");
+            document.body.appendChild(link); // Required for Firefox
+            link.click(); // This will download the data file named "wire_usage_data.csv".
+        }
+
+        // On page load, update the table and total expenses
+        document.getElementById('total-expenses').textContent = totalExpenses.toFixed(2);
+        updateWireUsageTable();
+    </script>
+</body>

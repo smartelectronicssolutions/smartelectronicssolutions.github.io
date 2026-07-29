@@ -1,0 +1,132 @@
+<section class="blog" id="blog-root">
+  <h2 id="blog-title">Latest Articles and Guides</h2>
+  <div id="blog-body"><p style="color:#aaa">Loading...</p></div>
+</section>
+
+<script>
+(async () => {
+  const title = document.getElementById('blog-title');
+  const body = document.getElementById('blog-body');
+
+  const hash = (location.hash || '#blog').replace('#', '');
+  const isArticleRoute = hash.startsWith('blog/');
+  const slug = isArticleRoute ? hash.split('/')[1]?.replace(/[^a-z0-9_-]/gi, '') : '';
+
+  function esc(s) {
+    return String(s ?? '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
+  function renderSection(section) {
+    const text = (section.text || []).map(t => `<p>${esc(t)}</p>`).join('');
+    const summary = section.summary ? `<p class="guide-summary">${esc(section.summary)}</p>` : '';
+    const steps = (section.steps || []).length
+      ? `<ol>${section.steps.map(s => `<li>${esc(s)}</li>`).join('')}</ol>`
+      : '';
+    const commands = (section.commands || []).length
+      ? section.commands.map(c => {
+          const label = typeof c === 'string' ? 'Command' : (c.label || 'Command');
+          const value = typeof c === 'string' ? c : (c.value || '');
+          const isUrl = /^https?:\/\//i.test(value.trim());
+
+          if (isUrl) {
+            return `<div class="guide-links"><a href="${esc(value)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a></div>`;
+          }
+
+          return `<div class="cmd-block">
+            <div class="cmd-label">${esc(label)}</div>
+            <div class="guide-cmd">${esc(value)}</div>
+          </div>`;
+        }).join('')
+      : '';
+    const notes = (section.notes || []).length
+      ? section.notes.map(n => `<div class="guide-note ${esc(n.tone || 'info')}">${esc(n.text || '')}</div>`).join('')
+      : '';
+    const links = (section.links || []).length
+      ? `<div class="guide-links">${section.links.map(l => `<a href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.label)}</a>`).join('')}</div>`
+      : '';
+    const resources = (section.resources || []).length
+      ? `<div class="guide-links">${section.resources.map(l => `<a href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.label)}</a>`).join('')}</div>`
+      : '';
+    const images = (section.images || []).length
+      ? `<div class="guide-img-grid">${section.images.map(img => `
+          <figure class="guide-figure">
+            <a href="${esc(img.src)}" target="_blank" rel="noopener noreferrer">
+              <img src="${esc(img.src)}" alt="${esc(img.alt || img.caption || 'Guide image')}" loading="lazy">
+            </a>
+            <figcaption>${esc(img.caption || '')}</figcaption>
+          </figure>
+        `).join('')}</div>`
+      : '';
+
+    return `
+      <section class="guide-section">
+        <h3>${esc(section.title || 'Section')}</h3>
+        ${summary}
+        ${text}
+        ${steps}
+        ${commands}
+        ${notes}
+        ${links}
+        ${resources}
+        ${images}
+      </section>
+    `;
+  }
+
+  async function loadGuides() {
+    const res = await fetch('assets/js/guides.json', { cache: 'no-store' });
+    if (!res.ok) throw new Error('fetch failed');
+    return res.json();
+  }
+
+  async function loadBlogIndex() {
+    title.textContent = 'Latest Articles and Guides';
+    const guides = await loadGuides();
+
+    body.innerHTML = `<div class="blog-grid">${guides.map(g => `
+      <article class="blog-post">
+        <div class="blog-tags">${(g.tags || []).map(t => `<span class="blog-tag">${esc(t)}</span>`).join('')}</div>
+        <h3>${esc(g.title)}</h3>
+        <p class="blog-date">${esc(g.date)}</p>
+        <p>${esc(g.description)}</p>
+        <button class="blog-read-btn" data-guide="${esc(g.slug)}">Read More</button>
+      </article>
+    `).join('')}</div>`;
+  }
+
+  async function loadArticle(articleSlug) {
+    if (!articleSlug) throw new Error('missing slug');
+
+    const guides = await loadGuides();
+    const found = guides.find(g => g.slug === articleSlug);
+    if (!found) throw new Error('not found');
+
+    title.textContent = found.title || 'Article';
+    body.innerHTML = `
+      <div class="blog-shell">
+        <button class="blog-back-btn" data-page="blog">Back to all articles</button>
+        <div class="article-meta">
+          <span>Date: ${esc(found.date || '')}</span>
+          <span>Audience: ${esc(found.audience || 'General')}</span>
+        </div>
+        ${(found.sections || []).map(renderSection).join('')}
+      </div>
+    `;
+  }
+
+  try {
+    if (isArticleRoute) {
+      await loadArticle(slug);
+    } else {
+      await loadBlogIndex();
+    }
+  } catch (e) {
+    body.innerHTML = '<p id="blog-error">Could not load content. Please try again.</p>';
+  }
+})();
+</script>

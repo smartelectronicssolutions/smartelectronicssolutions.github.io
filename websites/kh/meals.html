@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en" class="theme-kamehouse">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Meal Plan — Kame House</title>
+  <link rel="stylesheet" href="../../assets/css/master.css">
+  <link rel="stylesheet" href="assets/css/kh.css">
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/img/icons/favicon-32x32.png">
+  <script src="assets/js/html.js" defer></script>
+  <script type="module" src="assets/js/kh-auth.js" defer></script>
+</head>
+<body class="meals">
+  <header class="kh-nav"></header>
+
+  <div class="container">
+    <div class="week-nav">
+      <button id="prev-week">← Prev</button>
+      <span class="label" id="week-label">Week</span>
+      <button id="this-week">Today</button>
+      <button id="next-week">Next →</button>
+    </div>
+
+    <div class="meal-grid" id="meal-grid">
+      <div class="head">Day</div>
+      <div class="head">🥞 Breakfast</div>
+      <div class="head">🥗 Lunch</div>
+      <div class="head">🍽️ Dinner</div>
+    </div>
+    <p class="status" id="status">Click a cell to edit — saves automatically when you click away.</p>
+  </div>
+
+  <script>window.LINKS_ASIDE_HREF = '../../apps/online/onlinelinks.html';</script>
+  <script src="../../apps/assets/js/links-aside.js" defer></script>
+  <script type="module">
+    import { auth, onAuthStateChanged, database, ref, onValue, set } from '../../assets/js/firebase-init.js';
+
+    await window.khHeaderReady;
+
+    let basePath = 'public';
+    let weekStart = startOfWeek(new Date());
+    const status = document.getElementById('status');
+    let unsubscribers = [];
+
+    onAuthStateChanged(auth, (user) => {
+      basePath = user ? user.uid : 'public';
+      render();
+    });
+
+    function startOfWeek(d) {
+      const date = new Date(d);
+      date.setHours(0, 0, 0, 0);
+      const day = date.getDay();
+      const diff = day === 0 ? -6 : 1 - day;
+      date.setDate(date.getDate() + diff);
+      return date;
+    }
+
+    function addDays(d, n) {
+      const r = new Date(d);
+      r.setDate(r.getDate() + n);
+      return r;
+    }
+
+    function isoDate(d) {
+      return d.toISOString().slice(0, 10);
+    }
+
+    document.getElementById('prev-week').addEventListener('click', () => { weekStart = addDays(weekStart, -7); render(); });
+    document.getElementById('next-week').addEventListener('click', () => { weekStart = addDays(weekStart, 7); render(); });
+    document.getElementById('this-week').addEventListener('click', () => { weekStart = startOfWeek(new Date()); render(); });
+
+    function render() {
+      const todayISO = isoDate(new Date());
+      const endDate = addDays(weekStart, 6);
+      document.getElementById('week-label').textContent =
+        `Week of ${weekStart.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${endDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
+
+      const grid = document.getElementById('meal-grid');
+      grid.querySelectorAll('.day, .cell').forEach(el => el.remove());
+
+      const slots = ['breakfast', 'lunch', 'dinner'];
+      const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+      for (let i = 0; i < 7; i++) {
+        const d = addDays(weekStart, i);
+        const iso = isoDate(d);
+        const dayCell = document.createElement('div');
+        dayCell.className = 'day' + (iso === todayISO ? ' today' : '');
+        dayCell.innerHTML = `${days[i]}<span class="date">${d.getMonth() + 1}/${d.getDate()}</span>`;
+        grid.appendChild(dayCell);
+
+        slots.forEach(slot => {
+          const cell = document.createElement('div');
+          cell.className = 'cell';
+          cell.contentEditable = 'true';
+          cell.dataset.date = iso;
+          cell.dataset.slot = slot;
+          grid.appendChild(cell);
+
+          let lastSaved = '';
+          const path = `${basePath}/household/meals/${iso}/${slot}`;
+          const r = ref(database, path);
+          onValue(r, snap => {
+            const val = snap.val() || '';
+            lastSaved = val;
+            if (document.activeElement !== cell) {
+              cell.textContent = val;
+            }
+          });
+
+          cell.addEventListener('blur', () => {
+            const val = cell.textContent.trim();
+            if (val !== lastSaved) {
+              set(ref(database, `${basePath}/household/meals/${iso}/${slot}`), val || null);
+              status.textContent = `Saved ${days[i]} ${slot} at ${new Date().toLocaleTimeString()}`;
+            }
+          });
+
+          cell.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); cell.blur(); }
+            if (e.key === 'Escape') { cell.textContent = lastSaved; cell.blur(); }
+          });
+        });
+      }
+    }
+  </script>
+</body>
+</html>

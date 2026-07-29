@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Stock Watchlist — Eco Lou Market</title>
+  <link rel="stylesheet" href="assets/css/styles.css"/>
+  <script src="assets/js/html.js" defer></script>
+  <script src="assets/js/sidebar.js" defer></script>
+  <script type="module" src="assets/js/auth-handling.js" defer></script>
+</head>
+<body>
+  <header></header>
+  <nav></nav>
+
+  <div class="page-hero">
+    <h1>Live Stock Watchlist</h1>
+    <p>Add tickers, pull real data, track your dividend portfolio. Powered by Alpha Vantage. Syncs to Firebase. &nbsp;<span id="wl-auth-badge">â³ Checking authâ€¦</span></p>
+  </div>
+
+  <div class="breadcrumb">
+    <a href="market.html">&larr; Eco Lou Market</a>
+  </div>
+
+  <div class="wl-wrap">
+
+    <!-- API Setup -->
+    <div class="wl-card">
+      <strong>API Setup — Alpha Vantage</strong>
+      <div class="wl-setup">
+        <input id="av-key" type="text" placeholder="Paste your Alpha Vantage API key" autocomplete="off" spellcheck="false"/>
+        <button class="wl-btn" onclick="wlSaveKey()">Save Key</button>
+        <a href="https://www.alphavantage.co/support/#api-key" target="_blank" style="font-size:.85em;color:var(--secondaryColor);">Get free key &rarr;</a>
+      </div>
+      <p class="info-note">Free tier: 25 requests/day &middot; 5/min &middot; no credit card &middot; instant signup. Each ticker add uses 2 requests; each refresh uses 1.</p>
+    </div>
+
+    <!-- Controls -->
+    <div class="wl-card">
+      <strong>Add Ticker</strong>
+      <div class="wl-controls">
+        <input id="ticker-input" type="text" placeholder="TICKER" maxlength="10"/>
+        <select id="cat-input">
+          <option value="">-- Category --</option>
+          <option>Consumer Staples</option>
+          <option>Consumer Discretionary</option>
+          <option>Broad Retail</option>
+          <option>High Dividend</option>
+          <option>Tech Dividend</option>
+          <option>Dividend Kings</option>
+          <option>Dividend Aristocrats</option>
+          <option>Long-Term Compounders</option>
+          <option>Other</option>
+        </select>
+        <button class="wl-btn" onclick="wlAdd()">+ Add</button>
+        <span id="wl-status"></span>
+      </div>
+    </div>
+
+    <!-- Export / Clear -->
+    <div class="wl-card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+      <button class="wl-btn outline" onclick="wlExportCSV()">Export CSV</button>
+      <button class="wl-btn outline" onclick="wlExportJSON()">Export JSON</button>
+      <button class="wl-btn danger" onclick="wlClearAll()">Clear All</button>
+    </div>
+
+    <!-- Table -->
+    <div class="wl-card" style="padding:0;overflow:hidden;">
+      <div style="overflow-x:auto;">
+        <table id="watchlist-table">
+          <thead>
+            <tr>
+              <th>Ticker</th>
+              <th>Name</th>
+              <th>Category</th>
+              <th>Sector</th>
+              <th>Industry</th>
+              <th>Price</th>
+              <th>Chg %</th>
+              <th>Div Yield</th>
+              <th>Payout</th>
+              <th>P/E</th>
+              <th>52W High</th>
+              <th>52W Low</th>
+              <th>Beta</th>
+              <th>Updated</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="watchlist-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div><!-- /wl-wrap -->
+
+  <a class="back-link" href="market.html">&larr; Back to Eco Lou Market</a>
+
+  <div class="disclaimer">
+    Data provided by Alpha Vantage. Educational use only. Not financial advice. Data may be delayed.
+  </div>
+
+  <aside></aside>
+  <footer></footer>
+
+  <!-- Firebase bridge: private when logged in, public when not -->
+  <script type="module">
+    import { auth, database, ref, set, get, onAuthStateChanged }
+      from '../../../../assets/js/firebase-init.js';
+
+    function wlPath(user) {
+      return user ? `${user.uid}/bitlou_watchlist` : 'public/bitlou_watchlist';
+    }
+
+    onAuthStateChanged(auth, async (user) => {
+      window._wlUser = user || null;
+      try {
+        const snap = await get(ref(database, wlPath(user)));
+        const val = snap.exists() ? snap.val() : [];
+        window._wlFbData = Array.isArray(val) ? val : Object.values(val);
+      } catch (e) {
+        console.warn('WL Firebase load error:', e);
+        window._wlFbData = [];
+      }
+      window.dispatchEvent(new CustomEvent('wl:auth', { detail: user }));
+    });
+
+    window.wlFbSave = async function(data) {
+      try {
+        await set(ref(database, wlPath(window._wlUser)), data);
+        return true;
+      } catch (e) {
+        console.warn('WL Firebase save error:', e);
+        return false;
+      }
+    };
+  </script>
+
+  <script>
+  (function() {
+    const WL_STORE  = 'bitlou:watchlist';
+    const KEY_STORE = 'bitlou:fmp-key';
+    const CATS = ['Consumer Staples','Consumer Discretionary','Broad Retail','High Dividend','Tech Dividend','Dividend Kings','Dividend Aristocrats','Long-Term Compounders','Other'];
+
+    let wl = [];
+    try { wl = JSON.parse(localStorage.getItem(WL_STORE) || '[]'); } catch (_) { wl = []; }
+
+    async function save() {
+      if (typeof window.wlFbSave === 'function') {
+        const ok = await window.wlFbSave(wl);
+        if (ok) { localStorage.setItem(WL_STORE, JSON.stringify(wl)); return; }
+      }
+      localStorage.setItem(WL_STORE, JSON.stringify(wl));
+    }
+
+    function apiKey() {
+      const el = document.getElementById('av-key');
+      return (el?.value.trim()) || localStorage.getItem(KEY_STORE) || '';
+    }
+
+    function setStatus(msg, ok) {
+      const el = document.getElementById('wl-status');
+      if (el) { el.textContent = msg; el.style.color = ok === false ? '#c0392b' : ok ? '#2a9d2a' : '#555'; }
+    }
+
+    function setAuthBadge(user) {
+      const el = document.getElementById('wl-auth-badge');
+      if (!el) return;
+      if (user) {
+        el.textContent = 'â˜ Private — ' + user.email;
+        el.style.color = '#2a9d2a';
+      } else {
+        el.textContent = 'â˜ Public (shared path) — log in to make it private';
+        el.style.color = '#b07800';
+      }
+    }
+
+    window.addEventListener('wl:auth', (e) => {
+      const user = e.detail;
+      setAuthBadge(user);
+      if (Array.isArray(window._wlFbData)) {
+        wl = window._wlFbData;
+        render();
+        if (wl.length > 0) setStatus('Loaded from Firebase.', true);
+      }
+    });
+
+    const AV = 'https://www.alphavantage.co/query';
+
+    async function avFetch(params) {
+      const key = apiKey();
+      if (!key) throw new Error('No API key — save one above first.');
+      const url = `${AV}?${new URLSearchParams({ ...params, apikey: key })}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`API error ${res.status}`);
+      const json = await res.json();
+      if (json['Note'] || json['Information']) {
+        throw new Error('Rate limited — wait 1 min then try again (free: 5 req/min, 25/day).');
+      }
+      return json;
+    }
+
+    function num(v, dec = 2) {
+      const n = parseFloat(v);
+      return isNaN(n) || v === 'None' ? null : +n.toFixed(dec);
+    }
+
+    async function fullFetch(ticker) {
+      const [ov, qt] = await Promise.all([
+        avFetch({ function: 'OVERVIEW', symbol: ticker }),
+        avFetch({ function: 'GLOBAL_QUOTE', symbol: ticker })
+      ]);
+      if (!ov.Symbol) throw new Error('No data for "' + ticker + '" — check the symbol.');
+      const q = qt['Global Quote'] || {};
+      const pct = q['10. change percent'] ? parseFloat(q['10. change percent']) : null;
+      return {
+        ticker:        ov.Symbol,
+        name:          ov.Name          || '',
+        sector:        ov.Sector         || '',
+        industry:      ov.Industry       || '',
+        price:         num(q['05. price']),
+        changePercent: pct != null ? +pct.toFixed(2) : null,
+        divYield:      ov.DividendYield  ? +(parseFloat(ov.DividendYield) * 100).toFixed(2) : null,
+        pe:            num(ov.PERatio, 1),
+        payoutRatio:   ov.PayoutRatio    ? +(parseFloat(ov.PayoutRatio) * 100).toFixed(1) : null,
+        weekHigh52:    num(ov['52WeekHigh']),
+        weekLow52:     num(ov['52WeekLow']),
+        beta:          num(ov.Beta),
+        updatedAt:     Date.now(),
+      };
+    }
+
+    async function quoteFetch(ticker) {
+      const qt = await avFetch({ function: 'GLOBAL_QUOTE', symbol: ticker });
+      const q  = qt['Global Quote'] || {};
+      if (!q['05. price']) throw new Error('No price returned for ' + ticker);
+      const pct = q['10. change percent'] ? parseFloat(q['10. change percent']) : null;
+      return {
+        price:         num(q['05. price']),
+        changePercent: pct != null ? +pct.toFixed(2) : null,
+        updatedAt:     Date.now(),
+      };
+    }
+
+    function render() {
+      const tbody = document.getElementById('watchlist-body');
+      if (!tbody) return;
+      if (wl.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="15" style="text-align:center;padding:32px;color:#999;">No stocks yet — enter a ticker above to get started.</td></tr>';
+        return;
+      }
+      const f = (v, pre='$', d=2) => v != null ? pre + Number(v).toFixed(d) : '—';
+      tbody.innerHTML = wl.map(w => {
+        const pct    = w.changePercent;
+        const cls    = pct == null ? '' : pct >= 0 ? 'chg-pos' : 'chg-neg';
+        const chgTxt = pct != null ? (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%' : '—';
+        const opts   = CATS.map(c => `<option${c===w.category?' selected':''}>${c}</option>`).join('');
+        const upd    = w.updatedAt ? new Date(w.updatedAt).toLocaleDateString() : '—';
+        return `<tr>
+          <td><a href="https://finance.yahoo.com/quote/${w.ticker}" target="_blank"><strong>${w.ticker}</strong></a></td>
+          <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;" title="${w.name}">${w.name||'—'}</td>
+          <td><select class="wl-cat-sel" onchange="wlCat('${w.ticker}',this.value)">${opts}</select></td>
+          <td>${w.sector||'—'}</td>
+          <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;" title="${w.industry}">${w.industry||'—'}</td>
+          <td>${f(w.price)}</td>
+          <td class="${cls}">${chgTxt}</td>
+          <td>${w.divYield!=null ? w.divYield+'%' : '—'}</td>
+          <td>${w.payoutRatio!=null ? w.payoutRatio+'%' : '—'}</td>
+          <td>${f(w.pe,'',1)}</td>
+          <td>${f(w.weekHigh52)}</td>
+          <td>${f(w.weekLow52)}</td>
+          <td>${w.beta!=null ? w.beta : '—'}</td>
+          <td style="font-size:.78em;color:#999;">${upd}</td>
+          <td>
+            <button class="wl-ref" onclick="wlRefresh('${w.ticker}')">&#8635;</button>
+            <button class="wl-del" onclick="wlDel('${w.ticker}')">&#10005;</button>
+          </td>
+        </tr>`;
+      }).join('');
+    }
+
+    window.wlSaveKey = function() {
+      const el  = document.getElementById('av-key');
+      const key = el?.value.trim();
+      if (!key) { setStatus('Paste a key first.', false); return; }
+      localStorage.setItem(KEY_STORE, key);
+      setStatus('API key saved.', true);
+    };
+
+    window.wlAdd = async function() {
+      const tEl    = document.getElementById('ticker-input');
+      const cEl    = document.getElementById('cat-input');
+      const ticker = (tEl?.value.trim() || '').toUpperCase();
+      const cat    = cEl?.value || 'Other';
+      if (!ticker)                           { setStatus('Enter a ticker.', false); return; }
+      if (!apiKey())                         { setStatus('Save your API key first.', false); return; }
+      if (wl.find(w => w.ticker === ticker)) { setStatus(ticker + ' already in list.', false); return; }
+      setStatus('Fetching ' + ticker + 'â€¦');
+      try {
+        const entry = await fullFetch(ticker);
+        entry.category = cat;
+        wl.push(entry);
+        await save(); render();
+        if (tEl) tEl.value = '';
+        setStatus(ticker + ' added.', true);
+      } catch (err) { setStatus('Failed: ' + err.message, false); }
+    };
+
+    window.wlRefresh = async function(ticker) {
+      if (!apiKey()) { setStatus('API key required.', false); return; }
+      setStatus('Refreshing ' + ticker + 'â€¦');
+      try {
+        const q     = await quoteFetch(ticker);
+        const entry = wl.find(w => w.ticker === ticker);
+        if (entry) { Object.assign(entry, q); await save(); render(); setStatus(ticker + ' refreshed.', true); }
+      } catch (err) { setStatus('Error: ' + err.message, false); }
+    };
+
+    window.wlDel = async function(ticker) {
+      if (!confirm('Remove ' + ticker + ' from watchlist?')) return;
+      wl = wl.filter(w => w.ticker !== ticker);
+      await save(); render();
+      setStatus(ticker + ' removed.', true);
+    };
+
+    window.wlCat = function(ticker, value) {
+      const entry = wl.find(w => w.ticker === ticker);
+      if (entry) { entry.category = value; save(); }
+    };
+
+    window.wlClearAll = async function() {
+      if (!confirm('Clear entire watchlist? This cannot be undone.')) return;
+      wl = []; await save(); render();
+      setStatus('Watchlist cleared.', true);
+    };
+
+    window.wlExportCSV = function() {
+      const hdrs = ['Ticker','Name','Category','Sector','Industry','Price','Change%','DivYield%','PayoutRatio%','PE','52W_High','52W_Low','Beta','Updated'];
+      const rows = wl.map(w => [
+        w.ticker, w.name, w.category, w.sector, w.industry,
+        w.price, w.changePercent, w.divYield, w.payoutRatio, w.pe,
+        w.weekHigh52, w.weekLow52, w.beta,
+        w.updatedAt ? new Date(w.updatedAt).toLocaleDateString() : ''
+      ].map(v => `"${v ?? ''}"`).join(','));
+      const a = Object.assign(document.createElement('a'), {
+        href:     'data:text/csv;charset=utf-8,' + encodeURIComponent([hdrs.join(','), ...rows].join('\n')),
+        download: 'bitlou_watchlist.csv'
+      });
+      a.click();
+    };
+
+    window.wlExportJSON = function() {
+      const a = Object.assign(document.createElement('a'), {
+        href:     'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(wl, null, 2)),
+        download: 'bitlou_watchlist.json'
+      });
+      a.click();
+    };
+
+    // Init
+    const savedKey = localStorage.getItem(KEY_STORE);
+    if (savedKey) { const el = document.getElementById('av-key'); if (el) el.value = savedKey; }
+    render();
+
+    document.getElementById('ticker-input')?.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); window.wlAdd(); }
+    });
+    document.getElementById('ticker-input')?.addEventListener('input', function() {
+      const pos = this.selectionStart;
+      this.value = this.value.toUpperCase();
+      this.setSelectionRange(pos, pos);
+    });
+  })();
+  </script>
+</body>
+</html>
+

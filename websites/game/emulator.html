@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Emulator — Game Library</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" href="favicon.ico" type="image/x-icon">
+    <link rel="stylesheet" href="../../assets/css/app-styles.css">
+    <link rel="stylesheet" href="assets/css/game.css">
+    <style>
+        * { box-sizing: border-box; }
+        body { background: #1a1a1a; color: #ccc; font-family: monospace; margin: 0; }
+
+        #auth-section { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        #auth-section input {
+            padding: 4px 8px; border-radius: 4px; border: 1px solid #555;
+            background: #2a2a2a; color: #fff; font-size: .85rem; width: 140px;
+        }
+        #auth-section button {
+            padding: 4px 12px; font-size: .85rem; cursor: pointer;
+            border-radius: 4px; border: none; background: #e65c00; color: #fff;
+        }
+        #user-status { font-size: .82rem; color: #888; }
+
+        #app { display: flex; flex-direction: column; height: calc(100vh - 48px); }
+
+        #controls {
+            display: flex; gap: 8px; padding: 8px 16px; background: #1e1e1e;
+            border-bottom: 1px solid #333; align-items: center; flex-wrap: wrap;
+        }
+        #controls button {
+            padding: 6px 14px; border-radius: 4px; border: none;
+            background: #333; color: #ccc; cursor: pointer; font-size: .85rem; font-family: monospace;
+        }
+        #controls button:hover { background: #444; color: #fff; }
+        #controls button.primary { background: #e65c00; color: #fff; }
+        #controls button.primary:hover { background: #cc4f00; }
+        #controls button:disabled { opacity: .35; cursor: default; }
+
+        label#rom-label {
+            padding: 6px 14px; border-radius: 4px; border: 1px solid #555;
+            background: #2a2a2a; color: #aaa; font-size: .85rem; cursor: pointer;
+        }
+        label#rom-label:hover { background: #333; color: #fff; }
+        #rom-file { display: none; }
+        #game-name { font-size: .82rem; color: #888; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+
+        .slot-group {
+            display: flex; align-items: center; gap: 4px;
+            border: 1px solid #333; border-radius: 4px; padding: 2px 6px;
+        }
+        .slot-group label { font-size: .75rem; color: #666; margin-right: 2px; }
+        .slot-btn { padding: 3px 8px !important; font-size: .78rem !important; background: #2a2a2a !important; }
+        .slot-btn.active-slot { background: #e65c00 !important; color: #fff !important; }
+
+        #save-status { margin-left: auto; font-size: .8rem; color: #666; min-width: 180px; text-align: right; }
+        #save-status.ok   { color: #6c6; }
+        #save-status.err  { color: #f66; }
+        #save-status.info { color: #6af; }
+
+        #emulator-wrap { flex: 1; display: flex; align-items: center; justify-content: center; background: #111; overflow: hidden; }
+        #drop-prompt { color: #444; font-size: 1rem; text-align: center; line-height: 2.2; }
+        #drop-prompt span { display: block; font-size: .8rem; color: #333; }
+        #game { width: 100%; height: 100%; }
+    </style>
+</head>
+<body>
+
+<header class="site-header">
+    <a class="site-brand" href="index.html"><span>★</span> GAME HUB</a>
+    <nav class="site-nav">
+        <a href="mario.html">Mario</a>
+        <a href="minecraft.html">Minecraft</a>
+        <a href="emulator.html" class="active">Emu</a>
+        <a href="pixel_maker.html">Pixel Studio</a>
+        <a href="news.html">News</a>
+    </nav>
+    <div id="auth-section">
+        <div id="login-fields" style="display:flex;gap:8px;align-items:center;">
+            <input type="email" id="login-email" placeholder="Email">
+            <input type="password" id="login-password" placeholder="Password">
+            <button id="login-btn">Login</button>
+        </div>
+        <div id="logout-fields" style="display:none;gap:8px;align-items:center;">
+            <span id="user-status"></span>
+            <button id="logout-btn">Logout</button>
+        </div>
+    </div>
+</header>
+
+<div id="app">
+    <div id="controls">
+        <label id="rom-label" for="rom-file">&#128193; Load ROM</label>
+        <input type="file" id="rom-file">
+        <span id="game-name"></span>
+        <div class="slot-group">
+            <label>SLOT</label>
+            <button class="slot-btn active-slot" data-slot="1">1</button>
+            <button class="slot-btn" data-slot="2">2</button>
+            <button class="slot-btn" data-slot="3">3</button>
+        </div>
+        <button id="btn-quick-save" disabled>Quick Save</button>
+        <button id="btn-load" disabled>Load Slot</button>
+        <button id="btn-save-quit" class="primary" disabled>Save &amp; Quit</button>
+        <div id="save-status"></div>
+    </div>
+    <div id="emulator-wrap">
+        <div id="drop-prompt">
+            Load a ROM to play
+            <span>GBA &middot; GBC &middot; SNES &middot; N64 &middot; NDS &middot; PS1 &middot; NES &middot; Genesis</span>
+        </div>
+    </div>
+</div>
+
+<script type="module">
+
+    import {
+        auth, database, ref, set, get,
+        onAuthStateChanged, signInWithEmailAndPassword, signOut
+    } from "../../assets/js/firebase-init.js";
+
+    const EJS_CDN      = "https://cdn.emulatorjs.org/stable/data/";
+    const AUTO_SAVE_MS = 30000;
+    const READY_TIMEOUT = 15000;
+
+    /* ── RTDB ── */
+    function toB64(bytes) { let s=""; for(let i=0;i<bytes.length;i++) s+=String.fromCharCode(bytes[i]); return btoa(s); }
+    function fromB64(b64) { const s=atob(b64),out=new Uint8Array(s.length); for(let i=0;i<s.length;i++) out[i]=s.charCodeAt(i); return out; }
+    async function dbSave(path,bytes) { await set(ref(database,path),{d:toB64(bytes),ts:Date.now()}); }
+    async function dbLoad(path) { const snap=await get(ref(database,path)); if(!snap.exists()) throw new Error("no save"); return fromB64(snap.val().d); }
+
+    /* ── STATUS ── */
+    const statusEl = document.getElementById("save-status");
+    let statusTimer = null;
+    function setStatus(msg, type="", persist=false) {
+        clearTimeout(statusTimer); statusEl.textContent=msg; statusEl.className=type;
+        if (!persist && type==="ok") statusTimer=setTimeout(()=>{ statusEl.textContent=""; statusEl.className=""; },4000);
+    }
+
+    /* ── SLOTS ── */
+    let currentSlot = 1;
+    document.querySelectorAll(".slot-btn").forEach(btn => {
+        btn.onclick = () => {
+            currentSlot = parseInt(btn.dataset.slot);
+            document.querySelectorAll(".slot-btn").forEach(b => b.classList.remove("active-slot"));
+            btn.classList.add("active-slot");
+            setStatus(`Slot ${currentSlot} selected.`);
+        };
+    });
+    function slotKey()      { return window.EJS_core && window.EJS_gameName ? `emu:slot:${window.EJS_core}:${window.EJS_gameName}` : null; }
+    function rememberSlot() { const k=slotKey(); if(k) localStorage.setItem(k,currentSlot); }
+    function recallSlot()   {
+        const k=slotKey(); if(!k) return;
+        currentSlot=parseInt(localStorage.getItem(k)||"1");
+        document.querySelectorAll(".slot-btn").forEach(b=>b.classList.toggle("active-slot",parseInt(b.dataset.slot)===currentSlot));
+    }
+
+    /* ── BUTTONS ── */
+    function setGameButtons(on) { ["btn-quick-save","btn-load","btn-save-quit"].forEach(id=>document.getElementById(id).disabled=!on); }
+
+    /* ── AUTH ── */
+    let DATABASE_BASE_PATH="public", authResolved=false;
+    document.getElementById("login-btn").onclick = async () => {
+        try { await signInWithEmailAndPassword(auth, document.getElementById("login-email").value, document.getElementById("login-password").value); }
+        catch(err) { setStatus("Login failed: "+err.message,"err"); }
+    };
+    document.getElementById("logout-btn").onclick = () => signOut(auth);
+    function waitForAuth() {
+        return new Promise(resolve => {
+            if (authResolved) return resolve();
+            const unsub = onAuthStateChanged(auth, user => { DATABASE_BASE_PATH=user?user.uid:"public"; authResolved=true; unsub(); resolve(); });
+        });
+    }
+    onAuthStateChanged(auth, user => {
+        DATABASE_BASE_PATH=user?user.uid:"public"; authResolved=true;
+        const lf=document.getElementById("login-fields"), lo=document.getElementById("logout-fields");
+        if(user){ lf.style.display="none"; lo.style.display="flex"; document.getElementById("user-status").textContent=user.email; }
+        else    { lf.style.display="flex"; lo.style.display="none"; document.getElementById("user-status").textContent=""; }
+    });
+
+    /* ── PATHS ── */
+    function sanitizeKey(s) { return s.replace(/[.#$[\]\s/]/g,"_").replace(/_+/g,"_").replace(/^_|_$/g,""); }
+    function getBatteryPath() { return window.EJS_core&&window.EJS_gameName ? `${DATABASE_BASE_PATH}/emu/battery/${window.EJS_core}/${sanitizeKey(window.EJS_gameName)}` : null; }
+    function getStatePath(slot=currentSlot) { return window.EJS_core&&window.EJS_gameName ? `${DATABASE_BASE_PATH}/emu/states/${window.EJS_core}/${sanitizeKey(window.EJS_gameName)}/s${slot}` : null; }
+
+    /* ── EMULATOR DESTROY ── */
+    async function destroyEmulator() {
+        try { window.EJS_emulator?.pause?.(); } catch {}
+        try { const al=window.EJS_emulator?.Module?.AL, ctx=al?.currentCtx?.ctx??window.EJS_emulator?.Module?.audioContext; if(ctx&&ctx.state!=="closed") await ctx.close(); } catch {}
+        try { window.EJS_emulator?.Module?.pauseMainLoop?.(); } catch {}
+        try { window.EJS_emulator?.destroy?.(); } catch {}
+        window.EJS_emulator=null;
+    }
+
+    /* ── WAIT READY ── */
+    async function waitForEmulatorReady() {
+        const deadline=Date.now()+READY_TIMEOUT;
+        while(Date.now()<deadline) {
+            const gm=window.EJS_emulator?.gameManager??window.EJS_emulator??null;
+            if(gm?.loadState&&gm?.getState) return gm;
+            await new Promise(r=>setTimeout(r,250));
+        }
+        return null;
+    }
+
+    /* ── CAPTURE STATE ── */
+    async function captureState() {
+        const gm=window.EJS_emulator?.gameManager??window.EJS_emulator??null, Module=window.EJS_emulator?.Module??null;
+        if(gm?.getState) { try { let raw=gm.getState(); if(raw?.then) raw=await raw; if(raw instanceof Blob) return new Uint8Array(await raw.arrayBuffer()); if(raw instanceof ArrayBuffer) return new Uint8Array(raw); if(ArrayBuffer.isView(raw)&&raw.byteLength>0) return new Uint8Array(raw.buffer,raw.byteOffset,raw.byteLength); } catch {} }
+        if(Module) { for(const [szFn,serFn] of [["EmulatorJSGetStateSize","EmulatorJSGetState"],["_EmulatorJSGetStateSize","_EmulatorJSGetState"],["_retro_serialize_size","_retro_serialize"],["retro_serialize_size","retro_serialize"]]) { if(typeof Module[szFn]!=="function"||typeof Module[serFn]!=="function") continue; try { const size=Module[szFn](); if(size<=0) continue; const ptr=Module._malloc(size); Module[serFn](ptr,size); const copy=new Uint8Array(new Uint8Array(Module.HEAPU8.buffer,ptr,size)); Module._free(ptr); if(copy.byteLength>0) return copy; } catch {} } }
+        return null;
+    }
+
+    /* ── APPLY STATE ── */
+    async function applyState(bytes) {
+        const data=bytes instanceof Uint8Array?bytes:new Uint8Array(bytes), gm=window.EJS_emulator?.gameManager??window.EJS_emulator??null, Module=window.EJS_emulator?.Module??null;
+        if(gm?.loadState) { try { gm.loadState(data); return true; } catch {} }
+        if(Module) { for(const fn of ["EmulatorJSLoadState","_EmulatorJSLoadState","_retro_unserialize","retro_unserialize"]) { if(typeof Module[fn]!=="function") continue; try { const ptr=Module._malloc(data.length); Module.HEAPU8.set(data,ptr); Module[fn](ptr,data.length); Module._free(ptr); return true; } catch {} } }
+        return false;
+    }
+
+    /* ── LAUNCH ── */
+    let CLOUD_BATTERY=null, autoSaveInterval=null, launchSeq=0;
+
+    document.getElementById("rom-file").onchange = async function() {
+        const file=this.files[0]; if(!file) return;
+        const seq=++launchSeq;
+        stopAutoSave(); await destroyEmulator();
+        if(seq!==launchSeq) return;
+
+        setGameButtons(false);
+        await waitForAuth();
+        if(seq!==launchSeq) return;
+
+        const extMap = {gba:'gba',gbc:'gbc',gb:'gbc',smc:'snes',sfc:'snes',z64:'n64',n64:'n64',v64:'n64',nds:'nds',bin:'psx',iso:'psx',cue:'psx',nes:'nes',md:'genesis',smd:'genesis',gen:'genesis'};
+        const ext = file.name.split('.').pop().toLowerCase();
+        window.EJS_core     = extMap[ext] || 'gba';
+        window.EJS_gameName = file.name.replace(/\.[^.]+$/,"");
+        recallSlot();
+        document.getElementById("game-name").textContent = window.EJS_gameName;
+
+        setStatus("Fetching cloud save…","info",true);
+        const bPath=getBatteryPath();
+        if(bPath) { try { CLOUD_BATTERY=await dbLoad(bPath); } catch { CLOUD_BATTERY=null; } } else { CLOUD_BATTERY=null; }
+        if(seq!==launchSeq) return;
+
+        const gameUrl=URL.createObjectURL(file);
+        document.getElementById("emulator-wrap").innerHTML="<div id='game'></div>";
+
+        window.EJS_player        = "#game";
+        window.EJS_gameUrl       = gameUrl;
+        window.EJS_pathtodata    = EJS_CDN;
+        window.EJS_startOnLoaded = true;
+
+        window.EJS_onGameStart = async function() {
+            if(seq!==launchSeq) return;
+            setGameButtons(true);
+            setStatus("Waiting for core…","info",true);
+            const gm=await waitForEmulatorReady();
+            if(seq!==launchSeq) return;
+            if(!gm) { setStatus("Core ready timeout — saves may not work.","err"); startAutoSave(); return; }
+            const sPath=getStatePath();
+            if(sPath) { try { const bytes=await dbLoad(sPath); if(seq!==launchSeq) return; const ok=await applyState(bytes); setStatus(ok?`Slot ${currentSlot} restored.`:"State load failed.",ok?"ok":"err"); } catch { setStatus("No save found — starting fresh.",""); } }
+            else { setStatus("Running.","ok"); }
+            startAutoSave();
+        };
+
+        const old=document.getElementById("ejs-loader"); if(old) old.remove();
+        const script=document.createElement("script"); script.id="ejs-loader"; script.src=EJS_CDN+"loader.js";
+        document.body.appendChild(script);
+    };
+
+    /* ── BATTERY ── */
+    window.EJS_onLoadSave = () => CLOUD_BATTERY||null;
+    let batteryTimer=null;
+    window.EJS_onSaveSave = function(data) {
+        if(!data||data.byteLength===0) return; const path=getBatteryPath(); if(!path) return;
+        clearTimeout(batteryTimer); batteryTimer=setTimeout(async()=>{ try { await dbSave(path,new Uint8Array(data)); } catch {} },1500);
+    };
+
+    /* ── QUICK SAVE ── */
+    document.getElementById("btn-quick-save").onclick = async () => {
+        const path=getStatePath(); if(!path) return; setStatus("Saving…","info",true);
+        const state=await captureState(); if(!state) { setStatus("Could not read game state.","err"); return; }
+        try { await dbSave(path,state); rememberSlot(); setStatus(`Saved to slot ${currentSlot}.`,"ok"); } catch(err) { setStatus("Save failed: "+err.message,"err"); }
+    };
+
+    /* ── LOAD SLOT ── */
+    document.getElementById("btn-load").onclick = async () => {
+        const path=getStatePath(); if(!path) return; setStatus("Loading slot…","info",true);
+        try { const bytes=await dbLoad(path); const ok=await applyState(bytes); setStatus(ok?`Slot ${currentSlot} loaded.`:"State apply failed.",ok?"ok":"err"); }
+        catch { setStatus(`No save in slot ${currentSlot}.`,"err"); }
+    };
+
+    /* ── SAVE & QUIT ── */
+    document.getElementById("btn-save-quit").onclick = async () => {
+        stopAutoSave(); setStatus("Saving…","info",true);
+        const path=getStatePath();
+        if(path) { const state=await captureState(); if(state) { try { await dbSave(path,state); rememberSlot(); } catch {} } }
+        await destroyEmulator(); CLOUD_BATTERY=null; window.EJS_core=null; window.EJS_gameName=null;
+        setGameButtons(false);
+        document.getElementById("game-name").textContent="";
+        document.getElementById("rom-file").value="";
+        document.getElementById("emulator-wrap").innerHTML='<div id="drop-prompt">Load a ROM to play<span>GBA &middot; GBC &middot; SNES &middot; N64 &middot; NDS &middot; PS1 &middot; NES &middot; Genesis</span></div>';
+        setStatus("Session saved.","ok");
+    };
+
+    /* ── AUTO SAVE ── */
+    function startAutoSave() {
+        stopAutoSave();
+        autoSaveInterval=setInterval(async()=>{ const path=getStatePath(); if(!path) return; const state=await captureState(); if(!state) return; try { await dbSave(path,state); rememberSlot(); setStatus("Auto-saved.","ok"); } catch { setStatus("Auto-save failed.","err"); } },AUTO_SAVE_MS);
+    }
+    function stopAutoSave() { if(autoSaveInterval) { clearInterval(autoSaveInterval); autoSaveInterval=null; } }
+
+</script>
+</body>
+</html>

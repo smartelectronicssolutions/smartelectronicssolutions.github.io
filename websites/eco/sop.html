@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <link rel="apple-touch-icon" sizes="180x180" href="assets/img/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="assets/img/favicon-16x16.png">
+    <link rel="manifest" href="./site.webmanifest">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SOP</title>
+    <link rel="stylesheet" href="assets/css/styles.css">
+    <script src="assets/js/html.js" defer></script>
+    <script src="assets/js/sidebar.js" defer></script>
+    <script type="module" src="assets/js/auth-handling.js" defer></script>
+</head>
+
+<body>
+
+    <header></header>
+
+    <nav></nav>
+
+    <main>
+        <section id="main-window">
+            <form class="sop-form">
+                <label for="sop-title">Title</label>
+                <br>
+                <input required type="text" id="sop-title" name="sop-title" placeholder="SOP Title">
+                <br>
+                <label for="sop-content">Content</label>
+                <br>
+                <textarea name="sop-content" id="sop-content" cols="30" rows="10"
+                    placeholder="Describe the SOP"></textarea>
+            </form>
+            <div class="button-container">
+                <button id="copy-btn">ðŸ“°</button>
+                <button id="paste-btn">ðŸ“‹</button>
+                <button id="save-btn">ðŸ’¾</button>
+                <button class="clear-button" id="delete-btn">âŒ</button>
+                <button id="undo-btn">â†©ï¸</button>
+            </div>
+            <div class="autosave-container">
+                <label for="autosave-checkbox">Auto-ðŸ’¾:</label>
+                <input type="checkbox" id="autosave-checkbox" checked>
+                <button class="clear-button" id="clear-btn">Clear</button>
+            </div>
+            <br>
+            <section class="sop-list-section" id="sop-list"></section>
+        </section>
+        <br>
+    </main>
+
+    <aside></aside>
+
+    <footer></footer>
+
+    <script type="module">
+        import { database, ref, onValue, set, get, off, initializeAuth, app } from '../../assets/js/firebase-init.js';
+
+        const titleInput = document.getElementById('sop-title');
+        const contentTextarea = document.getElementById('sop-content');
+        const sopList = document.getElementById('sop-list');
+        let deletedSops = [];
+        let autoSaveInterval;
+
+        const setupEventListeners = () => {
+            document.getElementById('copy-btn').addEventListener('click', copySop);
+            document.getElementById('paste-btn').addEventListener('click', pasteSop);
+            document.getElementById('save-btn').addEventListener('click', saveSop);
+            document.getElementById('delete-btn').addEventListener('click', deleteSop);
+            document.getElementById('clear-btn').addEventListener('click', clearSopInputs);
+            document.getElementById('undo-btn').addEventListener('click', undoDelete);
+            document.getElementById('autosave-checkbox').addEventListener('change', toggleAutoSave);
+            document.addEventListener("keydown", handleKeyboardShortcuts);
+            contentTextarea.addEventListener('input', () => autoResizeTextarea('sop-content'));
+        };
+
+        const copySop = () => {
+            contentTextarea.select();
+            document.execCommand('copy');
+            console.log('Copied to clipboard');
+        };
+
+        const pasteSop = async () => {
+            const clipboardData = await navigator.clipboard.readText();
+            contentTextarea.value += clipboardData;
+        };
+
+        const saveSop = async () => {
+            const titleToSave = titleInput.value.trim();
+            const contentToSave = contentTextarea.value.trim();
+            const saveBtn = document.getElementById('save-btn');
+            const timestamp = new Date().toISOString();
+
+            if (titleToSave && contentToSave) {
+                const sopRef = ref(database, `share/bitveau/sop/${titleToSave}`);
+                try {
+                    await set(sopRef, { title: titleToSave, content: contentToSave, timestamp });
+                    console.log('SOP saved successfully');
+                    updateSaveButton(saveBtn);
+                } catch (error) {
+                    console.error('Failed to save the SOP:', error);
+                }
+            } else {
+                console.log('Please enter both the title and content before saving');
+            }
+        };
+
+        const updateSaveButton = (button) => {
+            button.textContent = 'Saved';
+            button.style.backgroundColor = 'lightblue';
+            setTimeout(() => {
+                button.textContent = 'ðŸ’¾';
+                button.style.backgroundColor = '';
+            }, 2000);
+        };
+
+        const deleteSop = async () => {
+            const titleToDelete = titleInput.value.trim();
+
+            if (titleToDelete) {
+                const userConfirmed = confirm(`Are you sure you want to delete the SOP titled: ${titleToDelete}?`);
+                if (!userConfirmed) {
+                    console.log('SOP deletion cancelled.');
+                    return;
+                }
+
+                const sopRef = ref(database, 'share/bitveau/sop');
+                const snapshot = await get(sopRef);
+                const sops = snapshot.val();
+
+                if (sops) {
+                    const sopId = Object.keys(sops).find(id => sops[id].title === titleToDelete);
+                    if (sopId) {
+                        const deletedSop = sops[sopId];
+                        storeDeletedSop(deletedSop.title, deletedSop.content);
+                        await set(ref(database, `share/bitveau/sop/${sopId}`), null);
+                        clearSopInputs();
+                        console.log(`Deleted the SOP titled: ${titleToDelete}`);
+                    } else {
+                        console.log('SOP not found.');
+                    }
+                } else {
+                    console.log('No SOPs available.');
+                }
+            } else {
+                console.log('Please enter the title of the SOP to delete.');
+            }
+        };
+
+        const loadSop = async () => {
+            const titleToLoad = titleInput.value.trim();
+
+            if (titleToLoad) {
+                const sopRef = ref(database, 'share/bitveau/sop');
+                onValue(sopRef, snapshot => {
+                    const sops = snapshot.val();
+                    if (sops) {
+                        const sopId = Object.keys(sops).find(id => sops[id].title === titleToLoad);
+                        if (sopId) {
+                            const selectedSop = sops[sopId];
+                            contentTextarea.value = selectedSop.content;
+                            console.log(`Loaded the SOP titled: ${titleToLoad}`);
+                        } else {
+                            console.log(`No SOP found with the title: ${titleToLoad}`);
+                        }
+                    } else {
+                        console.log('No SOPs found');
+                    }
+                });
+            } else {
+                console.log('Please enter the title of the SOP to load');
+            }
+        };
+
+        const clearSopInputs = () => {
+            titleInput.value = '';
+            contentTextarea.value = '';
+        };
+
+        const populateSopList = () => {
+            const sopRef = ref(database, 'share/bitveau/sop');
+            onValue(sopRef, snapshot => {
+                const sops = snapshot.val();
+                sopList.innerHTML = '';
+
+                if (sops) {
+                    const sortedSops = Object.values(sops).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                    sortedSops.forEach(sop => createSopListItem(sop));
+                } else {
+                    sopList.innerHTML = '<li>No SOPs found</li>';
+                }
+            });
+        };
+
+        const createSopListItem = (sop) => {
+            const listItem = document.createElement('li');
+            listItem.classList.add('sop-item');
+
+            const titleSpan = document.createElement('span');
+            titleSpan.style.fontWeight = 'bold';
+            titleSpan.textContent = sop.title;
+
+            const timestampSpan = document.createElement('span');
+            timestampSpan.style.fontWeight = 'normal';
+            timestampSpan.style.marginLeft = '10px';
+            timestampSpan.textContent = ` (${new Date(sop.timestamp).toLocaleString()})`;
+
+            const sopContent = document.createElement('p');
+            sopContent.style.marginTop = '5px';
+            sopContent.textContent = sop.content;
+
+            listItem.appendChild(titleSpan);
+            listItem.appendChild(timestampSpan);
+            listItem.appendChild(sopContent);
+
+            listItem.addEventListener('click', () => {
+                titleInput.value = sop.title;
+                contentTextarea.value = sop.content;
+            });
+
+            sopList.appendChild(listItem);
+        };
+
+        const storeDeletedSop = (title, content) => {
+            deletedSops.push({ title, content });
+        };
+
+        const undoDelete = async () => {
+            if (deletedSops.length > 0) {
+                const lastDeletedSop = deletedSops.pop();
+                const { title, content } = lastDeletedSop;
+
+                const sopRef = ref(database, `share/bitveau/sop/${title}`);
+                try {
+                    await set(sopRef, { title, content, timestamp: new Date().toISOString() });
+                    console.log(`Undone the deletion of the SOP titled: ${title}`);
+                    populateSopList();
+                } catch (error) {
+                    console.error('Failed to undo the deletion:', error);
+                }
+            } else {
+                console.log('No deleted SOPs to undo');
+            }
+        };
+
+        const autoResizeTextarea = (id) => {
+            const textarea = document.getElementById(id);
+            textarea.style.height = textarea.scrollHeight + 'px';
+        };
+
+        const toggleAutoSave = (event) => {
+            if (event.target.checked) {
+                autoSaveInterval = setInterval(saveSop, 40000);
+            } else {
+                clearInterval(autoSaveInterval);
+            }
+        };
+
+        const handleKeyboardShortcuts = (event) => {
+            if (event.ctrlKey && event.key === "s") {
+                event.preventDefault();
+                document.getElementById("save-btn").click();
+            }
+        };
+
+        document.addEventListener("DOMContentLoaded", () => {
+            setupEventListeners();
+            populateSopList();
+            autoSaveInterval = setInterval(saveSop, 40000);
+        });
+    </script>
+
+</body>
+
+</html>

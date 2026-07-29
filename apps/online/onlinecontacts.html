@@ -1,0 +1,688 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <title>Contact Information Management</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="../assets/css/online.css" />
+  <script>(function () { var t = localStorage.getItem("ss-theme"); if (t === "light") document.documentElement.classList.add("light"); }());</script>
+  <script type="module" src="../assets/js/auth.js" defer></script>
+  <script src="../assets/js/links-aside.js" defer></script>
+  <script src="../assets/js/search.js" defer></script>
+  <style>
+    main {
+      padding: 12px 16px 60px;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .toolbar #searchContacts {
+      flex: 1 1 240px;
+      min-width: 180px;
+      padding: 9px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 14px;
+    }
+
+    .toolbar .count {
+      font-size: 13px;
+      color: var(--muted);
+      margin-left: auto;
+    }
+
+    .chk {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      color: var(--muted);
+      white-space: nowrap;
+      cursor: pointer;
+    }
+
+    .btn {
+      padding: 9px 14px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface2);
+      color: inherit;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .btn.primary {
+      background: var(--accent, #2b6cb0);
+      color: #fff;
+      border-color: transparent;
+    }
+
+    .btn.danger {
+      background: #8a1f1f;
+      color: #fff;
+      border-color: transparent;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface);
+    }
+
+    table.contacts {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    table.contacts th {
+      text-align: left;
+      padding: 10px 12px;
+      background: var(--surface2);
+      position: sticky;
+      top: 0;
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+      border-bottom: 1px solid var(--border);
+      z-index: 1;
+    }
+
+    table.contacts th .arrow {
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    table.contacts td {
+      padding: 9px 12px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+
+    table.contacts tr.row {
+      cursor: pointer;
+    }
+
+    table.contacts tr.row:hover td {
+      background: var(--surface2);
+    }
+
+    table.contacts .name {
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    table.contacts .muted,
+    .missing {
+      color: var(--muted);
+    }
+
+    tr.incomplete td:first-child {
+      box-shadow: inset 3px 0 0 #c9a227;
+    }
+
+    .trunc {
+      max-width: 240px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* modal */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+      display: none;
+      align-items: flex-start;
+      justify-content: center;
+      z-index: 1000;
+      padding: 40px 16px;
+      overflow-y: auto;
+    }
+
+    .modal-overlay.open {
+      display: flex;
+    }
+
+    .modal-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      width: 100%;
+      max-width: 520px;
+      position: relative;
+      box-shadow: rgba(0, 0, 0, 0.4) 0 10px 30px;
+    }
+
+    .modal-close {
+      position: absolute;
+      top: 10px;
+      right: 12px;
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 24px;
+      cursor: pointer;
+      line-height: 1;
+    }
+
+    .modal-card h2 {
+      margin: 0 40px 12px 0;
+    }
+
+    .modal-card label {
+      display: block;
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 10px;
+    }
+
+    .modal-card input {
+      width: 100%;
+      padding: 9px;
+      margin-top: 4px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      box-sizing: border-box;
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .contact-summary {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .contact-subtle {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .field-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 4px;
+    }
+
+    .field-chip {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 3px 10px;
+      font-size: 12px;
+    }
+
+    .project-card {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      background: var(--surface2);
+      margin-bottom: 8px;
+    }
+
+    .project-card h4 {
+      margin: 0 0 6px;
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1>Contacts Manager</h1>
+    <div class="auth-bar"><span id="auth-label">Not signed in</span><button id="auth-btn">Sign In</button></div>
+    <button id="theme-toggle" title="Toggle theme">☀️</button>
+    <script>(function () { var b = document.getElementById("theme-toggle"), h = document.documentElement; b.textContent = h.classList.contains("light") ? "🌙" : "☀️"; b.addEventListener("click", function () { var n = h.classList.contains("light") ? "dark" : "light"; h.classList.toggle("light", n === "light"); localStorage.setItem("ss-theme", n); b.textContent = n === "light" ? "🌙" : "☀️"; }); })();</script>
+    <div id="login-inline">
+      <h3>Sign In</h3><input type="email" id="email-in" placeholder="Email" /><input type="password" id="pass-in"
+        placeholder="Password" /><button id="do-login">Sign In</button>
+      <p id="auth-err"></p>
+    </div>
+  </header>
+
+  <main>
+    <div class="toolbar">
+      <input type="text" id="searchContacts" placeholder="Search name, email, phone, company…" />
+      <label class="chk"><input type="checkbox" id="incompleteOnly" /> Incomplete only</label>
+      <button class="btn primary" id="open-add">+ Add</button>
+      <span class="count" id="count"></span>
+    </div>
+
+    <div class="table-wrap">
+      <table class="contacts">
+        <thead>
+          <tr>
+            <th data-sort="name">Name <span class="arrow"></span></th>
+            <th data-sort="phone">Phone <span class="arrow"></span></th>
+            <th data-sort="email">Email <span class="arrow"></span></th>
+            <th data-sort="address">Address <span class="arrow"></span></th>
+            <th data-sort="company">Company <span class="arrow"></span></th>
+          </tr>
+        </thead>
+        <tbody id="contacts-body"></tbody>
+      </table>
+    </div>
+  </main>
+
+  <!-- Edit modal -->
+  <div id="contact-modal" class="modal-overlay">
+    <div class="modal-card">
+      <button class="modal-close" data-close>×</button>
+      <h2 id="contact-name"></h2>
+      <div class="contact-summary">
+        <div>
+          <div class="contact-subtle">Phones on record</div>
+          <div id="contact-phone-list" class="field-list"></div>
+        </div>
+        <div>
+          <div class="contact-subtle">Emails on record</div>
+          <div id="contact-email-list" class="field-list"></div>
+        </div>
+        <div>
+          <div class="contact-subtle">Addresses on record</div>
+          <div id="contact-address-list" class="field-list"></div>
+        </div>
+      </div>
+      <div class="contact-subtle">Update all records for this contact:</div>
+      <label>Phone<input type="tel" id="contact-phone" placeholder="Phone" /></label>
+      <label>Email<input type="email" id="contact-email" placeholder="Email" /></label>
+      <label>Address<input type="text" id="contact-address" placeholder="Address" /></label>
+      <div class="modal-actions">
+        <button class="btn primary" id="save-contact-button">Save</button>
+        <button class="btn danger" id="delete-contact-button">Delete</button>
+      </div>
+      <div id="contact-extra" class="contact-subtle" style="margin-top:12px"></div>
+      <h3>Projects</h3>
+      <div id="projects-list"></div>
+    </div>
+  </div>
+
+  <!-- Add modal -->
+  <div id="add-modal" class="modal-overlay">
+    <div class="modal-card">
+      <button class="modal-close" data-close>×</button>
+      <h2>Add Contact</h2>
+      <label>Name<input type="text" id="new-contact-name" placeholder="Contact name" /></label>
+      <label>Phone<input type="tel" id="new-contact-phone" placeholder="Phone" /></label>
+      <label>Email<input type="email" id="new-contact-email" placeholder="Email" /></label>
+      <label>Address<input type="text" id="new-contact-address" placeholder="Address" /></label>
+      <div class="modal-actions">
+        <button class="btn primary" id="add-contact-button">Add Contact</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import {
+      auth,
+      onAuthStateChanged,
+      database,
+      ref,
+      get,
+      set,
+      push,
+      remove,
+      update,
+    } from "../assets/js/firebase-init.js";
+    import { onIdTokenChanged } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
+
+    const body = document.getElementById("contacts-body");
+    const countEl = document.getElementById("count");
+    const searchContacts = document.getElementById("searchContacts");
+    const incompleteOnly = document.getElementById("incompleteOnly");
+    const contactModal = document.getElementById("contact-modal");
+    const addModal = document.getElementById("add-modal");
+    const contactNameElem = document.getElementById("contact-name");
+    const contactPhoneInput = document.getElementById("contact-phone");
+    const contactEmailInput = document.getElementById("contact-email");
+    const contactAddressInput = document.getElementById("contact-address");
+    const contactExtra = document.getElementById("contact-extra");
+    const newContactNameInput = document.getElementById("new-contact-name");
+    const newContactPhoneInput = document.getElementById("new-contact-phone");
+    const newContactEmailInput = document.getElementById("new-contact-email");
+    const newContactAddressInput = document.getElementById("new-contact-address");
+
+    const contactSearchHelper = window.SearchEngine?.attachAuto
+      ? window.SearchEngine.attachAuto(searchContacts, {
+        defaultFields: ["name", "email", "company", "phone"],
+        placeholderAdvanced: '🔎… e.g. name:"smith" or company:roycroft',
+      })
+      : null;
+
+    let selectedContactId = null;
+    let selectedName = null;
+    let DATABASE_BASE_PATH = "public";
+    let authReady = false;
+    let currentUser = null;
+    let allRows = [];
+    let sortField = "name";
+    let sortDir = 1;
+
+    function showAuthBanner(msg) {
+      let b = document.getElementById("authBanner");
+      if (!b) {
+        b = document.createElement("div");
+        b.id = "authBanner";
+        b.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:9999;background:#8a1f1f;color:#fff;padding:8px 14px;text-align:center;font:13px system-ui,sans-serif;";
+        document.body.appendChild(b);
+      }
+      b.textContent = msg;
+      b.style.display = "block";
+    }
+    function hideAuthBanner() {
+      const b = document.getElementById("authBanner");
+      if (b) b.style.display = "none";
+    }
+    function canWrite() {
+      if (authReady && currentUser) { hideAuthBanner(); return true; }
+      showAuthBanner("Not saving — sign in to store contacts privately.");
+      return false;
+    }
+
+    onAuthStateChanged(auth, (user) => {
+      authReady = true;
+      currentUser = user;
+      DATABASE_BASE_PATH = user ? `${user.uid}` : "public";
+      if (user) hideAuthBanner();
+      fetchContacts();
+    });
+    onIdTokenChanged(auth, (user) => {
+      currentUser = user;
+      DATABASE_BASE_PATH = user ? `${user.uid}` : "public";
+    });
+
+    async function fetchContacts() {
+      const tasksRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
+      const snapshot = await get(tasksRef);
+      allRows = snapshot.exists() ? aggregate(snapshot.val()) : [];
+      renderTable();
+    }
+
+    const uniqueValues = (values) => [
+      ...new Set(values.map((v) => String(v || "").trim()).filter(Boolean)),
+    ];
+
+    function aggregate(tasks) {
+      const map = {};
+      for (const taskId in tasks) {
+        const task = tasks[taskId];
+        const name = (task.customerName || "Unnamed Contact").trim();
+        if (!name) continue;
+        (map[name] = map[name] || []).push({ taskId, task });
+      }
+      const rows = [];
+      for (const name in map) {
+        const cts = map[name];
+        const phones = uniqueValues(cts.map((c) => c.task.customerPhone));
+        const emails = uniqueValues(cts.map((c) => c.task.customerEmail));
+        const addresses = uniqueValues(cts.map((c) => c.task.customerAddress));
+        const company = cts.map((c) => c.task.company).find(Boolean) || "";
+        const last = cts
+          .map((c) => new Date(c.task.endTime || c.task.startTime || 0).getTime())
+          .reduce((a, b) => Math.max(a, b), 0);
+        const projectCount = cts.filter((c) => c.task.project || c.task.startTime).length;
+        rows.push({
+          name, tasks: cts, phones, emails, addresses, company,
+          projectCount, last, taskId: cts[0].taskId,
+          incomplete: !phones.length || !addresses.length,
+          search: [name, emails.join(" "), phones.join(" "), company].join(" ").toLowerCase(),
+        });
+      }
+      return rows;
+    }
+
+    function sortVal(r) {
+      switch (sortField) {
+        case "phone": return r.phones[0] || "~";
+        case "email": return (r.emails[0] || "~").toLowerCase();
+        case "address": return (r.addresses[0] || "~").toLowerCase();
+        case "company": return (r.company || "~").toLowerCase();
+        default: return r.name.toLowerCase();
+      }
+    }
+
+    function currentView() {
+      let rows = allRows.slice();
+      const q = String(searchContacts.value || "").trim();
+      if (q) {
+        if (contactSearchHelper) {
+          const items = rows.map((r) => ({
+            row: r, name: r.name, email: r.emails[0] || "",
+            phone: r.phones[0] || "", company: r.company || "",
+          }));
+          rows = contactSearchHelper.filter(items, q).map((x) => x.row);
+        } else {
+          const ql = q.toLowerCase();
+          rows = rows.filter((r) => r.search.includes(ql));
+        }
+      }
+      if (incompleteOnly.checked) rows = rows.filter((r) => r.incomplete);
+      rows.sort((a, b) => {
+        const av = sortVal(a), bv = sortVal(b);
+        return av < bv ? -sortDir : av > bv ? sortDir : 0;
+      });
+      return rows;
+    }
+
+    function cell(text, missing) {
+      const td = document.createElement("td");
+      if (missing) { td.innerHTML = '<span class="missing">—</span>'; return td; }
+      td.className = "trunc";
+      td.textContent = text;
+      td.title = text;
+      return td;
+    }
+
+    function renderTable() {
+      const rows = currentView();
+      body.innerHTML = "";
+      const frag = document.createDocumentFragment();
+      rows.forEach((r) => {
+        const tr = document.createElement("tr");
+        tr.className = "row" + (r.incomplete ? " incomplete" : "");
+        const nameTd = document.createElement("td");
+        nameTd.className = "name";
+        nameTd.textContent = r.name;
+        tr.appendChild(nameTd);
+        tr.appendChild(cell(r.phones[0], !r.phones.length));
+        tr.appendChild(cell(r.emails[0], !r.emails.length));
+        tr.appendChild(cell(r.addresses[0], !r.addresses.length));
+        tr.appendChild(cell(r.company, !r.company));
+        tr.onclick = () => openContact(r);
+        frag.appendChild(tr);
+      });
+      body.appendChild(frag);
+      countEl.textContent = `${rows.length} of ${allRows.length} contacts`;
+      document.querySelectorAll("th[data-sort] .arrow").forEach((a) => (a.textContent = ""));
+      const active = document.querySelector(`th[data-sort="${sortField}"] .arrow`);
+      if (active) active.textContent = sortDir > 0 ? "▲" : "▼";
+    }
+
+    const renderChips = (el, values) => {
+      el.innerHTML = "";
+      if (!values.length) {
+        const empty = document.createElement("span");
+        empty.className = "contact-subtle";
+        empty.textContent = "—";
+        el.appendChild(empty);
+        return;
+      }
+      values.forEach((val) => {
+        const chip = document.createElement("span");
+        chip.className = "field-chip";
+        chip.textContent = val;
+        el.appendChild(chip);
+      });
+    };
+
+    function openContact(r) {
+      selectedContactId = r.taskId;
+      selectedName = r.name;
+      contactNameElem.textContent = r.name;
+      contactPhoneInput.value = r.phones[0] || "";
+      contactEmailInput.value = r.emails[0] || "";
+      contactAddressInput.value = r.addresses[0] || "";
+      contactPhoneInput.placeholder = r.phones.length > 1 ? "Multiple values" : "Phone";
+      contactEmailInput.placeholder = r.emails.length > 1 ? "Multiple values" : "Email";
+      contactAddressInput.placeholder = r.addresses.length > 1 ? "Multiple values" : "Address";
+      renderChips(document.getElementById("contact-phone-list"), r.phones);
+      renderChips(document.getElementById("contact-email-list"), r.emails);
+      renderChips(document.getElementById("contact-address-list"), r.addresses);
+
+      const meta = [];
+      if (r.company) meta.push(r.company);
+      const msg = r.tasks.map((c) => c.task.msgCount).find(Boolean);
+      const lc = r.tasks.map((c) => c.task.lastContact).find(Boolean);
+      if (msg) meta.push(`${msg} emails`);
+      if (lc) meta.push(`last contact ${lc}`);
+      contactExtra.textContent = meta.join(" · ");
+
+      renderProjects(r.tasks);
+      contactModal.classList.add("open");
+    }
+
+    function renderProjects(customerTasks) {
+      const projectsList = document.getElementById("projects-list");
+      projectsList.innerHTML = "";
+      const real = customerTasks.filter(({ task }) => task.project || task.startTime);
+      if (!real.length) {
+        projectsList.innerHTML = '<div class="contact-subtle">No linked jobs or projects.</div>';
+        return;
+      }
+      real.forEach(({ task }) => {
+        const projectDiv = document.createElement("div");
+        projectDiv.className = "project-card";
+        const h4 = document.createElement("h4");
+        h4.textContent = task.project || "Untitled Project";
+        projectDiv.appendChild(h4);
+        const start = task.startTime ? new Date(task.startTime).toLocaleString() : "N/A";
+        const end = task.endTime ? new Date(task.endTime).toLocaleString() : "N/A";
+        const info = document.createElement("div");
+        info.className = "contact-subtle";
+        info.textContent = `Start: ${start} · End: ${end}`;
+        projectDiv.appendChild(info);
+        if (task.notes) {
+          const notesDiv = document.createElement("div");
+          notesDiv.textContent = task.notes;
+          projectDiv.appendChild(notesDiv);
+        }
+        projectsList.appendChild(projectDiv);
+      });
+    }
+
+    // sorting
+    document.querySelectorAll("th[data-sort]").forEach((th) => {
+      th.addEventListener("click", () => {
+        const f = th.dataset.sort;
+        if (sortField === f) sortDir = -sortDir;
+        else { sortField = f; sortDir = 1; }
+        renderTable();
+      });
+    });
+
+    searchContacts.addEventListener("input", renderTable);
+    incompleteOnly.addEventListener("change", renderTable);
+
+    // modal close handlers
+    document.querySelectorAll("[data-close]").forEach((b) =>
+      b.addEventListener("click", () => {
+        contactModal.classList.remove("open");
+        addModal.classList.remove("open");
+      })
+    );
+    [contactModal, addModal].forEach((m) =>
+      m.addEventListener("click", (e) => { if (e.target === m) m.classList.remove("open"); })
+    );
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { contactModal.classList.remove("open"); addModal.classList.remove("open"); }
+    });
+
+    document.getElementById("open-add").addEventListener("click", () => {
+      newContactNameInput.value = "";
+      newContactPhoneInput.value = "";
+      newContactEmailInput.value = "";
+      newContactAddressInput.value = "";
+      addModal.classList.add("open");
+    });
+
+    document.getElementById("save-contact-button").addEventListener("click", async () => {
+      if (!selectedName) return;
+      if (!canWrite()) return;
+      const phone = contactPhoneInput.value;
+      const email = contactEmailInput.value;
+      const address = contactAddressInput.value;
+      const targetName = selectedName;
+      const tasksRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
+      const snapshot = await get(tasksRef);
+      if (!snapshot.exists()) return;
+      const tasks = snapshot.val();
+      const updates = {};
+      for (const taskId in tasks) {
+        if (tasks[taskId].customerName === targetName) {
+          updates[`${taskId}/customerPhone`] = phone;
+          updates[`${taskId}/customerEmail`] = email;
+          updates[`${taskId}/customerAddress`] = address;
+        }
+      }
+      try {
+        await update(tasksRef, updates);
+        contactModal.classList.remove("open");
+        fetchContacts();
+      } catch (error) {
+        console.error("Error updating contact:", error);
+        alert("Error updating contacts.");
+      }
+    });
+
+    document.getElementById("delete-contact-button").addEventListener("click", () => {
+      if (!selectedContactId) return;
+      if (!canWrite()) return;
+      const contactRef = ref(database, `${DATABASE_BASE_PATH}/tasks/${selectedContactId}`);
+      // tasks are a shared record - guard against nuking job/invoice/ledger data
+      get(contactRef).then((snap) => {
+        const t = snap.exists() ? snap.val() : {};
+        if ((t.startTime || t.invoiceSaved || t.paymentTxId) &&
+          !confirm("This record also holds job or invoice data. Deleting removes ALL of it. Delete anyway?")) return;
+        remove(contactRef).then(() => {
+          contactModal.classList.remove("open");
+          fetchContacts();
+        }).catch((error) => console.error("Error deleting contact:", error));
+      });
+    });
+
+    document.getElementById("add-contact-button").addEventListener("click", () => {
+      const contactName = newContactNameInput.value.trim();
+      if (!contactName) return;
+      if (!canWrite()) return;
+      const tasksRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
+      const newContactRef = push(tasksRef);
+      set(newContactRef, {
+        customerName: contactName,
+        customerPhone: newContactPhoneInput.value,
+        customerEmail: newContactEmailInput.value,
+        customerAddress: newContactAddressInput.value,
+      }).then(() => {
+        addModal.classList.remove("open");
+        fetchContacts();
+      });
+    });
+  </script>
+</body>
+
+</html>

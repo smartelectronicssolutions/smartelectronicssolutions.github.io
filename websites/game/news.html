@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>News — Game Hub</title>
+    <link rel="icon" href="assets/img/mariohead.png">
+    <link rel="stylesheet" href="assets/css/game.css">
+</head>
+<body>
+
+<header class="site-header">
+    <a class="site-brand" href="index.html"><span>★</span> GAME HUB</a>
+    <nav class="site-nav">
+        <a href="mario.html">Mario</a>
+        <a href="minecraft.html">Minecraft</a>
+        <a href="emulator.html">Emulator</a>
+        <a href="pixel_maker.html">Pixel Studio</a>
+        <a href="news.html" class="active">News</a>
+    </nav>
+</header>
+
+<main>
+    <div class="page-hero">
+        <div>
+            <h1>News</h1>
+            <p>Server Announcements &middot; Minecraft Updates &middot; Gaming</p>
+        </div>
+    </div>
+
+    <div class="news-filters">
+        <button class="news-filter-btn active" data-cat="all">All</button>
+        <button class="news-filter-btn" data-cat="server">Server</button>
+        <button class="news-filter-btn" data-cat="minecraft">Minecraft</button>
+        <button class="news-filter-btn" data-cat="gaming">Gaming</button>
+    </div>
+
+    <div id="news-list"><p style="color:#9a8270;font-size:.85rem;margin-top:16px;">Loading...</p></div>
+
+    <div id="news-article" style="display:none">
+        <button class="news-back-btn" id="newsBack">&#8592; Back to News</button>
+        <div id="news-article-body"></div>
+    </div>
+</main>
+
+<footer class="site-footer">&copy; 2026 Louman &mdash; luissolutions.github.io</footer>
+
+<script type="module">
+import { database, ref, get } from '../../assets/js/firebase-init.js';
+
+const GAME_TAGS  = ['server', 'minecraft', 'gaming'];
+const CAT_LABELS = { server: 'Server', minecraft: 'Minecraft', gaming: 'Gaming' };
+const CAT_COLORS = { server: '#c85800', minecraft: '#3a8a3a', gaming: '#2060a8' };
+
+let NEWS = [];
+let currentCat = 'all';
+
+function getCategory(tags) {
+    const lower = tags.map(t => t.toLowerCase());
+    for (const cat of GAME_TAGS) {
+        if (lower.includes(cat)) return cat;
+    }
+    return 'gaming';
+}
+
+function formatDate(ts) {
+    return new Date(Number(ts)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function shuffle(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+}
+
+function renderArticleBody(article) {
+    if (article.body) return article.body;
+    if (article.sections?.length) {
+        return article.sections.map(s => `
+            ${s.title ? `<h4>${s.title}</h4>` : ''}
+            ${s.summary ? `<p>${s.summary}</p>` : ''}
+            ${s.steps?.length ? '<ul>' + s.steps.map(st => `<li>${st}</li>`).join('') + '</ul>' : ''}
+        `).join('');
+    }
+    return `<p>${article.description || ''}</p>`;
+}
+
+function renderList(cat) {
+    currentCat = cat;
+    document.getElementById('news-list').style.display = '';
+    document.getElementById('news-article').style.display = 'none';
+
+    const posts = cat === 'all' ? NEWS : NEWS.filter(p => p.category === cat);
+    const list  = document.getElementById('news-list');
+
+    if (!posts.length) {
+        list.innerHTML = '<p style="color:#9a8270;font-size:.85rem;margin-top:16px;">No posts in this category yet.</p>';
+        return;
+    }
+
+    const extraTags = p => (p.tags || []).filter(t => !GAME_TAGS.includes(t.toLowerCase()));
+
+    list.innerHTML = posts.map(p => `
+        <div class="news-card" data-id="${p.id}" role="button" tabindex="0">
+            <div class="news-card-meta">
+                <span class="news-cat-badge" style="background:${CAT_COLORS[p.category]}">${CAT_LABELS[p.category]}</span>
+                <span class="news-date">${formatDate(p.createdAt)}</span>
+            </div>
+            <h2 class="news-card-title">${p.title}</h2>
+            <p class="news-card-summary">${p.description || ''}</p>
+            <div class="news-tags">${extraTags(p).map(t => `<span class="news-tag">${t}</span>`).join('')}</div>
+            <span class="news-read-more">Read more &#8594;</span>
+        </div>
+    `).join('');
+
+    list.querySelectorAll('.news-card').forEach(el => {
+        const open = () => openArticle(el.dataset.id);
+        el.addEventListener('click', open);
+        el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') open(); });
+    });
+}
+
+function openArticle(id) {
+    const post = NEWS.find(p => p.id === id);
+    if (!post) return;
+    document.getElementById('news-list').style.display = 'none';
+    const article = document.getElementById('news-article');
+    const extraTags = (post.tags || []).filter(t => !GAME_TAGS.includes(t.toLowerCase()));
+    document.getElementById('news-article-body').innerHTML = `
+        <div class="news-article-head">
+            <span class="news-cat-badge" style="background:${CAT_COLORS[post.category]}">${CAT_LABELS[post.category]}</span>
+            <span class="news-date">${formatDate(post.createdAt)}</span>
+        </div>
+        <h1 class="news-article-title">${post.title}</h1>
+        <div class="news-tags" style="margin-bottom:20px">${extraTags.map(t => `<span class="news-tag">${t}</span>`).join('')}</div>
+        <div class="news-article-content">${renderArticleBody(post)}</div>
+    `;
+    article.style.display = '';
+    window.scrollTo(0, 0);
+}
+
+document.getElementById('newsBack').addEventListener('click', () => {
+    renderList(currentCat);
+});
+
+document.querySelectorAll('.news-filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.news-filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        renderList(btn.dataset.cat);
+    });
+});
+
+// Fetch from Firebase
+try {
+    const snap = await get(ref(database, 'public/journalArticles'));
+    if (snap.exists()) {
+        NEWS = shuffle(
+            Object.entries(snap.val())
+                .map(([key, val]) => ({ ...val, id: key }))
+                .filter(a => Array.isArray(a.tags) && a.tags.some(t => GAME_TAGS.includes(t.toLowerCase())))
+                .map(a => ({ ...a, category: getCategory(a.tags) }))
+        );
+    }
+} catch (e) {
+    console.error('Firebase fetch failed:', e);
+}
+
+const hash = location.hash.slice(1);
+if (hash && NEWS.find(p => p.id === hash)) {
+    openArticle(hash);
+} else {
+    renderList('all');
+}
+</script>
+</body>
+</html>

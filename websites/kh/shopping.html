@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en" class="theme-kamehouse">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shopping List — Kame House</title>
+  <link rel="stylesheet" href="../../assets/css/master.css">
+  <link rel="stylesheet" href="assets/css/kh.css">
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/img/icons/favicon-32x32.png">
+  <script src="assets/js/html.js" defer></script>
+  <script type="module" src="assets/js/kh-auth.js" defer></script>
+</head>
+<body class="shopping">
+  <header class="kh-nav"></header>
+
+  <div class="container">
+    <form class="add-form" id="add-form">
+      <input type="text" id="item-name" placeholder="Add an item (eggs, milk, bread...)" required>
+      <input type="text" id="item-qty" placeholder="Qty (opt)">
+      <button type="submit">Add</button>
+    </form>
+
+    <div class="filters">
+      <button data-filter="pending" class="active">Pending</button>
+      <button data-filter="checked">Bought</button>
+      <button data-filter="all">All</button>
+      <span class="spacer"></span>
+      <button class="danger" id="clear-checked">Clear bought</button>
+    </div>
+
+    <ul class="item-list" id="item-list">
+      <li class="empty">Loading…</li>
+    </ul>
+  </div>
+
+  <script>window.LINKS_ASIDE_HREF = '../../apps/online/onlinelinks.html';</script>
+  <script src="../../apps/assets/js/links-aside.js" defer></script>
+  <script type="module">
+    import { auth, onAuthStateChanged, database, ref, onValue, push, set, remove, update } from '../../assets/js/firebase-init.js';
+
+    await window.khHeaderReady;
+
+    let basePath = 'public';
+    let currentFilter = 'pending';
+    let currentItems = {};
+
+    onAuthStateChanged(auth, (user) => {
+      basePath = user ? user.uid : 'public';
+      subscribe();
+    });
+
+    let unsubscribePath = null;
+    function subscribe() {
+      const r = ref(database, `${basePath}/household/shopping`);
+      onValue(r, snap => {
+        currentItems = snap.val() || {};
+        render();
+      });
+    }
+
+    document.getElementById('add-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const name = document.getElementById('item-name').value.trim();
+      const qty = document.getElementById('item-qty').value.trim();
+      if (!name) return;
+      const r = ref(database, `${basePath}/household/shopping`);
+      push(r, { name, qty, checked: false, addedAt: Date.now() });
+      document.getElementById('item-name').value = '';
+      document.getElementById('item-qty').value = '';
+      document.getElementById('item-name').focus();
+    });
+
+    document.querySelectorAll('.filters button[data-filter]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        currentFilter = btn.dataset.filter;
+        document.querySelectorAll('.filters button[data-filter]').forEach(b => b.classList.toggle('active', b === btn));
+        render();
+      });
+    });
+
+    document.getElementById('clear-checked').addEventListener('click', () => {
+      if (!confirm('Remove all bought items?')) return;
+      const updates = {};
+      Object.entries(currentItems).forEach(([id, item]) => {
+        if (item.checked) updates[id] = null;
+      });
+      if (Object.keys(updates).length) {
+        update(ref(database, `${basePath}/household/shopping`), updates);
+      }
+    });
+
+    function render() {
+      const list = document.getElementById('item-list');
+      const entries = Object.entries(currentItems)
+        .filter(([_, v]) => currentFilter === 'all' || (currentFilter === 'pending' ? !v.checked : v.checked))
+        .sort((a, b) => (b[1].addedAt || 0) - (a[1].addedAt || 0));
+
+      if (!entries.length) {
+        list.innerHTML = `<li class="empty">${currentFilter === 'pending' ? 'Nothing to buy. 🎉' : currentFilter === 'checked' ? 'No bought items yet.' : 'List is empty.'}</li>`;
+        return;
+      }
+
+      list.innerHTML = '';
+      entries.forEach(([id, item]) => {
+        const li = document.createElement('li');
+        if (item.checked) li.classList.add('checked');
+        li.innerHTML = `
+          <input type="checkbox" ${item.checked ? 'checked' : ''} data-id="${id}">
+          <span class="name">${escapeHtml(item.name)}</span>
+          <span class="qty">${escapeHtml(item.qty || '')}</span>
+          <button class="del" data-id="${id}" title="Delete">✕</button>
+        `;
+        list.appendChild(li);
+      });
+
+      list.querySelectorAll('input[type=checkbox]').forEach(cb => {
+        cb.addEventListener('change', () => {
+          const id = cb.dataset.id;
+          update(ref(database, `${basePath}/household/shopping/${id}`), {
+            checked: cb.checked,
+            checkedAt: cb.checked ? Date.now() : null,
+          });
+        });
+      });
+
+      list.querySelectorAll('button.del').forEach(btn => {
+        btn.addEventListener('click', () => {
+          if (confirm('Remove this item?')) {
+            remove(ref(database, `${basePath}/household/shopping/${btn.dataset.id}`));
+          }
+        });
+      });
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+  </script>
+</body>
+</html>

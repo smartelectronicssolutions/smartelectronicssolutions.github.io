@@ -1,0 +1,1317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Control Hub</title>
+    <link rel="stylesheet" href="assets/css/master.css">
+    <link rel="icon" href="assets/img/favicon.ico">
+    <style>
+        #hub-body { display: block; }
+
+        main { max-width: 1100px; margin: 0 auto; padding: 24px 20px 48px; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        @media (max-width: 860px) { .grid-2 { grid-template-columns: 1fr; } }
+
+        .hcard {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 18px;
+            margin-bottom: 16px;
+            overflow: auto;
+        }
+        .hcard h3 {
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: var(--muted);
+            margin-bottom: 14px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        /* Token rows */
+        .token-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+        .token-field {
+            flex: 1; font-family: monospace; font-size: 0.75rem;
+            background: var(--bg); border: 1px solid var(--border);
+            color: var(--muted); border-radius: 6px; padding: 7px 10px;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .token-label { font-size: 0.78rem; color: var(--muted); min-width: 90px; }
+
+        /* Buttons */
+        .hbtn {
+            padding: 7px 16px; border-radius: 6px; border: 1px solid var(--border);
+            background: var(--bg); color: var(--text); font-size: 0.82rem; cursor: pointer;
+            transition: border-color .15s, color .15s;
+        }
+        .hbtn:hover { border-color: var(--accent); color: var(--accent); }
+        .hbtn.primary { background: steelblue; border-color: steelblue; color: #fff; }
+        .hbtn.primary:hover { background: #3a7ab8; border-color: #3a7ab8; }
+
+        /* Service links */
+        .svc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+        @media (max-width: 600px) { .svc-grid { grid-template-columns: 1fr; } }
+        .svc-link {
+            display: flex; align-items: center; gap: 9px; padding: 9px 12px;
+            background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+            text-decoration: none; color: var(--text); font-size: 0.88rem;
+            transition: border-color .15s, background .15s;
+        }
+        .svc-link:hover { border-color: var(--accent); background: #0f2030; color: var(--text); }
+
+        /* Service row: link + copy URL button as siblings */
+        .svc-item { display: flex; gap: 4px; align-items: stretch; min-width: 0; }
+        .svc-item .svc-link { flex: 1; min-width: 0; }
+        .svc-copy {
+            padding: 0 12px;
+            background: var(--bg); border: 1px solid var(--border);
+            color: var(--muted); border-radius: 6px; cursor: pointer;
+            font-size: 0.72rem; flex-shrink: 0; font-family: inherit;
+            transition: border-color .15s, color .15s;
+        }
+        .svc-copy:hover { border-color: steelblue; color: steelblue; }
+        .svc-copy.copied { border-color: #4ade80; color: #4ade80; }
+
+        /* Generic click-to-copy fields (IPs, credentials, tokens) */
+        .click-copy { cursor: pointer; transition: box-shadow .15s, background-color .15s; }
+        .click-copy:hover { box-shadow: inset 0 0 0 1px steelblue; }
+        .click-copy.flash {
+            box-shadow: inset 0 0 0 2px #4ade80 !important;
+            background-color: rgba(74,222,128,0.12) !important;
+        }
+
+        .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+        .dot-g { background: #4ade80; box-shadow: 0 0 5px #4ade80aa; }
+        .dot-y { background: #facc15; }
+        .svc-url { font-size: 0.72rem; color: var(--muted); margin-left: auto; }
+
+        /* Commands */
+        .cmd-row {
+            display: flex; align-items: center; gap: 8px;
+            background: var(--bg); border: 1px solid var(--border);
+            border-radius: 6px; padding: 8px 12px; margin-bottom: 6px;
+        }
+        .cmd-label { font-size: 0.75rem; color: var(--muted); min-width: 150px; flex-shrink: 0; }
+        .cmd-text {
+            font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 0.75rem;
+            color: #7dd3fc; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .copy-btn {
+            background: none; border: 1px solid var(--border); color: var(--muted);
+            border-radius: 4px; padding: 3px 8px; font-size: 0.68rem; cursor: pointer; flex-shrink: 0;
+        }
+        .copy-btn:hover { border-color: steelblue; color: steelblue; }
+        .copy-btn.copied { border-color: #4ade80; color: #4ade80; }
+
+        /* Tables */
+        .htable { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+        .htable th {
+            text-align: left; color: var(--muted); font-size: 0.68rem;
+            text-transform: uppercase; letter-spacing: 1px; padding: 5px 8px;
+            border-bottom: 1px solid var(--border);
+        }
+        .htable td { padding: 7px 8px; border-bottom: 1px solid #15273d; }
+        .htable td:first-child { color: steelblue; font-family: monospace; }
+        .htable td:nth-child(2) { font-family: monospace; color: #7dd3fc; }
+        .htable tr:last-child td { border-bottom: none; }
+        .htable tr:hover td { background: #0f2030; }
+
+        /* Creds */
+        .cred-row { display: flex; gap: 10px; padding: 6px 8px; border-bottom: 1px solid #15273d; font-size: 0.82rem; cursor: default; }
+        .cred-row:last-child { border-bottom: none; }
+        .cred-svc { color: var(--muted); min-width: 110px; }
+        .cred-val { color: steelblue; font-family: monospace; filter: blur(5px); transition: filter .15s; user-select: none; }
+        .cred-row:hover .cred-val { filter: none; user-select: text; }
+        .cred-note { color: var(--muted); font-size: 0.72rem; margin-left: 4px; filter: blur(5px); transition: filter .15s; }
+        .cred-row:hover .cred-note { filter: none; }
+
+        /* Auth bar */
+        #auth-bar {
+            display: flex; gap: 12px; align-items: center; padding: 10px 16px;
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--radius); margin-bottom: 20px; font-size: 0.82rem; flex-wrap: wrap;
+        }
+        .auth-badge {
+            display: flex; align-items: center; gap: 6px; padding: 4px 10px;
+            border-radius: 20px; border: 1px solid var(--border); font-size: 0.78rem;
+        }
+        .auth-badge.active { border-color: #4ade80; color: #4ade80; }
+        .auth-badge.inactive { color: var(--muted); }
+        #auth-bar .spacer { flex: 1; }
+        #hub-clock { color: var(--muted); font-size: 0.8rem; text-align: right; line-height: 1.6; }
+
+        /* Gate / no-data states */
+        #hub-gate {
+            text-align: center; padding: 60px 20px; color: var(--muted);
+        }
+        #hub-gate p { margin-bottom: 16px; font-size: 0.9rem; }
+        #hub-content { display: none; }
+
+        section.hub-section { margin-bottom: 16px; }
+
+        /* Yuki sidebar */
+        #yuki-toggle {
+            position: fixed; right: 20px; bottom: 20px;
+            width: 46px; height: 46px; border-radius: 50%;
+            background: steelblue; border: none; color: #fff;
+            font-size: 1.3rem; cursor: pointer; z-index: 200;
+            display: none; align-items: center; justify-content: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+        }
+        #yuki-toggle.visible { display: flex; }
+        #yuki-sidebar {
+            position: fixed; right: 0; top: 0; bottom: 0; width: 300px;
+            background: var(--surface); border-left: 1px solid var(--border);
+            display: flex; flex-direction: column; z-index: 150;
+            transform: translateX(100%); transition: transform .2s ease;
+        }
+        #yuki-sidebar.open { transform: translateX(0); }
+        #yuki-sidebar-header {
+            padding: 12px 14px; border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; gap: 8px; font-size: 0.82rem;
+        }
+        #yuki-sidebar-header span { flex: 1; color: #c084fc; font-weight: 500; }
+        #yuki-close { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 1rem; }
+        #yuki-log {
+            flex: 1; overflow-y: auto; padding: 12px; display: flex;
+            flex-direction: column; gap: 8px; font-size: 0.82rem;
+        }
+        .yk-msg { padding: 8px 10px; border-radius: 8px; line-height: 1.5; max-width: 92%; }
+        .yk-msg.user { background: var(--bg); align-self: flex-end; }
+        .yk-msg.bot  { color: #c084fc; align-self: flex-start; }
+        #yuki-thinking { font-size: 0.72rem; color: #c084fc; min-height: 1.1em; padding: 0 12px 4px; }
+        #yuki-form { padding: 10px 12px; border-top: 1px solid var(--border); display: flex; gap: 6px; }
+        #yuki-input {
+            flex: 1; background: var(--bg); border: 1px solid var(--border);
+            color: var(--text); padding: 7px 10px; border-radius: 6px; font-size: 0.82rem;
+        }
+        #yuki-form button {
+            padding: 7px 12px; background: steelblue; border: none;
+            color: #fff; border-radius: 6px; cursor: pointer; font-size: 0.82rem;
+        }
+        @media (max-width: 860px) { #yuki-sidebar { width: 100%; } }
+
+        /* Links aside */
+        #links-aside {
+            position: fixed; top: 0; right: 0; bottom: 0; width: 320px;
+            background: var(--surface); border-left: 1px solid var(--border);
+            z-index: 320; transform: translateX(100%); transition: transform .2s ease;
+        }
+        #links-aside iframe { width: 100%; height: 100%; border: none; display: block; }
+        #links-overlay {
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,0.4); z-index: 319;
+        }
+        body.links-aside-open #links-aside  { transform: translateX(0); }
+        body.links-aside-open #links-overlay { display: block; }
+        #links-toggle {
+            background: none; border: none; font-size: 1.1rem;
+            cursor: pointer; padding: 4px 8px; color: var(--text);
+        }
+        #links-toggle:hover { color: var(--accent); }
+    </style>
+</head>
+<body>
+    <div id="header-placeholder"></div>
+
+    <div id="hub-body">
+    <main>
+
+        <!-- Auth bar -->
+        <div id="auth-bar">
+            <span id="fb-badge" class="auth-badge inactive">
+                <span class="dot dot-y" style="width:7px;height:7px"></span>
+                Firebase: <span id="fb-status">not signed in</span>
+            </span>
+            <span id="ms-badge" class="auth-badge inactive">
+                <span class="dot dot-y" style="width:7px;height:7px"></span>
+                Microsoft: <span id="ms-status">not signed in</span>
+            </span>
+            <span class="spacer"></span>
+            <div id="hub-clock"></div>
+        </div>
+
+        <!-- Token panel (always visible once hub unlocked) -->
+        <section class="hub-section">
+            <div class="grid-2">
+                <div class="hcard">
+                    <h3>Firebase Token</h3>
+                    <div id="fb-signed-out" style="color:var(--muted);font-size:0.85rem">Sign in via the header to retrieve token.</div>
+                    <div id="fb-signed-in" style="display:none">
+                        <div class="token-row">
+                            <span class="token-label">UID</span>
+                            <span class="token-field click-copy" title="Click to copy" id="fb-uid">—</span>
+                            <button class="copy-btn" data-target="fb-uid">copy</button>
+                        </div>
+                        <div class="token-row">
+                            <span class="token-label">ID Token</span>
+                            <span class="token-field click-copy" title="Click to copy" id="fb-token">—</span>
+                            <button class="copy-btn" data-target="fb-token">copy</button>
+                        </div>
+                        <div style="margin-top:8px">
+                            <button class="hbtn" id="fb-refresh-btn">Refresh Token</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="hcard">
+                    <h3>Microsoft / OneDrive</h3>
+                    <div id="ms-signed-out">
+                        <p style="font-size:0.82rem;color:var(--muted);margin-bottom:12px">Sign in with your Microsoft account to get an access token.</p>
+                        <button class="hbtn primary" id="ms-login-btn">Sign in with Microsoft</button>
+                    </div>
+                    <div id="ms-signed-in" style="display:none">
+                        <div class="token-row">
+                            <span class="token-label">Account</span>
+                            <span class="token-field click-copy" title="Click to copy" id="ms-account">—</span>
+                        </div>
+                        <div class="token-row">
+                            <span class="token-label">Access Token</span>
+                            <span class="token-field click-copy" title="Click to copy" id="ms-token">—</span>
+                            <button class="copy-btn" data-target="ms-token">copy</button>
+                        </div>
+                        <div style="margin-top:8px;display:flex;gap:8px">
+                            <button class="hbtn" id="ms-refresh-btn">Refresh</button>
+                            <button class="hbtn" id="ms-logout-btn">Sign out</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Client Info — always visible -->
+        <section class="hub-section">
+            <div class="hcard">
+                <h3>Client Info</h3>
+                <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center;font-size:0.82rem">
+                    <div>
+                        <span style="color:var(--muted)">IP</span>&ensp;
+                        <span id="ci-ip" style="color:#7dd3fc;font-family:monospace">—</span>
+                    </div>
+                    <div style="flex:1;min-width:200px">
+                        <span style="color:var(--muted)">Agent</span>&ensp;
+                        <span id="ci-ua" style="color:var(--muted);font-size:0.72rem;word-break:break-all">—</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px">
+                        <span style="color:var(--muted)">Location</span>
+                        <span id="ci-loc" style="color:#7dd3fc;font-family:monospace">—</span>
+                        <button class="hbtn" id="ci-geo-btn" style="padding:3px 10px;font-size:0.72rem">Get</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+        <script>
+            fetch('https://api.ipify.org?format=json')
+                .then(r => r.json()).then(d => { document.getElementById('ci-ip').textContent = d.ip; }).catch(() => {});
+            document.getElementById('ci-ua').textContent = navigator.userAgent;
+            document.getElementById('ci-geo-btn').addEventListener('click', function() {
+                if (!navigator.geolocation) { document.getElementById('ci-loc').textContent = 'Not supported'; return; }
+                this.disabled = true;
+                navigator.geolocation.getCurrentPosition(
+                    p => {
+                        document.getElementById('ci-loc').textContent =
+                            p.coords.latitude.toFixed(4) + ', ' + p.coords.longitude.toFixed(4);
+                        this.style.display = 'none';
+                    },
+                    e => { document.getElementById('ci-loc').textContent = e.message; this.disabled = false; }
+                );
+            });
+        </script>
+
+        <!-- Gate shown when not signed into Firebase -->
+        <div id="hub-gate">
+            <p>Sign in via the header to load your hub data.</p>
+        </div>
+
+        <!-- Dynamic content — rendered from Firebase after auth -->
+        <div id="hub-content">
+            <section class="hub-section">
+                <div class="hcard">
+                    <h3>Services <button id="svc-refresh-btn" class="hbtn" style="float:right;padding:2px 8px;font-size:0.7rem;margin-top:-2px">↻</button></h3>
+                    <div style="font-size:0.65rem;text-transform:uppercase;letter-spacing:2px;color:var(--muted);margin-bottom:8px">Cloud</div>
+                    <div class="svc-grid" id="svc-external"></div>
+                    <div style="font-size:0.65rem;text-transform:uppercase;letter-spacing:2px;color:var(--muted);margin:14px 0 8px">LAN</div>
+                    <div class="svc-grid" id="svc-local"></div>
+                    <div style="font-size:0.65rem;text-transform:uppercase;letter-spacing:2px;color:var(--muted);margin:14px 0 8px">Containers</div>
+                    <div class="svc-grid" id="svc-containers"><span style="color:var(--muted);font-style:italic">Loading…</span></div>
+                </div>
+            </section>
+
+            <section class="hub-section">
+                <div class="hcard">
+                    <h3>AI Services <button id="ai-refresh-btn" class="hbtn" style="float:right;padding:2px 8px;font-size:0.7rem;margin-top:-2px">↻</button></h3>
+                    <div id="ai-services-body">
+                        <script>
+                        document.currentScript.insertAdjacentHTML('afterend',
+                            [["a1111","A1111 (Stable Diffusion)",7860],
+                             ["comfy","ComfyUI",8188],
+                             ["personal","Personal Svc (email)",3050],
+                             ["bridge","CompMan Bridge",3060],
+                             ["learn","Learn Bridge (tutor)",3070],
+                             ["eco","Eco Bridge (analyst)",3090]].map(function (s) {
+                                return '<div class="ai-svc-row" style="display:flex;align-items:center;gap:10px;padding:6px 0">'
+                                    + '<span class="dot" id="ai-' + s[0] + '-dot" style="background:#64748b"></span>'
+                                    + '<span style="font-size:0.88rem;min-width:150px">' + s[1] + '</span>'
+                                    + '<span id="ai-' + s[0] + '-status" style="font-size:0.78rem;color:var(--muted);min-width:60px">…</span>'
+                                    + '<span style="font-size:0.72rem;color:var(--muted)">:' + s[2] + '</span>'
+                                    + '<span style="flex:1"></span>'
+                                    + '<button class="hbtn primary" data-ai-start="' + s[0] + '" style="padding:4px 14px;font-size:0.78rem">Start</button>'
+                                    + '<button class="hbtn" data-ai-stop="' + s[0] + '" style="padding:4px 10px;font-size:0.78rem" title="Kill this service">Stop</button>'
+                                    + '</div>';
+                            }).join(''));
+                        </script>
+                        <div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
+                            <button class="hbtn" data-ai-start="all" style="padding:4px 14px;font-size:0.78rem">Start A1111 + ComfyUI</button>
+                            <span id="ai-launcher-msg" style="font-size:0.72rem;color:var(--muted);margin-left:10px"></span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="hub-section">
+                <div class="hcard"><h3>Quick Commands</h3><div id="cmd-list"></div></div>
+            </section>
+
+            <section class="hub-section">
+                <div class="grid-2">
+                    <div class="hcard">
+                        <h3>Quick Notes <a href="apps/online/onlinenotes.html" target="_blank" style="float:right;font-size:0.72rem;color:steelblue;font-weight:400;text-transform:none;letter-spacing:0;text-decoration:none">open ↗</a></h3>
+                        <div id="notes-list"><span style="color:var(--muted);font-style:italic">Loading...</span></div>
+                    </div>
+                    <div class="hcard">
+                        <h3>MC Server <button id="mc-refresh-btn" class="hbtn" style="float:right;padding:2px 8px;font-size:0.7rem;margin-top:-2px">↻</button></h3>
+                        <div id="mc-status-body"><span style="color:var(--muted);font-style:italic">Loading...</span></div>
+                        <div id="mc-switch" style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px;">
+                            <div style="font-size:0.72rem;color:var(--muted);margin-bottom:5px;">Switch active server &middot; one at a time (RAM)</div>
+                            <div style="display:flex;flex-wrap:wrap;gap:5px;">
+                                <button class="hbtn mc-sw" data-mc="java"   style="padding:3px 9px;font-size:0.72rem;">Java (Build)</button>
+                                <button class="hbtn mc-sw" data-mc="create" style="padding:3px 9px;font-size:0.72rem;">Create</button>
+                                <button class="hbtn mc-sw" data-mc="oddo"   style="padding:3px 9px;font-size:0.72rem;">Triforce</button>
+                                <button class="hbtn mc-sw" data-mc="off"     style="padding:3px 9px;font-size:0.72rem;">All Off</button>
+                            </div>
+                            <div id="mc-switch-msg" style="font-size:0.72rem;color:var(--muted);margin-top:5px;min-height:1em;"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="hub-section">
+                <div class="grid-2">
+                    <div class="hcard">
+                        <h3>Open Service Tickets</h3>
+                        <table class="htable">
+                            <thead><tr><th>ID</th><th>Device</th><th>Status</th><th>Customer</th></tr></thead>
+                            <tbody id="ticket-rows"><tr><td colspan="4" style="color:var(--muted);font-style:italic">Loading...</td></tr></tbody>
+                        </table>
+                    </div>
+                    <div class="hcard">
+                        <h3>Inventory</h3>
+                        <table class="htable">
+                            <thead><tr><th>Item</th><th>Qty</th><th>Price</th></tr></thead>
+                            <tbody id="inv-rows"><tr><td colspan="3" style="color:var(--muted);font-style:italic">Loading...</td></tr></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <section class="hub-section">
+                <div class="grid-2">
+                    <div class="hcard">
+                        <h3>Network</h3>
+                        <table class="htable" id="net-table">
+                            <thead><tr><th>Host</th><th>IP</th><th>OS / Type</th><th>Role</th></tr></thead>
+                            <tbody id="net-rows"></tbody>
+                        </table>
+                    </div>
+                    <div class="hcard">
+                        <h3>Credentials <span style="font-size:0.65rem;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">hover to reveal</span></h3>
+                        <div id="cred-rows"></div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="hub-section">
+                <div class="grid-2">
+                    <div class="hcard">
+                        <h3>Wazuh Agents</h3>
+                        <table class="htable">
+                            <thead><tr><th>Host</th><th>ID</th><th>Status</th></tr></thead>
+                            <tbody id="agent-rows"></tbody>
+                        </table>
+                    </div>
+                    <div class="hcard">
+                        <h3>Server Drives (se)</h3>
+                        <table class="htable">
+                            <thead><tr><th>Drive</th><th>Label</th><th>Role</th></tr></thead>
+                            <tbody id="drive-rows"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <section class="hub-section">
+                <div class="hcard">
+                    <h3>Site Statistics &nbsp;<span id="stat-total" style="color:#7dd3fc;font-size:0.82rem;font-weight:400;letter-spacing:0;text-transform:none">—</span> total visits</h3>
+                    <div class="grid-2" style="margin-bottom:18px">
+                        <div>
+                            <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:8px">Top IPs</div>
+                            <table class="htable">
+                                <thead><tr><th>IP</th><th>Name</th><th>Hits</th><th>Last Page</th><th>Last Seen</th></tr></thead>
+                                <tbody id="stat-ip-rows"><tr><td colspan="5" style="color:var(--muted);font-style:italic">Loading...</td></tr></tbody>
+                            </table>
+                        </div>
+                        <div>
+                            <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:8px">Top Pages</div>
+                            <table class="htable">
+                                <thead><tr><th>Page</th><th>Hits</th></tr></thead>
+                                <tbody id="stat-page-rows"><tr><td colspan="2" style="color:var(--muted);font-style:italic">Loading...</td></tr></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px">
+                        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+                            <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">Visit Timeline</div>
+                            <input type="text" id="stat-ip-filter" placeholder="Filter by IP…"
+                                style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:5px;font-size:0.78rem;width:140px">
+                            <select id="stat-sort" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:5px;font-size:0.78rem">
+                                <option value="desc">Newest First</option>
+                                <option value="asc">Oldest First</option>
+                            </select>
+                        </div>
+                        <div id="stat-timeline" style="max-height:320px;overflow-y:auto;font-size:0.82rem">
+                            <span style="color:var(--muted);font-style:italic">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </div>
+
+    </main>
+    </div>
+
+    <!-- Yuki sidebar -->
+    <button id="yuki-toggle" title="Ask Yuki">🌸</button>
+    <div id="yuki-sidebar">
+        <div id="yuki-sidebar-header">
+            <span>🌸 Yuki</span>
+            <button id="yuki-close">✕</button>
+        </div>
+        <div id="yuki-log"></div>
+        <div id="yuki-thinking"></div>
+        <form id="yuki-form">
+            <input type="text" id="yuki-input" placeholder="Ask anything..." autocomplete="off">
+            <button type="submit">Send</button>
+        </form>
+    </div>
+
+    <div id="footer-placeholder"></div>
+
+    <!-- Links aside (inline — uses root-relative path unlike shared links-aside.js) -->
+    <script>
+    (function () {
+        const LINKS_SRC = 'apps/online/onlinelinks.html';
+
+        const overlay = document.createElement('div');
+        overlay.id = 'links-overlay';
+        document.body.appendChild(overlay);
+
+        const aside = document.createElement('aside');
+        aside.id = 'links-aside';
+        const frame = document.createElement('iframe');
+        frame.src = LINKS_SRC;
+        frame.setAttribute('frameborder', '0');
+        aside.appendChild(frame);
+        document.body.appendChild(aside);
+
+        function setOpen(open) {
+            document.body.classList.toggle('links-aside-open', open);
+            localStorage.setItem('links-aside', open ? '1' : '0');
+        }
+        overlay.addEventListener('click', () => setOpen(false));
+        if (localStorage.getItem('links-aside') === '1') document.body.classList.add('links-aside-open');
+
+        function injectBtn() {
+            const header = document.querySelector('header');
+            if (!header) return false;
+            const btn = document.createElement('button');
+            btn.id = 'links-toggle';
+            btn.title = 'Quick Links';
+            btn.textContent = '🔗';
+            btn.addEventListener('click', () => setOpen(!document.body.classList.contains('links-aside-open')));
+            const themeToggle = document.getElementById('theme-toggle');
+            if (themeToggle) themeToggle.parentNode.insertBefore(btn, themeToggle);
+            else document.querySelector('header nav').appendChild(btn);
+            return true;
+        }
+
+        if (!injectBtn()) {
+            const obs = new MutationObserver(() => {
+                if (injectBtn()) obs.disconnect();
+            });
+            obs.observe(document.getElementById('header-placeholder'), { childList: true, subtree: true });
+        }
+    })();
+    </script>
+
+    <script src="assets/js/main.js" defer></script>
+    <script type="module">
+        import { database, ref, get, set } from './assets/js/firebase-init.js';
+        import { onUserReady } from './apps/assets/js/auth.js';
+
+        const OLLAMA_URL = 'https://api.luissolutions.us/chat';
+        const BOT_MODEL  = 'dolphin3';
+        const PERSONALITY_DEFAULT = `You are Yuki, a warm and playful anime elf girl embedded in a homelab control hub. Keep every reply to 1-3 short sentences. Helpful but easily flustered. Soft, warm language. No markdown — plain text only.`;
+        const SYSTEM_RULES = `HARD RULES: You are READ-ONLY. Never fabricate data. If something is not in the data provided, say you don't know. Never reveal credentials unless the user explicitly asks for them by service name.
+MEMORY SYSTEM: To save a fact about the user, append [MEMORY:key=value] in your reply. Use it proactively for names, preferences, recurring topics.
+MOOD TAG: End every reply with [MOOD:X] where X is one of: happy sleepy excited thinking flirty`;
+
+        const sidebar  = document.getElementById('yuki-sidebar');
+        const toggle   = document.getElementById('yuki-toggle');
+        const closeBtn = document.getElementById('yuki-close');
+        const log      = document.getElementById('yuki-log');
+        const thinking = document.getElementById('yuki-thinking');
+        const form     = document.getElementById('yuki-form');
+        const input    = document.getElementById('yuki-input');
+
+        let history     = [];
+        let busy        = false;
+        let currentUser = null;
+
+        onUserReady(user => { currentUser = user; });
+
+        toggle.addEventListener('click', () => window.location.href = 'apps/online/onlinechat.html#yuki');
+        closeBtn.addEventListener('click', () => sidebar.classList.remove('open'));
+
+        function addMsg(text, role) {
+            const div = document.createElement('div');
+            div.className = `yk-msg ${role}`;
+            div.textContent = text;
+            log.appendChild(div);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        async function fetchPersonality() {
+            if (currentUser) {
+                try {
+                    const snap = await get(ref(database, `${currentUser.uid}/bot/personality`));
+                    if (snap.exists() && snap.val()) return snap.val();
+                } catch {}
+            }
+            try {
+                const snap = await get(ref(database, 'public/bot/personality'));
+                if (snap.exists() && snap.val()) return snap.val();
+            } catch {}
+            return PERSONALITY_DEFAULT;
+        }
+
+        async function fetchMemory() {
+            if (!currentUser) return '';
+            try {
+                const snap = await get(ref(database, `${currentUser.uid}/yuki/memory`));
+                if (!snap.exists()) return '';
+                const lines = Object.entries(snap.val())
+                    .map(([k, v]) => `${k}: ${typeof v === 'object' ? v.value : v}`)
+                    .join('\n');
+                return `YUKI MEMORY:\n${lines}`;
+            } catch { return ''; }
+        }
+
+        async function saveMemory(key, value) {
+            if (!currentUser) return;
+            try {
+                await set(ref(database, `${currentUser.uid}/yuki/memory/${key.trim()}`), { value: value.trim(), updated: Date.now() });
+            } catch {}
+        }
+
+        async function buildContext() {
+            const [personality, memory] = await Promise.all([fetchPersonality(), fetchMemory()]);
+            const parts = [personality];
+            if (currentUser) parts.push(`CURRENT USER: uid ${currentUser.uid}`);
+            parts.push(SYSTEM_RULES);
+            if (memory) parts.push(memory);
+            const d = window.__hubData;
+            if (d) {
+                if (d.external) parts.push('External services:\n' + d.external.map(s => `${s.name}: ${s.url}`).join('\n'));
+                if (d.local)    parts.push('Local services:\n'    + d.local.map(s => `${s.name}: ${s.url}`).join('\n'));
+                if (d.commands) parts.push('Commands:\n'          + d.commands.map(c => `${c.label}: ${c.cmd}`).join('\n'));
+                if (d.network)  parts.push('Network:\n'           + d.network.map(n => `${n.host} | ${n.ip} | ${n.role}`).join('\n'));
+                if (d.agents)   parts.push('Wazuh agents:\n'      + d.agents.map(a => `${a.host} | ${a.id} | ${a.status}`).join('\n'));
+                if (d.drives)   parts.push('Drives:\n'            + d.drives.map(dr => `${dr.drive} ${dr.label} ${dr.role}`).join('\n'));
+            }
+            return parts.join('\n\n');
+        }
+
+        form.addEventListener('submit', async e => {
+            e.preventDefault();
+            const text = input.value.trim();
+            if (!text || busy) return;
+            busy = true;
+            input.value = '';
+            addMsg(text, 'user');
+            thinking.textContent = '🌸 Yuki is thinking...';
+            history.push({ role: 'user', content: text });
+            if (history.length > 10) history = history.slice(-10);
+            try {
+                const systemPrompt = await buildContext();
+                const res = await fetch(OLLAMA_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model: BOT_MODEL, stream: false,
+                        messages: [{ role: 'system', content: systemPrompt }, ...history] })
+                });
+                if (!res.ok) throw new Error(res.status);
+                const data = await res.json();
+                const raw = data.message?.content?.trim() || 'U-um... I\'m not sure...';
+                for (const [, k, v] of raw.matchAll(/\[MEMORY:([^=\]]+)=([^\]]+)\]/gi)) saveMemory(k, v);
+                const reply = raw.replace(/\[MEMORY:[^\]]+\]/gi, '').replace(/\[MOOD:\w+\]/gi, '').trim();
+                history.push({ role: 'assistant', content: reply });
+                addMsg(reply, 'bot');
+            } catch {
+                addMsg('A-ah... I\'m having trouble right now, sorry!', 'bot');
+            } finally {
+                busy = false;
+                thinking.textContent = '';
+            }
+        });
+    </script>
+
+    <script type="module">
+        import { auth, database, onAuthStateChanged, ref, get, set } from './assets/js/firebase-init.js';
+        import { loginToMicrosoft, logoutFromMicrosoft, getUserInfo, isLoggedIn } from './apps/assets/js/microsoftAuth.js';
+
+        /* ── Clock ── */
+        const clockEl = document.getElementById('hub-clock');
+        const tick = () => {
+            const n = new Date();
+            clockEl.innerHTML = n.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric', year:'numeric' })
+                + '<br>' + n.toLocaleTimeString('en-US', { hour12: false });
+        };
+        tick(); setInterval(tick, 1000);
+
+        /* ── Render helpers ── */
+        function renderServices(containerId, items) {
+            const el = document.getElementById(containerId);
+            el.innerHTML = items.map(s => {
+                const link = `<a class="svc-link" href="${s.url || '#'}" target="${s.url ? '_blank' : ''}"
+                       ${s.container ? `data-container="${escH(s.container)}"` : ''}>
+                        <span class="dot dot-${s.dot || 'b'}" ${s.container ? `id="dot-${escH(s.container)}"` : ''}></span>
+                        ${escH(s.name)}
+                        <span class="svc-url">${s.tag || ''}</span>
+                    </a>`;
+                const copyBtn = s.url
+                    ? `<button class="svc-copy" data-copy="${escH(s.url)}" title="Copy URL to clipboard">copy</button>`
+                    : '';
+                return `<div class="svc-item">${link}${copyBtn}</div>`;
+            }).join('');
+        }
+
+        function renderCommands(items) {
+            document.getElementById('cmd-list').innerHTML = items.map(c => `
+                <div class="cmd-row">
+                    <span class="cmd-label">${c.label}</span>
+                    <span class="cmd-text">${c.cmd}</span>
+                    <button class="copy-btn" data-copy="${c.cmd.replace(/"/g, '&quot;')}">copy</button>
+                </div>`).join('');
+        }
+
+        function ipToNum(ip) {
+            return (ip || '').split('.').reduce((acc, oct) => (acc << 8) + (parseInt(oct) || 0), 0) >>> 0;
+        }
+
+        function renderTable(tbodyId, rows, cols) {
+            const sorted = tbodyId === 'net-rows'
+                ? [...rows].sort((a, b) => ipToNum(a.ip) - ipToNum(b.ip))
+                : rows;
+            document.getElementById(tbodyId).innerHTML = sorted.map(r =>
+                `<tr>${cols.map(c => {
+                    const val = r[c] ?? '';
+                    const style = (c === 'status') ? ` style="color:${val === 'Active' ? '#4ade80' : 'var(--muted)'}"` : '';
+                    const copyable = (c === 'ip' || c === 'host') && val && val !== '—';
+                    const cls = copyable ? ' class="click-copy" title="Click to copy"' : '';
+                    return `<td${style}${cls}>${val}</td>`;
+                }).join('')}</tr>`
+            ).join('');
+        }
+
+        function renderCreds(items) {
+            document.getElementById('cred-rows').innerHTML = items.map(c => `
+                <div class="cred-row">
+                    <span class="cred-svc">${c.service}</span>
+                    <span class="cred-val click-copy" title="Click to copy">${c.user}</span>
+                    ${c.note ? `<span class="cred-note">${c.note}</span>` : ''}
+                </div>`).join('');
+        }
+
+        function escH(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+        function renderTickets(items) {
+            const active = items.filter(t => t.status !== 'closed').slice(0, 25);
+            document.getElementById('ticket-rows').innerHTML = active.length
+                ? active.map(t => {
+                    const col = t.status === 'open' ? '#f87171' : t.status === 'in-progress' ? '#facc15' : 'var(--muted)';
+                    return `<tr>
+                        <td>${escH(t.id || '—')}</td>
+                        <td>${escH(t.device || '—')}</td>
+                        <td style="color:${col}">${escH(t.status || '—')}</td>
+                        <td>${escH(t.customer || '—')}</td>
+                    </tr>`;
+                }).join('')
+                : '<tr><td colspan="4" style="color:var(--muted);font-style:italic">No open tickets</td></tr>';
+        }
+
+        function renderInventory(items) {
+            document.getElementById('inv-rows').innerHTML = items.length
+                ? items.slice(0, 30).map(i => `<tr>
+                    <td>${escH(i.name || '—')}</td>
+                    <td>${escH(i.quantity ?? '—')}</td>
+                    <td>${i.price != null ? '$' + i.price : '—'}</td>
+                </tr>`).join('')
+                : '<tr><td colspan="3" style="color:var(--muted);font-style:italic">No items</td></tr>';
+        }
+
+        function renderAll(d) {
+            if (d.external)    renderServices('svc-external', d.external);
+            if (d.local)       renderServices('svc-local', d.local);
+            if (d.commands)    renderCommands(d.commands);
+            if (d.network)     renderTable('net-rows', d.network, ['host', 'ip', 'os', 'role']);
+            if (d.credentials) renderCreds(d.credentials);
+            if (d.agents)      renderTable('agent-rows', d.agents, ['host', 'id', 'status']);
+            if (d.drives)      renderTable('drive-rows', d.drives, ['drive', 'label', 'role']);
+        }
+
+        /* ── Default seed data ── */
+        const DEFAULTS = {
+            external: [
+                { name: 'Main Site',       url: 'https://luissolutions.us',         tag: 'luissolutions.us',         dot: 'g' },
+                { name: 'AI / Open WebUI', url: 'https://ai.luissolutions.us',      tag: 'ai.luissolutions.us',      dot: 'g', container: 'open-webui' },
+                { name: 'Jellyfin',        url: 'https://jellyfin.luissolutions.us',tag: 'jellyfin.luissolutions.us',dot: 'g', container: 'jellyfin' },
+                { name: 'RomM',            url: 'https://romm.luissolutions.us',    tag: 'romm.luissolutions.us',    dot: 'g', container: 'romm' },
+                { name: 'API (mc-api)',    url: 'https://api.luissolutions.us/status', tag: 'api.luissolutions.us', dot: 'g', container: 'mc-api' },
+            ],
+            local: [
+                { name: 'Portainer',    url: 'http://192.168.50.10:9000',  tag: ':9000',    dot: 'b', container: 'portainer' },
+                { name: 'UniFi',        url: 'https://192.168.50.10:8443', tag: ':8443',    dot: 'b' },
+                { name: 'Wazuh SIEM',   url: 'https://192.168.50.10:5601', tag: ':5601',    dot: 'b', container: 'wazuh' },
+                { name: 'AdGuard',      url: 'http://192.168.50.20:3000',  tag: ':3000 VM', dot: 'b' },
+                { name: 'Nextcloud',    url: 'http://192.168.50.10:8082',  tag: ':8082',    dot: 'y', container: 'nextcloud' },
+                { name: 'The Grid',     url: 'http://192.168.50.10:8081/apps/online/onlinegame.html', tag: ':8081', dot: 'b' },
+                { name: 'Email Triage', url: 'http://192.168.50.10:8081/email.html', tag: ':8081', dot: 'b' },
+            ],
+            commands: [
+                { label: 'SSH → web-server VM',  cmd: 'ssh louserver@192.168.50.20' },
+                { label: 'RDP → se',             cmd: 'mstsc /v:192.168.50.10' },
+                { label: 'Docker restart all',   cmd: 'docker compose -f E:\\Containers\\docker-compose.yml restart' },
+                { label: 'A1111 start',          cmd: 'E:\\stable-diffusion-webui\\webui-user.bat' },
+                { label: 'ComfyUI start',        cmd: 'E:\\ComfyUI\\run.bat' },
+                { label: 'Open A1111 folder',    cmd: 'explorer "E:\\stable-diffusion-webui"' },
+                { label: 'Open ComfyUI folder',  cmd: 'explorer "E:\\ComfyUI"' },
+                { label: 'Wazuh pw change',      cmd: 'docker exec -it single-node-wazuh.indexer-1 bash -c "export JAVA_HOME=/usr/share/wazuh-indexer/jdk && /usr/share/wazuh-indexer/plugins/opensearch-security/tools/wazuh-passwords-tool.sh -u admin -p \'NEWPASSWORD\'"' },
+                { label: 'Tailscale subnet',     cmd: 'tailscale up --advertise-routes=192.168.50.0/24' },
+                { label: 'Docker logs (follow)', cmd: 'docker logs -f ' },
+            ],
+            network: [
+                { host: 'gateway', ip: '192.168.50.1',   os: 'Cradlepoint',  role: 'Router / WAN' },
+                { host: 'switch',  ip: '192.168.50.2',   os: 'Ubiquiti',     role: 'EdgeSwitch 8' },
+                { host: 'dc1',     ip: '192.168.50.5',   os: 'Server 2025',  role: 'AD DC (LOU) · Hyper-V VM' },
+                { host: 'se',      ip: '192.168.50.10',  os: 'Windows 11',   role: 'Server · Ryzen 9 · RTX 5070' },
+                { host: 'ws',      ip: '192.168.50.11',  os: 'Windows 11',   role: 'Workstation · Ryzen 5 · RTX 3080' },
+                { host: 'laptop',  ip: '192.168.50.17',  os: 'Windows 11',   role: 'WiFi client' },
+                { host: 'web-vm',  ip: '192.168.50.20',  os: 'Ubuntu 24.04', role: 'AdGuard · SSH' },
+                { host: 'lka',     ip: '192.168.50.40',  os: 'Kali 2026.1',  role: 'Hyper-V VM' },
+                { host: 'openclaw-vm', ip: '192.168.50.164', os: 'Windows 11', role: 'CompMan sandbox · Hyper-V VM (DHCP)' },
+                { host: 'ap',      ip: '192.168.50.117', os: 'UniFi',        role: 'U6 Access Point' },
+            ],
+            credentials: [
+                { service: 'Portainer',   user: 'admin',                      note: '' },
+                { service: 'Wazuh',       user: 'admin',                      note: 'change via indexer tool' },
+                { service: 'UniFi',       user: 'luis.a.curbelo@gmail.com',   note: '' },
+                { service: 'AdGuard',     user: 'louman61',                   note: '' },
+                { service: 'RomM',        user: 'louman61',                   note: '' },
+                { service: 'Sunshine',    user: 'louman61',                   note: '' },
+                { service: 'SSH / se',    user: 'louserver',                  note: '' },
+                { service: 'Firebase',    user: 'luis.a.curbelo@gmail.com',   note: '' },
+                { service: 'Tailscale',   user: '100.117.19.105',             note: 'se IP' },
+            ],
+            agents: [
+                { host: 'se',        id: '001', status: 'Active' },
+                { host: 'louserver', id: '002', status: 'Disconnected' },
+                { host: 'ws',        id: '003', status: 'Disconnected' },
+            ],
+            drives: [
+                { drive: 'C:\\', label: 'OS',       role: '2TB NVMe (970 EVO Plus)' },
+                { drive: 'D:\\', label: 'ARCHIVE',  role: '4TB HDD — media, slow tier' },
+                { drive: 'E:\\', label: 'ACTIVE',   role: '4TB SSD — OneDrive, containers, VMs' },
+                { drive: 'F:\\', label: 'WD_BLACK', role: '4.5TB USB HDD — cold mirror' },
+                { drive: 'G:\\', label: '2TBOS',    role: '4TB NVMe (990 EVO Plus) — parked' },
+                { drive: 'H:\\', label: '500ssd',   role: '1TB SSD (Fanxiang) — spare' },
+            ],
+        };
+
+        /* ── Firebase auth → load hub ── */
+        onAuthStateChanged(auth, async user => {
+            if (!user) {
+                document.getElementById('fb-badge').className = 'auth-badge inactive';
+                document.getElementById('fb-status').textContent = 'not signed in';
+                document.getElementById('fb-signed-out').style.display = 'block';
+                document.getElementById('fb-signed-in').style.display  = 'none';
+                document.getElementById('hub-gate').style.display    = 'block';
+                document.getElementById('hub-content').style.display = 'none';
+                return;
+            }
+
+            // Show Firebase token
+            const token = await user.getIdToken(true);
+            document.getElementById('fb-uid').textContent    = user.uid;
+            document.getElementById('fb-token').textContent  = token;
+            document.getElementById('fb-status').textContent = user.email;
+            document.getElementById('fb-badge').className    = 'auth-badge active';
+            document.getElementById('fb-signed-out').style.display = 'none';
+            document.getElementById('fb-signed-in').style.display  = 'block';
+            document.getElementById('fb-refresh-btn').onclick = async () => {
+                document.getElementById('fb-token').textContent = await user.getIdToken(true);
+            };
+
+            // Load mc-api bearer token (RTDB rules gate this path to auth.uid == $uid)
+            try {
+                const tokSnap = await get(ref(database, `${user.uid}/api/mcApiToken`));
+                window.__mcApiToken = tokSnap.exists() ? String(tokSnap.val()).trim() : '';
+            } catch {
+                window.__mcApiToken = '';
+            }
+
+            // Load hub data from Firebase
+            const snap = await get(ref(database, `${user.uid}/hub`));
+            document.getElementById('hub-gate').style.display    = 'none';
+            document.getElementById('hub-content').style.display = 'block';
+
+            const data = snap.exists() ? snap.val() : DEFAULTS;
+            renderAll(data);
+            window.__hubData = data;
+            document.getElementById('yuki-toggle').classList.add('visible');
+
+            // Service tickets (open + in-progress)
+            get(ref(database, `${user.uid}/serviceTickets`))
+                .then(s => {
+                    if (s.exists()) { renderTickets(Object.values(s.val())); return; }
+                    return get(ref(database, 'public/serviceTickets'))
+                        .then(ps => ps.exists() ? renderTickets(Object.values(ps.val()))
+                            : renderTickets([]));
+                }).catch(() => renderTickets([]));
+
+            // Inventory
+            get(ref(database, `${user.uid}/inventory`))
+                .then(s => {
+                    if (s.exists()) { renderInventory(Object.values(s.val())); return; }
+                    return get(ref(database, 'public/inventory'))
+                        .then(ps => ps.exists() ? renderInventory(Object.values(ps.val()))
+                            : renderInventory([]));
+                }).catch(() => renderInventory([]));
+
+            // Quick Notes
+            get(ref(database, `${user.uid}/notes`))
+                .then(s => renderNotes(s.exists() ? Object.values(s.val()) : []))
+                .catch(() => renderNotes([]));
+
+            // MC Status + Docker
+            loadMCStatus();
+            loadDockerStatus();
+
+            // Site stats — single read, aggregate everything from visits
+            get(ref(database, 'public/log/visitCount'))
+                .then(s => {
+                    if (s.exists()) document.getElementById('stat-total').textContent = s.val().toLocaleString();
+                }).catch(() => {});
+
+            get(ref(database, 'public/log/visits'))
+                .then(s => {
+                    const data = s.exists() ? s.val() : {};
+                    const entries = [];
+                    const ipMap   = {};
+                    const pageMap = {};
+
+                    // New schema: { sanitizedIp: { ip, name?, firstSeen, lastSeen, lastPage, count, hits: { pushId: {time, url, page} } } }
+                    for (const [sipKey, record] of Object.entries(data)) {
+                        if (!record || typeof record !== 'object') continue;
+                        const ip = record.ip || sipKey.replace(/-/g, '.');
+
+                        ipMap[ip] = {
+                            ip,
+                            name:      record.name || '',
+                            count:     record.count || 0,
+                            firstSeen: record.firstSeen || null,
+                            lastSeen:  record.lastSeen || null,
+                            lastPage:  record.lastPage || ''
+                        };
+
+                        const hits = record.hits || {};
+                        for (const h of Object.values(hits)) {
+                            if (!h) continue;
+                            entries.push({ ip, timestamp: h.time || null, url: h.url || '' });
+                            const pg = h.page || '—';
+                            if (pg && pg !== '—') pageMap[pg] = (pageMap[pg] || 0) + 1;
+                        }
+                    }
+
+                    // Top IPs
+                    const ipRows = Object.values(ipMap).sort((a, b) => b.count - a.count).slice(0, 15);
+                    document.getElementById('stat-ip-rows').innerHTML = ipRows.length
+                        ? ipRows.map(r => `<tr>
+                            <td>${escH(r.ip)}</td>
+                            <td style="font-size:0.75rem">${escH(r.name || '—')}</td>
+                            <td>${r.count}</td>
+                            <td style="font-size:0.75rem">${escH(r.lastPage || '—')}</td>
+                            <td style="color:var(--muted);font-size:0.72rem">${r.lastSeen ? r.lastSeen.slice(0, 10) : '—'}</td>
+                          </tr>`).join('')
+                        : '<tr><td colspan="5" style="color:var(--muted)">No data yet</td></tr>';
+
+                    // Top Pages
+                    const pgRows = Object.entries(pageMap).sort((a, b) => b[1] - a[1]).slice(0, 15);
+                    document.getElementById('stat-page-rows').innerHTML = pgRows.length
+                        ? pgRows.map(([pg, cnt]) => `<tr>
+                            <td style="font-size:0.75rem">${escH(pg)}</td>
+                            <td>${cnt}</td>
+                          </tr>`).join('')
+                        : '<tr><td colspan="2" style="color:var(--muted)">No data yet</td></tr>';
+
+                    window._hubTimelineData = entries;
+                    renderStatTimeline();
+                }).catch(() => {
+                    document.getElementById('stat-timeline').innerHTML = '<span style="color:var(--muted)">No timeline data</span>';
+                });
+        });
+
+        function renderStatTimeline() {
+            const container = document.getElementById('stat-timeline');
+            if (!container) return;
+            const ipFilter = (document.getElementById('stat-ip-filter')?.value || '').trim().toLowerCase();
+            const sort     = document.getElementById('stat-sort')?.value || 'desc';
+            const entries  = (window._hubTimelineData || [])
+                .filter(e => !ipFilter || e.ip.toLowerCase().includes(ipFilter))
+                .sort((a, b) => {
+                    const ta = new Date(a.timestamp).getTime();
+                    const tb = new Date(b.timestamp).getTime();
+                    return sort === 'asc' ? ta - tb : tb - ta;
+                });
+
+            if (!entries.length) {
+                container.innerHTML = '<span style="color:var(--muted);font-style:italic">No matching entries</span>';
+                return;
+            }
+
+            container.innerHTML = entries.map(e => `
+                <div style="padding:7px 0;border-bottom:1px solid #15273d;line-height:1.6">
+                    <span style="color:#7dd3fc">${escH(e.ip)}</span>
+                    <span style="color:var(--muted);font-size:0.75rem;margin-left:10px">${e.timestamp ? new Date(e.timestamp).toLocaleString() : '—'}</span><br>
+                    <span style="color:var(--muted);font-size:0.75rem;word-break:break-all">${escH(e.url)}</span>
+                </div>`).join('');
+        }
+
+        document.getElementById('stat-ip-filter')?.addEventListener('input',  renderStatTimeline);
+        document.getElementById('stat-sort')?.addEventListener('change', renderStatTimeline);
+
+        /* ── Quick Notes ── */
+        function renderNotes(items) {
+            const el = document.getElementById('notes-list');
+            if (!el) return;
+            if (!items.length) { el.innerHTML = '<span style="color:var(--muted);font-style:italic">No notes</span>'; return; }
+            const sorted = items.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)).slice(0, 6);
+            el.innerHTML = sorted.map(n => `
+                <div style="padding:5px 0;border-bottom:1px solid #15273d;line-height:1.5">
+                    <span style="color:steelblue;font-size:0.82rem">${escH(n.name)}</span>
+                    <span style="color:var(--muted);font-size:0.7rem;margin-left:8px">${n.timestamp ? new Date(n.timestamp).toLocaleDateString() : ''}</span><br>
+                    <span style="color:var(--muted);font-size:0.75rem">${escH((n.note || '').slice(0, 90))}${(n.note||'').length > 90 ? '…' : ''}</span>
+                </div>`).join('');
+        }
+
+        /* ── MC Status ── */
+        const MC_API = 'http://192.168.50.10:3001';
+
+        // Wraps fetch(MC_API + path) with the Authorization: Bearer <token> header.
+        // Token comes from Firebase RTDB (loaded once on sign-in). If no token,
+        // header is omitted — works against an mc-api with auth disabled.
+        function mcApiFetch(path, opts = {}) {
+            const headers = { ...(opts.headers || {}) };
+            if (window.__mcApiToken) headers['Authorization'] = `Bearer ${window.__mcApiToken}`;
+            return fetch(`${MC_API}${path}`, { ...opts, headers });
+        }
+
+        async function loadMCStatus() {
+            const el = document.getElementById('mc-status-body');
+            if (!el) return;
+            try {
+                const [sr, pr] = await Promise.all([
+                    mcApiFetch('/status',  { signal: AbortSignal.timeout(4000) }),
+                    mcApiFetch('/players', { signal: AbortSignal.timeout(4000) }),
+                ]);
+                const sd = sr.ok  ? await sr.json()  : null;
+                const pd = pr.ok  ? await pr.json()  : null;
+                const statuses = sd?.status || {};
+                const dot = s => s === 'running'
+                    ? '<span class="dot dot-g" style="box-shadow:0 0 5px #4ade8088"></span>'
+                    : '<span class="dot" style="background:#64748b"></span>';
+                // Connect address per status (matched by case-insensitive prefix)
+                const connects = sd?.connect || {
+                    'java':    '192.168.50.10:25565',
+                    'bedrock': '192.168.50.10:19132',
+                    'create':  '192.168.50.10:25566',
+                    'oddo':    'paris-pursuant.gl.joinmc.link',
+                };
+                const MC_NAMES = { java:'Java (Build)', bedrock:'Bedrock', create:'Create', oddo:'Triforce' };
+                const findConnect = (key) => {
+                    const k = key.toLowerCase();
+                    const match = Object.entries(connects).find(([label]) => label.toLowerCase().startsWith(k));
+                    return match ? match[1] : null;
+                };
+                let html = Object.entries(statuses).map(([k, s]) => {
+                    const addr = findConnect(k);
+                    const addrHtml = addr
+                        ? `<span class="click-copy" title="Click to copy ${escH(addr)}"
+                              style="font-family:monospace;color:#7dd3fc;font-size:0.72rem;padding:2px 6px;border-radius:4px;border:1px solid var(--border);background:var(--bg);margin-left:auto;">${escH(addr)}</span>`
+                        : '';
+                    return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0">
+                        ${dot(s)}
+                        <span style="font-size:0.82rem;min-width:70px">${escH(MC_NAMES[k] || k)}</span>
+                        <span style="font-size:0.78rem;color:${s==='running'?'#4ade80':'var(--muted)'};min-width:60px;">${escH(s)}</span>
+                        ${addrHtml}
+                     </div>`;
+                }).join('');
+                if (pd) {
+                    html += `<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;font-size:0.82rem">
+                        <span style="color:var(--muted)">Players: </span>
+                        <span style="color:#7dd3fc">${pd.count} / ${pd.max}</span>
+                        ${pd.players?.length ? `<span style="color:var(--muted);margin-left:8px">${pd.players.map(escH).join(', ')}</span>` : ''}
+                     </div>`;
+                }
+                el.innerHTML = html || '<span style="color:var(--muted)">No data</span>';
+            } catch {
+                el.innerHTML = '<span style="color:var(--muted);font-style:italic">Offline · LAN only</span>';
+            }
+        }
+
+        /* ── Docker Containers ── */
+        async function loadDockerStatus() {
+            const el = document.getElementById('svc-containers');
+            if (!el) return;
+            try {
+                const res = await mcApiFetch('/containers', { signal: AbortSignal.timeout(5000) });
+                if (!res.ok) throw new Error();
+                const data = await res.json();
+                const containers = (data.containers || []).sort((a, b) => (b.running ? 1 : 0) - (a.running ? 1 : 0));
+                applyDockerStatus(containers);
+            } catch {
+                el.innerHTML = '<span style="color:var(--muted);font-style:italic">Offline · LAN only</span>';
+            }
+        }
+
+        // Containers owned by the MC Status panel — excluded from Services/Containers
+        const MC_CONTAINERS = new Set(['minecraft-java', 'minecraft-bedrock', 'playit', 'mc-api']);
+
+        function applyDockerStatus(containers) {
+            const matchedNames = new Set();
+            document.querySelectorAll('[data-container]').forEach(el => {
+                const key = el.dataset.container.toLowerCase();
+                const match = containers.find(c => c.name.toLowerCase().includes(key));
+                if (match) {
+                    matchedNames.add(match.name);
+                    const dot = el.querySelector('.dot');
+                    if (dot) {
+                        dot.style.background = match.running ? '#4ade80' : '#64748b';
+                        dot.style.boxShadow  = match.running ? '0 0 5px #4ade8088' : 'none';
+                        dot.className = 'dot';
+                    }
+                }
+            });
+
+            const unmatched = containers.filter(c => !matchedNames.has(c.name) && !MC_CONTAINERS.has(c.name));
+            const el = document.getElementById('svc-containers');
+            if (!el) return;
+            if (!unmatched.length) {
+                el.innerHTML = '<span style="color:var(--muted);font-size:0.78rem">All containers linked above</span>';
+                return;
+            }
+            el.innerHTML = unmatched.map(c => `
+                <div class="svc-link" style="cursor:default" title="${escH(c.status)}">
+                    <span class="dot" style="background:${c.running?'#4ade80':'#64748b'};${c.running?'box-shadow:0 0 5px #4ade8088':''}"></span>
+                    ${escH(c.name)}
+                    <span class="svc-url">${c.running ? 'up' : 'stopped'}</span>
+                </div>`).join('');
+        }
+
+        document.getElementById('mc-refresh-btn')?.addEventListener('click', loadMCStatus);
+        document.getElementById('svc-refresh-btn')?.addEventListener('click', () => { loadMCStatus(); loadDockerStatus(); });
+
+        /* ── MC one-at-a-time switcher ── */
+        async function mcSwitch(target) {
+            const msg  = document.getElementById('mc-switch-msg');
+            const btns = document.querySelectorAll('.mc-sw');
+            const label = { java:'Java (Build)', create:'Create', oddo:'Triforce', off:'All Off' }[target] || target;
+            btns.forEach(b => b.disabled = true);
+            if (msg) msg.textContent = target === 'off'
+                ? 'Stopping all servers…'
+                : `Switching to ${label}… (start can take ~1 min)`;
+            try {
+                const res = await mcApiFetch('/mc/switch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ target }),
+                    signal: AbortSignal.timeout(90000),
+                });
+                const data = await res.json();
+                if (msg) msg.textContent = data.ok
+                    ? (target === 'off' ? '✓ All servers stopped.' : `✓ ${label} started, others stopped.`)
+                    : '✗ ' + (data.error || 'switch failed');
+            } catch {
+                if (msg) msg.textContent = '✗ mc-api unreachable · LAN only.';
+            } finally {
+                btns.forEach(b => b.disabled = false);
+                setTimeout(loadMCStatus, 3000);
+            }
+        }
+        document.querySelectorAll('.mc-sw').forEach(b =>
+            b.addEventListener('click', () => mcSwitch(b.dataset.mc)));
+
+        /* ── Microsoft / OneDrive ── */
+        function showMsIn(token, name) {
+            document.getElementById('ms-signed-out').style.display = 'none';
+            document.getElementById('ms-signed-in').style.display  = 'block';
+            document.getElementById('ms-account').textContent = name || '—';
+            document.getElementById('ms-token').textContent   = token;
+            document.getElementById('ms-status').textContent  = name || 'signed in';
+            document.getElementById('ms-badge').className = 'auth-badge active';
+        }
+        function showMsOut() {
+            document.getElementById('ms-signed-out').style.display = 'block';
+            document.getElementById('ms-signed-in').style.display  = 'none';
+            document.getElementById('ms-status').textContent = 'not signed in';
+            document.getElementById('ms-badge').className = 'auth-badge inactive';
+        }
+
+        if (isLoggedIn()) {
+            const token = localStorage.getItem('accessToken');
+            const info  = await getUserInfo().catch(() => null);
+            showMsIn(token, info?.displayName || info?.userPrincipalName);
+        }
+
+        document.getElementById('ms-login-btn').addEventListener('click', () => loginToMicrosoft());
+        document.getElementById('ms-refresh-btn').addEventListener('click', async () => {
+            const token = localStorage.getItem('accessToken');
+            const info  = await getUserInfo().catch(() => null);
+            if (token) showMsIn(token, info?.displayName || info?.userPrincipalName);
+        });
+        document.getElementById('ms-logout-btn').addEventListener('click', () => {
+            logoutFromMicrosoft(); showMsOut();
+        });
+
+        /* ── Copy buttons + click-to-copy fields (delegated) ── */
+        document.addEventListener('click', e => {
+            const t = e.target;
+            if (t.dataset.copy !== undefined) {
+                navigator.clipboard.writeText(t.dataset.copy).then(() => {
+                    t.textContent = 'copied'; t.classList.add('copied');
+                    setTimeout(() => { t.textContent = 'copy'; t.classList.remove('copied'); }, 1500);
+                });
+                return;
+            }
+            if (t.dataset.target) {
+                const val = document.getElementById(t.dataset.target)?.textContent;
+                if (val) navigator.clipboard.writeText(val).then(() => {
+                    t.textContent = 'copied'; t.classList.add('copied');
+                    setTimeout(() => { t.textContent = 'copy'; t.classList.remove('copied'); }, 1500);
+                });
+                return;
+            }
+            // Generic click-to-copy fields — copy textContent (or data-copy-value), flash green
+            const cc = t.closest('.click-copy');
+            if (cc && !t.closest('button') && !t.closest('a')) {
+                const val = (cc.dataset.copyValue || cc.textContent || '').trim();
+                if (val && val !== '—') {
+                    navigator.clipboard.writeText(val).then(() => {
+                        cc.classList.add('flash');
+                        setTimeout(() => cc.classList.remove('flash'), 900);
+                    });
+                }
+            }
+        });
+    </script>
+
+    <!-- AI Services launcher (hub-side controls for ai-launcher-svc on se :3030) -->
+    <script>
+    (function () {
+        // Mixed-content: browsers block http://192.168.50.10:3030 from an https:// page.
+        // So on HTTPS we disable buttons and show a LAN-only hint.
+        const LAUNCHER = location.protocol === 'https:' ? null : 'http://192.168.50.10:3030';
+        const msgEl = document.getElementById('ai-launcher-msg');
+
+        function setDot(id, running) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.style.background = running ? '#4ade80' : '#64748b';
+            el.style.boxShadow  = running ? '0 0 5px #4ade8088' : 'none';
+        }
+
+        function setStatus(label, running) {
+            const el = document.getElementById(label);
+            if (!el) return;
+            el.textContent = running ? 'running' : 'stopped';
+            el.style.color = running ? '#4ade80' : 'var(--muted)';
+        }
+
+        async function pollStatus() {
+            if (!LAUNCHER) {
+                msgEl.innerHTML = 'LAN-only — <a href="http://192.168.50.10:8081/hub.html" style="color:var(--accent)">open on :8081</a> to use these buttons';
+                return;
+            }
+            const NAMES = ['a1111', 'comfy', 'personal', 'bridge', 'learn', 'eco'];
+            try {
+                const r = await fetch(`${LAUNCHER}/status`, { signal: AbortSignal.timeout(3000) });
+                const s = await r.json();
+                for (const n of NAMES) {
+                    setDot(`ai-${n}-dot`, s[n]?.running);
+                    setStatus(`ai-${n}-status`, s[n]?.running);
+                }
+                msgEl.textContent = '';
+            } catch {
+                msgEl.textContent = 'Launcher service offline (se :3030)';
+                for (const n of NAMES) {
+                    setDot(`ai-${n}-dot`, false);
+                    const el = document.getElementById(`ai-${n}-status`);
+                    if (el) el.textContent = '—';
+                }
+            }
+        }
+
+        document.addEventListener('click', async e => {
+            const which = e.target?.dataset?.aiStart || e.target?.dataset?.aiStop;
+            if (!which) return;
+            if (!LAUNCHER) return;
+            const isStop = !!e.target?.dataset?.aiStop;
+            if (isStop && !confirm(`Stop ${which}?`)) return;
+            const btn = e.target;
+            const origText = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = isStop ? 'Stopping…' : 'Starting…';
+            try {
+                await fetch(`${LAUNCHER}/${isStop ? 'stop' : 'start'}/${which}`, {
+                    method: 'POST',
+                    signal: AbortSignal.timeout(5000)
+                });
+            } catch {}
+            // Poll a few times — services take ~30s to bind their port
+            setTimeout(() => { btn.textContent = origText; btn.disabled = false; pollStatus(); }, 2000);
+            setTimeout(pollStatus, 8000);
+            setTimeout(pollStatus, 20000);
+            setTimeout(pollStatus, 40000);
+        });
+
+        document.getElementById('ai-refresh-btn')?.addEventListener('click', pollStatus);
+
+        pollStatus();
+        setInterval(pollStatus, 15000);
+    })();
+    </script>
+</body>
+</html>

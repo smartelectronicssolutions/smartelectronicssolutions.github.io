@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en" class="theme-kamehouse">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Discipline — Kame House</title>
+  <link rel="stylesheet" href="../../assets/css/master.css">
+  <link rel="stylesheet" href="assets/css/kh.css">
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/img/icons/favicon-32x32.png">
+  <script src="assets/js/html.js" defer></script>
+  <script type="module" src="assets/js/kh-auth.js" defer></script>
+</head>
+<body class="discipline">
+  <header class="kh-nav"></header>
+
+  <div class="wrap">
+
+    <section class="hero">
+      <div>
+        <h1>📋 The Week's Five</h1>
+        <div class="subtitle">Sunday review · one pass · five tasks · move at least one anchor forward.</div>
+      </div>
+      <div class="actions">
+        <span id="week-label" style="color:var(--muted);"></span>
+        <button class="outline" id="prev-week">← Prev</button>
+        <button class="outline" id="next-week">Next →</button>
+        <button class="outline" id="this-week">Current</button>
+        <span class="reminder-pill" id="reminder-pill" title="Click to enable browser notifications for due-today tasks">🔔 Reminders: off</span>
+      </div>
+    </section>
+
+    <section class="card" id="auth-gate" style="display:none;">
+      <p>Sign in to use the discipline tracker. This is your personal accountability log; data lives under your Firebase uid.</p>
+    </section>
+
+    <section class="card" id="planner">
+      <h2>Five Tasks <span class="hint">— one per anchor, plus a wildcard if needed. Cap at five.</span></h2>
+      <div id="slots"></div>
+    </section>
+
+    <section class="card" id="anchor-status-card">
+      <h2>Anchor Status <span class="hint">— one line per anchor: what moved this week?</span></h2>
+      <div class="anchor-grid" id="anchor-status"></div>
+    </section>
+
+    <section class="card">
+      <h2>Review Notes <span class="hint">— what you'd tell future-you about this week.</span></h2>
+      <textarea id="review-notes" placeholder="What worked. What didn't. What got killed. What carries."></textarea>
+    </section>
+
+    <section class="card">
+      <div class="actions">
+        <button id="save-btn">Save Week</button>
+        <button class="outline" id="copy-prev-btn" title="Copy unfinished tasks from previous week">↻ Carry forward unfinished</button>
+        <button class="danger" id="clear-btn" title="Wipe this week's plan (keeps history)">Clear week</button>
+        <span class="saved" id="save-status"></span>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Past Weeks</h2>
+      <ul class="history-list" id="history-list">
+        <li class="hl-stat">Loading history…</li>
+      </ul>
+    </section>
+
+  </div>
+
+  <script type="module">
+    import { auth, onAuthStateChanged, database, ref, onValue, set, get, update } from '../../assets/js/firebase-init.js';
+
+    await window.khHeaderReady;
+
+    const ANCHORS = ['Work','Properties','Training','Capital','Household','Wildcard'];
+    const DAYS = ['','Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+
+    function isoWeekKey(date) {
+      const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+      d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+      const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+      const week = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+      return `${d.getUTCFullYear()}-W${String(week).padStart(2,'0')}`;
+    }
+    function shiftWeek(currentKey, delta) {
+      const [yr, w] = currentKey.split('-W').map(Number);
+      const monday = mondayOfIsoWeek(yr, w);
+      monday.setUTCDate(monday.getUTCDate() + delta * 7);
+      return isoWeekKey(new Date(monday.getUTCFullYear(), monday.getUTCMonth(), monday.getUTCDate()));
+    }
+    function mondayOfIsoWeek(year, week) {
+      const simple = new Date(Date.UTC(year, 0, 1 + (week - 1) * 7));
+      const dow = simple.getUTCDay() || 7;
+      const monday = new Date(simple);
+      monday.setUTCDate(simple.getUTCDate() - dow + 1);
+      return monday;
+    }
+    function weekDateRange(weekKey) {
+      const [yr, w] = weekKey.split('-W').map(Number);
+      const mon = mondayOfIsoWeek(yr, w);
+      const sun = new Date(mon); sun.setUTCDate(sun.getUTCDate() + 6);
+      const fmt = d => `${d.getUTCMonth()+1}/${d.getUTCDate()}`;
+      return `${fmt(mon)}–${fmt(sun)}`;
+    }
+
+    let currentUser = null;
+    let basePath = null;
+    let activeWeek = isoWeekKey(new Date());
+    const slotState = {};   // {1: {anchor,text,dueDay,done}, ...}
+    const anchorState = {}; // {Telaid: "...", ...}
+    let reviewNotes = '';
+    let unsubscribe = null;
+
+    const authGate = document.getElementById('auth-gate');
+    const weekLabel = document.getElementById('week-label');
+
+    onAuthStateChanged(auth, user => {
+      currentUser = user;
+      basePath = user ? user.uid : null;
+      if (user) {
+        authGate.style.display = 'none';
+        renderWeek();
+      } else {
+        authGate.style.display = 'block';
+      }
+    });
+
+    document.getElementById('prev-week').addEventListener('click', () => { activeWeek = shiftWeek(activeWeek, -1); renderWeek(); });
+    document.getElementById('next-week').addEventListener('click', () => { activeWeek = shiftWeek(activeWeek, 1); renderWeek(); });
+    document.getElementById('this-week').addEventListener('click', () => { activeWeek = isoWeekKey(new Date()); renderWeek(); });
+
+    function buildSlotsUI() {
+      const container = document.getElementById('slots');
+      container.innerHTML = '';
+      for (let i = 1; i <= 5; i++) {
+        const slot = slotState[i] || {};
+        const row = document.createElement('div');
+        row.className = 'slot-row';
+        const anchorOpts = ANCHORS.map(a => `<option ${a === (slot.anchor||(i<=4?ANCHORS[i-1]:'Wildcard')) ? 'selected' : ''}>${a}</option>`).join('');
+        const dayOpts = DAYS.map((d, idx) => `<option value="${d}" ${d === (slot.dueDay||'') ? 'selected' : ''}>${idx === 0 ? '—' : d}</option>`).join('');
+        row.innerHTML = `
+          <span class="num">${i}</span>
+          <select data-i="${i}" data-k="anchor">${anchorOpts}</select>
+          <input type="text" data-i="${i}" data-k="text" placeholder="Task ${i}…" value="${(slot.text || '').replace(/"/g,'&quot;')}">
+          <select data-i="${i}" data-k="dueDay">${dayOpts}</select>
+          <label style="display:flex;gap:6px;align-items:center;font-size:.78rem;color:var(--muted);"><input type="checkbox" data-i="${i}" data-k="done" ${slot.done ? 'checked' : ''}> done</label>
+          <button type="button" class="ics-btn" data-i="${i}" title="Add to Outlook / default calendar" style="background:transparent;border:0;cursor:pointer;font-size:1rem;padding:2px 6px;opacity:.7;">📅</button>
+        `;
+        container.appendChild(row);
+      }
+      container.querySelectorAll('select, input').forEach(el => {
+        el.addEventListener('change', () => {
+          const i = +el.dataset.i, k = el.dataset.k;
+          if (!slotState[i]) slotState[i] = {};
+          slotState[i][k] = el.type === 'checkbox' ? el.checked : el.value;
+        });
+      });
+      container.querySelectorAll('button.ics-btn').forEach(btn => {
+        btn.addEventListener('click', () => downloadSlotIcs(+btn.dataset.i));
+      });
+    }
+
+    function downloadSlotIcs(i) {
+      const slot = slotState[i] || {};
+      const text = (slot.text || '').trim();
+      if (!text) { alert(`Slot ${i} has no task text yet.`); return; }
+      // Resolve due date: activeWeek's Monday + (DAYS index − 1). DAYS[1]=Mon ... DAYS[7]=Sun.
+      const [yr, w] = activeWeek.split('-W').map(Number);
+      const monday = mondayOfIsoWeek(yr, w);
+      const dayIdx = DAYS.indexOf(slot.dueDay || '');
+      const offset = dayIdx > 0 ? dayIdx - 1 : 0; // no due day → Monday
+      const start = new Date(Date.UTC(monday.getUTCFullYear(), monday.getUTCMonth(), monday.getUTCDate() + offset, 13, 0, 0)); // 9am local-ish (13 UTC = 9am EDT)
+      const end = new Date(start.getTime() + 30 * 60 * 1000);
+      const fmt = d => d.getUTCFullYear()
+        + String(d.getUTCMonth()+1).padStart(2,'0')
+        + String(d.getUTCDate()).padStart(2,'0') + 'T'
+        + String(d.getUTCHours()).padStart(2,'0')
+        + String(d.getUTCMinutes()).padStart(2,'0') + '00Z';
+      const esc = s => String(s||'').replace(/\\/g,'\\\\').replace(/,/g,'\\,').replace(/;/g,'\\;').replace(/\n/g,'\\n');
+      const summary = text;
+      const description = `Anchor: ${slot.anchor || ''}\nWeek: ${activeWeek}\nSlot: ${i}/5`;
+      const ics = [
+        'BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//kh//Discipline//EN','METHOD:PUBLISH','CALSCALE:GREGORIAN',
+        'BEGIN:VEVENT',
+        `UID:kh-discipline-${activeWeek}-${i}@luissolutions`,
+        `DTSTAMP:${fmt(new Date())}`,
+        `DTSTART:${fmt(start)}`,
+        `DTEND:${fmt(end)}`,
+        `SUMMARY:${esc(summary)}`,
+        `DESCRIPTION:${esc(description)}`,
+        'BEGIN:VALARM','TRIGGER:-PT15M','ACTION:DISPLAY',`DESCRIPTION:${esc(summary)}`,'END:VALARM',
+        'END:VEVENT','END:VCALENDAR'
+      ].join('\r\n');
+      const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = (summary.replace(/[^a-z0-9]/gi,'_').slice(0,40) || `slot${i}`) + '.ics';
+      document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 100);
+    }
+
+    function buildAnchorStatusUI() {
+      const container = document.getElementById('anchor-status');
+      container.innerHTML = '';
+      ANCHORS.forEach(a => {
+        const key = a.toLowerCase();
+        const pill = document.createElement('span');
+        pill.className = `anchor-pill pill-${key}`;
+        pill.textContent = a;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.placeholder = `What moved on ${a}?`;
+        input.value = anchorState[a] || '';
+        input.addEventListener('change', () => { anchorState[a] = input.value; });
+        container.appendChild(pill);
+        container.appendChild(input);
+      });
+    }
+
+    function renderWeek() {
+      if (!basePath) return;
+      weekLabel.textContent = `${activeWeek} · ${weekDateRange(activeWeek)}`;
+      if (unsubscribe) unsubscribe();
+      Object.keys(slotState).forEach(k => delete slotState[k]);
+      Object.keys(anchorState).forEach(k => delete anchorState[k]);
+      reviewNotes = '';
+
+      const weekRef = ref(database, `${basePath}/discipline/punchlist/${activeWeek}`);
+      unsubscribe = onValue(weekRef, snap => {
+        const data = snap.val() || {};
+        const slots = data.slots || {};
+        for (let i = 1; i <= 5; i++) slotState[i] = slots[i] || {};
+        reviewNotes = data.reviewNotes || '';
+        document.getElementById('review-notes').value = reviewNotes;
+        buildSlotsUI();
+        unsubscribe();
+        unsubscribe = null;
+      }, { onlyOnce: true });
+
+      // anchor status separately so it survives slot saves
+      const ancRef = ref(database, `${basePath}/discipline/anchorStatus/${activeWeek}`);
+      onValue(ancRef, snap => {
+        const data = snap.val() || {};
+        ANCHORS.forEach(a => { anchorState[a] = data[a] || ''; });
+        buildAnchorStatusUI();
+      }, { onlyOnce: true });
+
+      loadHistory();
+    }
+
+    document.getElementById('review-notes').addEventListener('change', e => { reviewNotes = e.target.value; });
+
+    document.getElementById('save-btn').addEventListener('click', async () => {
+      if (!basePath) { alert('Sign in first.'); return; }
+      const slotsPayload = {};
+      for (let i = 1; i <= 5; i++) {
+        const s = slotState[i] || {};
+        if (s.text && s.text.trim()) {
+          slotsPayload[i] = {
+            anchor: s.anchor || ANCHORS[Math.min(i-1, 4)],
+            text: s.text.trim(),
+            dueDay: s.dueDay || '',
+            done: !!s.done
+          };
+        }
+      }
+      const anchorPayload = {};
+      ANCHORS.forEach(a => { if (anchorState[a]) anchorPayload[a] = anchorState[a]; });
+      await set(ref(database, `${basePath}/discipline/punchlist/${activeWeek}`), {
+        slots: slotsPayload,
+        reviewNotes,
+        committedAt: Date.now()
+      });
+      await set(ref(database, `${basePath}/discipline/anchorStatus/${activeWeek}`), anchorPayload);
+      const st = document.getElementById('save-status');
+      st.textContent = `Saved ${new Date().toLocaleTimeString()}`;
+      setTimeout(() => { st.textContent = ''; }, 4000);
+      loadHistory();
+    });
+
+    document.getElementById('copy-prev-btn').addEventListener('click', async () => {
+      if (!basePath) return;
+      const prev = shiftWeek(activeWeek, -1);
+      const snap = await get(ref(database, `${basePath}/discipline/punchlist/${prev}/slots`));
+      const prevSlots = snap.val() || {};
+      const unfinished = Object.values(prevSlots).filter(s => s.text && !s.done);
+      if (unfinished.length === 0) { alert(`Nothing unfinished in ${prev}.`); return; }
+      let next = 1;
+      unfinished.forEach(s => {
+        while (slotState[next] && slotState[next].text) next++;
+        if (next > 5) return;
+        slotState[next] = { ...s, done: false };
+        next++;
+      });
+      buildSlotsUI();
+      alert(`Pulled ${unfinished.length} unfinished from ${prev}. Edit and Save.`);
+    });
+
+    document.getElementById('clear-btn').addEventListener('click', async () => {
+      if (!basePath) return;
+      if (!confirm(`Wipe ${activeWeek} plan? (history rows for this week stay; only slots+notes clear.)`)) return;
+      await set(ref(database, `${basePath}/discipline/punchlist/${activeWeek}`), null);
+      await set(ref(database, `${basePath}/discipline/anchorStatus/${activeWeek}`), null);
+      renderWeek();
+    });
+
+    async function loadHistory() {
+      if (!basePath) return;
+      const list = document.getElementById('history-list');
+      const snap = await get(ref(database, `${basePath}/discipline/punchlist`));
+      const data = snap.val() || {};
+      const weeks = Object.keys(data).sort().reverse().slice(0, 12);
+      list.innerHTML = '';
+      if (weeks.length === 0) {
+        list.innerHTML = `<li class="hl-stat">No weeks committed yet.</li>`;
+        return;
+      }
+      weeks.forEach(wk => {
+        const slots = data[wk]?.slots || {};
+        const totals = Object.values(slots);
+        const done = totals.filter(s => s.done).length;
+        const li = document.createElement('li');
+        li.innerHTML = `
+          <span><span class="hl-week">${wk}</span> <span class="hl-stat">· ${weekDateRange(wk)}</span></span>
+          <span class="hl-stat">${done}/${totals.length} done</span>
+          <a href="#" data-wk="${wk}">view →</a>
+        `;
+        li.querySelector('a').addEventListener('click', e => {
+          e.preventDefault();
+          activeWeek = wk;
+          renderWeek();
+          window.scrollTo(0, 0);
+        });
+        list.appendChild(li);
+      });
+    }
+
+    // Browser reminders (best-effort, only fires while a tab is open)
+    const reminderPill = document.getElementById('reminder-pill');
+    function refreshReminderPill() {
+      const state = Notification.permission;
+      reminderPill.classList.toggle('on', state === 'granted');
+      reminderPill.textContent = state === 'granted' ? '🔔 Reminders: on' : (state === 'denied' ? '🔕 Reminders: blocked' : '🔔 Reminders: off');
+    }
+    reminderPill.addEventListener('click', async () => {
+      if (!('Notification' in window)) { alert('Browser does not support notifications.'); return; }
+      if (Notification.permission === 'granted') return;
+      if (Notification.permission === 'denied') { alert('Reminders were blocked in browser settings — re-enable there to use them.'); return; }
+      const result = await Notification.requestPermission();
+      refreshReminderPill();
+      if (result === 'granted') new Notification('Kame House reminders enabled', { body: 'You\'ll get pings when tasks are due today (while a tab is open).' });
+    });
+    refreshReminderPill();
+
+    // Fire desktop notifs for today's tasks once per minute, only if permission granted and tab is open.
+    setInterval(() => {
+      if (Notification.permission !== 'granted' || !basePath) return;
+      const today = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date().getDay()];
+      Object.values(slotState).forEach(s => {
+        if (s && s.text && s.dueDay === today && !s.done && !s._notified) {
+          s._notified = true;
+          new Notification(`Task due today: ${s.anchor}`, { body: s.text, tag: `disc-${activeWeek}-${s.text}` });
+        }
+      });
+    }, 60000);
+  </script>
+</body>
+</html>

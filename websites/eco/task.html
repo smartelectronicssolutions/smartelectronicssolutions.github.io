@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <link rel="apple-touch-icon" sizes="180x180" href="assets/img/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="assets/img/favicon-16x16.png">
+    <link rel="manifest" href="./site.webmanifest">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tasks</title>
+    <link rel="stylesheet" href="assets/css/styles.css">
+    <script src="assets/js/html.js" defer></script>
+    <script src="assets/js/sidebar.js" defer></script>
+    <script type="module" src="assets/js/auth-handling.js" defer></script>
+</head>
+
+<body>
+
+    <header></header>
+
+    <nav></nav>
+
+    <main>
+        <section id="main-window">
+            <form class="task-form">
+                <label for="task-title">Title</label>
+                <input required type="text" id="task-title" name="task-title" placeholder="Task Title">
+                <label for="task-content">Comments</label>
+                <textarea name="task-content" id="task-content" placeholder="Describe the Task" rows="5"></textarea>
+                <label for="task-notes">Notes</label>
+                <textarea name="task-notes" id="task-notes" placeholder="Notes" rows="5"></textarea>
+            </form>
+            <div class="button-container">
+                <button id="copy-btn">ðŸ“°</button>
+                <button id="paste-btn">ðŸ“‹</button>
+                <button id="save-btn">ðŸ’¾</button>
+                <button id="delete-btn" class="clear-button">âŒ</button>
+                <button id="undo-btn">â†©ï¸</button>
+            </div>
+            <div class="autosave-container">
+                <label for="autosave-checkbox">Auto-ðŸ’¾:</label>
+                <input type="checkbox" id="autosave-checkbox">
+            </div>
+            <section class="task-list-section" id="task-list"></section>
+            <button id="clear-btn" class="clear-button">Clear</button>
+        </section>
+    </main>
+
+    <aside></aside>
+
+    <footer></footer>
+
+    <script type="module">
+        import { database, ref, onValue, set, get } from '../../assets/js/firebase-init.js';
+
+        const titleInput = document.getElementById('task-title');
+        const contentTextarea = document.getElementById('task-content');
+        const notesTextarea = document.getElementById('task-notes');
+        const taskList = document.getElementById('task-list');
+        let deletedTasks = [];
+        let autoSaveInterval;
+
+        const setupEventListeners = () => {
+            document.getElementById('copy-btn').addEventListener('click', copyTask);
+            document.getElementById('paste-btn').addEventListener('click', pasteTask);
+            document.getElementById('save-btn').addEventListener('click', saveTask);
+            document.getElementById('delete-btn').addEventListener('click', deleteTask);
+            document.getElementById('clear-btn').addEventListener('click', clearTaskInputs);
+            document.getElementById('undo-btn').addEventListener('click', undoDelete);
+            document.getElementById('autosave-checkbox').addEventListener('change', toggleAutoSave);
+            document.addEventListener("keydown", handleKeyboardShortcuts);
+            contentTextarea.addEventListener('input', () => autoResizeTextarea(contentTextarea));
+            notesTextarea.addEventListener('input', () => autoResizeTextarea(notesTextarea));
+        };
+
+        const copyTask = () => {
+            contentTextarea.select();
+            document.execCommand('copy');
+            console.log('Copied to clipboard');
+        };
+
+        const pasteTask = async () => {
+            const clipboardData = await navigator.clipboard.readText();
+            contentTextarea.value += clipboardData;
+        };
+
+        const saveTask = async () => {
+            const titleToSave = titleInput.value.trim();
+            const contentToSave = contentTextarea.value.trim();
+            const notesToSave = notesTextarea.value.trim();
+
+            if (!titleToSave || !contentToSave) {
+                console.log('Please enter both the title and content before saving');
+                return;
+            }
+
+            const titleKey = titleToSave.replace(/\//g, '_');
+            const timestamp = new Date().toISOString();
+            const taskRef = ref(database, `share/bitveau/tasks/${titleKey}`);
+
+            try {
+                await set(taskRef, { title: titleToSave, content: contentToSave, notes: notesToSave, timestamp });
+                console.log('Task saved successfully');
+                updateSaveButton();
+            } catch (error) {
+                console.error('Failed to save the Task:', error);
+            }
+        };
+
+        const updateSaveButton = () => {
+            const saveBtn = document.getElementById('save-btn');
+            saveBtn.textContent = 'Saved';
+            saveBtn.style.backgroundColor = 'lightblue';
+            setTimeout(() => {
+                saveBtn.textContent = 'ðŸ’¾';
+                saveBtn.style.backgroundColor = '';
+            }, 2000);
+        };
+
+        const deleteTask = async () => {
+            const titleToDelete = titleInput.value.trim();
+            const titleKey = titleToDelete.replace(/\//g, '_');
+
+            if (!titleToDelete) {
+                console.log('Please enter the title of the Task to delete.');
+                return;
+            }
+
+            const taskRef = ref(database, `share/bitveau/tasks/${titleKey}`);
+
+            try {
+                const snapshot = await get(taskRef);
+                const taskData = snapshot.val();
+
+                if (taskData) {
+                    storeDeletedTask(taskData.title, taskData.content);
+                    await set(taskRef, null);
+                    clearTaskInputs();
+                    console.log(`Deleted the Task titled: ${titleToDelete}`);
+                } else {
+                    console.log('Task not found.');
+                }
+            } catch (error) {
+                console.error('Failed to delete the Task:', error);
+            }
+        };
+
+        const loadTask = async () => {
+            const titleToLoad = titleInput.value.trim();
+            const titleKey = titleToLoad.replace(/\//g, '_');
+
+            if (!titleToLoad) {
+                console.log('Please enter the title of the Task to load');
+                return;
+            }
+
+            const taskRef = ref(database, `share/bitveau/tasks/${titleKey}`);
+
+            onValue(taskRef, snapshot => {
+                const taskData = snapshot.val();
+                if (taskData) {
+                    contentTextarea.value = taskData.content;
+                    notesTextarea.value = taskData.notes || '';
+                    console.log(`Loaded the Task titled: ${titleToLoad}`);
+                } else {
+                    console.log(`No Task found with the title: ${titleToLoad}`);
+                }
+            });
+        };
+
+        const clearTaskInputs = () => {
+            titleInput.value = '';
+            contentTextarea.value = '';
+            notesTextarea.value = '';
+        };
+
+        const populateTaskList = () => {
+            const taskRef = ref(database, 'share/bitveau/tasks');
+
+            onValue(taskRef, snapshot => {
+                const tasks = snapshot.val();
+                taskList.innerHTML = '';
+
+                if (tasks) {
+                    const sortedTasks = Object.values(tasks).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                    sortedTasks.forEach(task => createTaskListItem(task));
+                } else {
+                    taskList.innerHTML = '<li>No Tasks found</li>';
+                }
+            });
+        };
+
+        const createTaskListItem = (task) => {
+            const listItem = document.createElement('li');
+            listItem.classList.add('task-item');
+
+            const titleSpan = document.createElement('span');
+            titleSpan.style.fontWeight = 'bold';
+            titleSpan.textContent = task.title;
+
+            const timestampSpan = document.createElement('span');
+            timestampSpan.style.fontWeight = 'normal';
+            timestampSpan.style.marginLeft = '10px';
+            timestampSpan.textContent = ` (${new Date(task.timestamp).toLocaleString()})`;
+
+            const taskContent = document.createElement('p');
+            taskContent.style.marginTop = '5px';
+            taskContent.innerHTML = task.content ? task.content.replace(/\n/g, '<br>') : ''; // Display multiline text
+
+            listItem.appendChild(titleSpan);
+            listItem.appendChild(timestampSpan);
+            listItem.appendChild(taskContent);
+
+            listItem.addEventListener('click', () => {
+                titleInput.value = task.title;
+                contentTextarea.value = task.content || '';
+                notesTextarea.value = task.notes || '';
+            });
+
+            taskList.appendChild(listItem);
+        };
+
+        const storeDeletedTask = (title, content) => {
+            deletedTasks.push({ title, content });
+        };
+
+        const undoDelete = async () => {
+            if (deletedTasks.length === 0) {
+                console.log('No deleted Tasks to undo');
+                return;
+            }
+
+            const lastDeletedTask = deletedTasks.pop();
+            const { title, content } = lastDeletedTask;
+
+            const taskRef = ref(database, `share/bitveau/tasks/${title}`);
+
+            try {
+                await set(taskRef, { title, content, timestamp: new Date().toISOString() });
+                console.log(`Undone the deletion of the Task titled: ${title}`);
+                populateTaskList();
+            } catch (error) {
+                console.error('Failed to undo the deletion:', error);
+            }
+        };
+
+        const autoResizeTextarea = (textarea) => {
+            textarea.style.height = 'auto';
+            textarea.style.height = `${textarea.scrollHeight}px`;
+        };
+
+        const toggleAutoSave = (event) => {
+            if (event.target.checked) {
+                autoSaveInterval = setInterval(saveTask, 40000);
+            } else {
+                clearInterval(autoSaveInterval);
+                autoSaveInterval = null;
+            }
+        };
+
+        const handleKeyboardShortcuts = (event) => {
+            if (event.ctrlKey && event.key === "s") {
+                event.preventDefault();
+                document.getElementById("save-btn").click();
+            }
+        };
+
+        document.addEventListener("DOMContentLoaded", () => {
+            setupEventListeners();
+
+            const autoSaveCheckbox = document.getElementById('autosave-checkbox');
+            if (autoSaveCheckbox.checked) {
+                autoSaveInterval = setInterval(saveTask, 40000);
+            }
+
+            populateTaskList();
+        });
+    </script>
+
+</body>
+
+</html>

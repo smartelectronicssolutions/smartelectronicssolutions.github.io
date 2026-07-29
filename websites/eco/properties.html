@@ -1,0 +1,1082 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Property Watchlist — Eco Lou Real Estate</title>
+  <link rel="stylesheet" href="assets/css/styles.css"/>
+  <script src="assets/js/html.js" defer></script>
+  <script src="assets/js/sidebar.js" defer></script>
+  <script type="module" src="assets/js/auth-handling.js" defer></script>
+  <style>
+    /* Reuse .wl-wrap / .wl-card / .wl-btn from styles.css. Property-specific extras only. */
+    .pw-form-grid { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 1fr 0.6fr auto; gap: 8px; align-items: end; }
+    .pw-form-grid label { display: block; font-size: .78em; color: var(--primaryColor); margin-bottom: 3px; opacity: .75; }
+    .pw-form-grid input, .pw-form-grid textarea { padding: 7px 9px; background: #fff; color: var(--primaryColor); border: 1px solid #ccc; border-radius: 4px; font-size: .92em; font-family: inherit; }
+    .pw-form-grid .span-2 { grid-column: span 2; }
+    .pw-form-grid .span-full { grid-column: 1 / -1; }
+
+    .pw-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+    .pw-prop { background: #fff; border-radius: 8px; box-shadow: rgba(0,0,0,.06) 0 3px 12px, rgba(0,0,0,.04) 0 0 0 1px; padding: 14px; display: flex; flex-direction: column; gap: 8px; text-align: left; color: var(--primaryColor); }
+    .pw-prop h3 { margin: 0; font-size: 1.05em; color: var(--primaryColor); }
+    .pw-prop .addr { font-size: .85em; opacity: .65; margin: -4px 0 4px; }
+    .pw-prop .row { display: flex; justify-content: space-between; font-size: .9em; }
+    .pw-prop .row .label { opacity: .65; }
+
+    .pw-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; padding-top: 8px; border-top: 1px dashed #ddd; }
+    .pw-metrics .m { background: var(--backgroundColor); padding: 6px 8px; border-radius: 5px; font-size: .85em; }
+    .pw-metrics .m .label { opacity: .65; font-size: .9em; }
+    .pw-metrics .m .v { font-weight: 700; color: var(--primaryColor); }
+    .pw-metrics .m .v.good { color: #1f8a3a; }
+    .pw-metrics .m .v.bad  { color: #c0392b; }
+    .pw-metrics .m .v.meh  { color: #b27800; }
+
+    .pw-notes { font-size: .82em; opacity: .7; font-style: italic; margin-top: 4px; }
+    .pw-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+    .pw-tags span { background: var(--formBackground); padding: 2px 8px; border-radius: 10px; font-size: .72em; color: var(--primaryColor); }
+    .pw-actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 8px; }
+    .pw-actions button { padding: 4px 10px; font-size: .8em; margin-top: 0; }
+
+    .pw-info-note { font-size: .78em; opacity: .65; margin: 6px 0 0; color: var(--primaryColor); }
+    .pw-empty { text-align: center; padding: 40px 20px; opacity: .55; color: var(--primaryColor); }
+
+    .pw-detail { display: none; background: var(--formBackground); border-radius: 6px; padding: 14px; margin-top: 10px; border: 1px solid #ccc; }
+    .pw-detail.open { display: block; }
+    .pw-detail h4 { margin: 0 0 10px; color: var(--secondaryColor); font-size: .95em; }
+    .pw-assumptions { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+    .pw-assumptions label { font-size: .75em; opacity: .7; display: block; margin-bottom: 3px; }
+    .pw-assumptions input { padding: 6px 8px; background: #fff; color: var(--primaryColor); border: 1px solid #ccc; border-radius: 4px; font-size: .88em; }
+
+    @media (max-width: 720px) {
+      .pw-form-grid { grid-template-columns: 1fr 1fr; }
+      .pw-form-grid .span-2 { grid-column: span 2; }
+      .pw-mode { width: 100%; }
+      .pw-mode button { flex: 1; }
+    }
+    @media (max-width: 500px) {
+      .pw-form-grid { grid-template-columns: 1fr; }
+      .pw-form-grid .span-2 { grid-column: span 1; }
+      .pw-prop { padding: 12px; }
+      .pw-metrics { grid-template-columns: 1fr 1fr; }
+      .pw-metrics .m { font-size: .78em; padding: 5px 6px; }
+      .wl-wrap { padding: 12px 8px; }
+      .pw-vote-row { flex-wrap: wrap; }
+      .pw-actions { flex-wrap: wrap; }
+    }
+    /* Prevent horizontal page overflow from long addresses or wide content */
+    .wl-wrap { overflow-x: hidden; max-width: 100%; }
+    .pw-prop { overflow-wrap: anywhere; word-wrap: break-word; min-width: 0; }
+    .pw-prop .addr, .pw-prop h3, .pw-review-item, .pw-notes { overflow-wrap: anywhere; }
+    .pw-form-grid input, .pw-form-grid textarea { min-width: 0; }
+
+    /* Mode toggle + shared review UI */
+    .pw-mode { display: flex; gap: 6px; align-items: center; }
+    .pw-state-filter {
+      padding: 4px 8px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      background: #fff;
+      color: var(--primaryColor);
+      font-size: .85em;
+      font-family: inherit;
+      cursor: pointer;
+    }
+    .pw-state-filter:focus { outline: none; border-color: var(--secondaryColor); }
+    .pw-mode button { padding: 5px 12px; background: transparent; border: 1px solid #ccc; border-radius: 5px; cursor: pointer; font-size: .85em; color: var(--primaryColor); }
+    .pw-mode button.active { background: var(--secondaryColor); color: #fff; border-color: var(--secondaryColor); font-weight: 600; }
+    .pw-creator { font-size: .72em; opacity: .55; margin-top: -2px; }
+    .pw-vote-row { display: flex; gap: 8px; align-items: center; margin-top: 6px; padding-top: 6px; border-top: 1px dashed #ddd; font-size: .85em; }
+    .pw-vote-btn { padding: 3px 10px; border: 1px solid #ccc; background: #fff; cursor: pointer; border-radius: 4px; font-weight: 700; color: var(--primaryColor); }
+    .pw-vote-btn.up.voted { background: #1f8a3a; color: #fff; border-color: #1f8a3a; }
+    .pw-vote-btn.down.voted { background: #c0392b; color: #fff; border-color: #c0392b; }
+    .pw-vote-tally { opacity: .75; }
+    .pw-reviews { margin-top: 8px; }
+    .pw-reviews summary { cursor: pointer; font-size: .8em; opacity: .7; user-select: none; }
+    .pw-reviews summary:hover { opacity: 1; }
+    .pw-review-list { list-style: none; padding: 0; margin: 6px 0; max-height: 200px; overflow-y: auto; }
+    .pw-review-item { padding: 5px 0; border-top: 1px solid #eee; font-size: .82em; line-height: 1.35; }
+    .pw-review-item:first-child { border-top: 0; }
+    .pw-review-author { color: var(--secondaryColor); font-weight: 600; font-size: .76em; }
+    .pw-review-time { opacity: .5; font-size: .7em; margin-left: 4px; }
+    .pw-review-input { display: flex; gap: 6px; margin-top: 6px; }
+    .pw-review-input input { flex: 1; padding: 5px 8px; background: #fff; color: var(--primaryColor); border: 1px solid #ccc; border-radius: 4px; font-size: .82em; }
+    .pw-review-input button { padding: 5px 12px; font-size: .8em; margin-top: 0; }
+    .pw-share-btn { font-size: .72em !important; padding: 3px 8px !important; }
+    input { width: stretch; }
+
+    /* Drag + arrow reorder controls (Personal mode only) */
+    .pw-reorder-bar {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 0.7em; color: var(--primaryColor); opacity: 0.75;
+      margin-bottom: 4px; padding-bottom: 4px;
+      border-bottom: 1px dashed #e0e0e0;
+    }
+    .pw-drag-handle {
+      cursor: grab; color: var(--primaryColor);
+      font-size: 1.1em; user-select: none;
+      padding: 2px 4px; letter-spacing: -2px;
+    }
+    .pw-drag-handle:active { cursor: grabbing; }
+    .pw-rank-num {
+      font-weight: 700;
+      background: var(--formBackground); padding: 1px 6px;
+      border-radius: 3px; min-width: 22px; text-align: center;
+    }
+    .pw-reorder-btn {
+      background: var(--formBackground); border: 1px solid #ccc;
+      border-radius: 3px; width: 24px; height: 24px;
+      font-size: 0.9em; cursor: pointer; padding: 0;
+      color: var(--primaryColor); margin-left: auto;
+    }
+    .pw-reorder-btn + .pw-reorder-btn { margin-left: 0; }
+    .pw-reorder-btn:hover:not(:disabled) { border-color: var(--secondaryColor); color: var(--secondaryColor); }
+    .pw-reorder-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+    .pw-prop.dragging { opacity: 0.4; }
+    .pw-prop.drag-over-top    { box-shadow: 0 -3px 0 0 var(--secondaryColor); }
+    .pw-prop.drag-over-bottom { box-shadow: 0  3px 0 0 var(--secondaryColor); }
+
+    /* Clickable address + cross-site search badges */
+    .pw-addr-link {
+      color: var(--secondaryColor);
+      text-decoration: none;
+      border-bottom: 1px dashed currentColor;
+    }
+    .pw-addr-link:hover { color: var(--primaryColor); }
+    .pw-addr-actions {
+      display: inline-flex;
+      gap: 4px;
+      margin-left: 8px;
+      vertical-align: middle;
+    }
+    .pw-ext {
+      display: inline-block;
+      font-size: 0.68em;
+      font-weight: 700;
+      min-width: 22px;
+      padding: 2px 6px;
+      text-align: center;
+      background: var(--secondaryColor);
+      color: white !important;
+      border-radius: 3px;
+      text-decoration: none;
+      line-height: 1.3;
+    }
+    .pw-ext:hover { background: var(--primaryColor); color: white !important; }
+
+    /* Hover/tap tooltip for acronyms */
+    .tip {
+      border-bottom: 1px dashed var(--secondaryColor);
+      cursor: help;
+      position: relative;
+      font-style: normal;
+    }
+    .tip::after {
+      content: attr(data-tip);
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: #222;
+      color: #fff;
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: .72em;
+      font-weight: 400;
+      line-height: 1.4;
+      width: max-content;
+      max-width: 240px;
+      z-index: 50;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s;
+      white-space: normal;
+      text-align: left;
+      text-transform: none;
+      letter-spacing: normal;
+    }
+    .tip::before {
+      content: '';
+      position: absolute;
+      bottom: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      border: 5px solid transparent;
+      border-top-color: #222;
+      opacity: 0;
+      transition: opacity 0.15s;
+      pointer-events: none;
+    }
+    .tip:hover::after, .tip:focus::after, .tip.show-tip::after,
+    .tip:hover::before, .tip:focus::before, .tip.show-tip::before {
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+  <header></header>
+  <nav></nav>
+
+  <div class="page-hero">
+    <h1>Property Watchlist</h1>
+    <p>Track properties you're considering. Type an address, click <strong>Look up</strong> for live value + rent estimates via RentCast, then save. Numbers persist to Firebase under your account. <span id="pw-auth-badge">Checking auth…</span></p>
+  </div>
+
+  <div class="breadcrumb">
+    <a href="market.html">&larr; Eco Lou Market</a> &middot;
+    <a href="housing.html">Housing Toolkit</a> &middot;
+    <a href="calculators.html">Calculators</a>
+  </div>
+
+  <div class="wl-wrap">
+
+    <!-- Add Property -->
+    <div class="wl-card">
+      <strong>Add Property</strong>
+      <div class="pw-form-grid">
+        <div class="span-2">
+          <label for="pw-address">Address (Street, City, State Zip)</label>
+          <div style="display:flex;gap:6px;">
+            <input id="pw-address" type="text" placeholder="670 Tremont Pl, Chattanooga, TN 37405" style="flex:1;"/>
+            <button class="wl-btn outline" onclick="pwLookup()" id="pw-lookup-btn" title="RentCast lookup — fills value, rent, and units">Look up</button>
+          </div>
+          <div id="pw-lookup-status" style="font-size:.75em;opacity:.7;margin-top:3px;min-height:1.1em;"></div>
+        </div>
+        <div>
+          <label for="pw-nickname">Nickname (optional)</label>
+          <input id="pw-nickname" type="text" placeholder="e.g. Tremont fixer"/>
+        </div>
+        <div>
+          <label for="pw-value">Est. Value ($)</label>
+          <input id="pw-value" type="number" min="0" step="1000" placeholder="350000"/>
+        </div>
+        <div>
+          <label for="pw-rent">Est. Total Rent ($/mo)</label>
+          <input id="pw-rent" type="number" min="0" step="50" placeholder="2200"/>
+        </div>
+        <div>
+          <label for="pw-units">Units</label>
+          <input id="pw-units" type="number" min="1" max="20" step="1" value="1"/>
+        </div>
+        <div>
+          <button class="wl-btn" onclick="pwAdd()">+ Add</button>
+        </div>
+        <div class="span-full">
+          <label for="pw-tags">Tags (comma-separated)</label>
+          <input id="pw-tags-input" type="text" placeholder="buy, fixer, multifamily"/>
+        </div>
+        <div class="span-full">
+          <label for="pw-notes">Notes</label>
+          <textarea id="pw-notes-input" rows="2" placeholder="Short notes — distance, condition, plan…"></textarea>
+        </div>
+      </div>
+      <p class="pw-info-note">Look up fills value + rent from RentCast (cached by week to stretch the 50-call budget). Always verify against Zillow/Redfin before saving. Default assumptions used in metrics: 20% down · 7% rate · 30yr · 1.2% tax · 0.5% insurance · 5% vacancy · 8% maintenance. Per-property overrides in detail view.</p>
+    </div>
+
+    <!-- Controls -->
+    <div class="wl-card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+      <div class="pw-mode">
+        <button id="pw-mode-personal" class="active" onclick="pwSetMode('personal')">🔒 Personal</button>
+        <button id="pw-mode-shared" onclick="pwSetMode('shared')">👥 Shared Review</button>
+      </div>
+      <label style="font-size:.85em;opacity:.75;display:flex;align-items:center;gap:6px;">
+        State:
+        <select id="pw-state-filter" class="pw-state-filter" onchange="pwSetStateFilter(this.value)">
+          <option value="all">All</option>
+        </select>
+      </label>
+      <button class="wl-btn outline" onclick="pwExportJSON()">Export JSON</button>
+      <button class="wl-btn outline" onclick="pwExportCSV()">Export CSV</button>
+      <button class="wl-btn danger" onclick="pwClearAll()">Clear All</button>
+      <span id="pw-count" style="font-size:.85em;opacity:.6;"></span>
+    </div>
+
+    <!-- Properties grid -->
+    <div id="pw-grid" class="pw-grid"></div>
+    <div id="pw-empty" class="pw-empty" style="display:none;">No properties yet — add one above to start tracking.</div>
+
+  </div>
+
+  <aside></aside>
+  <footer></footer>
+
+<script type="module">
+import {
+  auth, database, onAuthStateChanged,
+  ref, onValue, set, push, remove, update, off, get
+} from "../../assets/js/firebase-init.js";
+
+const DEFAULTS = {
+  downPct: 20,        // % down payment
+  rate: 7.0,          // % annual interest
+  termYears: 30,
+  taxPct: 1.2,        // % of value, annual
+  insurePct: 0.5,     // % of value, annual
+  vacancyPct: 5,      // % of gross rent
+  maintPct: 8,        // % of gross rent
+};
+
+const grid = document.getElementById('pw-grid');
+const empty = document.getElementById('pw-empty');
+const count = document.getElementById('pw-count');
+const authBadge = document.getElementById('pw-auth-badge');
+
+// Tap-to-show for acronym tooltips on mobile (CSS handles hover for desktop)
+document.addEventListener('click', e => {
+  const isTip = e.target.classList && e.target.classList.contains('tip');
+  document.querySelectorAll('.tip.show-tip').forEach(t => { if (t !== e.target) t.classList.remove('show-tip'); });
+  if (isTip) { e.target.classList.toggle('show-tip'); e.stopPropagation(); }
+});
+
+let mode = 'personal';            // 'personal' | 'shared'
+let currentUserId = null;
+let currentUserEmail = null;
+let basePath = 'public/realestate/watchlist';  // recomputed by setBasePath()
+let unsubscribe = null;
+let cache = {};
+let sharedHashes = new Set();  // keys present at share/realestate/properties
+let sharedUnsub = null;
+let personalHashes = new Set();  // address hashes in the signed-in user's own watchlist
+let personalUnsub = null;
+
+function setBasePath() {
+  if (mode === 'shared') {
+    basePath = 'share/realestate/properties';
+  } else if (currentUserId) {
+    basePath = `${currentUserId}/realestate/watchlist`;
+  } else {
+    basePath = 'public/realestate/watchlist';
+  }
+}
+
+function propertyHash(addr) {
+  const norm = (addr || '').toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, '-').replace(/^-+|-+$/g, '');
+  return (norm || 'unknown').slice(0, 80);
+}
+
+// External link helpers
+function mapsUrl(addr)    { return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}`; }
+function zillowUrl(addr)  { return `https://www.zillow.com/homes/${encodeURIComponent(addr)}_rb/`; }
+function redfinUrl(addr)  { return `https://www.redfin.com/stingray/do/location-search?location=${encodeURIComponent(addr)}&v=2`; }
+
+// --- Calc helpers ---
+function monthlyPI(value, downPct, ratePct, termYears) {
+  const loan = value * (1 - downPct / 100);
+  const r = (ratePct / 100) / 12;
+  const n = termYears * 12;
+  if (r === 0) return loan / n;
+  return loan * (r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1);
+}
+
+function deriveMetrics(p) {
+  const a = { ...DEFAULTS, ...(p.assumptions || {}) };
+  const value = +p.estValue || 0;
+  const rent = +p.estRent || 0;
+  const units = +p.units || 1;
+
+  const grossAnnual = rent * 12;
+  const vacancy = grossAnnual * (a.vacancyPct / 100);
+  const taxAnnual = value * (a.taxPct / 100);
+  const insAnnual = value * (a.insurePct / 100);
+  const maintAnnual = grossAnnual * (a.maintPct / 100);
+  const opex = vacancy + taxAnnual + insAnnual + maintAnnual;
+  const noi = grossAnnual - opex;
+
+  const piMonthly = monthlyPI(value, a.downPct, a.rate, a.termYears);
+  const piAnnual = piMonthly * 12;
+  const taxMonthly = taxAnnual / 12;
+  const insMonthly = insAnnual / 12;
+  const pitiMonthly = piMonthly + taxMonthly + insMonthly;
+  const cashFlowMonthly = (grossAnnual - opex) / 12 - piMonthly;
+
+  const grm = grossAnnual > 0 ? value / grossAnnual : null;
+  const capRate = value > 0 ? (noi / value) * 100 : null;
+  const onePct = (value > 0 && rent > 0) ? (rent / value) * 100 : null;
+
+  // FHA Self-Sufficiency Test (only meaningful for 3-4 unit owner-occupied properties).
+  // Required net rental income = 75% of gross monthly rent across all units; must >= PITI.
+  let sstApplies = units >= 3 && units <= 4;
+  let sstPass = null;
+  let sstMargin = null;
+  if (sstApplies && rent > 0 && pitiMonthly > 0) {
+    const netRent = rent * 0.75;
+    sstMargin = netRent - pitiMonthly;
+    sstPass = sstMargin >= 0;
+  }
+  const fhaEligible = units >= 1 && units <= 4;
+
+  return { piMonthly, piAnnual, pitiMonthly, taxMonthly, insMonthly, cashFlowMonthly, grm, capRate, onePct, noi, opex, sstApplies, sstPass, sstMargin, fhaEligible, units };
+}
+
+function fmtMoney(n) {
+  if (n == null || isNaN(n)) return '—';
+  return '$' + Math.round(n).toLocaleString();
+}
+function fmtPct(n, digits = 2) {
+  if (n == null || isNaN(n)) return '—';
+  return n.toFixed(digits) + '%';
+}
+
+function classifyOnePct(p) {
+  if (p == null) return '';
+  if (p >= 1) return 'good';
+  if (p >= 0.7) return 'meh';
+  return 'bad';
+}
+function classifyCashFlow(cf) {
+  if (cf == null) return '';
+  if (cf >= 200) return 'good';
+  if (cf >= 0) return 'meh';
+  return 'bad';
+}
+function classifyCapRate(c) {
+  if (c == null) return '';
+  if (c >= 8) return 'good';
+  if (c >= 5) return 'meh';
+  return 'bad';
+}
+
+// --- State filter ---
+const STATE_FILTER_KEY = 'pw_state_filter';
+let stateFilter = (() => {
+  try { return localStorage.getItem(STATE_FILTER_KEY) || 'all'; } catch { return 'all'; }
+})();
+
+function extractState(addr) {
+  if (!addr) return null;
+  // Matches ", CT 06053" / ", CT" / ", CT," — two-letter state code after a comma (case-insensitive)
+  const m = String(addr).match(/,\s*([A-Za-z]{2})\b(?=\s|,|$|\s*\d)/);
+  return m ? m[1].toUpperCase() : null;
+}
+
+function refreshStateOptions() {
+  const sel = document.getElementById('pw-state-filter');
+  if (!sel) return;
+  // Count properties per state
+  const counts = {};
+  for (const id of Object.keys(cache)) {
+    const st = extractState(cache[id]?.address);
+    if (st) counts[st] = (counts[st] || 0) + 1;
+  }
+  const states = Object.keys(counts).sort();
+  const totalWithState = states.reduce((sum, s) => sum + counts[s], 0);
+  sel.innerHTML = `<option value="all">All (${totalWithState})</option>` +
+    states.map(s => `<option value="${s}">${s} (${counts[s]})</option>`).join('');
+  // The persisted stateFilter is the source of truth — sync the visible dropdown to it.
+  // If the persisted state is no longer present (deleted all properties from it), fall back to 'all'.
+  if (stateFilter === 'all' || states.includes(stateFilter)) {
+    sel.value = stateFilter;
+  } else {
+    stateFilter = 'all';
+    try { localStorage.setItem(STATE_FILTER_KEY, 'all'); } catch {}
+    sel.value = 'all';
+  }
+}
+
+window.pwSetStateFilter = function(value) {
+  stateFilter = value;
+  try { localStorage.setItem(STATE_FILTER_KEY, value); } catch {}
+  render();
+};
+
+// --- Render ---
+function render() {
+  refreshStateOptions();
+  const ids = Object.keys(cache);
+  count.textContent = ids.length ? `${ids.length} ${ids.length === 1 ? 'property' : 'properties'}` : '';
+  empty.style.display = ids.length ? 'none' : 'block';
+  grid.innerHTML = '';
+
+  let sorted = ids
+    .map(id => ({ id, ...cache[id] }));
+  // In personal mode, sort by sortOrder (lower = higher rank); fall back to recency for any without it.
+  // In shared mode, keep the original "most recently updated first" sort.
+  if (mode === 'personal') {
+    sorted.sort((a, b) => {
+      const ao = (a.sortOrder ?? Number.MAX_SAFE_INTEGER);
+      const bo = (b.sortOrder ?? Number.MAX_SAFE_INTEGER);
+      if (ao !== bo) return ao - bo;
+      return (b.updatedAt || 0) - (a.updatedAt || 0);
+    });
+  } else {
+    // Shared mode: net votes (up - down) descending; tie-break on recency.
+    const netVotes = p => {
+      const votes = p?.votes ? Object.values(p.votes) : [];
+      let n = 0;
+      for (const v of votes) {
+        if (v?.value === 1)  n++;
+        else if (v?.value === -1) n--;
+      }
+      return n;
+    };
+    sorted.sort((a, b) => {
+      const na = netVotes(a), nb = netVotes(b);
+      if (na !== nb) return nb - na;
+      return (b.updatedAt || 0) - (a.updatedAt || 0);
+    });
+  }
+
+  // Apply state filter
+  if (stateFilter && stateFilter !== 'all') {
+    sorted = sorted.filter(p => extractState(p.address) === stateFilter);
+  }
+
+  // Update count to reflect filter
+  if (stateFilter !== 'all') {
+    count.textContent = `${sorted.length} of ${ids.length} (filtered: ${stateFilter})`;
+  }
+
+  for (let pIdx = 0; pIdx < sorted.length; pIdx++) {
+    const p = sorted[pIdx];
+    const m = deriveMetrics(p);
+    const card = document.createElement('div');
+    card.className = 'pw-prop';
+    card.dataset.id = p.id;
+    // Drag-to-reorder is personal-mode only
+    if (mode === 'personal') card.setAttribute('draggable', 'true');
+    const reorderBar = (mode === 'personal') ? `
+      <div class="pw-reorder-bar">
+        <span class="pw-drag-handle" title="Drag to reorder">⋮⋮</span>
+        <span class="pw-rank-num">${pIdx + 1}</span>
+        <button class="pw-reorder-btn" data-act="reorder-up"   ${pIdx === 0 ? 'disabled' : ''} title="Move up">↑</button>
+        <button class="pw-reorder-btn" data-act="reorder-down" ${pIdx === sorted.length - 1 ? 'disabled' : ''} title="Move down">↓</button>
+      </div>` : '';
+    const sstBlock = m.sstApplies
+      ? `<div class="m" style="grid-column: span 2;"><div class="label"><span class="tip" tabindex="0" data-tip="FHA Self-Sufficiency Test. Required for FHA loans on 3-4 unit owner-occupied properties: 75% of gross rent across all units must be ≥ PITI. Net rental income (after 25% vacancy/maintenance reserve) has to cover the mortgage payment.">FHA Self-Sufficiency (3-4 unit)</span></div><div class="v ${m.sstPass ? 'good' : 'bad'}">${m.sstPass ? 'PASS' : 'FAIL'} (${fmtMoney(m.sstMargin)}/mo margin)</div></div>`
+      : '';
+    const unitsLine = (m.units > 1)
+      ? `<div class="row"><span class="label">Units</span><span>${m.units}${m.fhaEligible ? '' : ' · NOT FHA-eligible (5+ commercial)'}</span></div>`
+      : '';
+    // Shared-mode vote tally + creator
+    let voteRow = '', reviewsBlock = '', creatorLine = '', shareBtn = '', adoptBtn = '';
+    if (mode === 'shared') {
+      // Adopt button: copy this shared property to the signed-in user's personal watchlist
+      // — but hide if the address is already in their watchlist
+      if (currentUserId) {
+        const alreadyAdopted = p.address && personalHashes.has(propertyHash(p.address));
+        if (!alreadyAdopted) {
+          adoptBtn = `<button class="wl-btn outline pw-share-btn" data-act="adopt" title="Copy to your watchlist">← Adopt</button>`;
+        }
+      }
+      const votes = p.votes || {};
+      const tally = Object.values(votes).reduce((acc, v) => { acc[v.value === 1 ? 'up' : v.value === -1 ? 'down' : 'x']++; return acc; }, { up:0, down:0, x:0 });
+      const myVote = currentUserId ? votes[currentUserId]?.value : null;
+      voteRow = `<div class="pw-vote-row">
+        <button class="pw-vote-btn up ${myVote === 1 ? 'voted' : ''}" data-act="vote-up">👍 ${tally.up}</button>
+        <button class="pw-vote-btn down ${myVote === -1 ? 'voted' : ''}" data-act="vote-down">👎 ${tally.down}</button>
+        <span class="pw-vote-tally">${tally.up + tally.down} vote${tally.up + tally.down === 1 ? '' : 's'}</span>
+      </div>`;
+      const reviewArr = Object.values(p.reviews || {}).sort((a,b) => (b.createdAt||0) - (a.createdAt||0));
+      const reviewItems = reviewArr.map(r => {
+        const when = new Date(r.createdAt || 0);
+        const whenStr = when.toLocaleString(undefined, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+        return `<li class="pw-review-item">
+          <span class="pw-review-author">${escape((r.email || 'anon').split('@')[0])}</span>
+          <span class="pw-review-time">${whenStr}</span>
+          <div>${escape(r.text || '')}</div>
+        </li>`;
+      }).join('');
+      reviewsBlock = `<details class="pw-reviews"${reviewArr.length ? ' open' : ''}>
+        <summary>💬 ${reviewArr.length} comment${reviewArr.length === 1 ? '' : 's'}</summary>
+        <ul class="pw-review-list">${reviewItems || '<li class="pw-review-item" style="opacity:.6;">No comments yet.</li>'}</ul>
+        <div class="pw-review-input">
+          <input type="text" placeholder="${currentUserId ? 'Add a comment…' : 'Sign in to comment'}" ${currentUserId ? '' : 'disabled'} data-act="review-input"/>
+          <button class="wl-btn" data-act="review-add" ${currentUserId ? '' : 'disabled'}>Post</button>
+        </div>
+      </details>`;
+      if (p.createdByEmail) creatorLine = `<div class="pw-creator">added by ${escape(p.createdByEmail.split('@')[0])}</div>`;
+    } else {
+      // Only show the Share button if this property isn't already on the shared list
+      const alreadyShared = p.address && sharedHashes.has(propertyHash(p.address));
+      shareBtn = alreadyShared
+        ? ''
+        : `<button class="wl-btn outline pw-share-btn" data-act="share" title="Push to shared review list">→ Share</button>`;
+    }
+
+    const safeAddr = p.address || '';
+    // Stored direct listing link (set via analyst's set_watchlist_link or by hand)
+    // beats an address search: 🔗 = the actual listing, Z stays as search fallback.
+    const directLink = (p.link && /^https?:\/\//i.test(p.link))
+      ? `<a class="pw-ext" href="${escape(p.link)}" target="_blank" rel="noopener" title="Saved listing link">🔗</a>` : '';
+    const extLinks = safeAddr ? `<span class="pw-addr-actions">
+        ${directLink}
+        <a class="pw-ext" href="${zillowUrl(safeAddr)}" target="_blank" rel="noopener" title="Search on Zillow">Z</a>
+        <a class="pw-ext" href="${redfinUrl(safeAddr)}" target="_blank" rel="noopener" title="Search on Redfin">R</a>
+      </span>` : '';
+    const titleHtml = p.nickname
+      ? escape(p.nickname)
+      : (safeAddr ? `<a href="${mapsUrl(safeAddr)}" class="pw-addr-link" target="_blank" rel="noopener" title="Open in Google Maps">${escape(safeAddr)}</a>` : '(unnamed)');
+    const addrLineHtml = p.nickname && safeAddr
+      ? `<a href="${mapsUrl(safeAddr)}" class="pw-addr-link" target="_blank" rel="noopener" title="Open in Google Maps">${escape(safeAddr)}</a> ${extLinks}`
+      : (!p.nickname && safeAddr ? extLinks : '');
+
+    card.innerHTML = `
+      ${reorderBar}
+      <h3>${titleHtml}</h3>
+      <div class="addr">${addrLineHtml}</div>
+      ${creatorLine}
+      <div class="row"><span class="label">Value</span><span>${fmtMoney(+p.estValue)}</span></div>
+      <div class="row"><span class="label">Rent (total)</span><span>${fmtMoney(+p.estRent)}/mo</span></div>
+      ${unitsLine}
+      <div class="pw-metrics">
+        <div class="m"><div class="label"><span class="tip" tabindex="0" data-tip="1% Rule. Quick deal screen: monthly rent ÷ purchase price should be ≥ 1%. Below 1% rarely cash-flows. Above 1% is the starting line, not the finish.">1% rule</span></div><div class="v ${classifyOnePct(m.onePct)}">${fmtPct(m.onePct)}</div></div>
+        <div class="m"><div class="label"><span class="tip" tabindex="0" data-tip="Capitalization Rate. NOI (annual rent minus expenses, no mortgage) ÷ purchase price. Compares deals like-for-like. 5–6% decent, 7–8% strong, 10%+ suspicious or rough area.">Cap rate</span></div><div class="v ${classifyCapRate(m.capRate)}">${fmtPct(m.capRate)}</div></div>
+        <div class="m"><div class="label"><span class="tip" tabindex="0" data-tip="Gross Rent Multiplier. Purchase price ÷ annual gross rent. Lower = better. A napkin multiple — useful for quick comparisons across properties.">GRM</span></div><div class="v">${m.grm != null ? m.grm.toFixed(2) : '—'}</div></div>
+        <div class="m"><div class="label"><span class="tip" tabindex="0" data-tip="Principal &amp; Interest. Just the loan payment portion — what goes to the bank for the mortgage itself (no taxes, no insurance, no escrow).">Mortgage P&amp;I</span></div><div class="v">${fmtMoney(m.piMonthly)}/mo</div></div>
+        <div class="m"><div class="label"><span class="tip" tabindex="0" data-tip="Principal, Interest, Taxes, Insurance. The full monthly mortgage payment to the bank. The number that has to clear the FHA Self-Sufficiency Test.">PITI</span></div><div class="v">${fmtMoney(m.pitiMonthly)}/mo</div></div>
+        <div class="m"><div class="label"><span class="tip" tabindex="0" data-tip="Estimated monthly $ left after PITI, vacancy reserve, and maintenance reserve. Negative = property loses money each month (you're feeding it).">Cash flow</span></div><div class="v ${classifyCashFlow(m.cashFlowMonthly)}">${fmtMoney(m.cashFlowMonthly)}/mo</div></div>
+        ${sstBlock}
+      </div>
+      ${voteRow}
+      ${p.tags && p.tags.length ? `<div class="pw-tags">${p.tags.map(t => `<span>${escape(t)}</span>`).join('')}</div>` : ''}
+      ${p.notes ? `<div class="pw-notes">${escape(p.notes)}</div>` : ''}
+      ${reviewsBlock}
+      <div class="pw-actions">
+        ${shareBtn}
+        ${adoptBtn}
+        <button class="wl-btn outline" data-act="edit">Edit</button>
+        <button class="wl-btn danger" data-act="del">Delete</button>
+      </div>
+      <div class="pw-detail">
+        <h4>Assumptions for this property</h4>
+        <div class="pw-assumptions">
+          <div><label><span class="tip" tabindex="0" data-tip="Down payment as % of purchase price. Conventional = 20%+, FHA = 3.5% min for owner-occupied (use 3.5 for house-hack math).">Down %</span></label><input type="number" step="0.5" data-k="downPct" value="${p.assumptions?.downPct ?? DEFAULTS.downPct}"></div>
+          <div><label><span class="tip" tabindex="0" data-tip="Annual mortgage interest rate %. Today's 30yr conventional is ~7% give or take 0.5%. FHA usually within ±0.25% of that.">Rate %</span></label><input type="number" step="0.05" data-k="rate" value="${p.assumptions?.rate ?? DEFAULTS.rate}"></div>
+          <div><label><span class="tip" tabindex="0" data-tip="Loan term in years. 30 = lowest monthly payment, more interest paid. 15 = higher payment, much less interest. House-hack default = 30.">Term (yrs)</span></label><input type="number" step="1" data-k="termYears" value="${p.assumptions?.termYears ?? DEFAULTS.termYears}"></div>
+          <div><label><span class="tip" tabindex="0" data-tip="Annual property tax as % of home value. Hartford/New Britain CT typically 3.0–3.5%. Chattanooga TN ~0.7%. Check the actual tax bill on each property.">Tax %</span></label><input type="number" step="0.05" data-k="taxPct" value="${p.assumptions?.taxPct ?? DEFAULTS.taxPct}"></div>
+          <div><label><span class="tip" tabindex="0" data-tip="Annual homeowner's insurance as % of value. 0.4–0.7% is typical. Older buildings + landlord policies run higher. Get a real quote before signing.">Insurance %</span></label><input type="number" step="0.05" data-k="insurePct" value="${p.assumptions?.insurePct ?? DEFAULTS.insurePct}"></div>
+          <div><label><span class="tip" tabindex="0" data-tip="Vacancy reserve: % of gross rent you assume the units sit empty per year. 5% ≈ 2.5 weeks/yr vacancy. 8–10% for rougher markets.">Vacancy %</span></label><input type="number" step="0.5" data-k="vacancyPct" value="${p.assumptions?.vacancyPct ?? DEFAULTS.vacancyPct}"></div>
+          <div><label><span class="tip" tabindex="0" data-tip="Maintenance reserve: % of gross rent you set aside for repairs, capex, turnovers. 8% is rule-of-thumb. Pre-1950 buildings: 10–12%.">Maint %</span></label><input type="number" step="0.5" data-k="maintPct" value="${p.assumptions?.maintPct ?? DEFAULTS.maintPct}"></div>
+        </div>
+        <div style="margin-top:10px;display:flex;gap:8px;">
+          <button class="wl-btn" data-act="save-assumptions">Save Assumptions</button>
+          <button class="wl-btn outline" data-act="reset-assumptions">Reset to Defaults</button>
+        </div>
+      </div>
+    `;
+    card.querySelector('[data-act="del"]').onclick = () => pwDelete(p.id);
+    card.querySelector('[data-act="edit"]').onclick = () => card.querySelector('.pw-detail').classList.toggle('open');
+    card.querySelector('[data-act="save-assumptions"]').onclick = () => saveAssumptions(p.id, card);
+    card.querySelector('[data-act="reset-assumptions"]').onclick = () => resetAssumptions(p.id);
+    const voteUp = card.querySelector('[data-act="vote-up"]');
+    if (voteUp) voteUp.onclick = () => pwVote(p.id, 1);
+    const voteDown = card.querySelector('[data-act="vote-down"]');
+    if (voteDown) voteDown.onclick = () => pwVote(p.id, -1);
+    const reviewInput = card.querySelector('[data-act="review-input"]');
+    const reviewAdd = card.querySelector('[data-act="review-add"]');
+    if (reviewAdd && reviewInput) {
+      reviewAdd.onclick = () => pwAddReview(p.id, reviewInput);
+      reviewInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); pwAddReview(p.id, reviewInput); } });
+    }
+    const shareBtnEl = card.querySelector('[data-act="share"]');
+    if (shareBtnEl) shareBtnEl.onclick = () => pwShareProperty(p.id);
+    const adoptBtnEl = card.querySelector('[data-act="adopt"]');
+    if (adoptBtnEl) adoptBtnEl.onclick = () => pwAdoptFromShared(p.id);
+
+    // Reorder controls (Personal mode only)
+    if (mode === 'personal') {
+      const upBtn = card.querySelector('[data-act="reorder-up"]');
+      if (upBtn) upBtn.onclick = (e) => { e.stopPropagation(); pwReorder(p.id, 'up'); };
+      const dnBtn = card.querySelector('[data-act="reorder-down"]');
+      if (dnBtn) dnBtn.onclick = (e) => { e.stopPropagation(); pwReorder(p.id, 'down'); };
+
+      // HTML5 drag-and-drop
+      card.addEventListener('dragstart', e => {
+        e.dataTransfer.setData('text/plain', p.id);
+        e.dataTransfer.effectAllowed = 'move';
+        card.classList.add('dragging');
+      });
+      card.addEventListener('dragend', () => {
+        card.classList.remove('dragging');
+      });
+      card.addEventListener('dragover', e => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        const rect = card.getBoundingClientRect();
+        const after = (e.clientY - rect.top) > rect.height / 2;
+        card.classList.toggle('drag-over-top', !after);
+        card.classList.toggle('drag-over-bottom', after);
+      });
+      card.addEventListener('dragleave', () => {
+        card.classList.remove('drag-over-top', 'drag-over-bottom');
+      });
+      card.addEventListener('drop', e => {
+        e.preventDefault();
+        const src = e.dataTransfer.getData('text/plain');
+        const rect = card.getBoundingClientRect();
+        const after = (e.clientY - rect.top) > rect.height / 2;
+        card.classList.remove('drag-over-top', 'drag-over-bottom');
+        pwReorderDrop(src, p.id, after);
+      });
+    }
+
+    grid.appendChild(card);
+  }
+}
+
+function escape(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+
+// --- Data ops ---
+function subscribe() {
+  if (unsubscribe) unsubscribe();
+  const r = ref(database, basePath);
+  unsubscribe = onValue(r, snap => {
+    cache = snap.val() || {};
+    render();
+  });
+}
+
+// Live-track which property hashes are already on the shared list so we can
+// hide the "→ Share" button in personal mode for properties already shared.
+function subscribeShared() {
+  if (sharedUnsub) return;  // only subscribe once
+  const sharedRef = ref(database, 'share/realestate/properties');
+  sharedUnsub = onValue(sharedRef, snap => {
+    const data = snap.val() || {};
+    sharedHashes = new Set(Object.keys(data));
+    // Re-render so the share buttons update without waiting for a watchlist change
+    if (mode === 'personal') render();
+  });
+}
+
+// Live-track address hashes in the signed-in user's own watchlist so we can
+// hide the "← Adopt" button in shared mode for properties already in their watchlist.
+// Re-subscribes whenever the signed-in uid changes (or clears on sign-out).
+function subscribePersonal() {
+  if (personalUnsub) { personalUnsub(); personalUnsub = null; }
+  personalHashes = new Set();
+  if (!currentUserId) {
+    if (mode === 'shared') render();
+    return;
+  }
+  const personalRef = ref(database, `${currentUserId}/realestate/watchlist`);
+  personalUnsub = onValue(personalRef, snap => {
+    const data = snap.val() || {};
+    personalHashes = new Set(
+      Object.values(data).map(p => propertyHash(p?.address)).filter(Boolean)
+    );
+    if (mode === 'shared') render();
+  });
+}
+
+const RENTCAST_PROXY = 'https://rentcast.luissolutions.us';
+
+window.pwLookup = async function () {
+  const addressInput = document.getElementById('pw-address');
+  const address = addressInput.value.trim();
+  const status = document.getElementById('pw-lookup-status');
+  const btn = document.getElementById('pw-lookup-btn');
+  if (!address || address.length < 5) {
+    status.textContent = 'Enter an address first.';
+    status.style.color = '#c0392b';
+    return;
+  }
+  btn.disabled = true;
+  status.style.color = 'inherit';
+  status.textContent = 'Looking up…';
+  try {
+    const res = await fetch(`${RENTCAST_PROXY}/lookup?address=${encodeURIComponent(address)}`);
+    const data = await res.json();
+    if (!res.ok) {
+      status.style.color = '#c0392b';
+      status.textContent = `Lookup failed (${res.status}): ${data.detail?.error || data.error || 'unknown'}`;
+      return;
+    }
+    const v = data.value?.amount;
+    const r = data.rent?.amount;
+    const sp = data.value?.subjectProperty;
+    if (v) document.getElementById('pw-value').value = v;
+    if (r) document.getElementById('pw-rent').value = r;
+    if (sp?.propertyType === 'Multi-Family' && sp?.bedrooms >= 3) {
+      // crude heuristic — RentCast doesn't always return unit count
+      document.getElementById('pw-units').value = Math.min(4, Math.max(2, Math.floor(sp.bedrooms / 2)));
+    }
+    const sub = sp ? ` · ${sp.propertyType || '?'} · ${sp.bedrooms ?? '?'}BR/${sp.bathrooms ?? '?'}BA · ${sp.squareFootage ?? '?'} sqft · built ${sp.yearBuilt ?? '?'}` : '';
+    status.style.color = data.fromCache ? '#888' : '#1f8a3a';
+    status.textContent = `Filled${data.fromCache ? ' (from cache)' : ''}${sub}. Verify before saving.`;
+  } catch (err) {
+    status.style.color = '#c0392b';
+    status.textContent = `Network error: ${err.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+window.pwAdd = function () {
+  const address = document.getElementById('pw-address').value.trim();
+  if (!address || address.length < 5) { alert('Enter an address.'); return; }
+  if (mode === 'shared' && !currentUserId) { alert('Sign in to add to the shared list.'); return; }
+  const nickname = document.getElementById('pw-nickname').value.trim();
+  const estValue = parseFloat(document.getElementById('pw-value').value) || 0;
+  const estRent = parseFloat(document.getElementById('pw-rent').value) || 0;
+  const units = Math.max(1, parseInt(document.getElementById('pw-units').value, 10) || 1);
+  const tagsRaw = document.getElementById('pw-tags-input').value.trim();
+  const tags = tagsRaw ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean) : [];
+  const notes = document.getElementById('pw-notes-input').value.trim();
+
+  const now = Date.now();
+  const payload = { address, nickname, estValue, estRent, units, tags, notes, createdAt: now, updatedAt: now };
+  if (mode === 'shared') {
+    payload.createdBy = currentUserId;
+    payload.createdByEmail = currentUserEmail;
+  } else {
+    // Personal: append at the bottom of the rank
+    const sortOrders = Object.values(cache)
+      .map(p => p?.sortOrder)
+      .filter(v => Number.isFinite(v));
+    payload.sortOrder = sortOrders.length ? Math.max(...sortOrders) + 10 : 10;
+  }
+  const targetRef = mode === 'shared'
+    ? ref(database, `${basePath}/${propertyHash(address)}`)
+    : push(ref(database, basePath));
+  set(targetRef, payload)
+    .then(() => {
+      ['pw-address','pw-nickname','pw-value','pw-rent','pw-tags-input','pw-notes-input'].forEach(id => document.getElementById(id).value = '');
+      document.getElementById('pw-units').value = '1';
+    })
+    .catch(err => alert('Save failed: ' + err.message));
+};
+
+window.pwDelete = function (id) {
+  if (!confirm('Delete this property?')) return;
+  remove(ref(database, `${basePath}/${id}`)).catch(err => alert('Delete failed: ' + err.message));
+};
+
+window.pwClearAll = function () {
+  const n = Object.keys(cache).length;
+  if (!n) return;
+  const warning = mode === 'shared'
+    ? `DELETE ALL ${n} properties from the SHARED REVIEW list (visible to everyone)?\n\nThis wipes votes and comments too. Other users will lose their entries.`
+    : `Delete all ${n} properties from your personal list?`;
+  if (!confirm(warning)) return;
+  set(ref(database, basePath), null).catch(err => alert('Clear failed: ' + err.message));
+};
+
+window.pwExportJSON = function () {
+  const blob = new Blob([JSON.stringify(cache, null, 2)], { type: 'application/json' });
+  downloadBlob(blob, `properties-${new Date().toISOString().slice(0,10)}.json`);
+};
+
+window.pwExportCSV = function () {
+  const rows = [['Address','Nickname','Units','EstValue','EstRent','Tags','Notes','OnePctRule','CapRate','GRM','PI','PITI','CashFlow','FHA_SST']];
+  for (const id of Object.keys(cache)) {
+    const p = cache[id];
+    const m = deriveMetrics(p);
+    rows.push([
+      p.address || '', p.nickname || '', p.units || 1, p.estValue || '', p.estRent || '',
+      (p.tags || []).join(';'), (p.notes || '').replace(/\n/g,' '),
+      m.onePct != null ? m.onePct.toFixed(3) : '',
+      m.capRate != null ? m.capRate.toFixed(2) : '',
+      m.grm != null ? m.grm.toFixed(2) : '',
+      Math.round(m.piMonthly || 0),
+      Math.round(m.pitiMonthly || 0),
+      Math.round(m.cashFlowMonthly || 0),
+      m.sstApplies ? (m.sstPass ? 'PASS' : 'FAIL') : 'N/A',
+    ]);
+  }
+  const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
+  downloadBlob(new Blob([csv], { type: 'text/csv' }), `properties-${new Date().toISOString().slice(0,10)}.csv`);
+};
+
+function downloadBlob(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function saveAssumptions(id, card) {
+  const inputs = card.querySelectorAll('.pw-assumptions input');
+  const a = {};
+  inputs.forEach(i => { a[i.dataset.k] = parseFloat(i.value); });
+  update(ref(database, `${basePath}/${id}`), { assumptions: a, updatedAt: Date.now() })
+    .catch(err => alert('Save failed: ' + err.message));
+}
+
+function resetAssumptions(id) {
+  update(ref(database, `${basePath}/${id}`), { assumptions: null, updatedAt: Date.now() })
+    .catch(err => alert('Reset failed: ' + err.message));
+}
+
+// --- Auth wiring ---
+onAuthStateChanged(auth, user => {
+  if (user) {
+    currentUserId = user.uid;
+    currentUserEmail = user.email;
+    authBadge.textContent = `· logged in as ${user.email}`;
+    authBadge.style.color = '#5cd17a';
+  } else {
+    currentUserId = null;
+    currentUserEmail = null;
+    authBadge.textContent = '· guest mode (sign in to vote/comment on shared list)';
+    authBadge.style.color = '#d6b85a';
+  }
+  setBasePath();
+  subscribe();
+  subscribeShared();
+  subscribePersonal();  // tracks user's own watchlist for "already adopted" check
+});
+
+window.pwSetMode = function (newMode) {
+  if (newMode === mode) return;
+  mode = newMode;
+  document.getElementById('pw-mode-personal').classList.toggle('active', mode === 'personal');
+  document.getElementById('pw-mode-shared').classList.toggle('active', mode === 'shared');
+  setBasePath();
+  subscribe();
+  subscribeShared();
+  subscribePersonal();
+};
+
+window.pwVote = function (id, value) {
+  if (!currentUserId) { alert('Sign in to vote.'); return; }
+  if (mode !== 'shared') return;
+  const cur = cache[id]?.votes?.[currentUserId]?.value;
+  const next = cur === value ? null : value;   // toggle off if clicking same
+  if (next === null) {
+    remove(ref(database, `${basePath}/${id}/votes/${currentUserId}`));
+  } else {
+    set(ref(database, `${basePath}/${id}/votes/${currentUserId}`), {
+      value: next, email: currentUserEmail, votedAt: Date.now()
+    });
+  }
+};
+
+window.pwAddReview = function (id, inputEl) {
+  if (!currentUserId) { alert('Sign in to comment.'); return; }
+  const text = inputEl.value.trim();
+  if (!text) return;
+  const newRef = push(ref(database, `${basePath}/${id}/reviews`));
+  set(newRef, {
+    uid: currentUserId,
+    email: currentUserEmail,
+    text,
+    createdAt: Date.now()
+  });
+  inputEl.value = '';
+};
+
+// Swap with adjacent neighbor (arrow buttons)
+window.pwReorder = async function (id, direction) {
+  if (mode !== 'personal') return;
+  const list = Object.entries(cache)
+    .filter(([k, v]) => v)
+    .map(([k, v]) => ({ id: k, sortOrder: v.sortOrder ?? Number.MAX_SAFE_INTEGER }))
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+  const idx = list.findIndex(x => x.id === id);
+  if (idx === -1) return;
+  const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+  if (targetIdx < 0 || targetIdx >= list.length) return;
+  const me = list[idx], neighbor = list[targetIdx];
+  // Defensive: if either lacks a real sortOrder, renumber both to spaced ints
+  const aSort = Number.isFinite(me.sortOrder) && me.sortOrder !== Number.MAX_SAFE_INTEGER ? me.sortOrder : (idx + 1) * 10;
+  const bSort = Number.isFinite(neighbor.sortOrder) && neighbor.sortOrder !== Number.MAX_SAFE_INTEGER ? neighbor.sortOrder : (targetIdx + 1) * 10;
+  try {
+    await update(ref(database, basePath), {
+      [`${me.id}/sortOrder`]: bSort,
+      [`${me.id}/updatedAt`]: Date.now(),
+      [`${neighbor.id}/sortOrder`]: aSort,
+      [`${neighbor.id}/updatedAt`]: Date.now()
+    });
+  } catch (err) { alert('Reorder failed: ' + err.message); }
+};
+
+// Drag-and-drop reorder — insert dragged item before/after target
+window.pwReorderDrop = async function (srcId, targetId, after) {
+  if (mode !== 'personal') return;
+  if (!srcId || !targetId || srcId === targetId) return;
+  const list = Object.entries(cache)
+    .filter(([k, v]) => v)
+    .map(([k, v]) => ({ id: k, sortOrder: v.sortOrder ?? Number.MAX_SAFE_INTEGER }))
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+  const targetIdx = list.findIndex(x => x.id === targetId);
+  if (targetIdx === -1) return;
+  const target = list[targetIdx];
+  const neighborIdx = after ? targetIdx + 1 : targetIdx - 1;
+  const neighbor = (neighborIdx >= 0 && neighborIdx < list.length) ? list[neighborIdx] : null;
+  // Skip drop on the immediate neighbor in the source's direction (no-op)
+  if (neighbor && neighbor.id === srcId) return;
+  let newSort;
+  const targetSort = Number.isFinite(target.sortOrder) ? target.sortOrder : 0;
+  if (!neighbor) {
+    newSort = after ? targetSort + 10 : targetSort - 10;
+  } else {
+    const neighborSort = Number.isFinite(neighbor.sortOrder) ? neighbor.sortOrder : (targetSort + (after ? 20 : -20));
+    newSort = (targetSort + neighborSort) / 2;
+  }
+  try {
+    await update(ref(database, `${basePath}/${srcId}`), {
+      sortOrder: newSort,
+      updatedAt: Date.now()
+    });
+  } catch (err) { alert('Reorder failed: ' + err.message); }
+};
+
+window.pwAdoptFromShared = async function (id) {
+  if (!currentUserId) { alert('Sign in to copy to your watchlist.'); return; }
+  if (mode !== 'shared') return;
+  const p = cache[id];
+  if (!p) { alert('Property not found.'); return; }
+
+  const targetHash = propertyHash(p.address);
+  const userWatchlistRef = ref(database, `${currentUserId}/realestate/watchlist`);
+
+  try {
+    // Duplicate check: don't add if the same address already exists in user's watchlist
+    const snap = await get(userWatchlistRef);
+    const existing = snap.exists() ? snap.val() : {};
+    const dup = Object.values(existing).some(e => propertyHash(e?.address) === targetHash);
+    if (dup) { alert(`"${p.nickname || p.address}" is already in your watchlist.`); return; }
+
+    // Strip shared-only fields (votes, reviews, createdBy, createdByEmail). Keep descriptive data + assumptions.
+    const now = Date.now();
+    const payload = {
+      address: p.address,
+      nickname: p.nickname || '',
+      estValue: +p.estValue || 0,
+      estRent: +p.estRent || 0,
+      units: +p.units || 1,
+      tags: Array.isArray(p.tags) ? p.tags.slice() : [],
+      notes: p.notes || '',
+      createdAt: now,
+      updatedAt: now,
+    };
+    if (p.assumptions) payload.assumptions = p.assumptions;
+
+    await push(userWatchlistRef, payload);
+    alert(`Added "${p.nickname || p.address}" to your watchlist.`);
+  } catch (err) {
+    alert('Adopt failed: ' + err.message);
+  }
+};
+
+window.pwShareProperty = async function (id) {
+  if (!currentUserId) { alert('Sign in to share.'); return; }
+  if (mode !== 'personal') return;
+  const p = cache[id];
+  if (!p) return;
+  const hash = propertyHash(p.address);
+  const sharedRef = ref(database, `share/realestate/properties/${hash}`);
+  const existing = (await get(sharedRef)).val();
+  if (existing && !confirm(`A shared entry already exists for "${p.address}". Overwrite the metadata (votes + reviews are preserved)?`)) return;
+  // Preserve any existing votes/reviews; overwrite the descriptive fields.
+  const payload = {
+    address: p.address, nickname: p.nickname || '', estValue: +p.estValue || 0,
+    estRent: +p.estRent || 0, units: +p.units || 1,
+    tags: p.tags || [], notes: p.notes || '',
+    createdAt: existing?.createdAt || Date.now(),
+    updatedAt: Date.now(),
+    createdBy: existing?.createdBy || currentUserId,
+    createdByEmail: existing?.createdByEmail || currentUserEmail
+  };
+  if (existing?.votes) payload.votes = existing.votes;
+  if (existing?.reviews) payload.reviews = existing.reviews;
+  if (existing?.assumptions) payload.assumptions = existing.assumptions;
+  await set(sharedRef, payload);
+  alert(`Pushed "${p.address}" to shared review list.`);
+};
+</script>
+</body>
+</html>

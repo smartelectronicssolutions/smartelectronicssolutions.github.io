@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { width: 100%; height: 100%; overflow: hidden; background: #111; }
+        #game { width: 100%; height: 100%; }
+    </style>
+    <script>
+        const cfg = window.parent?.playerConfig;
+        if (cfg) {
+            EJS_player        = "#game";
+            EJS_core          = cfg.core;
+            EJS_gameUrl       = cfg.gameUrl;
+            EJS_pathtodata    = cfg.pathtodata;
+            EJS_startOnLoaded = true;
+            EJS_onGameStart   = cfg.onGameStart;
+            EJS_onLoadSave    = cfg.onLoadSave;
+            EJS_onSaveSave    = cfg.onSaveSave;
+            if (cfg.perfMode) EJS_threads = false;
+        }
+
+        // postMessage bridge — parent sends commands, we execute inside the iframe
+        // where window.EJS_emulator is guaranteed to be available.
+        window.addEventListener('message', async function(e) {
+            if (e.source !== window.parent) return;
+            const msg = e.data;
+            if (!msg || !msg.ejsCmd) return;
+            const { ejsCmd, reqId } = msg;
+
+            function reply(data) {
+                window.parent.postMessage({ ejsReply: reqId, ...data }, '*');
+            }
+
+            const emu    = window.EJS_emulator;
+            const gm     = emu?.gameManager ?? emu ?? null;
+            const Module = emu?.Module ?? null;
+
+            // ── helpers: direct libretro Module fallbacks ──────────────────────
+            // EmulatorJSGetState is a C export that some CDN builds omit.
+            // Fall back to the standard Emscripten-wrapped retro_serialize calls.
+            function getStateViaModule() {
+                // try EmulatorJS custom exports first, then standard libretro
+                const namePairs = [
+                    ['EmulatorJSGetStateSize', 'EmulatorJSGetState'],
+                    ['_EmulatorJSGetStateSize', '_EmulatorJSGetState'],
+                ];
+                for (const [szName, stName] of namePairs) {
+                    if (typeof Module[szName] === 'function' && typeof Module[stName] === 'function') {
+                        const size = Module[szName]();
+                        const ptr  = Module._malloc(size);
+                        Module[stName](ptr);
+                        const copy = new Uint8Array(new Uint8Array(Module.HEAPU8.buffer, ptr, size));
+                        Module._free(ptr);
+                        return copy;
+                    }
+                }
+                // standard retro_serialize (Emscripten underscore prefix)
+                for (const [szName, serName] of [
+                    ['_retro_serialize_size', '_retro_serialize'],
+                    ['retro_serialize_size',  'retro_serialize'],
+                ]) {
+                    if (typeof Module[szName] === 'function' && typeof Module[serName] === 'function') {
+                        const size = Module[szName]();
+                        if (size <= 0) throw new Error('serialize_size returned ' + size);
+                        const ptr = Module._malloc(size);
+                        Module[serName](ptr, size);
+                        const copy = new Uint8Array(new Uint8Array(Module.HEAPU8.buffer, ptr, size));
+                        Module._free(ptr);
+                        return copy;
+                    }
+                }
+                throw new Error('No Module save method found');
+            }
+
+            function loadStateViaModule(data) {
+                for (const name of ['EmulatorJSLoadState', '_EmulatorJSLoadState']) {
+                    if (typeof Module[name] === 'function') {
+                        const ptr = Module._malloc(data.length);
+                        Module.HEAPU8.set(data, ptr);
+                        Module[name](ptr, data.length);
+                        Module._free(ptr);
+                        return;
+                    }
+                }
+                for (const name of ['_retro_unserialize', 'retro_unserialize']) {
+                    if (typeof Module[name] === 'function') {
+                        const ptr = Module._malloc(data.length);
+                        Module.HEAPU8.set(data, ptr);
+                        Module[name](ptr, data.length);
+                        Module._free(ptr);
+                        return;
+                    }
+                }
+                throw new Error('No Module load method found');
+            }
+            // ─────────────────────────────────────────────────────────────────
+
+            if (ejsCmd === 'ping') {
+                const hasGM  = !!(gm?.getState && gm?.loadState) || !!(emu?.getState && emu?.loadState);
+                const hasMod = !!(Module?._malloc && (
+                    Module.EmulatorJSGetState  || Module._EmulatorJSGetState ||
+                    Module._retro_serialize_size || Module.retro_serialize_size
+                ));
+                reply({ ready: hasGM || hasMod });
+
+            } else if (ejsCmd === 'getState') {
+                try {
+                    let bytes = null;
+
+                    // Method 1: gameManager / emu .getState()
+                    const target = gm?.getState ? gm : emu?.getState ? emu : null;
+                    if (target) {
+                        try {
+                            let raw = target.getState();
+                            if (raw?.then) raw = await raw;
+                            if (raw instanceof Blob)             bytes = new Uint8Array(await raw.arrayBuffer());
+                            else if (raw instanceof ArrayBuffer) bytes = new Uint8Array(raw);
+                            else if (ArrayBuffer.isView(raw))    bytes = new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength);
+                        } catch(_) { /* fall through to Method 2 */ }
+                    }
+
+                    // Method 2: direct Module API
+                    if (!bytes && Module) bytes = getStateViaModule();
+
+                    if (!bytes) { reply({ error: 'all save methods failed' }); return; }
+                    window.parent.postMessage({ ejsReply: reqId, bytes }, '*', [bytes.buffer]);
+                } catch(err) { reply({ error: err.message }); }
+
+            } else if (ejsCmd === 'loadState') {
+                const data = msg.bytes instanceof Uint8Array ? msg.bytes : new Uint8Array(msg.bytes);
+                try {
+                    let loaded = false;
+
+                    // Method 1: gameManager / emu .loadState()
+                    const target = gm?.loadState ? gm : emu?.loadState ? emu : null;
+                    if (target) {
+                        try { target.loadState(data); loaded = true; } catch(_) { /* fall through */ }
+                    }
+
+                    // Method 2: direct Module API
+                    if (!loaded && Module) { loadStateViaModule(data); loaded = true; }
+
+                    reply({ ok: loaded, error: loaded ? undefined : 'all load methods failed' });
+                } catch(err) { reply({ ok: false, error: err.message }); }
+            }
+        });
+    </script>
+</head>
+<body>
+    <div id="game"></div>
+    <script src="https://cdn.emulatorjs.org/latest/data/loader.js"></script>
+</body>
+</html>
