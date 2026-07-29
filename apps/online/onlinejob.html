@@ -580,18 +580,23 @@
         }
       }
 
-      // Table start/end are authoritative for completed tasks.
-      // Tie the first segment start and final segment end to task bounds.
-      if (task.endTime && segs.length) {
-        const firstSeg = segs[0];
-        if (firstSeg.startTime !== task.startTime) {
-          firstSeg.startTime = task.startTime;
-          changed = true;
+      // Segments are authoritative (matching saveSegTime): derive the task's
+      // start/end FROM the segment span rather than forcing segments to the table.
+      // Forcing the last-by-start segment's end to task.endTime used to snap an
+      // edited segment end back on reload (e.g. out-of-order travel added before
+      // the labor, which sorts last by start).
+      if (segs.length) {
+        const starts = segs.map(s => new Date(s.startTime).getTime()).filter(n => !isNaN(n));
+        if (starts.length) {
+          const minStart = new Date(Math.min(...starts)).toISOString();
+          if (task.startTime !== minStart) { task.startTime = minStart; changed = true; }
         }
-        const lastSeg = segs[segs.length - 1];
-        if (lastSeg.endTime !== task.endTime) {
-          lastSeg.endTime = task.endTime;
-          changed = true;
+        if (task.endTime) {
+          const ends = segs.map(s => s.endTime ? new Date(s.endTime).getTime() : NaN).filter(n => !isNaN(n));
+          if (ends.length) {
+            const maxEnd = new Date(Math.max(...ends)).toISOString();
+            if (task.endTime !== maxEnd) { task.endTime = maxEnd; changed = true; }
+          }
         }
       }
 
