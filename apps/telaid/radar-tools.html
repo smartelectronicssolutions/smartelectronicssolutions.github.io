@@ -1368,6 +1368,23 @@
         });
       }
 
+      // After an upload, flip the site's marker to ✓ in place (no re-render, so
+      // the current selection is preserved) instead of waiting for a refresh.
+      function markSiteUploaded(projectId) {
+        if (!projectId) return;
+        const p = state.allProjects?.find((x) => x.id === projectId);
+        if (p) p.needsUpload = false;
+        const sel = $("projectList");
+        const opt =
+          sel && Array.from(sel.options).find((o) => o.value === projectId);
+        if (opt) {
+          const label = p ? p.label : opt.textContent.replace(/^[⚠✓]\s*/, "");
+          opt.textContent = `✓ ${label}`;
+          opt.style.color = "";
+          opt.title = "";
+        }
+      }
+
       function filterProjects() {
         const query = normKey($("projectSearch")?.value);
         if (!query) {
@@ -3249,6 +3266,7 @@
             await set(dbRef(database, `${getTaskPath()}/lastUploadedQC`), qcTs);
             const qcStatus = $("uploadQCStatus");
             if (qcStatus) qcStatus.textContent = `Last uploaded: ${qcTs}`;
+            markSiteUploaded(state.currentProject);
             alert(
               `OneDrive upload complete: ${uploadedFiles.length} file(s). See console for details.`,
             );
@@ -3276,6 +3294,7 @@
             await set(dbRef(database, `${getTaskPath()}/lastUploadedImages`), imgTs);
             const imgStatus = $("uploadImagesStatus");
             if (imgStatus) imgStatus.textContent = `Last uploaded: ${imgTs}`;
+            markSiteUploaded(state.currentProject);
             alert(
               `Uploaded ${uploadedFiles.length} image(s) to OneDrive. See console for details.`,
             );
