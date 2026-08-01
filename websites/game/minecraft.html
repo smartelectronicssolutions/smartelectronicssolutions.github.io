@@ -197,6 +197,13 @@ docker exec minecraft-java rcon-cli list</code></pre>
         <div class="mods-bar">
             <input type="text" id="modSearch" placeholder="Search mods&hellip;" autocomplete="off">
             <select id="modCat"><option value="">All categories</option></select>
+            <select id="modSort">
+                <option value="name">Sort: Name A&ndash;Z</option>
+                <option value="name-desc">Sort: Name Z&ndash;A</option>
+                <option value="category">Sort: Category</option>
+                <option value="load-desc">Sort: Load (heaviest)</option>
+                <option value="load-asc">Sort: Load (lightest)</option>
+            </select>
             <span class="mods-count" id="modCount"></span>
             <span class="mods-auth">
                 <span id="modAuthLabel">viewer</span>
@@ -489,6 +496,7 @@ docker exec minecraft-java rcon-cli list</code></pre>
     const listEl   = document.getElementById("modList");
     const searchEl = document.getElementById("modSearch");
     const catEl    = document.getElementById("modCat");
+    const sortEl   = document.getElementById("modSort");
     const countEl  = document.getElementById("modCount");
     const authLbl  = document.getElementById("modAuthLabel");
     const authBtn  = document.getElementById("modAuthBtn");
@@ -518,7 +526,14 @@ docker exec minecraft-java rcon-cli list</code></pre>
         const q = searchEl.value.trim().toLowerCase();
         const cat = catEl.value;
         let rows = mods.filter(m => (!cat || m.category === cat) && (!q || (m.name + " " + m.category).toLowerCase().includes(q)));
-        rows.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+        const byName = (a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+        const rank = { heavy: 0, moderate: 1, light: 2, keep: 3, custom: 4 };
+        const sort = sortEl.value;
+        if (sort === "name-desc") rows.sort((a, b) => byName(b, a));
+        else if (sort === "category") rows.sort((a, b) => (a.category || "~").localeCompare(b.category || "~") || byName(a, b));
+        else if (sort === "load-desc") rows.sort((a, b) => (rank[a.tier] ?? 5) - (rank[b.tier] ?? 5) || byName(a, b));
+        else if (sort === "load-asc") rows.sort((a, b) => (rank[b.tier] ?? 5) - (rank[a.tier] ?? 5) || byName(a, b));
+        else rows.sort(byName);
         countEl.textContent = `${rows.length} of ${mods.length} mods`;
         if (!rows.length) { listEl.innerHTML = '<span class="mods-empty">No mods match.</span>'; return; }
         listEl.innerHTML = "";
@@ -539,6 +554,7 @@ docker exec minecraft-java rcon-cli list</code></pre>
 
     searchEl.addEventListener("input", render);
     catEl.addEventListener("change", render);
+    sortEl.addEventListener("change", render);
 
     // ── auth ──
     authBtn.addEventListener("click", () => {
