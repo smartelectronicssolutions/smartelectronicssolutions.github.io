@@ -6,6 +6,25 @@
     <title>Minecraft Hub</title>
     <link rel="icon" href="assets/img/mc/mlogo.png">
     <link rel="stylesheet" href="assets/css/game.css">
+    <style>
+        .mods-panel { background:#fff8f0; border:1px solid #e0ceb8; border-radius:6px; padding:14px; }
+        .mods-bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px; }
+        .mods-bar input, .mods-bar select { padding:7px 10px; border:1px solid #e0ceb8; border-radius:5px; font-size:.8rem; background:#fff; color:#2e2018; }
+        #modSearch { flex:1; min-width:150px; }
+        .mods-count { font-size:.74rem; color:#9a8270; }
+        .mods-auth { margin-left:auto; display:flex; gap:6px; align-items:center; font-size:.74rem; color:#9a8270; }
+        .mods-login, .mods-add { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+        .mods-login input, .mods-add input { padding:7px 10px; border:1px solid #e0ceb8; border-radius:5px; font-size:.8rem; flex:1; min-width:120px; }
+        #modAuthErr { color:#a02828; font-size:.74rem; align-self:center; }
+        .mods-list { display:flex; flex-wrap:wrap; gap:6px; }
+        .mod-chip { display:inline-flex; align-items:center; gap:6px; background:#f0e4d4; border:1px solid #e0ceb8; border-radius:999px; padding:4px 10px; font-size:.76rem; }
+        .mod-chip a { color:#7a3800; text-decoration:none; }
+        .mod-chip a:hover { text-decoration:underline; }
+        .mod-chip .mdel { cursor:pointer; color:#a02828; font-weight:bold; border:none; background:none; font-size:.9rem; line-height:1; padding:0; }
+        .mod-chip .mtier { width:8px; height:8px; border-radius:50%; flex:none; }
+        .tier-heavy{background:#e5533f}.tier-moderate{background:#e0972f}.tier-light{background:#59b98a}.tier-keep{background:#5f8fc7}.tier-custom{background:#9a8270}
+        .mods-empty { font-size:.8rem; color:#9a8270; padding:10px 0; }
+    </style>
 </head>
 <body>
 
@@ -169,6 +188,34 @@ docker exec minecraft-java rcon-cli list</code></pre>
                 <li>Run scripts in-game with <code>//cs scriptname</code></li>
             </ol>
         </div>
+    </div>
+
+    <p class="section-head">Server Mods
+        <span style="color:#555;font-weight:normal;font-size:.72rem;"> &mdash; the mods running on Tricraft &middot; click one to view it</span>
+    </p>
+    <div class="mods-panel">
+        <div class="mods-bar">
+            <input type="text" id="modSearch" placeholder="Search mods&hellip;" autocomplete="off">
+            <select id="modCat"><option value="">All categories</option></select>
+            <span class="mods-count" id="modCount"></span>
+            <span class="mods-auth">
+                <span id="modAuthLabel">viewer</span>
+                <button class="btn" id="modAuthBtn">Admin</button>
+            </span>
+        </div>
+        <div class="mods-login" id="modLogin" style="display:none;">
+            <input type="email" id="modEmail" placeholder="Email" autocomplete="username">
+            <input type="password" id="modPass" placeholder="Password" autocomplete="current-password">
+            <button class="btn btn-primary" id="modDoLogin">Sign in</button>
+            <span id="modAuthErr"></span>
+        </div>
+        <div class="mods-add" id="modAdd" style="display:none;">
+            <input type="text" id="mNewName" placeholder="Mod name">
+            <input type="url" id="mNewUrl" placeholder="https:// link to the mod's page">
+            <input type="text" id="mNewCat" placeholder="Category (optional)">
+            <button class="btn btn-primary" id="mAddBtn">Add mod</button>
+        </div>
+        <div class="mods-list" id="modList"><span class="mods-empty">Loading mods&hellip;</span></div>
     </div>
 
     <p class="section-head">
@@ -428,6 +475,108 @@ docker exec minecraft-java rcon-cli list</code></pre>
         } finally {
             schemBtn.disabled = false;
         }
+    });
+</script>
+
+<script type="module">
+    // ── Server Mods (public Firebase list, admin add/delete) ──────────
+    import {
+        auth, database, ref, onValue, push, set, remove,
+        onAuthStateChanged, signInWithEmailAndPassword, signOut
+    } from "../../assets/js/firebase-init.js";
+
+    const MODS_PATH = "public/minecraftMods";
+    const listEl   = document.getElementById("modList");
+    const searchEl = document.getElementById("modSearch");
+    const catEl    = document.getElementById("modCat");
+    const countEl  = document.getElementById("modCount");
+    const authLbl  = document.getElementById("modAuthLabel");
+    const authBtn  = document.getElementById("modAuthBtn");
+    const loginBox = document.getElementById("modLogin");
+    const addBox   = document.getElementById("modAdd");
+    const authErr  = document.getElementById("modAuthErr");
+
+    let mods = [], isAdmin = false;
+    const esc = s => String(s ?? "").replace(/[&<>"']/g, m => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[m]));
+
+    // live read (works for anonymous viewers — public/ is world-readable)
+    onValue(ref(database, MODS_PATH), snap => {
+        const d = snap.val() || {};
+        mods = Object.entries(d).map(([key, v]) => ({ key, name: v.name || key, url: v.url || "", category: v.category || "", tier: v.tier || "custom" }));
+        buildCatFilter();
+        render();
+    });
+
+    function buildCatFilter() {
+        const cur = catEl.value;
+        const cats = [...new Set(mods.map(m => m.category).filter(Boolean))].sort();
+        catEl.innerHTML = '<option value="">All categories</option>' + cats.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
+        catEl.value = cur;
+    }
+
+    function render() {
+        const q = searchEl.value.trim().toLowerCase();
+        const cat = catEl.value;
+        let rows = mods.filter(m => (!cat || m.category === cat) && (!q || (m.name + " " + m.category).toLowerCase().includes(q)));
+        rows.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+        countEl.textContent = `${rows.length} of ${mods.length} mods`;
+        if (!rows.length) { listEl.innerHTML = '<span class="mods-empty">No mods match.</span>'; return; }
+        listEl.innerHTML = "";
+        rows.forEach(m => {
+            const chip = document.createElement("span");
+            chip.className = "mod-chip";
+            const link = m.url
+                ? `<a href="${esc(m.url)}" target="_blank" rel="noopener" title="${esc(m.category)}">${esc(m.name)}</a>`
+                : `<span title="${esc(m.category)}">${esc(m.name)}</span>`;
+            chip.innerHTML = `<span class="mtier tier-${esc(m.tier)}"></span>${link}` +
+                (isAdmin ? ` <button class="mdel" title="Remove ${esc(m.name)}">&times;</button>` : "");
+            if (isAdmin) chip.querySelector(".mdel").onclick = () => {
+                if (confirm(`Remove "${m.name}" from the list?`)) remove(ref(database, `${MODS_PATH}/${m.key}`));
+            };
+            listEl.appendChild(chip);
+        });
+    }
+
+    searchEl.addEventListener("input", render);
+    catEl.addEventListener("change", render);
+
+    // ── auth ──
+    authBtn.addEventListener("click", () => {
+        if (isAdmin) { signOut(auth); }
+        else { loginBox.style.display = loginBox.style.display === "flex" ? "none" : "flex"; }
+    });
+    document.getElementById("modDoLogin").addEventListener("click", async () => {
+        authErr.textContent = "";
+        try {
+            await signInWithEmailAndPassword(auth,
+                document.getElementById("modEmail").value.trim(),
+                document.getElementById("modPass").value);
+            loginBox.style.display = "none";
+        } catch { authErr.textContent = "Sign-in failed."; }
+    });
+
+    onAuthStateChanged(auth, user => {
+        isAdmin = !!user;
+        authLbl.textContent = user ? (user.email || "admin") : "viewer";
+        authBtn.textContent = user ? "Sign out" : "Admin";
+        addBox.style.display = user ? "flex" : "none";
+        if (user) loginBox.style.display = "none";
+        render();
+    });
+
+    // ── add ──
+    document.getElementById("mAddBtn").addEventListener("click", () => {
+        const name = document.getElementById("mNewName").value.trim();
+        let url = document.getElementById("mNewUrl").value.trim();
+        const cat = document.getElementById("mNewCat").value.trim();
+        if (!name) { alert("Enter a mod name."); return; }
+        if (url && !/^https?:\/\//i.test(url)) url = "https://" + url;
+        const finalUrl = url || `https://www.curseforge.com/minecraft/search?class=mc-mods&search=${encodeURIComponent(name)}`;
+        push(ref(database, MODS_PATH), { name, url: finalUrl, category: cat, tier: "custom" }).then(() => {
+            document.getElementById("mNewName").value = "";
+            document.getElementById("mNewUrl").value = "";
+            document.getElementById("mNewCat").value = "";
+        });
     });
 </script>
 
