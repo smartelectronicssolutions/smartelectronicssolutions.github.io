@@ -3,7 +3,6 @@
 
 import { ref, database, onValue } from "./firebase-init.js";
 
-const phonesInDB = ref(database, "devices");
 
 const modelSelect = document.getElementById("modelSelect");
 const repairOptions = document.getElementById("repairOptions");

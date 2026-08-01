@@ -1,15 +1,7 @@
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js";
-import { getAuth, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
+import { getAuth, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendEmailVerification } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
 
-const firebaseConfig = {
-    apiKey: "AIzaSyCv2cQGWeXS-w7psrQiZD8dn4R7hStmY1o",
-    authDomain: "persinfo-df93f.firebaseapp.com",
-    databaseURL: "https://persinfo-df93f-default-rtdb.firebaseio.com",
-    projectId: "persinfo-df93f",
-    storageBucket: "persinfo-df93f.appspot.com",
-    messagingSenderId: "218680336647",
-    appId: "1:218680336647:web:7786091136b9e6b28565a2"
-};
+import { firebaseConfig } from "./firebase-config.js";
 
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -25,12 +17,13 @@ document.addEventListener('DOMContentLoaded', () => {
   if (!userInfo) return;
 
   onAuthStateChanged(auth, (user) => {
-    if (user) {
+    if (user && user.emailVerified) {
       displayUserInfo(user);
-      displayApps(true); // User is logged in
+      displayApps(true); // User is logged in AND verified
     } else {
+      if (user && !user.emailVerified) signOut(auth); // never leave an unverified session active
       displayAuthForms();
-      displayApps(false); // User is not logged in
+      displayApps(false); // User is not logged in (or not verified)
     }
   });
 
@@ -110,6 +103,21 @@ document.addEventListener('DOMContentLoaded', () => {
     const password = document.getElementById('login-password').value.trim();
 
     signInWithEmailAndPassword(auth, email, password)
+      .then((cred) => {
+        if (!cred.user.emailVerified) {
+          // Block unverified accounts. Offer to resend the verification email, then sign out.
+          const resend = confirm(
+            "Your email isn't verified yet.\n\n" +
+            "Please click the verification link we emailed to " + email + " before logging in.\n\n" +
+            "OK = resend the verification email.  Cancel = close.");
+          if (resend) {
+            sendEmailVerification(cred.user)
+              .then(() => alert("Verification email re-sent to " + email + ". Check your inbox (and spam)."))
+              .catch((e) => alert("Couldn't resend: " + e.message));
+          }
+          signOut(auth);
+        }
+      })
       .catch((error) => {
         console.error('Login error:', error);
         alert("Error during login: " + error.message);
@@ -128,9 +136,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     createUserWithEmailAndPassword(auth, email, password)
-      .then(() => {
-        alert("Registration successful! Please log in.");
-        showLoginForm();
+      .then((cred) => {
+        // Require email verification before the account can be used.
+        return sendEmailVerification(cred.user).then(() => {
+          alert("Registration successful!\n\nA verification link was sent to " + email +
+                ".\nPlease click it to activate your account, then log in.");
+          signOut(auth);            // don't leave them signed in as unverified
+          showLoginForm();
+        });
       })
       .catch((error) => {
         console.error('Error registering user:', error);

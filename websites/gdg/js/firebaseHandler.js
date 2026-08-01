@@ -1,53 +1,32 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js";
-import { getDatabase, ref, onValue, off, set } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js";
+// gdg handler — SAME exports as before, but no Firebase SDK and no second project.
+// (playground-e3690 retired 2026-08-01. Login now checks the main site's accounts;
+//  registrations forward to the contact pipeline; gallery serves local images.)
 
-let isFirebaseInitialized = false;
-let database;
+const AUTH_KEY = "AIzaSyCv2cQGWeXS-w7psrQiZD8dn4R7hStmY1o"; // persinfo-df93f public web key
+const CONTACT_URL = "https://persinfo-df93f-default-rtdb.firebaseio.com/public/contactSubmissions.json";
 
-export function initializeFirebase() {
-    if (isFirebaseInitialized) return;
+export function initializeFirebase() { /* no-op — kept for API compatibility */ }
 
-    const appSettings = {
-        databaseURL: "https://playground-e3690-default-rtdb.firebaseio.com/"
-    };
-
-    const app = initializeApp(appSettings);
-    database = getDatabase(app);
-
-    isFirebaseInitialized = true;
-}
-
-function loginUser(username, password) {
-    return new Promise((resolve, reject) => {
-        const usersRef = ref(database, "users");
-        let usersListener;
-        usersListener = onValue(usersRef, snapshot => {
-            const users = snapshot.val();
-
-            if (users) {
-                const matchingUser = Object.values(users).find(user => user.username === username && user.password === password);
-
-                if (matchingUser) {
-                    resolve(matchingUser);
-                } else {
-                    reject(new Error("Invalid username or password."));
-                }
-            }
-
-            off(usersRef, usersListener); 
-        });
+// Sign in against the main site's Firebase Auth (username field takes the account email).
+function loginUser(email, password) {
+    return fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${AUTH_KEY}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, returnSecureToken: true })
+    }).then(r => r.json()).then(j => {
+        if (j.error) throw new Error("Invalid username or password.");
+        return j;
     });
 }
 
 function handleLoginFormSubmission(event) {
-    console.log("Login form submitted");
     event.preventDefault();
 
     const username = document.getElementById("login-username").value;
     const password = document.getElementById("login-password").value;
 
     loginUser(username, password)
-        .then(matchingUser => {
+        .then(() => {
             const sToken = "7777777";
             const expirationMinutes = 480;
             const expirationTime = new Date().getTime() + (expirationMinutes * 60 * 1000);
@@ -59,13 +38,12 @@ function handleLoginFormSubmission(event) {
             alert("Login Successful.");
             window.location.href = "full.html";
         })
-        .catch(error => {
+        .catch(() => {
             alert("Invalid username or password. Please try again.");
         });
 }
 
 function handleRegisterFormSubmission(event) {
-    console.log("Register form submitted");
     event.preventDefault();
 
     const username = document.getElementById("reg-username").value;
@@ -78,13 +56,13 @@ function handleRegisterFormSubmission(event) {
         return;
     }
 
-    registerNewUser(username, email, password)
+    registerNewUser(username, email, "")
         .then(() => {
-            alert("Registration successful!");
+            alert("Registration received — we'll be in touch.");
             document.getElementById("register-form").reset();
         })
-        .catch(err => {
-            alert("Failed to register user:", err.message);
+        .catch(() => {
+            alert("Failed to submit registration. Please try again.");
         });
 }
 
@@ -102,26 +80,29 @@ function attachRegisterEventListener() {
     }
 }
 
-async function registerNewUser(username, email, password) {
-    if (!isFirebaseInitialized) {
-        throw new Error('Firebase is not initialized');
-    }
-    const userRef = ref(database, `users/${email.replace(/\W/g, "")}`);
-    const userInfo = {
-        username,
-        email,
-        password
-    };
-    return set(userRef, userInfo);
+// Forwards to the site's contact pipeline (Telegram + email) — no passwords stored anywhere.
+async function registerNewUser(name, email, phone) {
+    const res = await fetch(CONTACT_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, email, phone: phone || "", message: "GDG site registration request", timestamp: Date.now() })
+    });
+    if (!res.ok) throw new Error("submit failed");
 }
 
 export { registerNewUser };
+
+// Local gallery — images live in the repo, no remote fetch.
+const GALLERY_FILES = [
+    "0", "00012-732299314.png", "01.png", "02.png", "03.png", "04.png",
+    "1", "2", "3", "4", "5", "6"
+];
+
+export function fetchGalleryImages() {
+    return Promise.resolve(GALLERY_FILES.map(f => new URL("../img/gallery/" + f, import.meta.url).href));
+}
 
 export function attachFirebaseEventListeners() {
     attachLoginEventListener();
     attachRegisterEventListener();
 }
-
-document.addEventListener("DOMContentLoaded", function () {
-    initializeFirebase();
-});

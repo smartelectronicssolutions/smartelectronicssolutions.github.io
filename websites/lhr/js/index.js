@@ -1,6 +1,5 @@
 ﻿import { ref, database, onValue } from "../../../assets/js/firebase-init.js";
 
-const phonesInDB = ref(database, "devices");
 
 const modelSelect = document.getElementById('modelSelect');
 const repairOptions = document.getElementById('repairOptions');
