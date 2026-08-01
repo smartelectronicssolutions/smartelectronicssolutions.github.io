@@ -328,12 +328,19 @@ docker exec minecraft-java rcon-cli list</code></pre>
         } catch { el.innerHTML = '<span class="offline">Unreachable</span>'; }
     }
 
-    const isLocal = location.protocol === 'http:';
-    // http -> LAN mc-api; https -> the HTTPS tunnel (works on the deployed/Live-Server-https site too)
-    const API     = isLocal ? 'http://192.168.50.10:3001' : 'https://api.luissolutions.us';
-    // controls reach the server via the tunnel over https as well, so always show them
-    document.getElementById('mc-controls-local').style.display  = 'block';
-    document.getElementById('mc-controls-remote').style.display = 'none';
+    // Local = the page itself is served from the LAN (site container, Live Server, localhost).
+    // luissolutions.us / github.io are always "remote" — their API path goes through the
+    // tunnel, which mc-api rejects for control (status stays public).
+    const host      = location.hostname;
+    const onLoopback = host === 'localhost' || host === '127.0.0.1';
+    const isLocal    = onLoopback || /^192\.168\./.test(host);
+    // loopback pages get a loopback API (browsers exempt 127.0.0.1 from mixed-content
+    // blocking, so this works even under Live Server https); LAN-IP pages need http.
+    const API = onLoopback ? 'http://127.0.0.1:3001'
+              : isLocal    ? 'http://192.168.50.10:3001'
+              :              'https://api.luissolutions.us';
+    document.getElementById('mc-controls-local').style.display  = isLocal ? 'block' : 'none';
+    document.getElementById('mc-controls-remote').style.display = isLocal ? 'none'  : 'block';
 
     function renderLocalStatus(state) {
         const up = state === 'running';
