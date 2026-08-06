@@ -254,6 +254,21 @@
 
         let shopItems = [];
 
+        /* ---- Service-Tech Sim: real-inventory + economy config ----
+           The logged-in user's OWN catalog feeds "Home"; the work catalog
+           (lcurbelo/Telaid) feeds "Van". L's personal account has cross-uid
+           read (RTDB rules), so both load when signed in as luis@luis; a
+           generic user only sees sources they can read (others fail silently).
+           ledgerTx is read ONLY (for the starting balance) - never written. */
+        const SIM_SOURCES = [
+            { room: 'van', label: 'Van', uid: 'SDN0vKPQ1qfN5vxkvhR3auVhDYq1' },   // work gear
+            { room: 'home', label: 'Home', uid: '7cIh8rrhVNOjjj5CBDgb3IlqzEh2' }, // personal
+        ];
+        let realGear = [];          // flattened items from the real inventory catalogs
+        let ledgerShopItems = [];   // items derived from ledgerTx (legacy shop source)
+        let simRoomsChecked = false;
+        let coinsSeeded = false;
+
         // quests
         let quests = {};
         let activeQuest = null;
@@ -649,6 +664,8 @@
                 if (!currentRoom || !rooms[currentRoom]) {
                     currentRoom = Object.keys(rooms)[0];
                 }
+
+                ensureSimRooms();
 
                 applyRoomSize();
 
@@ -1099,6 +1116,7 @@
             onValue(ref(database, playerPath()), (snap) => {
                 const data = snap.val();
                 if (!data) {
+                    if (!coinsSeeded) syncBalanceToReal(false);
                     renderHUD();
                     renderInventory();
                     return;
@@ -1320,58 +1338,186 @@
                     if (!grouped[k]) grouped[k] = i;
                 });
 
-                shopItems = Object.values(grouped);
-                renderShop();
+                ledgerShopItems = Object.values(grouped).map(i => ({ ...i, group: 'Ledger' }));
+                rebuildShop();
             });
+        }
+
+        // Merge the real inventory catalogs with the legacy ledger items into
+        // one shop list. First source wins on duplicate SKUs within a group.
+        function rebuildShop() {
+            const map = {};
+            [...realGear, ...ledgerShopItems].forEach(i => {
+                const k = (i.group || 'Shop') + '|' + safeKey(i.sku);
+                if (!map[k]) map[k] = i;
+            });
+            shopItems = Object.values(map);
+            renderShop();
         }
 
         function renderShop() {
             shopPanel.innerHTML = '';
 
+            // Economy: seed in-game coins from the real ledger balance (read-only).
+            const sync = document.createElement('button');
+            sync.textContent = '🔄 Start balance from real $';
+            sync.title = 'Set in-game coins to your real ledger balance. Never changes your real money.';
+            sync.style.cssText = 'display:block;width:100%;margin-bottom:8px;';
+            sync.onclick = () => syncBalanceToReal(true);
+            shopPanel.appendChild(sync);
+
             if (!shopItems.length) {
-                shopPanel.innerHTML = '<div class="hint">No inventory items found.</div>';
+                const hint = document.createElement('div');
+                hint.className = 'hint';
+                hint.textContent = 'No inventory items found.';
+                shopPanel.appendChild(hint);
                 return;
             }
 
-            shopItems.forEach(item => {
-                const btn = document.createElement('button');
-                const w = item.w || 1;
-                const h = item.h || 1;
-                const sizeLabel = (w === 1 && h === 1) ? '' : ` [${w}×${h}]`;
-                btn.textContent = `Buy ${item.name}${sizeLabel} ($${Number(item.price).toFixed(2)})`;
+            const groups = {};
+            shopItems.forEach(i => { (groups[i.group || 'Shop'] = groups[i.group || 'Shop'] || []).push(i); });
+            const order = ['Van', 'Home', 'Ledger', 'Shop'];
+            Object.keys(groups).sort((a, b) => {
+                const ia = order.indexOf(a), ib = order.indexOf(b);
+                return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+            }).forEach(g => {
+                const hdr = document.createElement('h4');
+                hdr.textContent = g;
+                hdr.style.cssText = 'margin:8px 0 4px;';
+                shopPanel.appendChild(hdr);
 
-                btn.onclick = () => {
-                    const priceInCents = Math.round(item.price * 100);
+                groups[g].forEach(item => {
+                    const w = item.w || 1, h = item.h || 1;
+                    const sizeLabel = (w === 1 && h === 1) ? '' : ` [${w}×${h}]`;
+                    const priceLabel = Number(item.price) > 0 ? ` ($${Number(item.price).toFixed(2)})` : '';
 
-                    if (state.coins < priceInCents) {
-                        return alert('Not enough coins.');
-                    }
-
-                    state.coins -= priceInCents;
-
-                    const key = safeKey(item.sku);
-                    if (!state.backpack[key]) {
-                        state.backpack[key] = {
-                            name: item.name,
-                            sku: item.sku,
-                            img: item.img || '',
-                            desc: item.desc || '',
-                            cat: item.cat || '',
-                            link: item.link || '',
-                            w: item.w || 1,
-                            h: item.h || 1,
-                            qty: 0
-                        };
-                    }
-                    state.backpack[key].qty++;
-
-                    renderHUD();
-                    renderInventory();
-                    persistPlayer();
-                };
-
-                shopPanel.appendChild(btn);
+                    const btn = document.createElement('button');
+                    btn.className = 'shop-item';
+                    btn.style.cssText = 'display:flex;align-items:center;gap:8px;width:100%;text-align:left;margin-bottom:4px;';
+                    btn.innerHTML =
+                        (item.img
+                            ? `<img src="${escHtml(item.img)}" alt="" style="width:32px;height:32px;object-fit:contain;flex:0 0 auto;" onerror="this.style.display='none'">`
+                            : '') +
+                        `<span>Buy ${escHtml(item.name)}${sizeLabel}${priceLabel}</span>`;
+                    btn.onclick = () => buyShopItem(item);
+                    shopPanel.appendChild(btn);
+                });
             });
+        }
+
+        function buyShopItem(item) {
+            const priceInCents = Math.round((Number(item.price) || 0) * 100);
+            if (state.coins < priceInCents) { alert('Not enough coins.'); return; }
+            state.coins -= priceInCents;
+
+            const key = safeKey(item.sku);
+            if (!state.backpack[key]) {
+                state.backpack[key] = {
+                    name: item.name, sku: item.sku, img: item.img || '',
+                    desc: item.desc || '', cat: item.cat || '', link: item.link || '',
+                    w: item.w || 1, h: item.h || 1, qty: 0
+                };
+            }
+            state.backpack[key].qty++;
+
+            renderHUD();
+            renderInventory();
+            persistPlayer();
+        }
+
+        function escHtml(s = '') {
+            return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        }
+
+        /* ---- Real inventory bridge: shop.html catalogs -> game world ---- */
+        function flattenInventory(tree, groupLabel) {
+            const out = [];
+            if (!tree || typeof tree !== 'object') return out;
+            for (const [cat, comps] of Object.entries(tree)) {
+                if (!comps || typeof comps !== 'object') continue;
+                for (const [comp, items] of Object.entries(comps)) {
+                    if (!items || typeof items !== 'object') continue;
+                    for (const [name, it] of Object.entries(items)) {
+                        if (!it || typeof it !== 'object') continue;
+                        out.push({
+                            sku: name,
+                            name: it.part || name,
+                            price: Number(it.price) || 0,
+                            img: it.imageUrl || '',
+                            desc: it.description || '',
+                            cat, comp,
+                            link: it.affiliateUrl || '',
+                            w: 1, h: 1,
+                            group: groupLabel
+                        });
+                    }
+                }
+            }
+            return out;
+        }
+
+        const realGearBySource = {};
+        function loadRealInventory() {
+            SIM_SOURCES.forEach(src => {
+                onValue(ref(database, `${src.uid}/inventory`), snap => {
+                    realGearBySource[src.label] = flattenInventory(snap.val(), src.label);
+                    realGear = Object.values(realGearBySource).flat();
+                    rebuildShop();
+                }, err => {
+                    console.warn(`inventory source ${src.label} not readable:`, err?.message || err);
+                });
+            });
+        }
+
+        /* ---- Van + Home rooms (seeded once if missing) ---- */
+        async function ensureSimRooms() {
+            if (simRoomsChecked || !rooms) return;
+            simRoomsChecked = true;
+            const patch = {};
+            if (!rooms.van) {
+                patch.van = {
+                    width: 10, height: 6, bg: '', walls: [], name: 'Van',
+                    interactables: { to_home: { id: 'to_home', type: 'door', target: 'home', x: 9, y: 3, solid: false, draggable: true, img: '' } }
+                };
+            }
+            if (!rooms.home) {
+                patch.home = {
+                    width: 14, height: 9, bg: '', walls: [], name: 'Home',
+                    interactables: { to_van: { id: 'to_van', type: 'door', target: 'van', x: 0, y: 4, solid: false, draggable: true, img: '' } }
+                };
+            }
+            if (Object.keys(patch).length) {
+                await update(ref(database, `${DATABASE_BASE_PATH}/gameData/rooms`), patch);
+            }
+        }
+
+        /* ---- Economy: real starting balance (READ-ONLY on ledgerTx) ---- */
+        async function computeRealBalanceCents() {
+            try {
+                const snap = await get(ref(database, `${DATABASE_BASE_PATH}/ledgerTx`));
+                let cents = 0;
+                const raw = snap.val() || {};
+                Object.values(raw).forEach(year => Object.values(year || {}).forEach(v => {
+                    if (!v || typeof v !== 'object') return;
+                    const amt = Math.abs(Math.round((Number(v.amt) || 0) * 100));
+                    if (v.type === 'income') cents += amt;
+                    else if (v.type === 'expense') cents -= amt;
+                }));
+                return cents;
+            } catch (e) {
+                console.warn('ledger read failed:', e?.message || e);
+                return null;
+            }
+        }
+
+        async function syncBalanceToReal(manual) {
+            const cents = await computeRealBalanceCents();
+            if (cents === null) { if (manual) alert('Could not read your ledger.'); return; }
+            state.coins = Math.max(0, cents);
+            coinsSeeded = true;
+            renderHUD();
+            persistPlayer();
+            if (manual) alert(`Coins set to your real balance: $${(state.coins / 100).toFixed(2)}`);
         }
 
         /* ======================= INVENTORY PANEL ======================= */
@@ -2294,6 +2440,7 @@
             loadRooms();
             loadPlayer();
             loadShop();
+            loadRealInventory();
             loadQuests();
 
             quiz.loadQuizProgress();
