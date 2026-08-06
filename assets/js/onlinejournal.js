@@ -140,14 +140,16 @@ export function renderArticleCards(data, container) {
       const div = document.createElement("div");
       div.className = "post";
 
-      // Optional preview image
+      // Optional preview image — prefer the article cover (imageUrl), fall back to the first inline image
       let previewImg = "";
-      const firstImage = article.sections?.[0]?.content?.find(
-        (c) => c.type === "image",
-      );
+      const coverUrl =
+        article.imageUrl && !article.imageUrl.includes("PLACEHOLDER")
+          ? article.imageUrl
+          : article.sections?.[0]?.content?.find((c) => c.type === "image")?.src;
+      const previewSrc = safeUrl(coverUrl || "");
 
-      if (firstImage) {
-        previewImg = `<img src="${firstImage.src}" class="article-img">`;
+      if (previewSrc) {
+        previewImg = `<img src="${escapeHtml(previewSrc)}" class="article-img">`;
       }
 
       div.innerHTML = `
