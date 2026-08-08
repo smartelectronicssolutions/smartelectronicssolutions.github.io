@@ -254,9 +254,10 @@
 
     <section id="sec-stats">
       <h3>Stats</h3>
-      <h3>Hours (last 14 days):</h3>
-      <div id="dailyTimeSpent"></div>
       <div><b>Total Hours: </b><span id="totalHours">0</span></div>
+      <h3>📋 Paycom Entry (daily hours, Eastern):</h3>
+      <div style="font-size:12px;opacity:.7;margin-bottom:4px">Total hours per day, no break deducted, travel included. Copy the number into Paycom. Weekly line shows Sun–Sat total &amp; OT (&gt;40) for your reference.</div>
+      <div id="paycomDaily" style="max-width:360px"></div>
       <h3>Hours Between Dates:</h3>
       <label>Start: <input type="datetime-local" id="startDate" /></label>
       <label>End: <input type="datetime-local" id="endDate" /></label>
@@ -739,7 +740,7 @@
                                   : Math.min(tasks.length, Math.max(visibleCount, recentCount));
       tasks.slice(0, visibleCount).forEach(addTaskToTable);
       document.getElementById("totalTasks").innerText = tasks.length;
-      checkOngoingTask(tasks); updateTotalHours(tasks); processDaily(tasks); populateTaskDropdown(tasks);
+      checkOngoingTask(tasks); updateTotalHours(tasks); renderPaycomDaily(tasks); populateTaskDropdown(tasks);
       if (autoTaskId && !autoTaskSelected && tasks.find(t => t.id === autoTaskId)) {
         const sel = document.getElementById('taskSelect');
         sel.value = autoTaskId;
@@ -987,7 +988,7 @@
         visibleCount = allTasks.length;
         moreBtn.remove(); allBtn.remove();
         document.getElementById("totalTasks").innerText = allTasks.length;
-        processDaily(allTasks); updateTotalHours(allTasks); applySearchFilter();
+        renderPaycomDaily(allTasks); updateTotalHours(allTasks); applySearchFilter();
       };
 
       c.appendChild(moreBtn); c.appendChild(allBtn);
@@ -1109,30 +1110,59 @@
       const a = document.createElement("a"); a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv); a.download = "tasks.csv"; a.click();
     }
 
-    function processDaily(tasks) {
+    function renderPaycomDaily(tasks) {
       try {
-        const daily = {}, t0 = performance.now();
+        const el = document.getElementById("paycomDaily"); if (!el) return; el.innerHTML = "";
+        const pad = n => String(n).padStart(2, "0");
+        const keyOf = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+        const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        const daily = {};
         for (const task of tasks) {
-          if (performance.now() - t0 > CALC_DEADLINE_MS) break;
           if (!task.startTime || !task.endTime) continue;
           let s = safeDate(task.startTime), e = safeDate(task.endTime);
-          if (!s || !e) continue; if (e < s) { const tmp = s; s = e; e = tmp; }
+          if (!s || !e) continue; if (e < s) { const t = s; s = e; e = t; }
           if (e - s > 10 * 365 * 24 * 3600 * 1000) continue;
           let guard = 0;
-          while (s < e) {
-            if (performance.now() - t0 > CALC_DEADLINE_MS || ++guard > 4000) break;
-            const key = s.toISOString().split("T")[0];
-            const next = new Date(Date.UTC(s.getUTCFullYear(), s.getUTCMonth(), s.getUTCDate() + 1, 0, 0, 0, 0));
-            const end = next < e ? next : e; const dur = Math.max(0, (end - s) / 1000);
-            if (dur > 0) daily[key] = (daily[key] || 0) + dur; s = end;
+          while (s < e) {                     // split across LOCAL (Eastern) midnights
+            if (++guard > 4000) break;
+            const next = new Date(s); next.setHours(24, 0, 0, 0);
+            const end = next < e ? next : e;
+            const dur = Math.max(0, (end - s) / 1000);
+            if (dur > 0) daily[keyOf(s)] = (daily[keyOf(s)] || 0) + dur;
+            s = end;
           }
         }
-        const el = document.getElementById("dailyTimeSpent"); el.innerHTML = "";
-        const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 15);
-        Object.keys(daily).map(k => new Date(k)).filter(d => d >= cutoff).sort((a, b) => a - b).forEach(d => {
-          const key = d.toISOString().split("T")[0], sec = daily[key];
-          const div = document.createElement("div"); div.innerText = `${key}: ${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m (${(sec / 3600).toFixed(2)})`;
-          el.appendChild(div);
+        const cutoff = new Date(); cutoff.setHours(0, 0, 0, 0); cutoff.setDate(cutoff.getDate() - 20);
+        const days = Object.keys(daily)
+          .map(k => { const [y, m, d] = k.split("-").map(Number); return new Date(y, m - 1, d); })
+          .filter(d => d >= cutoff).sort((a, b) => a - b);
+        if (!days.length) { el.innerHTML = "<div style='opacity:.6'>No hours in the last 3 weeks.</div>"; return; }
+        const weeks = {};
+        days.forEach(d => { const ws = new Date(d); ws.setDate(d.getDate() - d.getDay()); (weeks[keyOf(ws)] = weeks[keyOf(ws)] || []).push(d); });
+        Object.keys(weeks).sort().forEach(wk => {
+          const wdays = weeks[wk];
+          const weekH = wdays.reduce((a, d) => a + (daily[keyOf(d)] || 0), 0) / 3600;
+          const reg = Math.min(weekH, 40), ot = Math.max(0, weekH - 40);
+          const [wy, wm, wdd] = wk.split("-").map(Number);
+          const wrap = document.createElement("div");
+          wrap.style.cssText = "margin:8px 0;padding:6px 8px;border:1px solid #bbb;border-radius:6px";
+          const hdr = document.createElement("div");
+          hdr.style.cssText = "font-weight:bold;margin-bottom:2px";
+          hdr.innerText = `Week of Sun ${wm}/${wdd} — ${weekH.toFixed(2)} h` + (ot > 0 ? ` (reg ${reg.toFixed(2)} + OT ${ot.toFixed(2)})` : "");
+          wrap.appendChild(hdr);
+          wdays.forEach(d => {
+            const hrs = ((daily[keyOf(d)] || 0) / 3600).toFixed(2);
+            const row = document.createElement("div");
+            row.style.cssText = "display:flex;justify-content:space-between;align-items:center;padding:2px 0";
+            const lab = document.createElement("span");
+            lab.innerText = `${dayNames[d.getDay()]} ${d.getMonth() + 1}/${d.getDate()} — ${hrs} h`;
+            const btn = document.createElement("button");
+            btn.type = "button"; btn.innerText = "Copy";
+            btn.style.cssText = "font-size:11px;padding:1px 7px;cursor:pointer";
+            btn.onclick = () => navigator.clipboard.writeText(hrs).then(() => { btn.innerText = "✓"; setTimeout(() => btn.innerText = "Copy", 1000); });
+            row.appendChild(lab); row.appendChild(btn); wrap.appendChild(row);
+          });
+          el.appendChild(wrap);
         });
       } catch (e) { console.error(e); }
     }
