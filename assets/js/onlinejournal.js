@@ -134,7 +134,8 @@ export function renderArticleCards(data, container) {
   container.innerHTML = "";
 
   Object.entries(data)
-    .sort((a, b) => b[0] - a[0])
+    // Sort by createdAt (keys may be composite like "public__<id>", so a[0]-b[0] would be NaN)
+    .sort((a, b) => (Number(b[1].createdAt) || 0) - (Number(a[1].createdAt) || 0))
     .slice(0, 4)
     .forEach(([id, article]) => {
       const div = document.createElement("div");
