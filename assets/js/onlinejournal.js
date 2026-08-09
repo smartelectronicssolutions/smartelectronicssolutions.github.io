@@ -160,8 +160,10 @@ export function renderArticleCards(data, container) {
       `;
 
       div.onclick = () => {
-        // self-contained repo: apps live here, always same-origin
-        window.location.href = `apps/online/onlinejournal.html?id=${id}`;
+        // self-contained repo: apps live here, always same-origin.
+        // Use the raw article id (callers may key by a composite like "public__<id>").
+        const articleId = article.__id || id;
+        window.location.href = `apps/online/onlinejournal.html?id=${articleId}`;
       };
 
       container.appendChild(div);
