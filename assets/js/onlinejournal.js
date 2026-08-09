@@ -46,8 +46,8 @@ export function renderArticleContent(article) {
     }
 
     (section.content || []).forEach((item) => {
-      if (item.type === "text" && item.value) {
-        html += `<p>${escapeHtml(item.value)}</p>`;
+      if (item.type === "text" && (item.value || item.text)) {
+        html += `<p>${escapeHtml(item.value || item.text)}</p>`;
       }
 
       if (item.type === "image" && item.src) {
@@ -71,7 +71,7 @@ export function renderArticleContent(article) {
       if (item.type === "code") {
         html += `
           <div class="code-block">
-            <pre><code>${escapeHtml(item.value)}</code></pre>
+            <pre><code>${escapeHtml(item.value || item.text || "")}</code></pre>
           </div>
         `;
       }
