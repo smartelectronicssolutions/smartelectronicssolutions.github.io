@@ -469,7 +469,7 @@
           <div class="actions">
             <button id="addSection" type="button">Add Section</button>
             <button id="save" type="button">Save Article</button>
-            <button class="btn-outline" id="clearFormBtn" type="button">Clear</button>
+            <button class="btn-outline" id="clearFormBtn" type="button">Cancel</button>
           </div>
 
           <div id="sections"></div>
@@ -520,7 +520,7 @@
   </main>
 
   <script type="module">
-    import { auth, database, ref, set, get, remove, onAuthStateChanged, signInWithEmailAndPassword, signOut, storage, storageRef, deleteObject } from "../assets/js/firebase-init.js";
+    import { auth, database, ref, set, get, remove, onAuthStateChanged, signInWithEmailAndPassword, signOut, storage, storageRef, deleteObject, uploadBytes, getDownloadURL } from "../assets/js/firebase-init.js";
     // onIdTokenChanged is not re-exported by firebase-init.js; pull it from the same pinned SDK build.
     import { onIdTokenChanged } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
     import { renderArticleContent, getArticleImage } from "../assets/js/onlinejournal.js";
@@ -575,7 +575,7 @@
         authIndicator.textContent = "Personal Journal (" + user.email + ")";
         authIndicator.style.background = "var(--primary)";
         authIndicator.style.color = "#fff";
-        if (editorPanel) editorPanel.style.display = "block";
+        if (editorPanel) editorPanel.style.display = currentArticleId ? "none" : "block";
         if (articleActions) articleActions.style.display = "flex";
         if (importWrap) importWrap.style.display = "block";
         if (authLabel) authLabel.textContent = user.email;
@@ -714,6 +714,7 @@
             html += '<textarea class="ci-value ci-mono" data-si="' + si + '" data-ci="' + ci + '" placeholder="Code...">' + escapeHtml(item.value || '') + '</textarea>';
           } else if (item.type === 'image') {
             html += '<input type="text" class="ci-src" data-si="' + si + '" data-ci="' + ci + '" value="' + escapeHtml(item.src || '') + '" placeholder="Image URL"/>';
+            html += '<div class="ci-upload"><label class="btn-outline" style="cursor:pointer;font-size:.8rem">Upload image<input type="file" class="ci-file" data-si="' + si + '" data-ci="' + ci + '" accept="image/*" style="display:none"/></label><span class="ci-upstatus" data-si="' + si + '" data-ci="' + ci + '" style="font-size:.8rem;color:var(--muted)"></span></div>';
           } else if (item.type === 'link_button' || item.type === 'link') {
             html += '<input type="text" class="ci-label" data-si="' + si + '" data-ci="' + ci + '" value="' + escapeHtml(item.label || '') + '" placeholder="Label text"/>';
             html += '<input type="text" class="ci-href" data-si="' + si + '" data-ci="' + ci + '" value="' + escapeHtml(item.href || '') + '" placeholder="https://..."/>';
@@ -764,6 +765,28 @@
       });
       sectionsContainer.querySelectorAll(".ci-src").forEach(function (el) {
         el.oninput = function () { sections[Number(this.dataset.si)].content[Number(this.dataset.ci)].src = this.value; };
+      });
+      sectionsContainer.querySelectorAll(".ci-file").forEach(function (el) {
+        el.onchange = async function () {
+          var si = Number(this.dataset.si), ci = Number(this.dataset.ci);
+          var file = this.files && this.files[0];
+          if (!file) return;
+          var statusEl = sectionsContainer.querySelector('.ci-upstatus[data-si="' + si + '"][data-ci="' + ci + '"]');
+          var srcEl = sectionsContainer.querySelector('.ci-src[data-si="' + si + '"][data-ci="' + ci + '"]');
+          try {
+            if (statusEl) statusEl.textContent = " uploading...";
+            var safe = file.name.replace(/[^\w.\-]/g, "_");
+            var path = "public/journalImages/" + Date.now() + "_" + safe;
+            var snap = await uploadBytes(storageRef(storage, path), file);
+            var url = await getDownloadURL(snap.ref);
+            sections[si].content[ci].src = url;
+            if (srcEl) srcEl.value = url;
+            if (statusEl) statusEl.textContent = " uploaded ✓";
+          } catch (err) {
+            console.error("image upload failed:", err);
+            if (statusEl) statusEl.textContent = " upload failed: " + (err.code || err.message);
+          }
+        };
       });
       sectionsContainer.querySelectorAll(".ci-label").forEach(function (el) {
         el.oninput = function () { sections[Number(this.dataset.si)].content[Number(this.dataset.ci)].label = this.value; };
@@ -1029,6 +1052,8 @@
       currentArticleId = id;
       listView.style.display = "none";
       articleView.style.display = "block";
+      // Hide the Create/Edit editor while viewing a single article (only shown in list view or when Edit is clicked).
+      document.getElementById("editorPanel").style.display = "none";
       articleTitle.textContent = a.title;
       var dateStr = "";
       if (a.date) {
@@ -1133,11 +1158,15 @@
       sections = [];
       renderSections();
       editingId = null;
+      editorTitle.textContent = "Create Article";
       setStatus("");
+      showList();   // Cancel exits editing/creating and returns to the list.
     };
     function showList() {
       listView.style.display = "block";
       articleView.style.display = "none";
+      var ep = document.getElementById("editorPanel");
+      if (ep) ep.style.display = currentUser ? "block" : "none";
       currentArticleId = null;
       // Clear the ?id= deep-link so the URL reflects the list view (no stale id).
       history.replaceState(null, "", location.origin + location.pathname);
@@ -1165,6 +1194,8 @@
       var a = allArticles[currentArticleId];
       if (!a) return;
       editingId = currentArticleId;
+      document.getElementById("editorPanel").style.display = "block";
+      editorTitle.textContent = "Edit Article";
       titleInput.value = a.title;
       descriptionInput.value = a.description;
       tagsInput.value = (a.tags || []).join(", ");
