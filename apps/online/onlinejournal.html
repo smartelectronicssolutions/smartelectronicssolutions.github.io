@@ -535,6 +535,27 @@
     let editingId = null;
     let isSaving = false;
 
+    // Shrink a picked image before upload: cap the long edge, re-encode JPEG, honor EXIF orientation.
+    // Leaves non-raster (gif/svg) untouched, and skips work when the image is already small.
+    async function shrinkImage(file, maxDim, quality) {
+      maxDim = maxDim || 1600; quality = quality || 0.85;
+      if (!/^image\/(jpe?g|png|webp)$/i.test(file.type || "")) return file;
+      var bmp;
+      try { bmp = await createImageBitmap(file, { imageOrientation: "from-image" }); }
+      catch (e) { return file; } // browser can't decode it — upload original
+      var w = bmp.width, h = bmp.height;
+      var scale = Math.min(1, maxDim / Math.max(w, h));
+      if (scale === 1 && file.size <= 500 * 1024) { if (bmp.close) bmp.close(); return file; }
+      var nw = Math.round(w * scale), nh = Math.round(h * scale);
+      var canvas = document.createElement("canvas");
+      canvas.width = nw; canvas.height = nh;
+      canvas.getContext("2d").drawImage(bmp, 0, 0, nw, nh);
+      if (bmp.close) bmp.close();
+      var blob = await new Promise(function (res) { canvas.toBlob(res, "image/jpeg", quality); });
+      if (!blob || blob.size >= file.size) return file; // gained nothing — keep original
+      return new File([blob], file.name.replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" });
+    }
+
     /* ── elements ── */
     const authIndicator = document.getElementById("authIndicator");
     const titleInput = document.getElementById("title");
@@ -774,10 +795,12 @@
           var statusEl = sectionsContainer.querySelector('.ci-upstatus[data-si="' + si + '"][data-ci="' + ci + '"]');
           var srcEl = sectionsContainer.querySelector('.ci-src[data-si="' + si + '"][data-ci="' + ci + '"]');
           try {
+            if (statusEl) statusEl.textContent = " optimizing...";
+            var up = await shrinkImage(file, 1600, 0.85);
             if (statusEl) statusEl.textContent = " uploading...";
-            var safe = file.name.replace(/[^\w.\-]/g, "_");
+            var safe = up.name.replace(/[^\w.\-]/g, "_");
             var path = "public/journalImages/" + Date.now() + "_" + safe;
-            var snap = await uploadBytes(storageRef(storage, path), file);
+            var snap = await uploadBytes(storageRef(storage, path), up);
             var url = await getDownloadURL(snap.ref);
             sections[si].content[ci].src = url;
             if (srcEl) srcEl.value = url;
