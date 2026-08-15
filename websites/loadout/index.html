@@ -113,12 +113,20 @@
   .vzone:hover{border-color:var(--amber);background:rgba(242,165,65,.18)}
   .vzone b{position:absolute;top:-1px;left:-1px;font-family:var(--mono);font-size:.5rem;color:#0c0f13;background:var(--amber);padding:1px 4px;border-radius:3px;white-space:nowrap}
   .storhint{padding:9px;text-align:center;font-family:var(--mono);font-size:.62rem;color:var(--dim)}
+  #shopBody{overflow:auto;max-height:62vh;padding:10px 14px 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(146px,1fr));gap:8px}
+  .shopit{background:var(--slot);border:1px solid var(--edge);border-radius:9px;padding:8px;display:flex;flex-direction:column;gap:5px}
+  .shopimg{height:66px;display:grid;place-items:center;background:#f4f5f6;border-radius:6px;font-size:1.6rem}
+  .shopimg img{max-width:90%;max-height:62px;object-fit:contain}
+  .shopn{font-size:.72rem;color:#eef2f6;line-height:1.15}
+  .shopm{font-family:var(--mono);font-size:.58rem;color:var(--muted)}
+  .buyb{margin-top:auto;font-family:var(--mono);font-size:.66rem;color:var(--bg);background:var(--amber);border:0;border-radius:6px;padding:6px;cursor:pointer;font-weight:700}
+  .buyb:disabled{opacity:.4;cursor:default}
 </style></head><body>
 <div class="app"><div class="wrap">
   <header>
     <div><div class="kicker">Field Service RPG · v0.4 · live DB</div><h1>LOADOUT</h1>
       <div class="tagline">Walk your world. Open storage. Build your rooms.</div></div>
-    <div class="hudR"><div class="pill">CARRY <b id="bagN">0</b></div>
+    <div class="hudR"><div class="pill">💰 $<b id="money">—</b></div><div class="pill">CARRY <b id="bagN">0</b></div>
       <button class="btn ghost" id="editBtn">EDIT ROOM</button><button class="btn" id="bagBtn">BACKPACK</button></div>
   </header>
   <div class="screen">
@@ -190,6 +198,12 @@
   <div class="storhint">Tap a container to open it · items save to the database</div>
 </div></div>
 
+<div class="overlay" id="shop"><div class="storwrap" style="max-width:640px">
+  <div class="storhead"><div class="ic">🛒</div><h2>Field Supply Shop</h2><div class="pill">💰 $<b id="shopBal">0</b></div><button class="closeb" id="shopClose">✕</button></div>
+  <div class="storhint" id="shopMsg">Buy parts &amp; gear — it costs money and lands in your inventory.</div>
+  <div id="shopBody"></div>
+</div></div>
+
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getDatabase, ref, onValue, update, set, remove } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
@@ -230,6 +244,7 @@ const VZONES=[
 ];
 const ZONEMETA={};VZONES.forEach(z=>ZONEMETA[z.loc]={label:z.label,icon:z.icon});
 function locMeta(k){return PLACES[k]||ZONEMETA[k]||{label:k,icon:"📦"};}
+const SHOP_RECT={x:28,y:360,w:120,h:92};
 const DEFAULT_DECOR={
   yourroom:[{k:"rug",x:200,y:330,s:1.5},{k:"bed",x:34,y:52},{k:"nightstand",x:150,y:62},{k:"palm",x:412,y:44},{k:"lampfloor",x:436,y:150}],
   house:[{k:"rug",x:200,y:330,s:1.5},{k:"sofa",x:40,y:44},{k:"armchair",x:180,y:60},{k:"cabinet",x:420,y:26},{k:"sideboard",x:300,y:300},{k:"plant",x:44,y:360},{k:"lamptable",x:312,y:262}],
@@ -249,13 +264,30 @@ function isSolid(k){return !isFlat(k) && (CAT[k]?CAT[k].h:48)>=40;}
 let ITEMS=[],byLoc={};
 function rebuild(){byLoc={};for(const it of ITEMS){(byLoc[it.loc]=byLoc[it.loc]||[]).push(it);}
   $("bagN").textContent=(byLoc.bag||[]).length;if($("overlay").classList.contains("open"))renderPanel();
-  if($("storage").classList.contains("open")){renderVZones();$("storBag").textContent=(byLoc.bag||[]).length;}}
+  if($("storage").classList.contains("open")){renderVZones();$("storBag").textContent=(byLoc.bag||[]).length;}
+  if($("shop").classList.contains("open"))renderShop();}
 onValue(ref(db,"public/inventory"),snap=>{const tree=snap.val()||{};const arr=[];
   for(const cat in tree)for(const comp in tree[cat])for(const name in tree[cat][comp]){const v=tree[cat][comp][name]||{};
-    arr.push({cat,comp,name,img:v.imageUrl||"",loc:v.location||defaultLoc(comp)});}
+    arr.push({cat,comp,name,img:v.imageUrl||"",loc:v.location||defaultLoc(comp),price:v.price||v.actualPrice||"",qty:+v.quantity||0});}
   ITEMS=arr;$("loading").style.display="none";rebuild();});
 function moveItem(it,newLoc){const path=`${it.cat}/${it.comp}/${it.name}/location`;it.loc=newLoc;
   update(ref(db,"public/inventory"),{[path]:newLoc}).catch(e=>console.warn(e));rebuild();}
+// ===== economy (ledger-driven wallet, all on public/loadout/ledger) =====
+let BAL=0;
+onValue(ref(db,"public/loadout/ledger"),snap=>{const v=snap.val();
+  if(!v){set(ref(db,"public/loadout/ledger/start"),{amt:500,name:"Starting funds",date:Date.now(),source:"loadout"}).catch(()=>{});return;}
+  BAL=Object.values(v).reduce((s,t)=>s+(+t.amt||0),0);$("money").textContent=BAL.toFixed(0);
+  if($("shop").classList.contains("open"))renderShop();});
+function ledgerAdd(amt,name){const id="tx"+Date.now().toString(36)+Math.floor(Math.random()*1e3).toString(36);
+  update(ref(db,"public/loadout/ledger"),{[id]:{amt,name,date:Date.now(),source:"loadout"}}).catch(()=>{});}
+function itemPrice(it){return parseFloat(String(it.price||"").replace(/[^0-9.]/g,""))||0;}
+function buyItem(it){const price=itemPrice(it);
+  if(price>BAL){$("shopMsg").textContent="Not enough money — need $"+price.toFixed(0)+", you have $"+BAL.toFixed(0);return;}
+  ledgerAdd(-price,"Bought "+it.name);
+  const path=it.cat+"/"+it.comp+"/"+it.name;const upd={};upd[path+"/quantity"]=(it.qty||0)+1;
+  if(!it.loc||it.loc==="shop"||!byLoc[it.loc])upd[path+"/location"]=it.loc||"shelf";
+  update(ref(db,"public/inventory"),upd).catch(()=>{});
+  $("shopMsg").textContent="Bought "+it.name+" for $"+price.toFixed(0)+" ✓";}
 
 // ---- room furniture (DB-backed) ----
 let roomDecor={};        // {room:{id:{k,x,y,s?,z?}}}
@@ -305,7 +337,7 @@ $("roomB").textContent=ROOMS[room].name;
 
 const keys=new Set();
 const MAP={ArrowUp:"up",KeyW:"up",ArrowDown:"down",KeyS:"down",ArrowLeft:"left",KeyA:"left",ArrowRight:"right",KeyD:"right"};
-addEventListener("keydown",e=>{if(e.code==="Escape"){closePanel();closePalette();$("studio").classList.remove("open");$("storage").classList.remove("open");return;}
+addEventListener("keydown",e=>{if(e.code==="Escape"){closePanel();closePalette();$("studio").classList.remove("open");$("storage").classList.remove("open");$("shop").classList.remove("open");return;}
   if(editMode&&!/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)){const kk=e.key.toLowerCase();
     if(kk==="w"){$("wallBtn").click();e.preventDefault();return;}
     if(kk==="f"){$("floorBtn").click();e.preventDefault();return;}
@@ -349,7 +381,9 @@ function tryOpen(){const k=nearPlace();if(k)openContainer(k);}
 // click / tap to walk
 cv.addEventListener("pointerdown",e=>{if(editMode)return;onPlayPointer(e);});
 function onPlayPointer(e){if(isOpen()||transing)return;const p=toLogical(e);
-  if(room==="outside"){const vd=ROOMS.outside.doors[1];if(p.x>=vd.x&&p.x<=vd.x+vd.w&&p.y>=vd.y&&p.y<=vd.y+vd.h){openVanStorage();return;}}
+  if(room==="outside"){
+    if(p.x>=SHOP_RECT.x&&p.x<=SHOP_RECT.x+SHOP_RECT.w&&p.y>=SHOP_RECT.y&&p.y<=SHOP_RECT.y+SHOP_RECT.h){openShop();return;}
+    const vd=ROOMS.outside.doors[1];if(p.x>=vd.x&&p.x<=vd.x+vd.w&&p.y>=vd.y&&p.y<=vd.y+vd.h){openVanStorage();return;}}
   let openKey=null;
   for(const [k,pl] of Object.entries(PLACES)){if(pl.room!==room)continue;if(p.x>=pl.x-4&&p.x<=pl.x+pl.w+4&&p.y>=pl.y-12&&p.y<=pl.y+pl.h+6){openKey=k;break;}}
   if(openKey){openContainer(openKey);return;}   // click a container -> open it
@@ -434,7 +468,15 @@ function drawOutside(){
   const od=ROOMS.outside.doors;
   px(od[0].x+58,od[0].y+112,34,28,"#8a8f96");px(od[0].x+58,od[0].y+112,34,3,"#9aa0a6"); // path under house
   drawHouseSprite(od[0].x,od[0].y);
-  drawVanSprite(od[1].x,od[1].y);}
+  drawVanSprite(od[1].x,od[1].y);
+  drawShop();}
+function drawShop(){const x=SHOP_RECT.x,y=SHOP_RECT.y;
+  ctx.fillStyle="rgba(0,0,0,.28)";ctx.beginPath();ctx.ellipse(x+60,y+92,60,7,0,0,7);ctx.fill();
+  px(x,y+30,120,62,"#6a5a48");px(x,y+30,120,4,"#8a7a64");px(x,y+86,120,6,"#4a3e30");
+  px(x-4,y+14,128,18,"#b23b3b");for(let i=0;i<8;i++)px(x-4+i*16,y+14,8,18,"#e8e8e8");
+  px(x+46,y+58,30,34,"#3a2d22");px(x+58,y+74,3,3,"#f2d27a");
+  px(x+12,y+44,26,20,"#8fb8d0");px(x+84,y+44,26,20,"#8fb8d0");
+  ctx.fillStyle="#f2a541";ctx.font="8px monospace";ctx.textAlign="center";ctx.fillText("▾ SHOP",x+60,y+10);}
 function drawDoor(d){if(room==="outside")return;ctx.fillStyle="#20262d";ctx.fillRect(d.x,d.y,d.w,d.h);ctx.fillStyle="#f2a541";ctx.fillRect(d.x,d.y,d.w,3);
   ctx.font="6px monospace";ctx.textAlign="center";ctx.fillStyle="#cfd6de";ctx.fillText("▲ "+ROOMS[d.to].name.split(" ")[0].toUpperCase(),d.x+d.w/2,d.y<40?d.y+d.h+8:d.y-4);}
 function drawPlace(key,p){const x=p.x,y=p.y,w=p.w,h=p.h,n=(byLoc[key]||[]).length;
@@ -614,6 +656,16 @@ function renderVZones(){const scene=$("storScene"),img=$("storBg");[...scene.que
     d.style.left=(z.x*sw)+"px";d.style.top=(z.y*sh)+"px";d.style.width=(z.w*sw)+"px";d.style.height=(z.h*sh)+"px";
     d.innerHTML="<b>"+z.label+" · "+n+"</b>";d.title=z.label;d.onclick=()=>openPanelFor(z.loc);scene.appendChild(d);}}
 addEventListener("resize",()=>{if($("storage").classList.contains("open"))renderVZones();});
+// shop
+function openShop(){renderShop();$("shop").classList.add("open");}
+$("shopClose").addEventListener("click",()=>$("shop").classList.remove("open"));
+$("shop").addEventListener("click",e=>{if(e.target===$("shop"))$("shop").classList.remove("open");});
+function renderShop(){$("shopBal").textContent=BAL.toFixed(0);const body=$("shopBody");body.innerHTML="";
+  const items=ITEMS.slice().sort((a,b)=>itemPrice(a)-itemPrice(b));
+  for(const it of items){const price=itemPrice(it);const c=document.createElement("div");c.className="shopit";
+    c.innerHTML=`<div class="shopimg">${it.img?`<img src="${esc(it.img)}">`:"📦"}</div><div class="shopn">${esc(it.name)}</div><div class="shopm">owned ${it.qty||0} · $${price.toFixed(0)}</div>`;
+    const b=document.createElement("button");b.className="buyb";b.textContent=price>0?("Buy $"+price.toFixed(0)):"— no price";b.disabled=price<=0||price>BAL;b.onclick=()=>buyItem(it);
+    c.appendChild(b);body.appendChild(c);}}
 
 // ---- inventory transfer panel ----
 let openPlace;
