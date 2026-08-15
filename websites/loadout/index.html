@@ -121,13 +121,24 @@
   .shopm{font-family:var(--mono);font-size:.58rem;color:var(--muted)}
   .buyb{margin-top:auto;font-family:var(--mono);font-size:.66rem;color:var(--bg);background:var(--amber);border:0;border-radius:6px;padding:6px;cursor:pointer;font-weight:700}
   .buyb:disabled{opacity:.4;cursor:default}
+  #jobsBody{overflow:auto;max-height:62vh;padding:10px 14px 16px;display:flex;flex-direction:column;gap:9px}
+  .jobcard{background:var(--slot);border:1px solid var(--edge);border-radius:10px;padding:11px 12px}
+  .jhead{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+  .jhead b{color:#eef2f6;font-size:.9rem}
+  .jpay{font-family:var(--mono);color:#7cc48a;font-weight:700}
+  .jmeta{font-family:var(--mono);font-size:.62rem;color:var(--muted);margin:4px 0 7px}
+  .jparts{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:9px}
+  .jp{font-family:var(--mono);font-size:.58rem;padding:2px 7px;border-radius:20px;border:1px solid var(--edge)}
+  .jp.ok{color:#7cc48a;border-color:#2f5a3a}.jp.no{color:var(--danger);border-color:#5a2f2a}
+  .jbtn{width:100%;font-family:var(--mono);font-size:.7rem;color:var(--bg);background:var(--amber);border:0;border-radius:7px;padding:8px;cursor:pointer;font-weight:700}
+  .jbtn:disabled{opacity:.4;cursor:default;background:var(--panel);color:var(--muted)}
 </style></head><body>
 <div class="app"><div class="wrap">
   <header>
     <div><div class="kicker">Field Service RPG · v0.4 · live DB</div><h1>LOADOUT</h1>
       <div class="tagline">Walk your world. Open storage. Build your rooms.</div></div>
-    <div class="hudR"><div class="pill">💰 $<b id="money">—</b></div><div class="pill">CARRY <b id="bagN">0</b></div>
-      <button class="btn ghost" id="editBtn">EDIT ROOM</button><button class="btn" id="bagBtn">BACKPACK</button></div>
+    <div class="hudR"><div class="pill">💰 $<b id="money">—</b></div><div class="pill">⛽ <b id="fuel">—</b></div><div class="pill">CARRY <b id="bagN">0</b></div>
+      <button class="btn ghost" id="jobsBtn">📋 Jobs</button><button class="btn ghost" id="editBtn">EDIT ROOM</button><button class="btn" id="bagBtn">BACKPACK</button></div>
   </header>
   <div class="screen">
     <canvas id="game" width="512" height="512"></canvas>
@@ -199,9 +210,15 @@
 </div></div>
 
 <div class="overlay" id="shop"><div class="storwrap" style="max-width:640px">
-  <div class="storhead"><div class="ic">🛒</div><h2>Field Supply Shop</h2><div class="pill">💰 $<b id="shopBal">0</b></div><button class="closeb" id="shopClose">✕</button></div>
-  <div class="storhint" id="shopMsg">Buy parts &amp; gear — it costs money and lands in your inventory.</div>
+  <div class="storhead"><div class="ic">🛒</div><h2>Erik's Field Supply</h2><div class="pill">💰 $<b id="shopBal">0</b></div><button class="closeb" id="shopClose">✕</button></div>
+  <div class="storhint" id="shopMsg">Erik: "Gear up — you'll need parts to close Seth's tickets."</div>
   <div id="shopBody"></div>
+</div></div>
+
+<div class="overlay" id="jobs"><div class="storwrap" style="max-width:560px">
+  <div class="storhead"><div class="ic">📋</div><h2>Seth's Dispatch</h2><div class="pill">⛽ <b id="jobFuel">—</b></div><div class="pill">MI <b id="jobMiles">0</b></div><button class="tbtn" id="refuelBtn">⛽ Refuel</button><button class="closeb" id="jobsClose">✕</button></div>
+  <div class="storhint" id="jobMsg">Seth: "The Grid's down. Close these service calls to bring the systems back online — gas up, grab your parts, and go."</div>
+  <div id="jobsBody"></div>
 </div></div>
 
 <script type="module">
@@ -265,7 +282,8 @@ let ITEMS=[],byLoc={};
 function rebuild(){byLoc={};for(const it of ITEMS){(byLoc[it.loc]=byLoc[it.loc]||[]).push(it);}
   $("bagN").textContent=(byLoc.bag||[]).length;if($("overlay").classList.contains("open"))renderPanel();
   if($("storage").classList.contains("open")){renderVZones();$("storBag").textContent=(byLoc.bag||[]).length;}
-  if($("shop").classList.contains("open"))renderShop();}
+  if($("shop").classList.contains("open"))renderShop();
+  if($("jobs").classList.contains("open"))renderJobs();}
 onValue(ref(db,"public/inventory"),snap=>{const tree=snap.val()||{};const arr=[];
   for(const cat in tree)for(const comp in tree[cat])for(const name in tree[cat][comp]){const v=tree[cat][comp][name]||{};
     arr.push({cat,comp,name,img:v.imageUrl||"",loc:v.location||defaultLoc(comp),price:v.price||v.actualPrice||"",qty:+v.quantity||0});}
@@ -337,7 +355,7 @@ $("roomB").textContent=ROOMS[room].name;
 
 const keys=new Set();
 const MAP={ArrowUp:"up",KeyW:"up",ArrowDown:"down",KeyS:"down",ArrowLeft:"left",KeyA:"left",ArrowRight:"right",KeyD:"right"};
-addEventListener("keydown",e=>{if(e.code==="Escape"){closePanel();closePalette();$("studio").classList.remove("open");$("storage").classList.remove("open");$("shop").classList.remove("open");return;}
+addEventListener("keydown",e=>{if(e.code==="Escape"){closePanel();closePalette();$("studio").classList.remove("open");$("storage").classList.remove("open");$("shop").classList.remove("open");$("jobs").classList.remove("open");return;}
   if(editMode&&!/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)){const kk=e.key.toLowerCase();
     if(kk==="w"){$("wallBtn").click();e.preventDefault();return;}
     if(kk==="f"){$("floorBtn").click();e.preventDefault();return;}
@@ -666,6 +684,52 @@ function renderShop(){$("shopBal").textContent=BAL.toFixed(0);const body=$("shop
     c.innerHTML=`<div class="shopimg">${it.img?`<img src="${esc(it.img)}">`:"📦"}</div><div class="shopn">${esc(it.name)}</div><div class="shopm">owned ${it.qty||0} · $${price.toFixed(0)}</div>`;
     const b=document.createElement("button");b.className="buyb";b.textContent=price>0?("Buy $"+price.toFixed(0)):"— no price";b.disabled=price<=0||price>BAL;b.onclick=()=>buyItem(it);
     c.appendChild(b);body.appendChild(c);}}
+
+// ===== service-call job loop (Seth's dispatch) =====
+let FUEL=100, MILES=0, JOBS={};
+const FUEL_PER_MILE=0.42, FUEL_COST=0.55;
+const SEED_JOBS={
+ j1:{site:"Hall of Systems — Alarm Panel",miles:82,payout:420,parts:[{name:"Beam Clamp",qty:2},{name:"CE-CPBCM",qty:1}]},
+ j2:{site:"The Rack — Camera Mount",miles:34,payout:180,parts:[{name:"1-4 Beam Clamp",qty:3}]},
+ j3:{site:"North Substation — Sensor Swap",miles:15,payout:95,parts:[{name:"CE-CP412W",qty:1}]},
+ j4:{site:"Grid Gate 7 — Panel Upgrade",miles:120,payout:650,parts:[{name:"U-Shaped Strut to Beam Clamp",qty:1},{name:"Heavy Duty Extension Cord",qty:1}]},
+ j5:{site:"Old Depot — Wiring Repair",miles:48,payout:240,parts:[{name:"CE-CPUP",qty:1}]},
+};
+onValue(ref(db,"public/loadout/fuel"),s=>{const v=s.val();FUEL=(v==null?100:+v);$("fuel").textContent=Math.round(FUEL)+"%";if($("jobs").classList.contains("open"))renderJobs();});
+onValue(ref(db,"public/loadout/miles"),s=>{MILES=+s.val()||0;if($("jobs").classList.contains("open"))$("jobMiles").textContent=MILES;});
+onValue(ref(db,"public/loadout/jobs"),s=>{const v=s.val();if(v===null){set(ref(db,"public/loadout/jobs"),SEED_JOBS).catch(()=>{});return;}JOBS=v||{};if($("jobs").classList.contains("open"))renderJobs();});
+function haveQty(name){return ITEMS.filter(it=>it.name===name).reduce((s,it)=>s+(it.qty||0),0);}
+function openJobs(){renderJobs();$("jobs").classList.add("open");}
+$("jobsBtn").addEventListener("click",openJobs);
+$("jobsClose").addEventListener("click",()=>$("jobs").classList.remove("open"));
+$("jobs").addEventListener("click",e=>{if(e.target===$("jobs"))$("jobs").classList.remove("open");});
+$("refuelBtn").addEventListener("click",refuel);
+function renderJobs(){$("jobFuel").textContent=Math.round(FUEL)+"%";$("jobMiles").textContent=MILES;const body=$("jobsBody");body.innerHTML="";
+  const ids=Object.keys(JOBS);
+  if(!ids.length){body.innerHTML='<div class="empty" style="padding:26px">All tickets closed — the Grid is back online. Seth: "Good work."</div>';return;}
+  for(const id of ids){const j=JOBS[id];const need=Math.round(j.miles*FUEL_PER_MILE);
+    const partsOk=(j.parts||[]).every(p=>haveQty(p.name)>=p.qty),fuelOk=FUEL>=need;
+    const c=document.createElement("div");c.className="jobcard";
+    const pl=(j.parts||[]).map(p=>{const h=haveQty(p.name);return `<span class="jp ${h>=p.qty?"ok":"no"}">${esc(p.name)} ×${p.qty} · have ${h}</span>`;}).join("");
+    c.innerHTML=`<div class="jhead"><b>${esc(j.site)}</b><span class="jpay">+$${j.payout}</span></div>
+      <div class="jmeta">${j.miles} mi · needs ${need}% fuel (have ${Math.round(FUEL)}%)</div>
+      <div class="jparts">${pl||'<span class="jp ok">no parts needed</span>'}</div>`;
+    const b=document.createElement("button");b.className="jbtn";
+    b.textContent=!fuelOk?"⛽ Not enough gas — refuel":!partsOk?"Missing parts — buy at Erik's":("Drive & complete  ·  +$"+j.payout);
+    b.disabled=!(fuelOk&&partsOk);b.onclick=()=>completeJob(id);c.appendChild(b);body.appendChild(c);}}
+function completeJob(id){const j=JOBS[id];if(!j)return;const need=Math.round(j.miles*FUEL_PER_MILE);
+  if(FUEL<need||!(j.parts||[]).every(p=>haveQty(p.name)>=p.qty))return;
+  const upd={};for(const p of (j.parts||[])){let n=p.qty;for(const it of ITEMS){if(it.name!==p.name||n<=0)continue;const t=Math.min(n,it.qty||0);if(t>0){it.qty-=t;n-=t;upd[it.cat+"/"+it.comp+"/"+it.name+"/quantity"]=it.qty;}}}
+  if(Object.keys(upd).length)update(ref(db,"public/inventory"),upd).catch(()=>{});
+  set(ref(db,"public/loadout/fuel"),Math.max(0,FUEL-need)).catch(()=>{});
+  set(ref(db,"public/loadout/miles"),MILES+j.miles).catch(()=>{});
+  ledgerAdd(j.payout,"Job: "+j.site);
+  remove(ref(db,"public/loadout/jobs/"+id)).catch(()=>{});
+  $("jobMsg").textContent='✓ Closed "'+j.site+'" — Seth wired you $'+j.payout;}
+function refuel(){const cost=Math.round((100-FUEL)*FUEL_COST);if(cost<=0){$("jobMsg").textContent="Tank's already full.";return;}
+  if(cost>BAL){$("jobMsg").textContent="Can't afford fuel ($"+cost+"). Close a ticket first.";return;}
+  ledgerAdd(-cost,"Fuel");set(ref(db,"public/loadout/fuel"),100).catch(()=>{});
+  $("jobMsg").textContent="⛽ Filled the tank — $"+cost;}
 
 // ---- inventory transfer panel ----
 let openPlace;
