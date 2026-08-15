@@ -134,6 +134,7 @@
     <span class="sel" id="selLabel">Tap a piece to select · drag to move</span>
     <button class="tbtn" id="frontBtn" disabled>▲ Front</button>
     <button class="tbtn" id="backBtn" disabled>▼ Back</button>
+    <button class="tbtn" id="imgBtn" disabled>🖼 Image</button>
     <button class="tbtn danger" id="delBtn" disabled>🗑 Remove</button>
   </div>
   <div class="floorpick" id="floorPick"></div>
@@ -159,7 +160,7 @@
 </div></div>
 
 <div class="overlay" id="palette"><div class="panel">
-  <div class="phead"><div class="ic">🪑</div><h2>Add furniture to this room</h2><button class="closeb" id="palClose">✕</button></div>
+  <div class="phead"><div class="ic">🪑</div><h2 id="palTitle">Add furniture to this room</h2><button class="closeb" id="palClose">✕</button></div>
   <div id="palBody" style="overflow:auto"></div>
 </div></div>
 
@@ -270,8 +271,8 @@ function decorList(rm){const o=roomDecor[rm]||{};return Object.entries(o).map(([
 // crate positions/z (separate node)
 let LAYOUT={};
 onValue(ref(db,"public/loadout/layout"),snap=>{LAYOUT=snap.val()||{};
-  for(const k in PLACES){const L=LAYOUT["p:"+k];if(L){PLACES[k].x=L.x;PLACES[k].y=L.y;PLACES[k].z=L.z||0;}}});
-function saveCrate(k){const p=PLACES[k];update(ref(db,"public/loadout/layout"),{["p:"+k]:{x:p.x,y:p.y,z:p.z||0}}).catch(()=>{});}
+  for(const k in PLACES){const L=LAYOUT["p:"+k];if(L){PLACES[k].x=L.x;PLACES[k].y=L.y;PLACES[k].z=L.z||0;PLACES[k].sprite=L.sprite||null;loadCatImages();}}});
+function saveCrate(k){const p=PLACES[k];update(ref(db,"public/loadout/layout"),{["p:"+k]:{x:p.x,y:p.y,z:p.z||0,sprite:p.sprite||null}}).catch(()=>{});}
 // doorway overrides
 let DOORS={};
 onValue(ref(db,"public/loadout/doors"),snap=>{DOORS=snap.val()||{};applyDoors();});
@@ -437,6 +438,12 @@ function drawOutside(){
 function drawDoor(d){if(room==="outside")return;ctx.fillStyle="#20262d";ctx.fillRect(d.x,d.y,d.w,d.h);ctx.fillStyle="#f2a541";ctx.fillRect(d.x,d.y,d.w,3);
   ctx.font="6px monospace";ctx.textAlign="center";ctx.fillStyle="#cfd6de";ctx.fillText("▲ "+ROOMS[d.to].name.split(" ")[0].toUpperCase(),d.x+d.w/2,d.y<40?d.y+d.h+8:d.y-4);}
 function drawPlace(key,p){const x=p.x,y=p.y,w=p.w,h=p.h,n=(byLoc[key]||[]).length;
+  if(p.sprite&&CAT[p.sprite]&&catImg[p.sprite]&&catImg[p.sprite].complete){
+    const c=CAT[p.sprite],s=Math.min((w*1.35)/c.w,(h+24)/c.h),dw=c.w*s,dh=c.h*s,dx=Math.round(x+w/2-dw/2),dy=Math.round(y+h-dh);
+    ctx.fillStyle="rgba(0,0,0,.32)";ctx.beginPath();ctx.ellipse(x+w/2,y+h+2,dw*.36,5,0,0,7);ctx.fill();
+    ctx.drawImage(catImg[p.sprite],dx,dy,dw,dh);
+    ctx.font="7px monospace";ctx.textAlign="center";ctx.fillStyle="#0c0f13";ctx.fillRect(x+w/2-26,y-13,52,11);
+    ctx.fillStyle="#cfd6de";ctx.fillText(p.label.toUpperCase(),x+w/2,y-5);ctx.fillStyle="#f2a541";ctx.fillText("· "+n+" ·",x+w/2,y+h+11);return;}
   ctx.fillStyle="rgba(0,0,0,.35)";ctx.beginPath();ctx.ellipse(x+w/2,y+h+4,w/2,6,0,0,7);ctx.fill();
   ctx.fillStyle="#39424d";ctx.fillRect(x,y,w,h);ctx.fillStyle="#2b333c";ctx.fillRect(x,y+h*.55,w,h*.45);
   ctx.fillStyle="#48525e";ctx.fillRect(x,y,w,4);ctx.fillStyle="#20262d";ctx.fillRect(x,y+h-4,w,4);
@@ -475,6 +482,7 @@ $("floorBtn").addEventListener("click",()=>{if(room==="outside"){$("selLabel").i
 function buildFloorPick(){const p=$("floorPick");p.innerHTML="";for(const k in floorImg){const s=document.createElement("div");s.className="fsw"+(k===curFloor?" on":"");s.style.backgroundImage="url("+A.floors[k]+")";s.title=k;s.onclick=()=>{curFloor=k;buildFloorPick();};p.appendChild(s);}}
 function refreshTools(){const on=!!selected;
   $("frontBtn").disabled=!(on&&selected.kind!=="door");$("backBtn").disabled=!(on&&selected.kind!=="door");$("delBtn").disabled=!(on&&selected.kind==="d");
+  $("imgBtn").disabled=!(on&&selected.kind==="p");
   if(!selected){$("selLabel").innerHTML=wallMode?"Wall mode — tap/drag the grid to build or erase walls":"Tap a piece to select · drag to move";return;}
   let label=selected.kind==="d"?(CAT[roomDecor[room][selected.id]?.k]?.label||"Furniture")
     :selected.kind==="door"?("Doorway → "+ROOMS[ROOMS[room].doors[selected.idx].to].name.split(" ")[0])
@@ -524,19 +532,24 @@ $("delBtn").addEventListener("click",()=>{if(!selected||selected.kind!=="d")retu
   selected=null;refreshTools();});
 
 // ---- palette (add furniture) ----
-let paletteOpen=false;
+let paletteOpen=false,paletteMode="add",assignKey=null;
 $("addBtn").addEventListener("click",openPalette);
+$("imgBtn").addEventListener("click",()=>{if(!selected||selected.kind!=="p")return;paletteMode="assign";assignKey=selected.key;$("palTitle").textContent="Choose an image for "+PLACES[assignKey].label;paletteOpen=true;buildPalette();$("palette").classList.add("open");});
 $("palClose").addEventListener("click",closePalette);
 $("palette").addEventListener("click",e=>{if(e.target===$("palette"))closePalette();});
-function openPalette(){paletteOpen=true;buildPalette();$("palette").classList.add("open");}
-function closePalette(){paletteOpen=false;$("palette").classList.remove("open");}
-function buildPalette(){const body=$("palBody");body.innerHTML="";const cats={};
-  for(const k in CAT){(cats[CAT[k].cat]=cats[CAT[k].cat]||[]).push(k);}
+function openPalette(){paletteMode="add";$("palTitle").textContent="Add furniture to this room";paletteOpen=true;buildPalette();$("palette").classList.add("open");}
+function closePalette(){paletteOpen=false;paletteMode="add";$("palette").classList.remove("open");}
+function assignImage(k){if(assignKey){PLACES[assignKey].sprite=k;saveCrate(assignKey);loadCatImages();}closePalette();}
+function buildPalette(){const body=$("palBody");body.innerHTML="";
+  if(paletteMode==="assign"){const g0=document.createElement("div");g0.className="palgrid";
+    const none=document.createElement("div");none.className="pit";none.innerHTML='<div class="box" style="display:grid;place-items:center;color:var(--muted);font-size:1.4rem">▢</div><span>Plain box</span>';
+    none.onclick=()=>{PLACES[assignKey].sprite=null;saveCrate(assignKey);closePalette();};g0.appendChild(none);body.appendChild(g0);}
+  const cats={};for(const k in CAT){(cats[CAT[k].cat]=cats[CAT[k].cat]||[]).push(k);}
   for(const cat of Object.keys(cats)){const h=document.createElement("div");h.className="palcat";h.textContent=cat;body.appendChild(h);
     const g=document.createElement("div");g.className="palgrid";
     for(const k of cats[cat]){const d=document.createElement("div");d.className="pit";
       d.innerHTML=`<div class="box"><img src="${CAT[k].du}"></div><span>${CAT[k].label}</span>`;
-      d.addEventListener("click",()=>addPiece(k));g.appendChild(d);}
+      d.addEventListener("click",()=>paletteMode==="assign"?assignImage(k):addPiece(k));g.appendChild(d);}
     body.appendChild(g);}}
 function addPiece(k){const id=newId();roomDecor[room]=roomDecor[room]||{};
   roomDecor[room][id]={k,x:Math.round(W/2-CAT[k].w/2),y:Math.round(H/2-CAT[k].h/2)};
