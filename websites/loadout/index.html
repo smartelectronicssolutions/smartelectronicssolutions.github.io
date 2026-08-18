@@ -221,6 +221,10 @@
   <div class="storhint" id="jobMsg">Seth: "The Grid's down. Close these service calls to bring the systems back online — gas up, grab your parts, and go."</div>
   <div id="jobsBody"></div>
 </div></div>
+<div class="overlay" id="reader"><div class="storwrap" style="max-width:640px">
+  <div class="storhead"><div class="ic">📖</div><h2 id="readerTitle">Journal Library</h2><button class="closeb" id="readerBack" style="display:none">← Back</button><button class="closeb" id="readerClose">✕</button></div>
+  <div id="readerBody" style="max-height:68vh;overflow:auto;padding:4px 4px 12px"></div>
+</div></div>
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -384,6 +388,42 @@ function drawNPC(id){const n=NPCS[id],im=npcImg[id],dw=FW*SC,dh=FH*SC,dx=Math.ro
   ctx.font="9px monospace";ctx.textAlign="center";const tw=ctx.measureText(n.name).width+8;ctx.fillStyle="rgba(9,12,15,.8)";ctx.fillRect(n.x-tw/2,dy-13,tw,12);ctx.fillStyle="#f2d9a0";ctx.fillText(n.name,n.x,dy-4);ctx.textAlign="left";}
 function showDialogue(id){dlg={id,i:0};const n=NPCS[id];$("npcName").textContent=n.name+":";$("npcLine").textContent=n.lines[0];$("npcbox").style.display="block";}
 function advDlg(){if(!dlg)return;const n=NPCS[dlg.id];dlg.i++;if(dlg.i>=n.lines.length){$("npcbox").style.display="none";dlg=null;}else $("npcLine").textContent=n.lines[dlg.i];}
+// ===== Fixtures: computer + bookshelf -> journal reader (live from public/journalArticles) =====
+let JOURNAL={};
+onValue(ref(db,"public/journalArticles"),snap=>{JOURNAL=snap.val()||{};});
+const FIXTURES={
+  terminal:{room:"house",x:118,y:150,name:"Computer",kind:"lib"},
+  bookshelf:{room:"house",x:394,y:150,name:"Bookshelf",kind:"books"}
+};
+function fixIn(r){return Object.keys(FIXTURES).filter(id=>FIXTURES[id].room===r);}
+function nearFixture(){let best=null,bd=1e9;for(const id of fixIn(room)){const fx=FIXTURES[id],dd=Math.hypot(player.x-fx.x,player.y-(fx.y-4));if(dd<48&&dd<bd){bd=dd;best=id;}}return best;}
+function drawFixture(id){const fx=FIXTURES[id],x=fx.x,y=fx.y;
+  ctx.fillStyle="rgba(0,0,0,.28)";ctx.beginPath();ctx.ellipse(x,y+2,16,5,0,0,7);ctx.fill();
+  if(fx.kind==="lib"){px(x-18,y-6,36,8,"#6b5236");px(x-16,y+2,4,10,"#4a3826");px(x+12,y+2,4,10,"#4a3826");
+    px(x-13,y-27,26,21,"#1c2128");px(x-11,y-25,22,17,"#3fd0c9");px(x-9,y-23,11,3,"#9af0ea");px(x-3,y-9,6,4,"#2a3138");}
+  else{px(x-18,y-42,36,46,"#5e4326");px(x-18,y-42,36,3,"#7a5c34");
+    for(let s=0;s<3;s++){const sy=y-38+s*14;px(x-16,sy+11,32,2,"#3a2a18");const cols=["#b23b3b","#3b6bb2","#5ba13b","#c9a13b","#8a4ab2"];
+      for(let b=0;b<6;b++)px(x-15+b*5,sy,4,11,cols[(s*6+b)%5]);}}
+  ctx.font="8px monospace";ctx.textAlign="center";const tw=ctx.measureText(fx.name).width+8;ctx.fillStyle="rgba(9,12,15,.8)";ctx.fillRect(x-tw/2,y-54,tw,11);ctx.fillStyle="#f2d9a0";ctx.fillText(fx.name,x,y-46);ctx.textAlign="left";}
+function fmtTxt(s){return String(s||"").replace(/â€"/g,"—").replace(/â€™/g,"’").replace(/â€œ/g,'"').replace(/â€/g,'"').replace(/Â/g,"");}
+function openReader(kind){$("reader").classList.add("open");showList(kind);}
+function showList(kind){$("readerTitle").textContent=kind==="books"?"Bookshelf — Readings":"Journal Library";$("readerBack").style.display="none";
+  const arr=Object.entries(JOURNAL).filter(([k,v])=>v&&v.title).sort((a,b)=>(b[1].createdAt||0)-(a[1].createdAt||0));
+  const body=$("readerBody");body.innerHTML="";
+  if(!arr.length){body.innerHTML="<div style='padding:16px;opacity:.7'>No readings loaded yet…</div>";return;}
+  for(const [id,a] of arr){const d=document.createElement("div");d.style.cssText="padding:9px 11px;border:1px solid #2a3138;border-radius:8px;margin:6px 0;cursor:pointer;background:#151a1f";
+    d.innerHTML="<b style='color:#f2d9a0'>"+esc(fmtTxt(a.title))+"</b><div style='font-size:.72rem;opacity:.65;margin-top:2px'>"+esc(fmtTxt(a.description||"").slice(0,130))+"</div>";
+    d.onclick=()=>showArticle(id);body.appendChild(d);}}
+function showArticle(id){const a=JOURNAL[id];if(!a)return;$("readerTitle").textContent=fmtTxt(a.title);const bk=$("readerBack");bk.style.display="";bk.onclick=()=>showList("lib");
+  let h="";if(a.description)h+="<p style='opacity:.8;font-style:italic'>"+esc(fmtTxt(a.description))+"</p>";
+  const secs=Array.isArray(a.sections)?a.sections:Object.values(a.sections||{});
+  for(const s of secs){if(!s)continue;if(s.title)h+="<h3 style='color:#f2a541;margin:14px 0 4px'>"+esc(fmtTxt(s.title))+"</h3>";if(s.summary)h+="<p style='opacity:.85'>"+esc(fmtTxt(s.summary))+"</p>";
+    for(const b of (Array.isArray(s.content)?s.content:[])){if(!b)continue;
+      if(b.type==="image"&&b.src)h+="<img src='"+esc(b.src)+"' style='max-width:100%;border-radius:6px;margin:6px 0'>";
+      else if(b.items)h+="<ul style='margin:4px 0 4px 18px'>"+b.items.map(it=>"<li>"+esc(fmtTxt(it))+"</li>").join("")+"</ul>";
+      else if(b.text)h+="<p>"+esc(fmtTxt(b.text))+"</p>";}}
+  const body=$("readerBody");body.innerHTML=h;body.scrollTop=0;}
+$("readerClose").addEventListener("click",()=>$("reader").classList.remove("open"));
 const ROOMR={x:20,y:24,w:W-40,h:H-48};
 const CELL=16;                        // wall grid cell
 let room="yourroom";
@@ -393,7 +433,7 @@ $("roomB").textContent=ROOMS[room].name;
 
 const keys=new Set();
 const MAP={ArrowUp:"up",KeyW:"up",ArrowDown:"down",KeyS:"down",ArrowLeft:"left",KeyA:"left",ArrowRight:"right",KeyD:"right"};
-addEventListener("keydown",e=>{if(e.code==="Escape"){closePanel();closePalette();$("studio").classList.remove("open");$("storage").classList.remove("open");$("shop").classList.remove("open");$("jobs").classList.remove("open");return;}
+addEventListener("keydown",e=>{if(e.code==="Escape"){closePanel();closePalette();$("studio").classList.remove("open");$("storage").classList.remove("open");$("shop").classList.remove("open");$("jobs").classList.remove("open");$("reader").classList.remove("open");return;}
   if(editMode&&!/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)){const kk=e.key.toLowerCase();
     if(kk==="w"){$("wallBtn").click();e.preventDefault();return;}
     if(kk==="f"){$("floorBtn").click();e.preventDefault();return;}
@@ -435,7 +475,7 @@ function go(d){transing=true;moveTarget=null;keys.clear();const src=room;const f
     if(d.to==="street"){const hp={erikhouse:[95,172],kevinhouse:[417,172],nickhouse:[95,382],ottohouse:[417,382]}[src];if(hp){ex=hp[0];ey=hp[1];}}
     player.x=ex;player.y=ey;moveTarget=null;selected=null;refreshTools();$("roomB").textContent=ROOMS[room].name;f.style.opacity="0";setTimeout(()=>transing=false,140);},170);}
 function nearPlace(){let best=null,bd=1e9;for(const[k,p]of placesIn(room)){const cx=p.x+p.w/2,cy=p.y+p.h,dd=Math.hypot(player.x-cx,player.y-cy);if(dd<54&&dd<bd){bd=dd;best=k;}}return best;}
-function tryOpen(){if(dlg){advDlg();return;}const id=nearNPC();if(id){showDialogue(id);return;}const k=nearPlace();if(k)openContainer(k);}
+function tryOpen(){if(dlg){advDlg();return;}const id=nearNPC();if(id){showDialogue(id);return;}const fid=nearFixture();if(fid){openReader(FIXTURES[fid].kind);return;}const k=nearPlace();if(k)openContainer(k);}
 $("npcbox").addEventListener("click",e=>{e.stopPropagation();advDlg();});
 
 // click / tap to walk
@@ -479,10 +519,12 @@ function render(){const R=ROOMS[room];
   for(const[k,p]of placesIn(room))ents.push({t:"p",k,p,z:p.z||0,sy:p.y+p.h});
   ents.push({t:"pl",z:0,sy:player.y});
   for(const id of npcsIn(room))ents.push({t:"npc",id,z:0,sy:NPCS[id].y});
+  for(const id of fixIn(room))ents.push({t:"fx",id,z:0,sy:FIXTURES[id].y});
   ents.sort((a,b)=>(a.z-b.z)||(a.sy-b.sy));
-  for(const e of ents){if(e.t==="d")drawDecorItem(e.d);else if(e.t==="p")drawPlace(e.k,e.p);else if(e.t==="npc")drawNPC(e.id);else drawPlayer();}
+  for(const e of ents){if(e.t==="d")drawDecorItem(e.d);else if(e.t==="p")drawPlace(e.k,e.p);else if(e.t==="npc")drawNPC(e.id);else if(e.t==="fx")drawFixture(e.id);else drawPlayer();}
   const k=nearPlace();if(k&&!isOpen()&&!editMode)drawPrompt(PLACES[k]);
   const nid=nearNPC();if(nid&&!dlg&&!isOpen()&&!editMode)drawPrompt({x:NPCS[nid].x-9,y:NPCS[nid].y-FH*SC+8,w:18,h:0});
+  const fid=nearFixture();if(fid&&!isOpen()&&!editMode)drawPrompt({x:FIXTURES[fid].x-9,y:FIXTURES[fid].y-58,w:18,h:0});
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;ctx.drawImage(im,Math.round(d.x),Math.round(d.y),c.w*s,c.h*s);}
 function drawWallCell(gx,gy){const x=gx*CELL,y=gy*CELL;ctx.fillStyle="#4a4038";ctx.fillRect(x,y,CELL,CELL);ctx.fillStyle="#6b5e50";ctx.fillRect(x,y,CELL,4);ctx.fillStyle="#2e2822";ctx.fillRect(x,y+CELL-3,CELL,3);ctx.strokeStyle="#241f1a";ctx.lineWidth=1;ctx.strokeRect(x+.5,y+.5,CELL-1,CELL-1);}
@@ -786,7 +828,7 @@ function refuel(){const cost=Math.round((100-FUEL)*FUEL_COST);if(cost<=0){$("job
 
 // ---- inventory transfer panel ----
 let openPlace;
-function isOpen(){return $("overlay").classList.contains("open");}
+function isOpen(){return $("overlay").classList.contains("open")||$("reader").classList.contains("open");}
 function openPanelFor(key){if(editMode)return;openPlace=key;
   $("pName").textContent=key?locMeta(key).label:"Backpack";$("pIc").textContent=key?locMeta(key).icon:"🎒";$("dcard").classList.remove("show");
   document.querySelector(".cols").style.gridTemplateColumns=key?"":"1fr";document.querySelectorAll(".colbox")[0].style.display=key?"":"none";
