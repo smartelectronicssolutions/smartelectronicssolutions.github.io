@@ -223,7 +223,7 @@
 </div></div>
 <div class="overlay" id="reader"><div class="storwrap" style="max-width:640px">
   <div class="storhead"><div class="ic">📖</div><h2 id="readerTitle">Journal Library</h2><button class="closeb" id="readerBack" style="display:none">← Back</button><button class="closeb" id="readerClose">✕</button></div>
-  <div id="readerBody" style="max-height:68vh;overflow:auto;padding:4px 4px 12px"></div>
+  <div id="readerBody" style="max-height:68vh;overflow:auto;padding:8px 10px 16px;color:#dbe0e6;line-height:1.55;font-size:.86rem;word-wrap:break-word;overflow-wrap:anywhere"></div>
 </div></div>
 
 <script type="module">
@@ -392,12 +392,15 @@ function advDlg(){if(!dlg)return;const n=NPCS[dlg.id];dlg.i++;if(dlg.i>=n.lines.
 let JOURNAL={};
 onValue(ref(db,"public/journalArticles"),snap=>{JOURNAL=snap.val()||{};});
 const FIXTURES={
-  terminal:{room:"house",x:118,y:150,name:"Computer",kind:"lib"},
-  bookshelf:{room:"house",x:394,y:150,name:"Bookshelf",kind:"books"}
+  terminal:{room:"house",x:98,y:96,w:40,h:58,name:"Computer",kind:"lib"},
+  bookshelf:{room:"house",x:374,y:92,w:40,h:62,name:"Bookshelf",kind:"books"}
 };
+onValue(ref(db,"public/loadout/fixtures"),snap=>{const v=snap.val()||{};for(const id in FIXTURES){if(v[id]){FIXTURES[id].x=v[id].x;FIXTURES[id].y=v[id].y;}}});
+function saveFixture(id){const f=FIXTURES[id];update(ref(db,"public/loadout/fixtures"),{[id]:{x:f.x,y:f.y}}).catch(()=>{});}
+function fxCX(fx){return fx.x+fx.w/2;} function fxCY(fx){return fx.y+fx.h-6;}
 function fixIn(r){return Object.keys(FIXTURES).filter(id=>FIXTURES[id].room===r);}
-function nearFixture(){let best=null,bd=1e9;for(const id of fixIn(room)){const fx=FIXTURES[id],dd=Math.hypot(player.x-fx.x,player.y-(fx.y-4));if(dd<48&&dd<bd){bd=dd;best=id;}}return best;}
-function drawFixture(id){const fx=FIXTURES[id],x=fx.x,y=fx.y;
+function nearFixture(){let best=null,bd=1e9;for(const id of fixIn(room)){const fx=FIXTURES[id],dd=Math.hypot(player.x-fxCX(fx),player.y-fxCY(fx));if(dd<50&&dd<bd){bd=dd;best=id;}}return best;}
+function drawFixture(id){const fx=FIXTURES[id],x=fxCX(fx),y=fxCY(fx);
   ctx.fillStyle="rgba(0,0,0,.28)";ctx.beginPath();ctx.ellipse(x,y+2,16,5,0,0,7);ctx.fill();
   if(fx.kind==="lib"){px(x-18,y-6,36,8,"#6b5236");px(x-16,y+2,4,10,"#4a3826");px(x+12,y+2,4,10,"#4a3826");
     px(x-13,y-27,26,21,"#1c2128");px(x-11,y-25,22,17,"#3fd0c9");px(x-9,y-23,11,3,"#9af0ea");px(x-3,y-9,6,4,"#2a3138");}
@@ -519,12 +522,12 @@ function render(){const R=ROOMS[room];
   for(const[k,p]of placesIn(room))ents.push({t:"p",k,p,z:p.z||0,sy:p.y+p.h});
   ents.push({t:"pl",z:0,sy:player.y});
   for(const id of npcsIn(room))ents.push({t:"npc",id,z:0,sy:NPCS[id].y});
-  for(const id of fixIn(room))ents.push({t:"fx",id,z:0,sy:FIXTURES[id].y});
+  for(const id of fixIn(room))ents.push({t:"fx",id,z:0,sy:fxCY(FIXTURES[id])});
   ents.sort((a,b)=>(a.z-b.z)||(a.sy-b.sy));
   for(const e of ents){if(e.t==="d")drawDecorItem(e.d);else if(e.t==="p")drawPlace(e.k,e.p);else if(e.t==="npc")drawNPC(e.id);else if(e.t==="fx")drawFixture(e.id);else drawPlayer();}
   const k=nearPlace();if(k&&!isOpen()&&!editMode)drawPrompt(PLACES[k]);
   const nid=nearNPC();if(nid&&!dlg&&!isOpen()&&!editMode)drawPrompt({x:NPCS[nid].x-9,y:NPCS[nid].y-FH*SC+8,w:18,h:0});
-  const fid=nearFixture();if(fid&&!isOpen()&&!editMode)drawPrompt({x:FIXTURES[fid].x-9,y:FIXTURES[fid].y-58,w:18,h:0});
+  const fid=nearFixture();if(fid&&!isOpen()&&!editMode)drawPrompt({x:fxCX(FIXTURES[fid])-9,y:FIXTURES[fid].y-8,w:18,h:0});
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;ctx.drawImage(im,Math.round(d.x),Math.round(d.y),c.w*s,c.h*s);}
 function drawWallCell(gx,gy){const x=gx*CELL,y=gy*CELL;ctx.fillStyle="#4a4038";ctx.fillRect(x,y,CELL,CELL);ctx.fillStyle="#6b5e50";ctx.fillRect(x,y,CELL,4);ctx.fillStyle="#2e2822";ctx.fillRect(x,y+CELL-3,CELL,3);ctx.strokeStyle="#241f1a";ctx.lineWidth=1;ctx.strokeRect(x+.5,y+.5,CELL-1,CELL-1);}
@@ -619,6 +622,7 @@ function draggablesIn(rm){const list=[];
   for(const {id,d} of decorList(rm)){const c=CAT[d.k];if(!c)continue;const s=d.s||1;list.push({kind:"d",id,o:d,w:c.w*s,h:c.h*s});}
   for(const[k,p]of placesIn(rm))list.push({kind:"p",key:k,o:p,w:p.w,h:p.h});
   ROOMS[rm].doors.forEach((d,i)=>list.push({kind:"door",idx:i,o:d,w:d.w,h:d.h}));
+  for(const id of fixIn(rm))list.push({kind:"fx",id,o:FIXTURES[id],w:FIXTURES[id].w,h:FIXTURES[id].h});
   return list;}
 $("editBtn").addEventListener("click",()=>{editMode=!editMode;selected=null;moveTarget=null;wallMode=false;floorMode=false;
   $("wallBtn").classList.remove("add");$("wallBtn").innerHTML='🧱 Walls <span style="opacity:.6">(W)</span>';
@@ -662,7 +666,7 @@ cv.addEventListener("pointermove",e=>{if(!editMode)return;const p=toLogical(e);
   drag.it.o.x=nx;drag.it.o.y=ny;});
 function endDrag(){if(painting){painting=null;return;}if(!drag)return;const it=drag.it;
   selected={kind:it.kind,id:it.id,key:it.key,idx:it.idx};
-  if(drag.moved){if(it.kind==="d")saveRoom(room);else if(it.kind==="p")saveCrate(it.key);else if(it.kind==="door")saveDoor(room,it.idx);}
+  if(drag.moved){if(it.kind==="d")saveRoom(room);else if(it.kind==="p")saveCrate(it.key);else if(it.kind==="door")saveDoor(room,it.idx);else if(it.kind==="fx")saveFixture(it.id);}
   drag=null;refreshTools();}
 cv.addEventListener("pointerup",endDrag);cv.addEventListener("pointercancel",endDrag);
 function drawEditOverlay(){
@@ -679,7 +683,7 @@ function drawEditOverlay(){
 function selZList(){const arr=[];for(const {d} of decorList(room))arr.push(d.z||0);for(const[,p]of placesIn(room))arr.push(p.z||0);return arr;}
 $("frontBtn").addEventListener("click",()=>{if(!selected)return;const mx=Math.max(0,...selZList())+1;setZ(mx);});
 $("backBtn").addEventListener("click",()=>{if(!selected)return;const mn=Math.min(0,...selZList())-1;setZ(mn);});
-function setZ(z){if(selected.kind==="d"){roomDecor[room][selected.id].z=z;saveRoom(room);}else{PLACES[selected.key].z=z;saveCrate(selected.key);}}
+function setZ(z){if(selected.kind==="d"){roomDecor[room][selected.id].z=z;saveRoom(room);}else if(selected.kind==="p"){PLACES[selected.key].z=z;saveCrate(selected.key);}}
 $("delBtn").addEventListener("click",()=>{if(!selected||selected.kind!=="d")return;
   delete roomDecor[room][selected.id];decorInDB[room]=true;
   remove(ref(db,"public/loadout/decor/"+room+"/"+selected.id)).catch(()=>saveRoom(room));
