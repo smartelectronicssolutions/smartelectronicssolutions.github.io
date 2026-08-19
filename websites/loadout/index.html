@@ -365,10 +365,10 @@ const floorImg={};for(const k in A.floors){const im=new Image();im.src=A.floors[
 // ===== NPCs (walk-up characters w/ dialogue) =====
 const npcImg={};for(const k in (A.npc||{})){const im=new Image();im.src=A.npc[k];npcImg[k]=im;}
 const NPCS={
-  erik:{room:"street",x:95,y:182,name:"Erik",lines:["Cybersecurity's my game — firewalls, hardening, the works.","Lock down your creds. Everything's a target these days."]},
-  kevin:{room:"street",x:417,y:182,name:"Kevin",lines:["Appliance tech here — fridges, ovens, washers, I fix 'em all.","Bad control board? Nine times out of ten, that's your culprit."]},
-  nick:{room:"street",x:95,y:392,name:"Nick",lines:["Field tech life — wherever the work order sends me.","Careful at Grid Gate 7 — it's been finicky lately."]},
-  otto:{room:"street",x:417,y:392,name:"Otto",lines:["Another site, another install — field tech's never bored.","Coffee's the real PPE. Old Depot job's open if you want it."]}
+  erik:{room:"street",x:95,y:182,name:"Erik",jobs:["j4"],lines:["Cybersecurity's my game — firewalls, hardening, the works.","Lock down your creds. Everything's a target these days."]},
+  kevin:{room:"street",x:417,y:182,name:"Kevin",jobs:["j3"],lines:["Appliance tech here — fridges, ovens, washers, I fix 'em all.","Bad control board? Nine times out of ten, that's your culprit."]},
+  nick:{room:"street",x:95,y:392,name:"Nick",jobs:["j1","j5"],lines:["Field tech life — wherever the work order sends me.","Careful at Grid Gate 7 — it's been finicky lately."]},
+  otto:{room:"street",x:417,y:392,name:"Otto",jobs:["j2"],lines:["Another site, another install — field tech's never bored.","Coffee's the real PPE."]}
 };
 for(const _id in NPCS){const _n=NPCS[_id];_n.dir="down";_n.moving=false;_n.frame=0;_n.ft=0;_n.hx=_n.x;_n.hy=_n.y;_n.tx=_n.x;_n.ty=_n.y;_n.wait=1+Math.random()*2;}
 let dlg=null;
@@ -387,8 +387,10 @@ function drawNPC(id){const n=NPCS[id],im=npcImg[id],dw=FW*SC,dh=FH*SC,dx=Math.ro
     ctx.save();if(n.dir==="left"){ctx.translate(dx+dw,dy);ctx.scale(-1,1);ctx.drawImage(im,sx,0,FW,FH,0,0,dw,dh);}else ctx.drawImage(im,sx,0,FW,FH,dx,dy,dw,dh);ctx.restore();}
   else{ctx.fillStyle="#6cc";ctx.fillRect(dx+dw*.3,dy+dh*.2,dw*.4,dh*.6);}
   ctx.font="9px monospace";ctx.textAlign="center";const tw=ctx.measureText(n.name).width+8;ctx.fillStyle="rgba(9,12,15,.8)";ctx.fillRect(n.x-tw/2,dy-13,tw,12);ctx.fillStyle="#f2d9a0";ctx.fillText(n.name,n.x,dy-4);ctx.textAlign="left";}
-function showDialogue(id){dlg={id,i:0};const n=NPCS[id];$("npcName").textContent=n.name+":";$("npcLine").textContent=n.lines[0];$("npcbox").style.display="block";}
-function advDlg(){if(!dlg)return;const n=NPCS[dlg.id];dlg.i++;if(dlg.i>=n.lines.length){$("npcbox").style.display="none";dlg=null;}else $("npcLine").textContent=n.lines[dlg.i];}
+function npcOpenJob(id){const n=NPCS[id];if(!n.jobs)return null;for(const j of n.jobs)if(JOBS[j]&&!JOBSUNLOCKED[j])return j;return null;}
+function dlgLines(id){const n=NPCS[id];return npcOpenJob(id)?n.lines.concat(["Got a fresh ticket for you — it's on your Dispatch now. Gas up, grab the parts, go."]):n.lines;}
+function showDialogue(id){dlg={id,i:0};const n=NPCS[id];$("npcName").textContent=n.name+":";$("npcLine").textContent=dlgLines(id)[0];$("npcbox").style.display="block";}
+function advDlg(){if(!dlg)return;const lines=dlgLines(dlg.id);dlg.i++;if(dlg.i>=lines.length){$("npcbox").style.display="none";const nn=NPCS[dlg.id];dlg=null;if(nn.jobs){const upd={};for(const j of nn.jobs)if(JOBS[j]&&!JOBSUNLOCKED[j])upd[j]=true;if(Object.keys(upd).length)update(ref(db,"public/loadout/jobsUnlocked"),upd).catch(()=>{});}}else $("npcLine").textContent=lines[dlg.i];}
 // ===== Fixtures: computer + bookshelf -> journal reader (live from public/journalArticles) =====
 let JOURNAL={};
 onValue(ref(db,"public/journalArticles"),snap=>{JOURNAL=snap.val()||{};});
@@ -806,6 +808,8 @@ const SEED_JOBS={
 onValue(ref(db,"public/loadout/fuel"),s=>{const v=s.val();FUEL=(v==null?100:+v);$("fuel").textContent=Math.round(FUEL)+"%";if($("jobs").classList.contains("open"))renderJobs();});
 onValue(ref(db,"public/loadout/miles"),s=>{MILES=+s.val()||0;if($("jobs").classList.contains("open"))$("jobMiles").textContent=MILES;});
 onValue(ref(db,"public/loadout/jobs"),s=>{const v=s.val();if(v===null){set(ref(db,"public/loadout/jobs"),SEED_JOBS).catch(()=>{});return;}JOBS=v||{};if($("jobs").classList.contains("open"))renderJobs();});
+let JOBSUNLOCKED={};
+onValue(ref(db,"public/loadout/jobsUnlocked"),s=>{JOBSUNLOCKED=s.val()||{};if($("jobs").classList.contains("open"))renderJobs();});
 function haveQty(name){return ITEMS.filter(it=>it.name===name).reduce((s,it)=>s+(it.qty||0),0);}
 function openJobs(){renderJobs();$("jobs").classList.add("open");}
 $("jobsBtn").addEventListener("click",openJobs);
@@ -813,13 +817,13 @@ $("jobsClose").addEventListener("click",()=>$("jobs").classList.remove("open"));
 $("jobs").addEventListener("click",e=>{if(e.target===$("jobs"))$("jobs").classList.remove("open");});
 $("refuelBtn").addEventListener("click",refuel);
 function renderJobs(){$("jobFuel").textContent=Math.round(FUEL)+"%";$("jobMiles").textContent=MILES;const body=$("jobsBody");body.innerHTML="";
-  const ids=Object.keys(JOBS);
-  if(!ids.length){body.innerHTML='<div class="empty" style="padding:26px">All tickets closed — the Grid is back online. Seth: "Good work."</div>';return;}
+  const ids=Object.keys(JOBS).filter(id=>JOBSUNLOCKED[id]);
+  if(!ids.length){body.innerHTML='<div class="empty" style="padding:26px">No tickets yet — head to the <b>Neighborhood</b> and talk to the crew (Erik, Kevin, Nick, Otto). They hand out the work.</div>';return;}
   for(const id of ids){const j=JOBS[id];const need=Math.round(j.miles*FUEL_PER_MILE);
     const partsOk=(j.parts||[]).every(p=>haveQty(p.name)>=p.qty),fuelOk=FUEL>=need;
     const c=document.createElement("div");c.className="jobcard";
     const pl=(j.parts||[]).map(p=>{const h=haveQty(p.name);return `<span class="jp ${h>=p.qty?"ok":"no"}">${esc(p.name)} ×${p.qty} · have ${h}</span>`;}).join("");
-    c.innerHTML=`<div class="jhead"><b>${esc(j.site)}</b><span class="jpay">+$${j.payout}</span></div>
+    c.innerHTML=`<div class="jhead"><b>${esc((j.site||"").replace(/�/g,"—"))}</b><span class="jpay">+$${j.payout}</span></div>
       <div class="jmeta">${j.miles} mi · needs ${need}% fuel (have ${Math.round(FUEL)}%)</div>
       <div class="jparts">${pl||'<span class="jp ok">no parts needed</span>'}</div>`;
     const b=document.createElement("button");b.className="jbtn";
