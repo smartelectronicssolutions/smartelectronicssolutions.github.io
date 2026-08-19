@@ -467,7 +467,7 @@ function blocked(x,y){const r=feetRect(x,y);
     for(let gx=gx0;gx<=gx1;gx++)for(let gy=gy0;gy<=gy1;gy++)if(isWall(room,gx,gy))return true;}
   return false;}
 let transing=false,moveTarget=null;
-function checkDoors(){if(transing)return;const r=feetRect(player.x,player.y);for(const d of ROOMS[room].doors)if(hit(r,d)){if(d.to==="van"){openVanStorage();player.y=d.y+d.h+22;moveTarget=null;return;}go(d);return;}}
+function checkDoors(){if(transing)return;const r=feetRect(player.x,player.y);for(const d of ROOMS[room].doors){if(d.to==="van")continue;if(hit(r,d)){go(d);return;}}}
 function go(d){transing=true;moveTarget=null;keys.clear();const src=room;const f=$("fade");f.style.opacity="1";
   setTimeout(()=>{room=d.to;let ex=d.entry[0],ey=d.entry[1];
     if(d.to==="outside"){const od=ROOMS.outside.doors;               // arrive next to the house/van you came from
@@ -478,15 +478,16 @@ function go(d){transing=true;moveTarget=null;keys.clear();const src=room;const f
     if(d.to==="street"){const hp={erikhouse:[95,172],kevinhouse:[417,172],nickhouse:[95,382],ottohouse:[417,382]}[src];if(hp){ex=hp[0];ey=hp[1];}}
     player.x=ex;player.y=ey;moveTarget=null;selected=null;refreshTools();$("roomB").textContent=ROOMS[room].name;f.style.opacity="0";setTimeout(()=>transing=false,140);},170);}
 function nearPlace(){let best=null,bd=1e9;for(const[k,p]of placesIn(room)){const cx=p.x+p.w/2,cy=p.y+p.h,dd=Math.hypot(player.x-cx,player.y-cy);if(dd<54&&dd<bd){bd=dd;best=k;}}return best;}
-function tryOpen(){if(dlg){advDlg();return;}const id=nearNPC();if(id){showDialogue(id);return;}const fid=nearFixture();if(fid){openReader(FIXTURES[fid].kind);return;}const k=nearPlace();if(k)openContainer(k);}
+function nearR(r,pad){return player.x>=r.x-pad&&player.x<=r.x+r.w+pad&&player.y>=r.y-pad&&player.y<=r.y+r.h+pad;}
+function tryOpen(){if(dlg){advDlg();return;}const id=nearNPC();if(id){showDialogue(id);return;}const fid=nearFixture();if(fid){openReader(FIXTURES[fid].kind);return;}if(room==="outside"){const vd=ROOMS.outside.doors[1];if(nearR(vd,16)){openVanStorage();return;}if(nearR(SHOP_RECT,16)){openShop();return;}}const k=nearPlace();if(k)openContainer(k);}
 $("npcbox").addEventListener("click",e=>{e.stopPropagation();advDlg();});
 
 // click / tap to walk
 cv.addEventListener("pointerdown",e=>{if(editMode)return;onPlayPointer(e);});
 function onPlayPointer(e){if(isOpen()||transing)return;const p=toLogical(e);
   if(room==="outside"){
-    if(p.x>=SHOP_RECT.x&&p.x<=SHOP_RECT.x+SHOP_RECT.w&&p.y>=SHOP_RECT.y&&p.y<=SHOP_RECT.y+SHOP_RECT.h){openShop();return;}
-    const vd=ROOMS.outside.doors[1];if(p.x>=vd.x&&p.x<=vd.x+vd.w&&p.y>=vd.y&&p.y<=vd.y+vd.h){openVanStorage();return;}}
+    if(p.x>=SHOP_RECT.x&&p.x<=SHOP_RECT.x+SHOP_RECT.w&&p.y>=SHOP_RECT.y&&p.y<=SHOP_RECT.y+SHOP_RECT.h){moveTarget={x:SHOP_RECT.x+SHOP_RECT.w/2,y:SHOP_RECT.y+SHOP_RECT.h+10,openKey:null};return;}
+    const vd=ROOMS.outside.doors[1];if(p.x>=vd.x&&p.x<=vd.x+vd.w&&p.y>=vd.y&&p.y<=vd.y+vd.h){moveTarget={x:vd.x+vd.w/2,y:vd.y+vd.h+10,openKey:null};return;}}
   let openKey=null;
   for(const [k,pl] of Object.entries(PLACES)){if(pl.room!==room)continue;if(p.x>=pl.x-4&&p.x<=pl.x+pl.w+4&&p.y>=pl.y-12&&p.y<=pl.y+pl.h+6){openKey=k;break;}}
   if(openKey){const pl=PLACES[openKey];moveTarget={x:pl.x+pl.w/2,y:pl.y+pl.h+10,openKey:null};return;}   // click a container -> walk to it; press E to open
@@ -528,6 +529,7 @@ function render(){const R=ROOMS[room];
   const k=nearPlace();if(k&&!isOpen()&&!editMode)drawPrompt(PLACES[k]);
   const nid=nearNPC();if(nid&&!dlg&&!isOpen()&&!editMode)drawPrompt({x:NPCS[nid].x-9,y:NPCS[nid].y-FH*SC+8,w:18,h:0});
   const fid=nearFixture();if(fid&&!isOpen()&&!editMode)drawPrompt({x:fxCX(FIXTURES[fid])-9,y:FIXTURES[fid].y-8,w:18,h:0});
+  if(room==="outside"&&!isOpen()&&!editMode){const vd=ROOMS.outside.doors[1];if(nearR(vd,16))drawPrompt({x:vd.x+vd.w/2-9,y:vd.y+vd.h-34,w:18,h:0});if(nearR(SHOP_RECT,16))drawPrompt({x:SHOP_RECT.x+SHOP_RECT.w/2-9,y:SHOP_RECT.y-6,w:18,h:0});}
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;ctx.drawImage(im,Math.round(d.x),Math.round(d.y),c.w*s,c.h*s);}
 function drawWallCell(gx,gy){const x=gx*CELL,y=gy*CELL;ctx.fillStyle="#4a4038";ctx.fillRect(x,y,CELL,CELL);ctx.fillStyle="#6b5e50";ctx.fillRect(x,y,CELL,4);ctx.fillStyle="#2e2822";ctx.fillRect(x,y+CELL-3,CELL,3);ctx.strokeStyle="#241f1a";ctx.lineWidth=1;ctx.strokeRect(x+.5,y+.5,CELL-1,CELL-1);}
