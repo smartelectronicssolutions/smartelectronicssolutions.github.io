@@ -112,6 +112,17 @@
   .vzone{position:absolute;border:2px solid rgba(242,165,65,.5);border-radius:4px;cursor:pointer;background:rgba(242,165,65,.05)}
   .vzone:hover{border-color:var(--amber);background:rgba(242,165,65,.18)}
   .vzone b{position:absolute;top:-1px;left:-1px;font-family:var(--mono);font-size:.5rem;color:#0c0f13;background:var(--amber);padding:1px 4px;border-radius:3px;white-space:nowrap}
+  .vzone{touch-action:none;display:grid;place-items:center;font-size:1.3rem}
+  .vzone.dragging{opacity:.85;border-color:var(--amber);z-index:6;box-shadow:0 3px 10px rgba(0,0,0,.5)}
+  .storbar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:8px 10px;border-bottom:1px solid var(--edge);background:var(--panel)}
+  .achip{font-family:var(--mono);font-size:.6rem;color:#cdd4da;background:var(--slot);border:1px solid var(--edge);border-radius:20px;padding:4px 9px;cursor:pointer;white-space:nowrap;user-select:none}
+  .achip.on{color:#0c0f13;background:var(--amber);border-color:var(--amber);font-weight:700}
+  .achip.drop{outline:2px dashed var(--amber);outline-offset:2px}
+  .achip.add{color:var(--amber);border-style:dashed}
+  .stortray{display:flex;gap:6px;flex-wrap:wrap;padding:8px 10px;border-top:1px solid var(--edge);min-height:18px;background:var(--panel)}
+  .traychip{font-family:var(--mono);font-size:.58rem;color:#cdd4da;background:var(--slot);border:1px dashed var(--edgehi);border-radius:7px;padding:5px 8px;cursor:grab;touch-action:none;user-select:none}
+  .traychip.dragging{opacity:.7}
+  .storscene.drop{outline:2px dashed var(--amber);outline-offset:-4px}
   .storhint{padding:9px;text-align:center;font-family:var(--mono);font-size:.62rem;color:var(--dim)}
   #shopBody{overflow:auto;max-height:62vh;padding:10px 14px 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(146px,1fr));gap:8px}
   .shopit{background:var(--slot);border:1px solid var(--edge);border-radius:9px;padding:8px;display:flex;flex-direction:column;gap:5px}
@@ -206,9 +217,11 @@
 </div></div>
 
 <div class="overlay" id="storage"><div class="storwrap">
-  <div class="storhead"><div class="ic" id="storIc">🚐</div><h2 id="storTitle">Van — Cargo</h2><div class="pill">BACKPACK <b id="storBag">0</b></div><button class="closeb" id="storClose">✕</button></div>
-  <div class="storscene" id="storScene"><img id="storBg" alt="van cargo"></div>
-  <div class="storhint">Tap a container to open it · items save to the database</div>
+  <div class="storhead"><div class="ic" id="storIc">🚐</div><h2 id="storTitle">The Van</h2><div class="pill">BACKPACK <b id="storBag">0</b></div><button class="closeb" id="storClose">✕</button></div>
+  <div class="storbar" id="storAreas"></div>
+  <div class="storscene" id="storScene"><img id="storBg" alt="storage area"></div>
+  <div class="storhint">Drag a container to arrange it · tap to open · drag from the tray below to place it here · drag onto an area tab to move it</div>
+  <div class="stortray" id="storTray"></div>
 </div></div>
 
 <div class="overlay" id="shop"><div class="storwrap" style="max-width:640px">
@@ -279,7 +292,10 @@ const VZONES=[
   {loc:"veto",label:"Pro Pac (Veto)",icon:"👜",x:276,y:98,w:40,h:94},
 ];
 const ZONEMETA={};VZONES.forEach(z=>ZONEMETA[z.loc]={label:z.label,icon:z.icon});
-function locMeta(k){if(k&&k.indexOf("decor:")===0){const p=k.split(":"),d=(roomDecor[p[1]]||{})[p[2]];return{label:(d&&CAT[d.k]?CAT[d.k].label:"Storage"),icon:"📦"};}return PLACES[k]||ZONEMETA[k]||{label:k,icon:"📦"};}
+function cslug(s){const b=String(s||"").trim().toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"");return "c:"+(b||"misc");}
+const CLABEL={};                      // container loc -> display name (from inventory `room`)
+function locMeta(k){if(k&&k.indexOf("decor:")===0){const p=k.split(":"),d=(roomDecor[p[1]]||{})[p[2]];return{label:(d&&CAT[d.k]?CAT[d.k].label:"Storage"),icon:"📦"};}return PLACES[k]||ZONEMETA[k]||(CLABEL[k]?{label:CLABEL[k],icon:"📦"}:{label:k,icon:"📦"});}
+function containerLocs(){return Object.keys(byLoc).filter(k=>k!=="bag"&&k.indexOf("decor:")!==0&&!PLACES[k]);}
 const SHOP_RECT={x:28,y:360,w:120,h:92};
 const DEFAULT_DECOR={
   yourroom:[{k:"rug",x:200,y:330,s:1.5},{k:"bed",x:34,y:52},{k:"nightstand",x:150,y:62},{k:"palm",x:412,y:44},{k:"lampfloor",x:436,y:150}],
@@ -310,12 +326,14 @@ function isSolid(k){return !isFlat(k) && (CAT[k]?CAT[k].h:48)>=40;}
 let ITEMS=[],byLoc={};
 function rebuild(){byLoc={};for(const it of ITEMS){(byLoc[it.loc]=byLoc[it.loc]||[]).push(it);}
   $("bagN").textContent=(byLoc.bag||[]).length;if($("overlay").classList.contains("open"))renderPanel();
-  if($("storage").classList.contains("open")){renderVZones();$("storBag").textContent=(byLoc.bag||[]).length;}
+  if($("storage").classList.contains("open")){renderArea();$("storBag").textContent=(byLoc.bag||[]).length;}
   if($("shop").classList.contains("open"))renderShop();
   if($("jobs").classList.contains("open"))renderJobs();}
 onValue(ref(db,"public/inventory"),snap=>{const tree=snap.val()||{};const arr=[];
   for(const cat in tree)for(const comp in tree[cat])for(const name in tree[cat][comp]){const v=tree[cat][comp][name]||{};
-    arr.push({cat,comp,name,room:v.room||"",img:v.imageUrl||"",loc:v.location||roomToLoc(v.room)||defaultLoc(comp),price:v.price||v.actualPrice||"",qty:+v.quantity||0});}
+    const known=roomToLoc(v.room);const loc=v.location||known||(v.room?cslug(v.room):defaultLoc(comp));
+    if(v.room&&!ZONEMETA[loc]&&!CLABEL[loc])CLABEL[loc]=v.room;
+    arr.push({cat,comp,name,room:v.room||"",img:v.imageUrl||"",loc,price:v.price||v.actualPrice||"",qty:+v.quantity||0});}
   ITEMS=arr;$("loading").style.display="none";rebuild();});
 function moveItem(it,newLoc){const path=`${it.cat}/${it.comp}/${it.name}/location`;it.loc=newLoc;
   update(ref(db,"public/inventory"),{[path]:newLoc}).catch(e=>console.warn(e));rebuild();}
@@ -782,21 +800,76 @@ $("stSave").addEventListener("click",()=>{const oc=document.createElement("canva
   $("studio").classList.remove("open");
   alert("Saved '"+name+"'. Find it in + ADD FURNITURE ("+cat+").");});
 
-// ===== storage-view (click a container -> shelving screen) =====
-const VAN_CFG={title:"Van — Cargo",icon:"🚐",bg:A.vancargo,nw:320,nh:288,zones:VZONES};
-const CLOSET_CFG={title:"Closet",icon:"🚪",bg:A.closet,nw:288,nh:288,zones:[{loc:"wardrobe",label:"Shelf",x:24,y:40,w:240,h:172}]};
-let STORAGE=VAN_CFG;
-function openStorageView(cfg){STORAGE=cfg;$("storTitle").textContent=cfg.title;$("storIc").textContent=cfg.icon;$("storBg").src=cfg.bg;$("storBag").textContent=(byLoc.bag||[]).length;$("storage").classList.add("open");requestAnimationFrame(renderVZones);}
-function openVanStorage(){openStorageView(VAN_CFG);}
-function openContainer(key){if(key==="wardrobe"){openStorageView(CLOSET_CFG);return;}openPanelFor(key);}
+// ===== storage AREAS (drag containers onto an area's picture) =====
+const SEED_AREAS={van:{name:"The Van",icon:"🚐",bg:"vancargo",nw:320,nh:288},closet:{name:"Closet",icon:"🚪",bg:"closet",nw:288,nh:288}};
+let AREAS={},CPLACE={},curArea="van";
+const DEFAULT_XY={};VZONES.forEach(z=>DEFAULT_XY[z.loc]={x:z.x,y:z.y});
+function hashStr(s){let h=0;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0;return h;}
+onValue(ref(db,"public/loadout/areas"),s=>{const v=s.val();if(!v||!Object.keys(v).length){AREAS={...SEED_AREAS};set(ref(db,"public/loadout/areas"),SEED_AREAS).catch(()=>{});}else AREAS=v;
+  if($("storage").classList.contains("open"))renderArea();});
+onValue(ref(db,"public/loadout/cplace"),s=>{CPLACE=s.val()||{};if($("storage").classList.contains("open"))renderArea();});
+// which area a container lives in (known van bags default to the van; explicit placement wins)
+function areaOf(loc){if(CPLACE[loc]&&CPLACE[loc].area)return CPLACE[loc].area;if(ZONEMETA[loc])return "van";if(loc==="wardrobe")return "closet";return null;}
+function posOf(loc,areaId){const p=CPLACE[loc];if(p&&p.area===areaId&&p.x!=null)return{x:p.x,y:p.y};const d=DEFAULT_XY[loc];if(d)return d;const h=hashStr(loc);return{x:20+((h%6)*46),y:26+((Math.floor(h/6)%5)*46)};}
+function areaCfg(id){return AREAS[id]||SEED_AREAS[id]||SEED_AREAS.van;}
+function openArea(areaId){curArea=(areaId in AREAS)?areaId:(Object.keys(AREAS)[0]||"van");const a=areaCfg(curArea);
+  $("storTitle").textContent=a.name;$("storIc").textContent=a.icon||"📦";$("storBg").src=A[a.bg]||A.closet;$("storBag").textContent=(byLoc.bag||[]).length;
+  $("storage").classList.add("open");requestAnimationFrame(renderArea);}
+function openVanStorage(){openArea("van");}
+function openContainer(key){if(key==="wardrobe"){openArea("closet");return;}openPanelFor(key);}
 $("storClose").addEventListener("click",()=>$("storage").classList.remove("open"));
 $("storage").addEventListener("click",e=>{if(e.target===$("storage"))$("storage").classList.remove("open");});
-function renderVZones(){const scene=$("storScene"),img=$("storBg");[...scene.querySelectorAll(".vzone")].forEach(z=>z.remove());
-  const sw=(img.clientWidth||STORAGE.nw)/STORAGE.nw,sh=(img.clientHeight||STORAGE.nh)/STORAGE.nh;
-  for(const z of STORAGE.zones){const n=(byLoc[z.loc]||[]).length;const d=document.createElement("div");d.className="vzone";
-    d.style.left=(z.x*sw)+"px";d.style.top=(z.y*sh)+"px";d.style.width=(z.w*sw)+"px";d.style.height=(z.h*sh)+"px";
-    d.innerHTML="<b>"+z.label+" · "+n+"</b>";d.title=z.label;d.onclick=()=>openPanelFor(z.loc);scene.appendChild(d);}}
-addEventListener("resize",()=>{if($("storage").classList.contains("open"))renderVZones();});
+function renderArea(){renderAreaChips();const scene=$("storScene"),img=$("storBg"),a=areaCfg(curArea);
+  [...scene.querySelectorAll(".vzone")].forEach(z=>z.remove());
+  const sw=(img.clientWidth||a.nw)/(a.nw||320),sh=(img.clientHeight||a.nh)/(a.nh||288);
+  for(const loc of containerLocs()){if(areaOf(loc)!==curArea)continue;const n=(byLoc[loc]||[]).length,m=locMeta(loc),pos=posOf(loc,curArea);
+    const d=document.createElement("div");d.className="vzone";
+    d.style.left=(pos.x*sw)+"px";d.style.top=(pos.y*sh)+"px";d.style.width="54px";d.style.height="48px";
+    d.innerHTML=(m.icon||"📦")+"<b>"+esc(m.label)+" · "+n+"</b>";d.title=m.label;
+    makeContainerDrag(d,loc,scene,img,a);scene.appendChild(d);}
+  renderTray();}
+function renderAreaChips(){const bar=$("storAreas");bar.innerHTML="";
+  for(const id in AREAS){const c=document.createElement("div");c.className="achip"+(id===curArea?" on":"");c.dataset.area=id;
+    c.textContent=(AREAS[id].icon||"📦")+" "+AREAS[id].name;c.onclick=()=>openArea(id);bar.appendChild(c);}
+  const add=document.createElement("div");add.className="achip add";add.textContent="＋ Area";add.onclick=addArea;bar.appendChild(add);}
+function addArea(){const name=(prompt("New storage area name (e.g. Cabinet, Chest, Garage):")||"").trim();if(!name)return;
+  const icon=(prompt("An emoji icon for it:","🗄️")||"🗄️").trim()||"🗄️";const id="a"+Date.now().toString(36);
+  set(ref(db,"public/loadout/areas/"+id),{name:name,icon:icon,bg:"closet",nw:288,nh:288}).catch(()=>{});openArea(id);}
+function renderTray(){const tray=$("storTray");tray.innerHTML="";
+  const un=containerLocs().filter(loc=>areaOf(loc)===null);
+  if(!un.length){tray.innerHTML="<span style='font-family:var(--mono);font-size:.55rem;color:var(--dim)'>All containers placed.</span>";return;}
+  for(const loc of un){const m=locMeta(loc),n=(byLoc[loc]||[]).length;const c=document.createElement("div");c.className="traychip";
+    c.textContent="📦 "+m.label+" ("+n+")";makeTrayDrag(c,loc);tray.appendChild(c);}}
+// drag a placed container: reposition, or drop on an area tab to move it, or tap to open
+function makeContainerDrag(el,loc,scene,img,a){let drag=false,moved,sx,sy,ox,oy;
+  el.addEventListener("pointerdown",e=>{drag=true;moved=false;sx=e.clientX;sy=e.clientY;
+    const r=el.getBoundingClientRect(),pr=scene.getBoundingClientRect();ox=r.left-pr.left;oy=r.top-pr.top;
+    try{el.setPointerCapture(e.pointerId);}catch(_){}el.classList.add("dragging");});
+  el.addEventListener("pointermove",e=>{if(!drag)return;const dx=e.clientX-sx,dy=e.clientY-sy;if(Math.abs(dx)+Math.abs(dy)>4)moved=true;
+    el.style.left=(ox+dx)+"px";el.style.top=(oy+dy)+"px";hiChip(e.clientX,e.clientY);});
+  el.addEventListener("pointerup",e=>{if(!drag)return;drag=false;el.classList.remove("dragging");clearChipHi();
+    if(!moved){openPanelFor(loc);return;}
+    const chip=chipAt(e.clientX,e.clientY);
+    if(chip&&chip!==curArea){set(ref(db,"public/loadout/cplace/"+loc),{area:chip,x:24,y:24}).catch(()=>{});return;}
+    const sw=(img.clientWidth||a.nw)/(a.nw||320),sh=(img.clientHeight||a.nh)/(a.nh||288);
+    const nx=Math.max(0,Math.round(parseFloat(el.style.left)/sw)),ny=Math.max(0,Math.round(parseFloat(el.style.top)/sh));
+    set(ref(db,"public/loadout/cplace/"+loc),{area:curArea,x:nx,y:ny}).catch(()=>{});});}
+// drag a tray (unplaced) container into the scene = place it in this area, or onto an area tab
+function makeTrayDrag(el,loc){let drag=false;
+  el.addEventListener("pointerdown",e=>{drag=true;try{el.setPointerCapture(e.pointerId);}catch(_){}el.classList.add("dragging");});
+  el.addEventListener("pointermove",e=>{if(!drag)return;hiChip(e.clientX,e.clientY);const sc=$("storScene");sc.classList.toggle("drop",inRect(sc,e.clientX,e.clientY));});
+  el.addEventListener("pointerup",e=>{if(!drag)return;drag=false;el.classList.remove("dragging");clearChipHi();$("storScene").classList.remove("drop");
+    const chip=chipAt(e.clientX,e.clientY);
+    if(chip){set(ref(db,"public/loadout/cplace/"+loc),{area:chip,x:24,y:24}).catch(()=>{});return;}
+    const sc=$("storScene");if(inRect(sc,e.clientX,e.clientY)){const pr=sc.getBoundingClientRect(),a=areaCfg(curArea),img=$("storBg");
+      const sw=(img.clientWidth||a.nw)/(a.nw||320),sh=(img.clientHeight||a.nh)/(a.nh||288);
+      const nx=Math.max(0,Math.round((e.clientX-pr.left)/sw)),ny=Math.max(0,Math.round((e.clientY-pr.top)/sh));
+      set(ref(db,"public/loadout/cplace/"+loc),{area:curArea,x:nx,y:ny}).catch(()=>{});}});}
+function inRect(el,x,y){const r=el.getBoundingClientRect();return x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom;}
+function chipAt(x,y){for(const c of $("storAreas").querySelectorAll(".achip[data-area]"))if(inRect(c,x,y))return c.dataset.area;return null;}
+function hiChip(x,y){clearChipHi();for(const c of $("storAreas").querySelectorAll(".achip[data-area]"))if(inRect(c,x,y))c.classList.add("drop");}
+function clearChipHi(){$("storAreas").querySelectorAll(".achip.drop").forEach(c=>c.classList.remove("drop"));}
+addEventListener("resize",()=>{if($("storage").classList.contains("open"))renderArea();});
 // shop
 function openShop(){renderShop();$("shop").classList.add("open");}
 $("shopClose").addEventListener("click",()=>$("shop").classList.remove("open"));
