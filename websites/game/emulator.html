@@ -99,7 +99,7 @@
     </div>
 </header>
 
-<div id="build-badge" style="position:fixed;bottom:4px;right:7px;z-index:2000;font-size:9px;color:#777;pointer-events:none;font-family:monospace;">build 0820b</div>
+<div id="build-badge" style="position:fixed;bottom:4px;right:7px;z-index:2000;font-size:9px;color:#777;pointer-events:none;font-family:monospace;">build 0820d</div>
 
 <div id="app">
     <div id="controls">
@@ -429,8 +429,8 @@
     async function loadRoms() {
         const grid=document.getElementById("lib-grid"); grid.innerHTML='<div class="lib-msg">Loading…</div>';
         try {
-            let q="/api/roms?limit=500&order_by=name&order_dir=asc";
-            if(curPlat!=="all") q+="&platform_id="+curPlat;
+            let q="/api/roms?limit=500&order_by=name&order_dir=asc&with_files=true";
+            if(curPlat!=="all") q+="&platform_ids="+curPlat;   // RomM v5: param renamed platform_id -> platform_ids
             const r=await romm(q); if(!r.ok) throw new Error("HTTP "+r.status);
             let d=await r.json(); ROMS=Array.isArray(d)?d:(d.items||[]);
             renderRoms();
@@ -461,12 +461,14 @@
         const fname = rom.fs_name || (rom.name+"."+(rom.fs_extension||"bin"));
         const ext = (fname.split('.').pop()||"").toLowerCase();
         const core = coreBySlug[slug] || extMap[ext];   // fall back to file extension when the RomM slug isn't mapped
+        // RomM v5: ROM download moved to /api/roms/{id}/files/content/{file_name}; use the rom's first file name
+        const dlName = (rom.files && rom.files[0] && rom.files[0].file_name) || fname;
         document.getElementById("library").classList.remove("open");
         if(!core) { bootMsg('“'+slug+'” isn’t supported by this player yet.', true); setStatus("Unsupported system: "+slug,"err"); return; }
         bootMsg('Downloading '+(rom.name||fname)+'…');
         setStatus("Downloading "+(rom.name||fname)+"…","info",true);
         try {
-            const r=await romm("/api/roms/"+rom.id+"/content/"+encodeURIComponent(fname));
+            const r=await romm("/api/roms/"+rom.id+"/files/content/"+encodeURIComponent(dlName));
             if(!r.ok) throw new Error("HTTP "+r.status+" downloading ROM");
             const blob=await r.blob();
             if(!blob || blob.size<100) throw new Error("empty ROM ("+ (blob?blob.size:0) +" bytes)");
