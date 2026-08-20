@@ -109,11 +109,15 @@
   .storhead h2{margin:0;font-family:var(--mono);font-size:1rem;color:#eef2f6;flex:1}
   .storscene{position:relative;line-height:0;background:#0a0d10}
   .storscene img{width:100%;height:auto;image-rendering:pixelated;display:block}
-  .vzone{position:absolute;border:2px solid rgba(242,165,65,.5);border-radius:4px;cursor:pointer;background:rgba(242,165,65,.05)}
-  .vzone:hover{border-color:var(--amber);background:rgba(242,165,65,.18)}
-  .vzone b{position:absolute;top:calc(100% + 2px);left:50%;transform:translateX(-50%);max-width:92px;font-family:var(--mono);font-size:.5rem;line-height:1.08;color:#0c0f13;background:var(--amber);padding:2px 5px;border-radius:4px;text-align:center;white-space:normal;word-break:break-word;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;z-index:3}
-  .vzone{touch-action:none;display:grid;place-items:center;font-size:1.3rem}
-  .vzone.dragging{opacity:.85;border-color:var(--amber);z-index:6;box-shadow:0 3px 10px rgba(0,0,0,.5)}
+  .vzone{position:absolute;border:2px solid rgba(242,165,65,.55);border-radius:8px;cursor:pointer;background:linear-gradient(180deg,rgba(28,34,42,.82),rgba(12,15,19,.88));touch-action:none;display:grid;place-items:center;font-size:1.3rem;box-shadow:0 2px 6px rgba(0,0,0,.4)}
+  .vzone:hover,.vzone.press{border-color:var(--amber);background:linear-gradient(180deg,rgba(45,54,66,.9),rgba(20,26,32,.92));z-index:5}
+  .vzone .cnt{position:absolute;top:-7px;right:-7px;min-width:16px;height:16px;padding:0 3px;border-radius:9px;background:var(--amber);color:#0c0f13;font-family:var(--mono);font-size:.6rem;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,.5)}
+  .vzone .cnt.zero{background:#4a545f;color:#cdd4da}
+  .vzone .nm{position:absolute;bottom:calc(100% + 5px);left:50%;transform:translateX(-50%);max-width:150px;font-family:var(--mono);font-size:.56rem;line-height:1.1;color:#0c0f13;background:var(--amber);padding:3px 7px;border-radius:5px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:0;pointer-events:none;transition:opacity .1s;z-index:8;box-shadow:0 2px 6px rgba(0,0,0,.5)}
+  .vzone .nm::after{content:"";position:absolute;top:100%;left:50%;transform:translateX(-50%);border:4px solid transparent;border-top-color:var(--amber)}
+  .vzone:hover .nm,.vzone.press .nm{opacity:1}
+  .vzone.dragging{opacity:.9;border-color:var(--amber);z-index:6;box-shadow:0 3px 10px rgba(0,0,0,.5)}
+  .vzone.dragging .nm{opacity:1}
   .storbar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:8px 10px;border-bottom:1px solid var(--edge);background:var(--panel)}
   .achip{font-family:var(--mono);font-size:.6rem;color:#cdd4da;background:var(--slot);border:1px solid var(--edge);border-radius:20px;padding:4px 9px;cursor:pointer;white-space:nowrap;user-select:none}
   .achip.on{color:#0c0f13;background:var(--amber);border-color:var(--amber);font-weight:700}
@@ -861,7 +865,7 @@ function renderArea(){renderAreaChips();const scene=$("storScene"),img=$("storBg
   for(const loc of containerLocs()){if(areaOf(loc)!==curArea)continue;const n=(byLoc[loc]||[]).length,m=locMeta(loc),pos=posOf(loc,curArea);
     const d=document.createElement("div");d.className="vzone";
     const isc=(a.iconScale||1);d.style.left=(pos.x*sw)+"px";d.style.top=(pos.y*sh)+"px";d.style.width=(54*isc)+"px";d.style.height=(48*isc)+"px";d.style.fontSize=(1.3*isc)+"rem";
-    d.innerHTML=(m.icon||"📦")+"<b>"+esc(m.label)+" · "+n+"</b>";d.title=m.label;
+    d.innerHTML='<span class="nm">'+esc(m.label)+'</span>'+(m.icon||"📦")+'<span class="cnt'+(n?"":" zero")+'">'+n+'</span>';d.title=m.label+" · "+n+" item"+(n===1?"":"s");
     makeContainerDrag(d,loc,scene,img,a);scene.appendChild(d);}
   renderTray();}
 const BACKDROPS=[{k:"pegboard",label:"Pegboard",nw:320,nh:224},{k:"shelf",label:"Shelf",nw:320,nh:224},{k:"cabinet",label:"Cabinet",nw:320,nh:224},{k:"cratewall",label:"Crates",nw:320,nh:224},{k:"closet",label:"Closet",nw:288,nh:288},{k:"vancargo",label:"Van",nw:320,nh:288}];
@@ -898,6 +902,7 @@ function renderTray(){const tray=$("storTray");tray.innerHTML="";
 function makeContainerDrag(el,loc,scene,img,a){let drag=false,moved,sx,sy,ox,oy;
   el.addEventListener("pointerdown",e=>{drag=true;moved=false;sx=e.clientX;sy=e.clientY;
     const r=el.getBoundingClientRect(),pr=scene.getBoundingClientRect();ox=r.left-pr.left;oy=r.top-pr.top;
+    [...scene.querySelectorAll(".vzone.press")].forEach(z=>z.classList.remove("press"));el.classList.add("press");
     try{el.setPointerCapture(e.pointerId);}catch(_){}el.classList.add("dragging");});
   el.addEventListener("pointermove",e=>{if(!drag)return;const dx=e.clientX-sx,dy=e.clientY-sy;if(Math.abs(dx)+Math.abs(dy)>4)moved=true;
     el.style.left=(ox+dx)+"px";el.style.top=(oy+dy)+"px";hiChip(e.clientX,e.clientY);$("storTray").classList.toggle("drop",inRect($("storTray"),e.clientX,e.clientY));});
