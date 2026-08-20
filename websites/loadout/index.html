@@ -104,7 +104,7 @@
   .fsw.on{border-color:var(--amber)}
   /* van storage-view */
   #storage{align-items:center;z-index:18}
-  .storwrap{width:100%;max-width:560px;margin:0 12px;background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--edgehi);border-radius:14px;overflow:hidden}
+  .storwrap{width:100%;max-width:min(94vw,720px);margin:0 12px;background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--edgehi);border-radius:14px;overflow:hidden}
   .storhead{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--edge)}
   .storhead h2{margin:0;font-family:var(--mono);font-size:1rem;color:#eef2f6;flex:1}
   .storscene{position:relative;line-height:0;background:#0a0d10}
@@ -172,6 +172,10 @@
     <span class="sel" id="selLabel">Tap a piece to select · drag to move</span>
     <button class="tbtn" id="frontBtn" disabled>▲ Front</button>
     <button class="tbtn" id="backBtn" disabled>▼ Back</button>
+    <button class="tbtn" id="rotBtn" disabled>⟳ Rotate</button>
+    <button class="tbtn" id="biggerBtn" disabled>＋ Size</button>
+    <button class="tbtn" id="smallerBtn" disabled>－ Size</button>
+    <button class="tbtn" id="spriteBtn" disabled>✏️ Sprite</button>
     <button class="tbtn" id="imgBtn" disabled>🖼 Image</button>
     <button class="tbtn" id="storeBtn" disabled>📦 Make Storage</button>
     <button class="tbtn danger" id="delBtn" disabled>🗑 Remove</button>
@@ -381,8 +385,8 @@ function saveCrate(k){const p=PLACES[k];update(ref(db,"public/loadout/layout"),{
 // doorway overrides
 let DOORS={};
 onValue(ref(db,"public/loadout/doors"),snap=>{DOORS=snap.val()||{};applyDoors();});
-function applyDoors(){for(const rm in ROOMS)ROOMS[rm].doors.forEach((d,i)=>{const o=DOORS[rm]&&DOORS[rm][i];if(o){d.x=o.x;d.y=o.y;}});}
-function saveDoor(rm,i){const d=ROOMS[rm].doors[i];update(ref(db,"public/loadout/doors/"+rm),{[i]:{x:d.x,y:d.y}}).catch(()=>{});}
+function applyDoors(){for(const rm in ROOMS)ROOMS[rm].doors.forEach((d,i)=>{const o=DOORS[rm]&&DOORS[rm][i];if(o){d.x=o.x;d.y=o.y;if(o.w)d.w=o.w;if(o.h)d.h=o.h;}});}
+function saveDoor(rm,i){const d=ROOMS[rm].doors[i];update(ref(db,"public/loadout/doors/"+rm),{[i]:{x:d.x,y:d.y,w:d.w,h:d.h}}).catch(()=>{});}
 // walls (grid of solid cells)
 let WALLS={};
 onValue(ref(db,"public/loadout/walls"),snap=>{WALLS=snap.val()||{};});
@@ -499,7 +503,7 @@ function hit(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;}
 function solidRects(r){const rects=[];
   if(r==="street"){for(const h of [[20,40],[342,40],[20,250],[342,250]])rects.push({x:h[0]+14,y:h[1]+24,w:122,h:68});}
   for(const [k,p] of placesIn(r))rects.push({x:p.x,y:p.y+p.h-14,w:p.w,h:16});
-  for(const {d} of decorList(r)){if(!isSolid(d.k))continue;const s=d.s||1,w=CAT[d.k].w*s,h=CAT[d.k].h*s;rects.push({x:d.x+4,y:d.y+h-12,w:w-8,h:14});}
+  for(const {d} of decorList(r)){if(!isSolid(d.k))continue;const s=d.s||1;let w=CAT[d.k].w*s,h=CAT[d.k].h*s;if((d.rot||0)%2){const t=w;w=h;h=t;}rects.push({x:d.x+4,y:d.y+h-12,w:w-8,h:14});}
   return rects;}
 function blocked(x,y){const r=feetRect(x,y);
   if(room!=="outside"){if(r.x<ROOMR.x||r.y<ROOMR.y-24||r.x+r.w>ROOMR.x+ROOMR.w||r.y+r.h>ROOMR.y+ROOMR.h)return true;}
@@ -580,7 +584,9 @@ function render(){const R=ROOMS[room];
   if(room==="outside"&&!isOpen()&&!editMode){const vd=ROOMS.outside.doors[1];if(nearR(vd,16))drawPrompt({x:vd.x+vd.w/2-9,y:vd.y+vd.h-34,w:18,h:0});if(nearR(SHOP_RECT,16))drawPrompt({x:SHOP_RECT.x+SHOP_RECT.w/2-9,y:SHOP_RECT.y-6,w:18,h:0});}
   {const sid=nearStore();if(sid&&!dlg&&!isOpen()&&!editMode){const d=roomDecor[room][sid],c=CAT[d.k],s=d.s||1;drawPrompt({x:d.x+c.w*s/2-9,y:d.y-8,w:18,h:0});}}
   if(editMode)drawEditOverlay();}
-function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;ctx.drawImage(im,Math.round(d.x),Math.round(d.y),c.w*s,c.h*s);
+function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0);
+  if(rot){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
+  else ctx.drawImage(im,Math.round(d.x),Math.round(d.y),w,h);
   if(d.store){const bx=Math.round(d.x+c.w*s/2),by=Math.round(d.y+4);ctx.fillStyle="rgba(242,165,65,.9)";ctx.beginPath();ctx.arc(bx,by,7,0,7);ctx.fill();ctx.fillStyle="#0c0f13";ctx.font="9px monospace";ctx.textAlign="center";ctx.fillText("▤",bx,by+3);ctx.textAlign="left";}}
 function drawWallCell(gx,gy){const x=gx*CELL,y=gy*CELL;ctx.fillStyle="#4a4038";ctx.fillRect(x,y,CELL,CELL);ctx.fillStyle="#6b5e50";ctx.fillRect(x,y,CELL,4);ctx.fillStyle="#2e2822";ctx.fillRect(x,y+CELL-3,CELL,3);ctx.strokeStyle="#241f1a";ctx.lineWidth=1;ctx.strokeRect(x+.5,y+.5,CELL-1,CELL-1);}
 function drawFtile(gx,gy,fkey){const im=floorImg[fkey];if(!im||!im.complete)return;const x=gx*CELL,y=gy*CELL;ctx.drawImage(im,x%im.width,y%im.height,CELL,CELL,x,y,CELL,CELL);}
@@ -693,6 +699,9 @@ $("floorBtn").addEventListener("click",()=>{if(room==="outside"){$("selLabel").i
 function buildFloorPick(){const p=$("floorPick");p.innerHTML="";for(const k in floorImg){const s=document.createElement("div");s.className="fsw"+(k===curFloor?" on":"");s.style.backgroundImage="url("+A.floors[k]+")";s.title=k;s.onclick=()=>{curFloor=k;buildFloorPick();};p.appendChild(s);}}
 function refreshTools(){const on=!!selected;
   $("frontBtn").disabled=!(on&&selected.kind!=="door");$("backBtn").disabled=!(on&&selected.kind!=="door");$("delBtn").disabled=!(on&&selected.kind==="d");
+  $("rotBtn").disabled=!(on&&(selected.kind==="d"||selected.kind==="door"));
+  $("biggerBtn").disabled=$("smallerBtn").disabled=!(on&&selected.kind==="d");
+  $("spriteBtn").disabled=!(on&&(selected.kind==="d"||(selected.kind==="p"&&PLACES[selected.key]&&PLACES[selected.key].sprite)));
   $("imgBtn").disabled=!(on&&selected.kind==="p");
   $("storeBtn").disabled=!(on&&selected.kind==="d");
   if(on&&selected.kind==="d"){const isS=roomDecor[room][selected.id]&&roomDecor[room][selected.id].store;$("storeBtn").innerHTML=isS?"📦 Storage: ON":"📦 Make Storage";$("storeBtn").classList.toggle("add",!!isS);}else{$("storeBtn").classList.remove("add");$("storeBtn").innerHTML="📦 Make Storage";}
@@ -737,6 +746,15 @@ function drawEditOverlay(){
 function selZList(){const arr=[];for(const {d} of decorList(room))arr.push(d.z||0);for(const[,p]of placesIn(room))arr.push(p.z||0);return arr;}
 $("frontBtn").addEventListener("click",()=>{if(!selected)return;const mx=Math.max(0,...selZList())+1;setZ(mx);});
 $("backBtn").addEventListener("click",()=>{if(!selected)return;const mn=Math.min(0,...selZList())-1;setZ(mn);});
+$("rotBtn").addEventListener("click",()=>{if(!selected)return;
+  if(selected.kind==="d"){const dd=roomDecor[room][selected.id];dd.rot=((dd.rot||0)+1)%4;saveRoom(room);}
+  else if(selected.kind==="door"){const dr=ROOMS[room].doors[selected.idx];const t=dr.w;dr.w=dr.h;dr.h=t;saveDoor(room,selected.idx);}
+  refreshTools();});
+$("biggerBtn").addEventListener("click",()=>resizeSel(0.25));
+$("smallerBtn").addEventListener("click",()=>resizeSel(-0.25));
+function resizeSel(delta){if(!selected||selected.kind!=="d")return;const dd=roomDecor[room][selected.id];dd.s=Math.max(0.5,Math.min(4,Math.round(((dd.s||1)+delta)*100)/100));saveRoom(room);}
+$("spriteBtn").addEventListener("click",()=>{if(!selected)return;const k=selected.kind==="d"?roomDecor[room][selected.id].k:selected.kind==="p"?PLACES[selected.key].sprite:null;
+  if(!k||!CAT[k]){alert("No editable sprite here yet — give a crate an image first with 🖼 Image.");return;}openStudio();stLoadPiece(k);});
 function setZ(z){if(selected.kind==="d"){roomDecor[room][selected.id].z=z;saveRoom(room);}else if(selected.kind==="p"){PLACES[selected.key].z=z;saveCrate(selected.key);}}
 $("delBtn").addEventListener("click",()=>{if(!selected||selected.kind!=="d")return;
   delete roomDecor[room][selected.id];decorInDB[room]=true;
