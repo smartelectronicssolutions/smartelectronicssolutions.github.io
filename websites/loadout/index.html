@@ -126,7 +126,8 @@
   .storpick .bd{width:66px;height:46px;border:2px solid var(--edge);border-radius:5px;image-rendering:pixelated;background-size:cover;background-position:center;cursor:pointer}
   .storpick .bd.on{border-color:var(--amber)}
   .storpick .bd span{display:block;font-family:var(--mono);font-size:.5rem;color:#cdd4da;text-align:center;margin-top:47px;white-space:nowrap}
-  .stortray{display:flex;gap:6px;flex-wrap:wrap;padding:8px 10px;border-top:1px solid var(--edge);min-height:18px;background:var(--panel)}
+  .stortray{display:flex;gap:6px;flex-wrap:wrap;padding:8px 10px;border-top:1px solid var(--edge);min-height:30px;background:var(--panel)}
+  .stortray.drop{outline:2px dashed var(--amber);outline-offset:-3px;background:rgba(242,165,65,.08)}
   .traychip{font-family:var(--mono);font-size:.58rem;color:#cdd4da;background:var(--slot);border:1px dashed var(--edgehi);border-radius:7px;padding:5px 8px;cursor:grab;touch-action:none;user-select:none}
   .traychip.dragging{opacity:.7}
   .storscene.drop{outline:2px dashed var(--amber);outline-offset:-4px}
@@ -844,7 +845,7 @@ onValue(ref(db,"public/loadout/areas"),s=>{const v=s.val();if(!v||!Object.keys(v
   if($("storage").classList.contains("open"))renderArea();});
 onValue(ref(db,"public/loadout/cplace"),s=>{CPLACE=s.val()||{};if($("storage").classList.contains("open"))renderArea();});
 // which area a container lives in (known van bags default to the van; explicit placement wins)
-function areaOf(loc){if(CPLACE[loc]&&CPLACE[loc].area)return CPLACE[loc].area;if(ZONEMETA[loc])return "van";if(loc==="wardrobe")return "closet";return null;}
+function areaOf(loc){const cp=CPLACE[loc];if(cp&&cp.area==="tray")return null;if(cp&&cp.area)return cp.area;if(ZONEMETA[loc])return "van";if(loc==="wardrobe")return "closet";return null;}
 function posOf(loc,areaId){const p=CPLACE[loc];if(p&&p.area===areaId&&p.x!=null)return{x:p.x,y:p.y};const d=DEFAULT_XY[loc];if(d)return d;const h=hashStr(loc);return{x:20+((h%6)*46),y:26+((Math.floor(h/6)%5)*46)};}
 function areaCfg(id){return AREAS[id]||SEED_AREAS[id]||SEED_AREAS.van;}
 function openArea(areaId){curArea=(areaId in AREAS)?areaId:(Object.keys(AREAS)[0]||"van");const a=areaCfg(curArea);
@@ -899,9 +900,10 @@ function makeContainerDrag(el,loc,scene,img,a){let drag=false,moved,sx,sy,ox,oy;
     const r=el.getBoundingClientRect(),pr=scene.getBoundingClientRect();ox=r.left-pr.left;oy=r.top-pr.top;
     try{el.setPointerCapture(e.pointerId);}catch(_){}el.classList.add("dragging");});
   el.addEventListener("pointermove",e=>{if(!drag)return;const dx=e.clientX-sx,dy=e.clientY-sy;if(Math.abs(dx)+Math.abs(dy)>4)moved=true;
-    el.style.left=(ox+dx)+"px";el.style.top=(oy+dy)+"px";hiChip(e.clientX,e.clientY);});
-  el.addEventListener("pointerup",e=>{if(!drag)return;drag=false;el.classList.remove("dragging");clearChipHi();
+    el.style.left=(ox+dx)+"px";el.style.top=(oy+dy)+"px";hiChip(e.clientX,e.clientY);$("storTray").classList.toggle("drop",inRect($("storTray"),e.clientX,e.clientY));});
+  el.addEventListener("pointerup",e=>{if(!drag)return;drag=false;el.classList.remove("dragging");clearChipHi();$("storTray").classList.remove("drop");
     if(!moved){openPanelFor(loc);return;}
+    if(inRect($("storTray"),e.clientX,e.clientY)){set(ref(db,"public/loadout/cplace/"+loc),{area:"tray"}).catch(()=>{});return;}   // drop on tray = un-place
     const chip=chipAt(e.clientX,e.clientY);
     if(chip&&chip!==curArea){set(ref(db,"public/loadout/cplace/"+loc),{area:chip,x:24,y:24}).catch(()=>{});return;}
     const sw=(img.clientWidth||a.nw)/(a.nw||320),sh=(img.clientHeight||a.nh)/(a.nh||288);
