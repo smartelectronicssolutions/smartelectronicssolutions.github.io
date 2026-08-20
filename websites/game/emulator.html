@@ -258,9 +258,23 @@
 
     /* ── LAUNCH (shared by file-picker + RomM library) ── */
     let CLOUD_BATTERY=null, autoSaveInterval=null, launchSeq=0;
-    const extMap = {gba:'gba',gbc:'gbc',gb:'gbc',smc:'snes',sfc:'snes',z64:'n64',n64:'n64',v64:'n64',nds:'nds',bin:'psx',iso:'psx',cue:'psx',nes:'nes',md:'genesis',smd:'genesis',gen:'genesis',pbp:'psp',chd:'psx',gg:'segaGG',sms:'segaMS',zip:'gba'};
-    // RomM platform slug -> EmulatorJS core
-    const coreBySlug = {nes:'nes',snes:'snes',gb:'gbc',gbc:'gbc',gba:'gba',n64:'n64',nds:'nds',genesis:'genesis',megadrive:'genesis',gamegear:'segaGG',gg:'segaGG','sega-game-gear':'segaGG',psx:'psx',ps1:'psx',psp:'psp'};  // dc (Dreamcast) not supported by EmulatorJS
+    // file extension -> EmulatorJS core (core names must match the engine EXACTLY: 'gb' not 'gbc', 'segaMD' not 'genesis')
+    const extMap = {gba:'gba',gbc:'gb',gb:'gb',smc:'snes',sfc:'snes',z64:'n64',n64:'n64',v64:'n64',nds:'nds',bin:'psx',iso:'psx',cue:'psx',nes:'nes',md:'segaMD',smd:'segaMD',gen:'segaMD',pbp:'psp',chd:'psx',gg:'segaGG',sms:'segaMS',zip:'gba'};
+    // RomM platform slug -> EmulatorJS core. Valid cores: gb, gba, nes, snes, n64, nds, segaMS, segaMD, segaGG, psx, psp (NO 'gbc'/'genesis' — those black-screen)
+    const coreBySlug = {
+        nes:'nes','famicom':'nes',
+        snes:'snes','sfam':'snes','super-famicom':'snes','super-nintendo-entertainment-system':'snes',
+        gb:'gb','gameboy':'gb','game-boy':'gb',
+        gbc:'gb','gbcolor':'gb','game-boy-color':'gb',
+        gba:'gba','game-boy-advance':'gba',
+        n64:'n64','nintendo-64':'n64',
+        nds:'nds','ds':'nds','nintendo-ds':'nds',
+        genesis:'segaMD',megadrive:'segaMD','genesis-slash-megadrive':'segaMD','sega-mega-drive-genesis':'segaMD','md':'segaMD',
+        sms:'segaMS',mastersystem:'segaMS','sega-master-system':'segaMS','sega-master-system-mark-iii':'segaMS',
+        gamegear:'segaGG',gg:'segaGG','sega-game-gear':'segaGG',
+        psx:'psx',ps1:'psx','playstation':'psx','ps':'psx',
+        psp:'psp','playstation-portable':'psp'
+    };  // dc (Dreamcast) not supported by EmulatorJS
 
     async function launchGame(fileOrBlob, fileName, core) {
         const seq=++launchSeq;
@@ -442,8 +456,9 @@
     }
     async function playRom(rom) {
         const slug=(rom.platform_slug||"").toLowerCase();
-        const core = coreBySlug[slug];
         const fname = rom.fs_name || (rom.name+"."+(rom.fs_extension||"bin"));
+        const ext = (fname.split('.').pop()||"").toLowerCase();
+        const core = coreBySlug[slug] || extMap[ext];   // fall back to file extension when the RomM slug isn't mapped
         document.getElementById("library").classList.remove("open");
         if(!core) { bootMsg('“'+slug+'” isn’t supported by this player yet.', true); setStatus("Unsupported system: "+slug,"err"); return; }
         bootMsg('Downloading '+(rom.name||fname)+'…');
