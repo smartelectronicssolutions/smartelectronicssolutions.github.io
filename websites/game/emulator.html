@@ -123,7 +123,7 @@
     </div>
 </header>
 
-<div id="build-badge" style="position:fixed;bottom:4px;right:7px;z-index:2000;font-size:9px;color:#777;pointer-events:none;font-family:monospace;">build 0820m</div>
+<div id="build-badge" style="position:fixed;bottom:4px;right:7px;z-index:2000;font-size:9px;color:#777;pointer-events:none;font-family:monospace;">build 0820n</div>
 
 <div id="app">
     <div id="controls">
@@ -386,7 +386,8 @@
         catch { setStatus(`No save in slot ${currentSlot}.`,"err"); }
     };
     document.getElementById("btn-save-quit").onclick = async () => {
-        stopAutoSave(); setStatus("Saving…","info",true);
+        stopAutoSave(); try { localStorage.removeItem("emu:lastGame"); } catch(_){}  // intentional quit -> don't auto-resume
+        setStatus("Saving…","info",true);
         const path=getStatePath();
         if(path) { const state=await captureState(); if(state) { try { await dbSave(path,state); rememberSlot(); } catch {} } }
         await destroyEmulator(); CLOUD_BATTERY=null; window.EJS_core=null; window.EJS_gameName=null;
@@ -501,6 +502,7 @@
             if(!blob || blob.size<100) throw new Error("empty ROM ("+ (blob?blob.size:0) +" bytes)");
             bootMsg('Booting '+(rom.name||fname)+'… ('+Math.round(blob.size/1024)+' KB)');
             await launchGame(blob, fname, core);
+            try { localStorage.setItem("emu:lastGame", JSON.stringify({id:rom.id, fname:dlName, core:core, name:rom.name||fname})); } catch(_){}
         } catch(e) { bootMsg('Could not load: '+e.message, true); setStatus("Load failed: "+e.message,"err"); }
     }
 
@@ -512,6 +514,25 @@
     ["login-email","login-password"].forEach(id=>document.getElementById(id).addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); document.getElementById("login-btn").click(); }}));
     // hamburger nav on mobile
     document.getElementById("navToggle")?.addEventListener("click",()=>document.querySelector(".site-nav").classList.toggle("open"));
+
+    // Auto-resume the last game if the tab was RELOADED (e.g. mobile memory reload / crash) so you keep your place
+    (async function maybeResume(){
+        const nav = performance.getEntriesByType && performance.getEntriesByType("navigation")[0];
+        const wasReload = (nav && nav.type === "reload") || document.wasDiscarded;
+        if(!wasReload) return;
+        let lg; try { lg = JSON.parse(localStorage.getItem("emu:lastGame")||"null"); } catch(_){ lg=null; }
+        if(!lg || !lg.id) return;
+        if(!(await rommLoggedIn())) return;   // needs RomM auth (sessionStorage survives a reload)
+        bootMsg("Resuming "+(lg.name||lg.fname)+"…");
+        try {
+            const r = await romm("/api/roms/"+lg.id+"/content/"+encodeURIComponent(lg.fname));
+            if(!r.ok) throw 0;
+            const blob = await r.blob(); if(!blob || blob.size < 100) throw 0;
+            await launchGame(blob, lg.fname, lg.core);   // onGameStart auto-loads your last save slot
+        } catch(_) {
+            document.getElementById("emulator-wrap").innerHTML = '<div id="drop-prompt"><b>&#128218; Open the Library</b>Pick a game from your RomM collection to play<span>GBA &middot; GBC &middot; SNES &middot; NES &middot; Genesis &middot; Game Gear</span></div>';
+        }
+    })();
 
 </script>
 </body>
