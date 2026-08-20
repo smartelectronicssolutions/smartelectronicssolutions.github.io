@@ -15,6 +15,8 @@
         #auth-section input { padding: 4px 8px; border-radius: 4px; border: 1px solid #555; background: #2a2a2a; color: #fff; font-size: .85rem; width: 130px; }
         #auth-section button { padding: 5px 12px; font-size: .85rem; cursor: pointer; border-radius: 4px; border: none; background: #e65c00; color: #fff; }
         #user-status { font-size: .82rem; color: #888; }
+        #navToggle { display: none; position: relative; width: 40px; height: 30px; padding: 0; background: #2a1a0c; border: 1px solid #5a3a1c; border-radius: 6px; cursor: pointer; }
+        #navToggle::before { content: ""; position: absolute; left: 9px; right: 9px; top: 8px; height: 2px; background: #e8820a; box-shadow: 0 6px 0 #e8820a, 0 12px 0 #e8820a; }
 
         #app { display: flex; flex-direction: column; height: calc(100dvh - 48px); }
 
@@ -77,9 +79,11 @@
         /* compact, non-stacked header on phones */
         @media (max-width: 560px) {
             .site-header { flex-wrap: wrap; row-gap: 6px; padding: 6px 10px; height: auto; }
-            .site-nav { display: flex !important; flex-direction: row !important; flex-wrap: nowrap !important; width: 100%; overflow-x: auto; gap: 4px; justify-content: flex-start; -webkit-overflow-scrolling: touch; }
-            .site-nav::-webkit-scrollbar { display: none; }
-            .site-nav a { flex: 0 0 auto; white-space: nowrap; padding: 6px 10px; }
+            .site-header { position: relative; }
+            #navToggle { display: inline-flex; margin-left: auto; }
+            .site-nav { display: none; }
+            .site-nav.open { display: flex; flex-direction: column; position: absolute; top: 100%; left: 0; right: 0; background: #1a1008; border-bottom: 1px solid #100a04; padding: 6px 8px; gap: 2px; z-index: 60; }
+            .site-nav.open a { padding: 11px 12px; }
             #auth-section { width: 100%; gap: 6px; }
             #auth-section #login-fields { width: 100%; flex-wrap: wrap; gap: 6px; }
             #auth-section #login-fields input { flex: 1 1 40%; min-width: 0; width: auto; }
@@ -97,6 +101,7 @@
 
 <header class="site-header">
     <a class="site-brand" href="index.html"><span>★</span> GAME HUB</a>
+    <button id="navToggle" aria-label="Menu"></button>
     <nav class="site-nav">
         <a href="mario.html">Mario</a>
         <a href="minecraft.html">Minecraft</a>
@@ -117,7 +122,7 @@
     </div>
 </header>
 
-<div id="build-badge" style="position:fixed;bottom:4px;right:7px;z-index:2000;font-size:9px;color:#777;pointer-events:none;font-family:monospace;">build 0820j</div>
+<div id="build-badge" style="position:fixed;bottom:4px;right:7px;z-index:2000;font-size:9px;color:#777;pointer-events:none;font-family:monospace;">build 0820k</div>
 
 <div id="app">
     <div id="controls">
@@ -437,7 +442,7 @@
     async function loadPlatforms() {
         try {
             const r=await romm("/api/platforms"); if(!r.ok) throw 0;
-            let d=await r.json(); PLATFORMS=(Array.isArray(d)?d:(d.items||[])).filter(p=>(p.rom_count??p.roms_count??1)>0);
+            let d=await r.json(); PLATFORMS=(Array.isArray(d)?d:(d.items||[])).filter(p=>(p.rom_count??p.roms_count??1)>0 && coreBySlug[(p.slug||"").toLowerCase()]);
         } catch { PLATFORMS=[]; }
         const bar=document.getElementById("lib-plats"); bar.innerHTML="";
         const mk=(slug,label)=>{ const b=document.createElement("div"); b.className="lib-plat"+(slug===curPlat?" on":""); b.textContent=label; b.onclick=()=>{curPlat=slug; [...bar.children].forEach(c=>c.classList.remove("on")); b.classList.add("on"); loadRoms();}; bar.appendChild(b); };
@@ -457,7 +462,7 @@
     function renderRoms() {
         const grid=document.getElementById("lib-grid");
         const term=(document.getElementById("lib-search").value||"").toLowerCase();
-        const list=ROMS.filter(r=>!term || (r.name||r.fs_name||"").toLowerCase().includes(term));
+        const list=ROMS.filter(r=>coreBySlug[(r.platform_slug||"").toLowerCase()] && (!term || (r.name||r.fs_name||"").toLowerCase().includes(term)));
         grid.innerHTML="";
         if(!list.length){ grid.innerHTML='<div class="lib-msg">No games'+(term?' matching "'+term+'"':'')+'.</div>'; return; }
         for(const rom of list) {
@@ -501,6 +506,8 @@
     // Enter key submits the login forms (RomM + Firebase)
     ["romm-user","romm-pass"].forEach(id=>document.getElementById(id).addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); document.getElementById("romm-login-btn").click(); }}));
     ["login-email","login-password"].forEach(id=>document.getElementById(id).addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); document.getElementById("login-btn").click(); }}));
+    // hamburger nav on mobile
+    document.getElementById("navToggle")?.addEventListener("click",()=>document.querySelector(".site-nav").classList.toggle("open"));
 
 </script>
 </body>
