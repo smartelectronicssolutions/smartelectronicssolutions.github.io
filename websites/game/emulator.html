@@ -122,7 +122,7 @@
     </div>
 </header>
 
-<div id="build-badge" style="position:fixed;bottom:4px;right:7px;z-index:2000;font-size:9px;color:#777;pointer-events:none;font-family:monospace;">build 0820k</div>
+<div id="build-badge" style="position:fixed;bottom:4px;right:7px;z-index:2000;font-size:9px;color:#777;pointer-events:none;font-family:monospace;">build 0820l</div>
 
 <div id="app">
     <div id="controls">
@@ -300,6 +300,9 @@
         psx:'psx',ps1:'psx','playstation':'psx','ps':'psx',
         psp:'psp','playstation-portable':'psp'
     };  // dc (Dreamcast) not supported by EmulatorJS
+    // Systems hidden from the library (unsupported or too heavy on a phone / need a BIOS)
+    const HIDDEN_SLUGS = new Set(["dc","n64","nds","psp","psx","ps1","playstation","ps","nintendo-64","nintendo-ds","ds","playstation-portable"]);
+    const isShown = s => { s=(s||"").toLowerCase(); return !!coreBySlug[s] && !HIDDEN_SLUGS.has(s); };
 
     async function launchGame(fileOrBlob, fileName, core) {
         const seq=++launchSeq;
@@ -442,7 +445,7 @@
     async function loadPlatforms() {
         try {
             const r=await romm("/api/platforms"); if(!r.ok) throw 0;
-            let d=await r.json(); PLATFORMS=(Array.isArray(d)?d:(d.items||[])).filter(p=>(p.rom_count??p.roms_count??1)>0 && coreBySlug[(p.slug||"").toLowerCase()]);
+            let d=await r.json(); PLATFORMS=(Array.isArray(d)?d:(d.items||[])).filter(p=>(p.rom_count??p.roms_count??1)>0 && isShown(p.slug));
         } catch { PLATFORMS=[]; }
         const bar=document.getElementById("lib-plats"); bar.innerHTML="";
         const mk=(slug,label)=>{ const b=document.createElement("div"); b.className="lib-plat"+(slug===curPlat?" on":""); b.textContent=label; b.onclick=()=>{curPlat=slug; [...bar.children].forEach(c=>c.classList.remove("on")); b.classList.add("on"); loadRoms();}; bar.appendChild(b); };
@@ -462,7 +465,7 @@
     function renderRoms() {
         const grid=document.getElementById("lib-grid");
         const term=(document.getElementById("lib-search").value||"").toLowerCase();
-        const list=ROMS.filter(r=>coreBySlug[(r.platform_slug||"").toLowerCase()] && (!term || (r.name||r.fs_name||"").toLowerCase().includes(term)));
+        const list=ROMS.filter(r=>isShown(r.platform_slug) && (!term || (r.name||r.fs_name||"").toLowerCase().includes(term)));
         grid.innerHTML="";
         if(!list.length){ grid.innerHTML='<div class="lib-msg">No games'+(term?' matching "'+term+'"':'')+'.</div>'; return; }
         for(const rom of list) {
