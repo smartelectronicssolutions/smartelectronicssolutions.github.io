@@ -51,11 +51,11 @@
         .lib-plats { display: flex; gap: 6px; padding: 8px 14px; overflow-x: auto; border-bottom: 1px solid #2a2a2a; -webkit-overflow-scrolling: touch; }
         .lib-plat { flex: 0 0 auto; padding: 7px 12px; border-radius: 20px; border: 1px solid #3a3a3a; background: #222; color: #bbb; font-size: .8rem; cursor: pointer; white-space: nowrap; }
         .lib-plat.on { background: #e65c00; border-color: #e65c00; color: #fff; font-weight: 700; }
-        .lib-grid { flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 10px; padding: 14px; align-content: start; }
+        .lib-grid { flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 12px; padding: 14px; align-content: start; max-width: 1180px; margin: 0 auto; width: 100%; }
         .lib-card { background: #1c1c20; border: 1px solid #2c2c33; border-radius: 8px; overflow: hidden; cursor: pointer; display: flex; flex-direction: column; }
-        .lib-card:active { border-color: #e65c00; }
-        .lib-card .cov { width: 100%; aspect-ratio: 3/4; background: #0d0d10 center/cover no-repeat; display: grid; place-items: center; color: #444; font-size: .7rem; }
-        .lib-card .t { font-size: .68rem; color: #cdd0d4; padding: 6px; line-height: 1.15; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+        .lib-card:active, .lib-card:hover { border-color: #e65c00; }
+        .lib-card .cov { width: 100%; aspect-ratio: 3/4; min-height: 150px; background: #0d0d10 center/cover no-repeat; display: grid; place-items: center; color: #555; font-size: 1.6rem; }
+        .lib-card .t { font-size: .72rem; color: #cdd0d4; padding: 7px 8px; line-height: 1.2; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
         .lib-msg { grid-column: 1/-1; text-align: center; color: #777; padding: 40px 20px; }
         /* RomM login modal */
         #romm-login { position: fixed; inset: 0; z-index: 1100; background: rgba(0,0,0,.85); display: none; align-items: center; justify-content: center; }
@@ -260,7 +260,7 @@
     let CLOUD_BATTERY=null, autoSaveInterval=null, launchSeq=0;
     const extMap = {gba:'gba',gbc:'gbc',gb:'gbc',smc:'snes',sfc:'snes',z64:'n64',n64:'n64',v64:'n64',nds:'nds',bin:'psx',iso:'psx',cue:'psx',nes:'nes',md:'genesis',smd:'genesis',gen:'genesis',pbp:'psp',chd:'psx',gg:'segaGG',sms:'segaMS',zip:'gba'};
     // RomM platform slug -> EmulatorJS core
-    const coreBySlug = {nes:'nes',snes:'snes',gb:'gbc',gbc:'gbc',gba:'gba',n64:'n64',nds:'nds',genesis:'genesis',megadrive:'genesis',gamegear:'segaGG',gg:'segaGG',psx:'psx',ps1:'psx',psp:'psp',dc:'dreamcast'};
+    const coreBySlug = {nes:'nes',snes:'snes',gb:'gbc',gbc:'gbc',gba:'gba',n64:'n64',nds:'nds',genesis:'genesis',megadrive:'genesis',gamegear:'segaGG',gg:'segaGG','sega-game-gear':'segaGG',psx:'psx',ps1:'psx',psp:'psp'};  // dc (Dreamcast) not supported by EmulatorJS
 
     async function launchGame(fileOrBlob, fileName, core) {
         const seq=++launchSeq;
@@ -305,7 +305,16 @@
 
         const old=document.getElementById("ejs-loader"); if(old) old.remove();
         const script=document.createElement("script"); script.id="ejs-loader"; script.src=EJS_CDN+"loader.js";
+        script.onerror = () => setStatus("Emulator engine failed to load (network/CDN).","err");
         document.body.appendChild(script);
+
+        // watchdog: if the emulator never starts, tell the user instead of a black screen
+        const wseq=seq;
+        setTimeout(() => {
+            if(wseq!==launchSeq) return;
+            const started = !!(window.EJS_emulator);
+            if(!started) setStatus("Engine didn't start — try again, or check connection.","err");
+        }, 22000);
     }
 
     /* file picker still works as a fallback */
@@ -426,19 +435,27 @@
         }
     }
     document.getElementById("lib-search").oninput = renderRoms;
+    // big on-screen status in the play area so failures are visible on mobile
+    function bootMsg(html, isErr) {
+        document.getElementById("emulator-wrap").innerHTML =
+            '<div id="drop-prompt"><b style="color:'+(isErr?'#f66':'#e65c00')+'">'+(isErr?'⚠ '+html:html)+'</b></div>';
+    }
     async function playRom(rom) {
-        const grid=document.getElementById("lib-grid");
+        const slug=(rom.platform_slug||"").toLowerCase();
+        const core = coreBySlug[slug];
+        const fname = rom.fs_name || (rom.name+"."+(rom.fs_extension||"bin"));
+        document.getElementById("library").classList.remove("open");
+        if(!core) { bootMsg('“'+slug+'” isn’t supported by this player yet.', true); setStatus("Unsupported system: "+slug,"err"); return; }
+        bootMsg('Downloading '+(rom.name||fname)+'…');
+        setStatus("Downloading "+(rom.name||fname)+"…","info",true);
         try {
-            setStatus("Downloading "+(rom.name||rom.fs_name)+"…","info",true);
-            const fname = rom.fs_name || (rom.name+"."+(rom.fs_extension||"bin"));
-            const url = ROMM_BASE+"/api/roms/"+rom.id+"/content/"+encodeURIComponent(fname);
             const r=await romm("/api/roms/"+rom.id+"/content/"+encodeURIComponent(fname));
-            if(!r.ok) throw new Error("HTTP "+r.status);
+            if(!r.ok) throw new Error("HTTP "+r.status+" downloading ROM");
             const blob=await r.blob();
-            const core = coreBySlug[(rom.platform_slug||"").toLowerCase()] || undefined;
-            document.getElementById("library").classList.remove("open");
+            if(!blob || blob.size<100) throw new Error("empty ROM ("+ (blob?blob.size:0) +" bytes)");
+            bootMsg('Booting '+(rom.name||fname)+'… ('+Math.round(blob.size/1024)+' KB)');
             await launchGame(blob, fname, core);
-        } catch(e) { setStatus("Download failed: "+e.message,"err"); }
+        } catch(e) { bootMsg('Could not load: '+e.message, true); setStatus("Load failed: "+e.message,"err"); }
     }
 
     document.getElementById("btn-library").onclick = openLibrary;
