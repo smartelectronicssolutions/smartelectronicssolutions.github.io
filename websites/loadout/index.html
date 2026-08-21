@@ -184,6 +184,7 @@
     <button class="tbtn" id="spriteBtn" disabled>✏️ Sprite</button>
     <button class="tbtn" id="imgBtn" disabled>🖼 Image</button>
     <button class="tbtn" id="storeBtn" disabled>📦 Make Storage</button>
+    <button class="tbtn" id="readerBtn" disabled>📖 Make Reader</button>
     <button class="tbtn danger" id="delBtn" disabled>🗑 Remove</button>
   </div>
   <div class="floorpick" id="floorPick"></div>
@@ -555,7 +556,8 @@ function go(d){transing=true;moveTarget=null;keys.clear();const src=room;const f
 function nearPlace(){let best=null,bd=1e9;for(const[k,p]of placesIn(room)){const cx=p.x+p.w/2,cy=p.y+p.h,dd=Math.hypot(player.x-cx,player.y-cy);if(dd<54&&dd<bd){bd=dd;best=k;}}return best;}
 function nearR(r,pad){return player.x>=r.x-pad&&player.x<=r.x+r.w+pad&&player.y>=r.y-pad&&player.y<=r.y+r.h+pad;}
 function nearStore(){let best=null,bd=1e9;for(const {id,d} of decorList(room)){if(!d.store)continue;const c=CAT[d.k];if(!c)continue;const s=d.s||1,cx=d.x+c.w*s/2,cy=d.y+c.h*s;const dd=Math.hypot(player.x-cx,player.y-cy);if(dd<56&&dd<bd){bd=dd;best=id;}}return best;}
-function tryOpen(){if(dlg){advDlg();return;}const id=nearNPC();if(id){showDialogue(id);return;}const fid=nearFixture();if(fid){openReader(FIXTURES[fid].kind);return;}if(room==="outside"){const vd=ROOMS.outside.doors[1];if(nearR(vd,16)){openVanStorage();return;}if(nearR(SHOP_RECT,16)){openShop();return;}}const sid=nearStore();if(sid){openPanelFor("decor:"+room+":"+sid);return;}const k=nearPlace();if(k)openContainer(k);}
+function nearReader(){let best=null,bd=1e9;for(const {id,d} of decorList(room)){if(!d.reader)continue;const c=CAT[d.k];if(!c)continue;const s=d.s||1,cx=d.x+c.w*s/2,cy=d.y+c.h*s;const dd=Math.hypot(player.x-cx,player.y-cy);if(dd<56&&dd<bd){bd=dd;best={id,kind:d.reader};}}return best;}
+function tryOpen(){if(dlg){advDlg();return;}const id=nearNPC();if(id){showDialogue(id);return;}const fid=nearFixture();if(fid){openReader(FIXTURES[fid].kind);return;}const rd=nearReader();if(rd){openReader(rd.kind==="lib"?"lib":"books");return;}if(room==="outside"){const vd=ROOMS.outside.doors[1];if(nearR(vd,16)){openVanStorage();return;}if(nearR(SHOP_RECT,16)){openShop();return;}}const sid=nearStore();if(sid){openPanelFor("decor:"+room+":"+sid);return;}const k=nearPlace();if(k)openContainer(k);}
 $("npcbox").addEventListener("click",e=>{e.stopPropagation();advDlg();});
 
 // touch/mouse: DRAG anywhere on the screen = analog joystick (any direction); quick TAP = walk-to
@@ -746,8 +748,8 @@ function refreshTools(){const on=!!selected;
   $("biggerBtn").disabled=$("smallerBtn").disabled=!(on&&selected.kind==="d");
   $("spriteBtn").disabled=!(on&&(selected.kind==="d"||(selected.kind==="p"&&PLACES[selected.key]&&PLACES[selected.key].sprite)));
   $("imgBtn").disabled=!(on&&selected.kind==="p");
-  $("storeBtn").disabled=!(on&&selected.kind==="d");
-  if(on&&selected.kind==="d"){const isS=roomDecor[room][selected.id]&&roomDecor[room][selected.id].store;$("storeBtn").innerHTML=isS?"📦 Storage: ON":"📦 Make Storage";$("storeBtn").classList.toggle("add",!!isS);}else{$("storeBtn").classList.remove("add");$("storeBtn").innerHTML="📦 Make Storage";}
+  $("storeBtn").disabled=!(on&&selected.kind==="d");$("readerBtn").disabled=!(on&&selected.kind==="d");
+  if(on&&selected.kind==="d"){const dd=roomDecor[room][selected.id]||{};const isS=dd.store;$("storeBtn").innerHTML=isS?"📦 Storage: ON":"📦 Make Storage";$("storeBtn").classList.toggle("add",!!isS);const rk=dd.reader;$("readerBtn").innerHTML=rk?("📖 Reader: "+(rk==="lib"?"Computer":"Books")):"📖 Make Reader";$("readerBtn").classList.toggle("add",!!rk);}else{$("storeBtn").classList.remove("add");$("storeBtn").innerHTML="📦 Make Storage";$("readerBtn").classList.remove("add");$("readerBtn").innerHTML="📖 Make Reader";}
   if(!selected){$("selLabel").innerHTML=wallMode?"Wall mode — tap/drag the grid to build or erase walls":"Tap a piece to select · drag to move";return;}
   let label=selected.kind==="d"?(CAT[roomDecor[room][selected.id]?.k]?.label||"Furniture")
     :selected.kind==="door"?("Doorway → "+ROOMS[ROOMS[room].doors[selected.idx].to].name.split(" ")[0])
@@ -813,6 +815,7 @@ let paletteOpen=false,paletteMode="add",assignKey=null;
 $("addBtn").addEventListener("click",openPalette);
 $("imgBtn").addEventListener("click",()=>{if(!selected||selected.kind!=="p")return;paletteMode="assign";assignKey=selected.key;$("palTitle").textContent="Choose an image for "+PLACES[assignKey].label;paletteOpen=true;buildPalette();$("palette").classList.add("open");});
 $("storeBtn").addEventListener("click",()=>{if(!selected||selected.kind!=="d")return;const dd=roomDecor[room][selected.id];if(!dd)return;dd.store=!dd.store;saveRoom(room);refreshTools();});
+$("readerBtn").addEventListener("click",()=>{if(!selected||selected.kind!=="d")return;const dd=roomDecor[room][selected.id];if(!dd)return;dd.reader=dd.reader==="books"?"lib":(dd.reader==="lib"?null:"books");if(!dd.reader)delete dd.reader;saveRoom(room);refreshTools();});
 $("palClose").addEventListener("click",closePalette);
 $("palette").addEventListener("click",e=>{if(e.target===$("palette"))closePalette();});
 function openPalette(){paletteMode="add";$("palTitle").textContent="Add furniture to this room";paletteOpen=true;buildPalette();$("palette").classList.add("open");}
