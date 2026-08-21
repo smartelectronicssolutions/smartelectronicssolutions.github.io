@@ -373,8 +373,13 @@ function moveItem(it,newLoc){const path=`${it.cat}/${it.comp}/${it.name}/locatio
 let BAL=0;
 onValue(ref(db,BASE+"/loadout/ledger"),snap=>{const v=snap.val();
   if(!v){set(ref(db,BASE+"/loadout/ledger/start"),{amt:500,name:"Starting funds",date:Date.now(),source:"loadout"}).catch(()=>{});return;}
-  BAL=Object.values(v).reduce((s,t)=>s+(+t.amt||0),0);$("money").textContent=BAL.toFixed(0);
+  BAL=Object.values(v).reduce((s,t)=>s+(+t.amt||0),0);   // game play-wallet (shop only); HUD money = real profit below
   if($("shop").classList.contains("open"))renderShop();});
+// HUD money = real PROFIT (income - expense) from the logged-in account's ledger. READ-ONLY mirror: the game NEVER writes ledgerTx.
+let PROFIT=0;
+onValue(ref(db,BASE+"/ledgerTx"),snap=>{const y=snap.val()||{};let inc=0,exp=0;
+  for(const yr in y){const es=y[yr]||{};for(const k in es){const e=es[k]||{};const a=+e.amt||0;if(e.type==="income")inc+=a;else exp+=a;}}
+  PROFIT=inc-exp;$("money").textContent=(PROFIT<0?"-$":"$")+Math.abs(Math.round(PROFIT)).toLocaleString();});
 function ledgerAdd(amt,name){const id="tx"+Date.now().toString(36)+Math.floor(Math.random()*1e3).toString(36);
   update(ref(db,BASE+"/loadout/ledger"),{[id]:{amt,name,date:Date.now(),source:"loadout"}}).catch(()=>{});}
 function itemPrice(it){return parseFloat(String(it.price||"").replace(/[^0-9.]/g,""))||0;}
