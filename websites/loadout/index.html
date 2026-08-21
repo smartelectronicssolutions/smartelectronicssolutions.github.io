@@ -274,6 +274,8 @@ function loadCatImages(){for(const k in CAT){if(!catImg[k]){const im=new Image()
 loadCatImages();
 onValue(ref(db,"public/loadout/catalog"),snap=>{const v=snap.val();if(v){CAT={...A.decor,...v};loadCatImages();if(paletteOpen)buildPalette();}});
 const $=id=>document.getElementById(id);
+// broken/dead image URL -> collapse to the item's name text instead of a broken-image icon
+window.imgFail=function(el){const d=document.createElement("div");d.style.cssText="position:absolute;inset:3px;padding:2px;font-size:.5rem;line-height:1.12;word-break:break-word;overflow:hidden;display:flex;align-items:center;justify-content:center;text-align:center";d.textContent=el.alt||"?";el.replaceWith(d);};
 // ---- account login: your inventory + journals + progress; world stays shared ----
 function acctModal(v){$("acctModal").style.display=v?"flex":"none";}
 onAuthStateChanged(auth,u=>{ const want=u?u.uid:"public";
@@ -365,7 +367,7 @@ onValue(ref(db,BASE+"/inventory"),snap=>{const tree=snap.val()||{};const arr=[];
   for(const cat in tree)for(const comp in tree[cat])for(const name in tree[cat][comp]){const v=tree[cat][comp][name]||{};
     const known=roomToLoc(v.room);const loc=v.location||known||(v.room?cslug(v.room):defaultLoc(comp));
     if(v.room&&!ZONEMETA[loc]&&!CLABEL[loc])CLABEL[loc]=v.room;
-    arr.push({cat,comp,name,room:v.room||"",img:v.imageUrl||"",loc,price:v.price||v.actualPrice||"",qty:+v.quantity||0});}
+    arr.push({cat,comp,name,room:v.room||"",img:v.img||v.imageUrl||"",loc,price:v.price||v.actualPrice||"",qty:+v.quantity||0});}   // 'img' = onlineinventory canonical field; imageUrl = legacy fallback
   ITEMS=arr;$("loading").style.display="none";rebuild();});
 function moveItem(it,newLoc){const path=`${it.cat}/${it.comp}/${it.name}/location`;it.loc=newLoc;
   update(ref(db,BASE+"/inventory"),{[path]:newLoc}).catch(e=>console.warn(e));rebuild();}
@@ -977,7 +979,7 @@ $("shop").addEventListener("click",e=>{if(e.target===$("shop"))$("shop").classLi
 function renderShop(){$("shopBal").textContent=BAL.toFixed(0);const body=$("shopBody");body.innerHTML="";
   const items=ITEMS.slice().sort((a,b)=>itemPrice(a)-itemPrice(b));
   for(const it of items){const price=itemPrice(it);const c=document.createElement("div");c.className="shopit";
-    c.innerHTML=`<div class="shopimg">${it.img?`<img src="${esc(it.img)}">`:"📦"}</div><div class="shopn">${esc(it.name)}</div><div class="shopm">owned ${it.qty||0} · $${price.toFixed(0)}</div>`;
+    c.innerHTML=`<div class="shopimg">${it.img?`<img src="${esc(it.img)}" onerror="this.replaceWith('📦')">`:"📦"}</div><div class="shopn">${esc(it.name)}</div><div class="shopm">owned ${it.qty||0} · $${price.toFixed(0)}</div>`;
     const b=document.createElement("button");b.className="buyb";b.textContent=price>0?("Buy $"+price.toFixed(0)):"— no price";b.disabled=price<=0||price>BAL;b.onclick=()=>buyItem(it);
     c.appendChild(b);body.appendChild(c);}}
 
@@ -1041,7 +1043,7 @@ function renderPanel(){const bag=byLoc.bag||[];$("rCnt").textContent=bag.length;
   if(openPlace){const items=byLoc[openPlace]||[];$("lCnt").textContent=items.length;$("lHead").firstChild.textContent=locMeta(openPlace).label.toUpperCase()+" ";fill($("lGrid"),items,"take");}}
 function fill(grid,items,mode){grid.innerHTML="";if(!items.length){grid.innerHTML='<div class="empty">— empty —</div>';return;}
   for(const it of items){const d=document.createElement("div");d.className="it";
-    d.innerHTML=(it.img?`<img src="${esc(it.img)}" alt="${esc(it.name)}">`:`<div class="empty" style="position:absolute;inset:3px;padding:2px;font-size:.5rem;line-height:1.12;word-break:break-word;overflow:hidden;display:flex;align-items:center;justify-content:center;text-align:center">${esc(it.name)}</div>`)+(mode?`<span class="mv">${mode==="take"?"→":"←"}</span>`:"");
+    d.innerHTML=(it.img?`<img src="${esc(it.img)}" alt="${esc(it.name)}" onerror="imgFail(this)">`:`<div class="empty" style="position:absolute;inset:3px;padding:2px;font-size:.5rem;line-height:1.12;word-break:break-word;overflow:hidden;display:flex;align-items:center;justify-content:center;text-align:center">${esc(it.name)}</div>`)+(mode?`<span class="mv">${mode==="take"?"→":"←"}</span>`:"");
     d.addEventListener("click",()=>selectItem(it,mode,d));grid.appendChild(d);}}
 let selItem=null;
 function selectItem(it,mode,cell){selItem={it,mode};showDetail(it);
@@ -1051,7 +1053,7 @@ function selectItem(it,mode,cell){selItem={it,mode};showDetail(it);
   else if(mode==="stash"){b.style.display="";b.innerHTML="⬅ Put in "+locMeta(openPlace).label;b.onclick=doMove;}
   else b.style.display="none";}
 function doMove(){if(!selItem)return;const s=selItem;selItem=null;$("dcard").classList.remove("show");moveItem(s.it,s.mode==="take"?"bag":openPlace);}
-function showDetail(it){$("dImg").src=it.img;$("dName").textContent=it.name;$("dMeta").textContent=it.cat+" · "+it.comp;$("dcard").classList.add("show");}
+function showDetail(it){const di=$("dImg");di.onerror=function(){di.style.display="none"};di.style.display="";di.src=it.img||"";$("dName").textContent=it.name;$("dMeta").textContent=it.cat+" · "+it.comp;$("dcard").classList.add("show");}
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function closePanel(){openPlace=undefined;$("overlay").classList.remove("open");}
 $("closeb").addEventListener("click",closePanel);
