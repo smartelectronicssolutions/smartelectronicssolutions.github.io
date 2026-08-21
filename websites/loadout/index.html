@@ -470,7 +470,10 @@ const FIXTURES={
 onValue(ref(db,"public/loadout/fixtures"),snap=>{const v=snap.val()||{};for(const id in FIXTURES){if(v[id]){FIXTURES[id].x=v[id].x;FIXTURES[id].y=v[id].y;}}});
 function saveFixture(id){const f=FIXTURES[id];update(ref(db,"public/loadout/fixtures"),{[id]:{x:f.x,y:f.y}}).catch(()=>{});}
 function fxCX(fx){return fx.x+fx.w/2;} function fxCY(fx){return fx.y+fx.h-6;}
-function fixIn(r){return Object.keys(FIXTURES).filter(id=>FIXTURES[id].room===r);}
+let HIDDEN={};
+onValue(ref(db,"public/loadout/hidden"),s=>{HIDDEN=s.val()||{};});
+function isHidden(r,id){return !!(HIDDEN[r]&&HIDDEN[r][id]);}
+function fixIn(r){return Object.keys(FIXTURES).filter(id=>FIXTURES[id].room===r&&!isHidden(r,id));}
 function nearFixture(){let best=null,bd=1e9;for(const id of fixIn(room)){const fx=FIXTURES[id],dd=Math.hypot(player.x-fxCX(fx),player.y-fxCY(fx));if(dd<50&&dd<bd){bd=dd;best=id;}}return best;}
 function drawFixture(id){const fx=FIXTURES[id],x=fxCX(fx),y=fxCY(fx);
   ctx.fillStyle="rgba(0,0,0,.28)";ctx.beginPath();ctx.ellipse(x,y+2,16,5,0,0,7);ctx.fill();
@@ -523,7 +526,7 @@ document.querySelectorAll(".dbtn").forEach(b=>{const d=b.dataset.d;
 $("actBtn").addEventListener("click",()=>{isOpen()?closePanel():tryOpen();});
 $("bagBtn").addEventListener("click",()=>openPanelFor(null));
 
-function placesIn(r){return Object.entries(PLACES).filter(([k,p])=>p.room===r);}
+function placesIn(r){return Object.entries(PLACES).filter(([k,p])=>p.room===r&&!isHidden(r,k));}
 function feetRect(x,y){return{x:x-feet.w/2,y:y-feet.h,w:feet.w,h:feet.h};}
 function hit(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;}
 function solidRects(r){const rects=[];
@@ -737,7 +740,7 @@ $("floorBtn").addEventListener("click",()=>{if(room==="outside"){$("selLabel").i
   $("floorPick").classList.toggle("on",floorMode);buildFloorPick();refreshTools();});
 function buildFloorPick(){const p=$("floorPick");p.innerHTML="";for(const k in floorImg){const s=document.createElement("div");s.className="fsw"+(k===curFloor?" on":"");s.style.backgroundImage="url("+A.floors[k]+")";s.title=k;s.onclick=()=>{curFloor=k;buildFloorPick();};p.appendChild(s);}}
 function refreshTools(){const on=!!selected;
-  $("frontBtn").disabled=!(on&&selected.kind!=="door");$("backBtn").disabled=!(on&&selected.kind!=="door");$("delBtn").disabled=!(on&&selected.kind==="d");
+  $("frontBtn").disabled=!(on&&selected.kind!=="door");$("backBtn").disabled=!(on&&selected.kind!=="door");$("delBtn").disabled=!(on&&(selected.kind==="d"||selected.kind==="p"||selected.kind==="fx"));
   $("rotBtn").disabled=!(on&&(selected.kind==="d"||selected.kind==="door"));
   $("mirBtn").disabled=!(on&&selected.kind==="d");
   $("biggerBtn").disabled=$("smallerBtn").disabled=!(on&&selected.kind==="d");
@@ -797,7 +800,9 @@ function resizeSel(delta){if(!selected||selected.kind!=="d")return;const dd=room
 $("spriteBtn").addEventListener("click",()=>{if(!selected)return;const k=selected.kind==="d"?roomDecor[room][selected.id].k:selected.kind==="p"?PLACES[selected.key].sprite:null;
   if(!k||!CAT[k]){alert("No editable sprite here yet — give a crate an image first with 🖼 Image.");return;}openStudio();stLoadPiece(k);});
 function setZ(z){if(selected.kind==="d"){roomDecor[room][selected.id].z=z;saveRoom(room);}else if(selected.kind==="p"){PLACES[selected.key].z=z;saveCrate(selected.key);}}
-$("delBtn").addEventListener("click",()=>{if(!selected||selected.kind!=="d")return;
+$("delBtn").addEventListener("click",()=>{if(!selected)return;
+  if(selected.kind==="p"||selected.kind==="fx"){const _id=selected.key||selected.id;update(ref(db,"public/loadout/hidden/"+room),{[_id]:true}).catch(()=>{});selected=null;refreshTools();return;}
+  if(selected.kind!=="d")return;
   delete roomDecor[room][selected.id];decorInDB[room]=true;
   remove(ref(db,"public/loadout/decor/"+room+"/"+selected.id)).catch(()=>saveRoom(room));
   if(!decorInDB[room])saveRoom(room);
