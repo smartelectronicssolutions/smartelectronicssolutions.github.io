@@ -682,7 +682,7 @@ function drawWalls(){ctx.fillStyle="#0e1216";ctx.fillRect(0,0,W,ROOMR.y-8);ctx.f
   ctx.strokeStyle="#2a313b";ctx.lineWidth=2;ctx.strokeRect(ROOMR.x-6,ROOMR.y-6,ROOMR.w+12,ROOMR.h+12);ctx.strokeStyle="rgba(242,165,65,.16)";ctx.strokeRect(ROOMR.x-2,ROOMR.y-2,ROOMR.w+4,ROOMR.h+4);}
 function px(x,y,w,h,c){ctx.fillStyle=c;ctx.fillRect(x,y,w,h);}
 function drawVanSprite(x,y){ // ~156x96 cargo van, side view, cab on left
-  if(catImg.van&&catImg.van.complete&&CAT.van&&CAT.van.du){ctx.imageSmoothingEnabled=false;ctx.drawImage(catImg.van,x,y,CAT.van.w||156,CAT.van.h||96);ctx.fillStyle="#f2a541";ctx.font="8px monospace";ctx.textAlign="center";ctx.fillText("▸ "+slab("van","ENTER VAN"),x+80,y+6);ctx.textAlign="left";return;}
+  if(catImg.van&&catImg.van.complete&&CAT.van&&CAT.van.du){ctx.imageSmoothingEnabled=false;const _vw=(CAT.van.w||156)*vs("van"),_vh=(CAT.van.h||96)*vs("van");ctx.drawImage(catImg.van,x,y,_vw,_vh);ctx.fillStyle="#f2a541";ctx.font="8px monospace";ctx.textAlign="center";ctx.fillText("▸ "+slab("van","ENTER VAN"),x+_vw/2,y+6);ctx.textAlign="left";return;}
   ctx.fillStyle="rgba(0,0,0,.30)";ctx.beginPath();ctx.ellipse(x+78,y+92,74,9,0,0,7);ctx.fill();
   for(const wx of [x+36,x+120]){px(wx-15,y+66,30,26,"#15181c");px(wx-10,y+71,20,16,"#3a4048");px(wx-4,y+75,8,8,"#20262d");px(wx-2,y+77,4,4,"#565e68");}
   px(x+2,y+58,152,7,"#6b727b");              // bumper/rocker
@@ -802,7 +802,7 @@ function refreshTools(){const on=!!selected;
   $("frontBtn").disabled=!(on&&selected.kind!=="door");$("backBtn").disabled=!(on&&selected.kind!=="door");$("delBtn").disabled=!(on&&(selected.kind==="d"||selected.kind==="p"||selected.kind==="fx"));
   $("rotBtn").disabled=!(on&&(selected.kind==="d"||selected.kind==="door"));
   $("mirBtn").disabled=!(on&&selected.kind==="d");
-  $("biggerBtn").disabled=$("smallerBtn").disabled=!(on&&selected.kind==="d");
+  $("biggerBtn").disabled=$("smallerBtn").disabled=!(on&&(selected.kind==="d"||(selected.kind==="door"&&ROOMS[room].doors[selected.idx].to==="van")));
   $("spriteBtn").disabled=!(on&&(selected.kind==="d"||(selected.kind==="p"&&PLACES[selected.key]&&PLACES[selected.key].sprite)));
   $("imgBtn").disabled=!(on&&selected.kind==="p");
   $("storeBtn").disabled=!(on&&selected.kind==="d");$("readerBtn").disabled=!(on&&selected.kind==="d");$("nameBtn").disabled=!(on&&(selected.kind==="d"||selected.kind==="p"||(selected.kind==="door"&&ROOMS[room].doors[selected.idx].to==="van")));
@@ -820,6 +820,7 @@ cv.addEventListener("dblclick",e=>{if(!editMode||isOpen()||transing)return;const
   else if(it.kind==="p"){editMode=false;openContainer(it.key);editMode=wasEdit;}});
 // structure name overrides (van / shop / neighborhood houses) — double-click in play mode to rename
 let SLABELS={};onValue(ref(db,"public/loadout/slabels"),s=>{SLABELS=s.val()||{};});
+let VSCALE={};onValue(ref(db,"public/loadout/vscale"),s=>{VSCALE=s.val()||{};});function vs(k){return VSCALE[k]||1;}
 function slab(k,d){return SLABELS[k]||d;}
 function renameStruct(key,def){const cur=SLABELS[key]||def;const nn=prompt("Rename:",cur);if(nn===null)return;const v=nn.trim().slice(0,30);if(v)set(ref(db,"public/loadout/slabels/"+key),v).catch(()=>{});else remove(ref(db,"public/loadout/slabels/"+key)).catch(()=>{});}
 // tap-to-rename the shop + storage-area titles (mobile-friendly; contentEditable)
@@ -866,7 +867,7 @@ $("rotBtn").addEventListener("click",()=>{if(!selected)return;
 $("mirBtn").addEventListener("click",()=>{if(!selected||selected.kind!=="d")return;const dd=roomDecor[room][selected.id];dd.flip=!dd.flip;saveRoom(room);});
 $("biggerBtn").addEventListener("click",()=>resizeSel(0.25));
 $("smallerBtn").addEventListener("click",()=>resizeSel(-0.25));
-function resizeSel(delta){if(!selected||selected.kind!=="d")return;const dd=roomDecor[room][selected.id];dd.s=Math.max(0.5,Math.min(4,Math.round(((dd.s||1)+delta)*100)/100));saveRoom(room);}
+function resizeSel(delta){if(selected&&selected.kind==="door"&&ROOMS[room].doors[selected.idx].to==="van"){const ns=Math.max(0.5,Math.min(3,Math.round((vs("van")+delta)*100)/100));set(ref(db,"public/loadout/vscale/van"),ns).catch(()=>{});return;}if(!selected||selected.kind!=="d")return;const dd=roomDecor[room][selected.id];dd.s=Math.max(0.5,Math.min(4,Math.round(((dd.s||1)+delta)*100)/100));saveRoom(room);}
 $("spriteBtn").addEventListener("click",()=>{if(!selected)return;const k=selected.kind==="d"?roomDecor[room][selected.id].k:selected.kind==="p"?PLACES[selected.key].sprite:null;
   if(!k||!CAT[k]){alert("No editable sprite here yet — give a crate an image first with 🖼 Image.");return;}openStudio();stLoadPiece(k);});
 function setZ(z){if(selected.kind==="d"){roomDecor[room][selected.id].z=z;saveRoom(room);}else if(selected.kind==="p"){PLACES[selected.key].z=z;saveCrate(selected.key);}}
