@@ -559,7 +559,19 @@ function nearPlace(){let best=null,bd=1e9;for(const[k,p]of placesIn(room)){const
 function nearR(r,pad){return player.x>=r.x-pad&&player.x<=r.x+r.w+pad&&player.y>=r.y-pad&&player.y<=r.y+r.h+pad;}
 function nearStore(){let best=null,bd=1e9;for(const {id,d} of decorList(room)){if(!d.store&&!d.storeArea)continue;const c=CAT[d.k];if(!c)continue;const s=d.s||1,cx=d.x+c.w*s/2,cy=d.y+c.h*s;const dd=Math.hypot(player.x-cx,player.y-cy);if(dd<56&&dd<bd){bd=dd;best=id;}}return best;}
 function nearReader(){let best=null,bd=1e9;for(const {id,d} of decorList(room)){if(!d.reader)continue;const c=CAT[d.k];if(!c)continue;const s=d.s||1,cx=d.x+c.w*s/2,cy=d.y+c.h*s;const dd=Math.hypot(player.x-cx,player.y-cy);if(dd<56&&dd<bd){bd=dd;best={id,kind:d.reader};}}return best;}
-function tryOpen(){if(dlg){advDlg();return;}const id=nearNPC();if(id){showDialogue(id);return;}const fid=nearFixture();if(fid){openReader(FIXTURES[fid].kind);return;}const rd=nearReader();if(rd){openReader(rd.kind==="lib"?"lib":"books");return;}if(room==="outside"){const vd=ROOMS.outside.doors[1];if(nearR(vd,16)){openVanStorage();return;}if(nearR(SHOP_RECT,16)){openShop();return;}}const sid=nearStore();if(sid){const sd=roomDecor[room][sid];if(sd&&sd.storeArea){openArea(sd.storeArea);}else{openPanelFor((sd&&sd.storeLoc)?sd.storeLoc:("decor:"+room+":"+sid));}return;}const k=nearPlace();if(k)openContainer(k);}
+function pickInteractable(){const cands=[];const add=(cx,cy,py,act)=>cands.push({cx,cy,py,act});
+  const nid=nearNPC();if(nid){const n=NPCS[nid];add(n.x,n.y-16,n.y-FH*SC+8,()=>showDialogue(nid));}
+  const fid=nearFixture();if(fid){const fx=FIXTURES[fid];add(fxCX(fx),fxCY(fx),fx.y-8,()=>openReader(fx.kind));}
+  const rd=nearReader();if(rd){const d=roomDecor[room][rd.id],c=CAT[d.k]||{w:32,h:32},s=d.s||1;add(d.x+c.w*s/2,d.y+c.h*s/2,d.y-8,()=>openReader(rd.kind==="lib"?"lib":"books"));}
+  if(room==="outside"){const vd=ROOMS.outside.doors[1];if(nearR(vd,16))add(vd.x+vd.w/2,vd.y+vd.h/2,vd.y+vd.h-34,()=>openVanStorage());if(nearR(SHOP_RECT,16))add(SHOP_RECT.x+SHOP_RECT.w/2,SHOP_RECT.y+SHOP_RECT.h/2,SHOP_RECT.y-6,()=>openShop());}
+  const sid=nearStore();if(sid){const d=roomDecor[room][sid],c=CAT[d.k]||{w:32,h:32},s=d.s||1;add(d.x+c.w*s/2,d.y+c.h*s/2,d.y-8,()=>{if(d.storeArea){openArea(d.storeArea);}else{openPanelFor(d.storeLoc||("decor:"+room+":"+sid));}});}
+  const pk=nearPlace();if(pk){const p=PLACES[pk];add(p.x+p.w/2,p.y+p.h/2,p.y,()=>openContainer(pk));}
+  if(!cands.length)return null;
+  const fv=player.dir==="left"?[-1,0]:player.dir==="right"?[1,0]:player.dir==="up"?[0,-1]:[0,1];
+  let best=cands[0],bs=1e9;
+  for(const cd of cands){const dx=cd.cx-player.x,dy=cd.cy-player.y,dist=Math.hypot(dx,dy)||1,al=(dx/dist)*fv[0]+(dy/dist)*fv[1],score=dist-al*64;if(score<bs){bs=score;best=cd;}}
+  return best;}
+function tryOpen(){if(dlg){advDlg();return;}const b=pickInteractable();if(b)b.act();}
 $("npcbox").addEventListener("click",e=>{e.stopPropagation();advDlg();});
 
 // touch/mouse: DRAG anywhere on the screen = analog joystick (any direction); quick TAP = walk-to
@@ -626,11 +638,7 @@ function render(){const R=ROOMS[room];
   for(const id of fixIn(room))ents.push({t:"fx",id,z:0,sy:fxCY(FIXTURES[id])});
   ents.sort((a,b)=>(a.z-b.z)||(a.sy-b.sy));
   for(const e of ents){if(e.t==="d")drawDecorItem(e.d);else if(e.t==="p")drawPlace(e.k,e.p);else if(e.t==="npc")drawNPC(e.id);else if(e.t==="fx")drawFixture(e.id);else drawPlayer();}
-  const k=nearPlace();if(k&&!isOpen()&&!editMode)drawPrompt(PLACES[k]);
-  const nid=nearNPC();if(nid&&!dlg&&!isOpen()&&!editMode)drawPrompt({x:NPCS[nid].x-9,y:NPCS[nid].y-FH*SC+8,w:18,h:0});
-  const fid=nearFixture();if(fid&&!isOpen()&&!editMode)drawPrompt({x:fxCX(FIXTURES[fid])-9,y:FIXTURES[fid].y-8,w:18,h:0});
-  if(room==="outside"&&!isOpen()&&!editMode){const vd=ROOMS.outside.doors[1];if(nearR(vd,16))drawPrompt({x:vd.x+vd.w/2-9,y:vd.y+vd.h-34,w:18,h:0});if(nearR(SHOP_RECT,16))drawPrompt({x:SHOP_RECT.x+SHOP_RECT.w/2-9,y:SHOP_RECT.y-6,w:18,h:0});}
-  {const sid=nearStore();if(sid&&!dlg&&!isOpen()&&!editMode){const d=roomDecor[room][sid],c=CAT[d.k],s=d.s||1;drawPrompt({x:d.x+c.w*s/2-9,y:d.y-8,w:18,h:0});}}
+  {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
