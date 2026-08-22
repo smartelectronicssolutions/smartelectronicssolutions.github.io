@@ -160,7 +160,7 @@
   <header>
     <div><div class="kicker">Field Service RPG · v0.4 · live DB</div><h1>LOADOUT</h1>
       <div class="tagline">Walk your world. Open storage. Build your rooms.</div></div>
-    <div class="hudR"><div class="pill">💰 $<b id="money">—</b></div><div class="pill">⛽ <b id="fuel">—</b></div><div class="pill">CARRY <b id="bagN">0</b></div>
+    <div class="hudR"><div class="pill">💰 $<b id="money">—</b></div><div class="pill" id="fuelPill">⛽ <b id="fuel">—</b></div><div class="pill">CARRY <b id="bagN">0</b></div>
       <button class="btn ghost" id="jobsBtn">📋 Jobs</button><button class="btn ghost" id="acctBtn">👤 Log in</button><button class="btn ghost" id="editBtn">EDIT ROOM</button><button class="btn ghost" id="yukiBtn">🧚 Yuki</button><button class="btn" id="bagBtn">BACKPACK</button></div>
   </header>
   <div class="screen">
@@ -193,7 +193,7 @@
     <div class="dpad"><span></span><div class="dbtn" data-d="up">▲</div><span></span>
       <div class="dbtn" data-d="left">◀</div><span></span><div class="dbtn" data-d="right">▶</div>
       <span></span><div class="dbtn" data-d="down">▼</div><span></span></div>
-    <button class="abtn" id="actBtn">E</button>
+    <button class="abtn" id="actBtn">E</button><button class="abtn" id="cBtn">C</button>
   </div>
   <footer><div><b>Loadout v0.4</b> — items live from <b>your account</b> (or the public demo); room furniture &amp; layout saved to the database. Tap items to take/stash; edit rooms to add, move, layer or remove furniture.</div>
     <div class="credit">Character, furniture &amp; floor art © LimeZu — limezu.itch.io</div></footer>
@@ -526,7 +526,14 @@ document.querySelectorAll(".dbtn").forEach(b=>{const d=b.dataset.d;
   const on=e=>{e.preventDefault();keys.add(d);},off=e=>{e.preventDefault();keys.delete(d);};
   b.addEventListener("touchstart",on,{passive:false});b.addEventListener("touchend",off);b.addEventListener("touchcancel",off);
   b.addEventListener("mousedown",on);b.addEventListener("mouseup",off);b.addEventListener("mouseleave",off);});
+{const _dp=document.querySelector(".dpad");if(_dp){let dptr=null;const dend=e=>{if(!dptr||(e&&e.pointerId!==dptr.id))return;joy=null;dptr=null;};
+  _dp.addEventListener("pointerdown",e=>{if(e.target&&e.target.classList&&e.target.classList.contains("dbtn"))return;if(editMode||isOpen()||transing)return;dptr={id:e.pointerId,cx:e.clientX,cy:e.clientY};joy=null;e.preventDefault();try{_dp.setPointerCapture(e.pointerId);}catch(_){}});
+  _dp.addEventListener("pointermove",e=>{if(!dptr||e.pointerId!==dptr.id)return;const ax=e.clientX-dptr.cx,ay=e.clientY-dptr.cy,l=Math.hypot(ax,ay);if(l>=14){moveTarget=null;joy={dx:ax/l,dy:ay/l};}});
+  _dp.addEventListener("pointerup",dend);_dp.addEventListener("pointercancel",dend);}}
 $("actBtn").addEventListener("click",()=>{isOpen()?closePanel():tryOpen();});
+$("cBtn").addEventListener("click",()=>{const c=$("yukiChat");yukiOpen(!(c&&c.style.display==="flex"));});
+function setFuelVis(){const fp=$("fuelPill");if(fp)fp.style.display=(room==="van"||room==="truck")?"":"none";}
+setFuelVis();
 $("bagBtn").addEventListener("click",()=>openPanelFor(null));
 
 function placesIn(r){return Object.entries(PLACES).filter(([k,p])=>p.room===r&&!isHidden(r,k));}
@@ -554,7 +561,7 @@ function entryFrom(dest,src){const bs=(ROOMS[dest]&&ROOMS[dest].doors)||[];const
   return[Math.max(16,Math.min(W-16,ex)),Math.max(16,Math.min(H-16,ey))];}
 function go(d){transing=true;moveTarget=null;keys.clear();const src=room;const f=$("fade");f.style.opacity="1";
   setTimeout(()=>{room=d.to;const e=entryFrom(d.to,src);let ex=e?e[0]:d.entry[0],ey=e?e[1]:d.entry[1];
-    player.x=ex;player.y=ey;moveTarget=null;selected=null;refreshTools();$("roomB").textContent=ROOMS[room].name;f.style.opacity="0";setTimeout(()=>transing=false,140);},170);}
+    player.x=ex;player.y=ey;moveTarget=null;selected=null;refreshTools();$("roomB").textContent=ROOMS[room].name;setFuelVis();f.style.opacity="0";setTimeout(()=>transing=false,140);},170);}
 function nearPlace(){let best=null,bd=1e9;for(const[k,p]of placesIn(room)){const cx=p.x+p.w/2,cy=p.y+p.h,dd=Math.hypot(player.x-cx,player.y-cy);if(dd<54&&dd<bd){bd=dd;best=k;}}return best;}
 function nearR(r,pad){return player.x>=r.x-pad&&player.x<=r.x+r.w+pad&&player.y>=r.y-pad&&player.y<=r.y+r.h+pad;}
 function nearStore(){let best=null,bd=1e9;for(const {id,d} of decorList(room)){if(!d.store&&!d.storeArea)continue;const c=CAT[d.k];if(!c)continue;const s=d.s||1,cx=d.x+c.w*s/2,cy=d.y+c.h*s;const dd=Math.hypot(player.x-cx,player.y-cy);if(dd<56&&dd<bd){bd=dd;best=id;}}return best;}
@@ -604,7 +611,7 @@ async function saveYukiTrait(k,v){try{await set(ref(db,BASE+"/bot/traits/"+_memK
 function yukiBubble(who,text,cls){const box=$("yukiMsgs");if(!box)return null;const d=document.createElement("div");d.className="ym "+(cls||"");d.innerHTML='<b>'+who+':</b> '+text.replace(/</g,"&lt;");box.appendChild(d);box.scrollTop=box.scrollHeight;return d;}
 async function yukiModel(){try{let m=(await get(ref(db,BASE+"/bot/model"))).val();if(!m)m=(await get(ref(db,"public/bot/model"))).val();return m||"dolphin3";}catch(e){return "dolphin3";}}
 async function yukiSend(){const inp=$("yukiInput");if(!inp)return;const t=inp.value.trim();if(!t||yukiBusy)return;inp.value="";if(!yukiLoaded)await loadYukiIdentity();yukiBubble("You",t,"you");yukiHist.push({role:"user",content:t});yukiBusy=true;const pend=yukiBubble(yukiName,"\u2026","yuki");try{let reply=null;if(BASE===LUIS_UID&&typeof auth!=="undefined"&&auth&&auth.currentUser){try{const idTok=await auth.currentUser.getIdToken();const res=await fetch(COMPMAN_URL,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+idTok},body:JSON.stringify({messages:yukiHist.slice(-12)})});if(res.ok){reply=((await res.json()).reply||"").trim();}}catch(ce){reply=null;}}if(reply==null||reply===""){const model=await yukiModel();const area=(typeof ROOMS!=="undefined"&&ROOMS[room])?ROOMS[room].name:room;const mem=await yukiMemoryText();const sys="You are "+yukiName+", a warm, playful, slightly shy fairy companion inside Luis\u2019s life-inventory game \u2018Loadout\u2019. The game mirrors his REAL inventory, profit and jobs \u2014 a factual reflection of his life. Keep replies short (1-3 sentences), friendly and encouraging. Current area: "+area+". "+(yukiPersona?("Personality: "+yukiPersona+" "):"")+"To remember a fact, append [MEMORY:key=value]. To update how you feel, append [TRAIT:key=value]."+mem;const res=await fetch(YUKI_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:model,stream:false,messages:[{role:"system",content:sys},...yukiHist.slice(-10)]})});if(!res.ok)throw new Error("HTTP "+res.status);const data=await res.json();reply=((data.message&&data.message.content)||"");let mw=0;for(const m of reply.matchAll(/\[MEMORY:([^=\]]+)=([^\]]+)\]/gi)){if(mw++>=8)break;saveYukiMem(m[1].trim(),m[2].trim());}let tw=0;for(const m of reply.matchAll(/\[TRAIT:([^=\]]+)=([^\]]+)\]/gi)){if(tw++>=8)break;saveYukiTrait(m[1].trim(),m[2].trim());}}reply=(reply||"").replace(/\[MOOD:\w+\]/gi,"").replace(/\[MEMORY:[^\]]+\]/gi,"").replace(/\[TRAIT:[^\]]+\]/gi,"").trim()||"U-um\u2026";if(pend)pend.innerHTML="<b>"+yukiName+":</b> "+reply.replace(/</g,"&lt;");yukiHist.push({role:"assistant",content:reply});const box=$("yukiMsgs");if(box)box.scrollTop=box.scrollHeight;}catch(e){if(pend)pend.innerHTML="<b>"+yukiName+":</b> A-ah\u2026 I can\u2019t reach my thoughts right now.";}finally{yukiBusy=false;}}
-(function(){var b=$("yukiBtn");if(b)b.onclick=function(){yukiOpen(true);};var cl=$("yukiClose");if(cl)cl.onclick=function(){yukiOpen(false);};var sb=$("yukiSendBtn");if(sb)sb.onclick=yukiSend;var inp=$("yukiInput");if(inp)inp.addEventListener("keydown",function(e){if(e.key==="Enter"){e.preventDefault();yukiSend();}});addEventListener("keydown",function(e){if((e.key==="c"||e.key==="C")&&!isTypingEl()){var c=$("yukiChat");yukiOpen(!(c&&c.style.display==="flex"));}});if(typeof cv!=="undefined")cv.addEventListener("pointerdown",function(e){var r=cv.getBoundingClientRect();var cx=(e.clientX-r.left)*(cv.width/r.width),cy=(e.clientY-r.top)*(cv.height/r.height);if(Math.hypot(cx-fairy.x,cy-fairy.y)<20){e.stopPropagation();e.preventDefault();yukiOpen(true);}},true);})();
+(function(){var b=$("yukiBtn");if(b)b.onclick=function(){yukiOpen(true);};var cl=$("yukiClose");if(cl)cl.onclick=function(){yukiOpen(false);};var sb=$("yukiSendBtn");if(sb)sb.onclick=yukiSend;var inp=$("yukiInput");if(inp)inp.addEventListener("keydown",function(e){if(e.key==="Enter"){e.preventDefault();yukiSend();}});addEventListener("keydown",function(e){if((e.key==="c"||e.key==="C")&&!isTypingEl()){var c=$("yukiChat");yukiOpen(!(c&&c.style.display==="flex"));}});if(typeof cv!=="undefined")cv.addEventListener("pointerdown",function(e){var r=cv.getBoundingClientRect();var cx=(e.clientX-r.left)*(cv.width/r.width),cy=(e.clientY-r.top)*(cv.height/r.height);if(Math.hypot(cx-fairy.x,cy-fairy.y)<20&&matchMedia("(pointer:coarse)").matches){e.stopPropagation();e.preventDefault();yukiOpen(true);}},true);})();
 function frame(ts){const dt=Math.min(.05,(ts-last)/1000||0);last=ts;if(!isOpen()&&!transing&&!editMode){if(!dlg)step(dt);stepNPCs(dt);}stepFairy(dt);render();drawFairy();requestAnimationFrame(frame);}
 function step(dt){let dx=0,dy=0;
   if(joy){dx=joy.dx;dy=joy.dy;moveTarget=null;}
@@ -1034,7 +1041,7 @@ const SEED_JOBS={
  j4:{site:"Grid Gate 7 — Panel Upgrade",miles:120,payout:650,parts:[{name:"U-Shaped Strut to Beam Clamp",qty:1},{name:"Heavy Duty Extension Cord",qty:1}]},
  j5:{site:"Old Depot — Wiring Repair",miles:48,payout:240,parts:[{name:"CE-CPUP",qty:1}]},
 };
-onValue(ref(db,BASE+"/loadout/fuel"),s=>{const v=s.val();FUEL=(v==null?100:+v);$("fuel").textContent=Math.round(FUEL)+"%";if($("jobs").classList.contains("open"))renderJobs();});
+onValue(ref(db,BASE+"/loadout/fuel"),s=>{const v=s.val();FUEL=(v==null?100:+v);$("fuel").textContent=Math.round(FUEL)+"%";setFuelVis();if($("jobs").classList.contains("open"))renderJobs();});
 onValue(ref(db,BASE+"/loadout/miles"),s=>{MILES=+s.val()||0;if($("jobs").classList.contains("open"))$("jobMiles").textContent=MILES;});
 onValue(ref(db,"public/loadout/jobs"),s=>{const v=s.val();if(v===null){set(ref(db,"public/loadout/jobs"),SEED_JOBS).catch(()=>{});return;}JOBS=v||{};if($("jobs").classList.contains("open"))renderJobs();});
 let JOBSUNLOCKED={};
