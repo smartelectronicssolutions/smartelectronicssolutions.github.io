@@ -45,6 +45,7 @@
   .dbtn{background:var(--panel);border:1px solid var(--edge);border-radius:8px;color:var(--text);font-size:1.05rem;display:grid;place-items:center;user-select:none}
   .dbtn:active{background:var(--amber);color:var(--bg)}
   .abtn{width:70px;height:70px;border-radius:50%;background:var(--amber);color:var(--bg);border:0;font-family:var(--mono);font-weight:700;user-select:none}
+  .abtns{display:flex;gap:12px;align-items:flex-end}
   footer{margin-top:16px;color:var(--dim);font-size:.72rem;line-height:1.6;text-align:center;border-top:1px solid var(--edge);padding-top:12px}
   footer b{color:var(--muted)} .credit{margin-top:6px;font-size:.64rem;color:var(--dim)}
   .overlay{position:fixed;inset:0;z-index:20;display:none;align-items:flex-end;justify-content:center;background:rgba(6,8,10,.74);backdrop-filter:blur(3px)}
@@ -193,7 +194,7 @@
     <div class="dpad"><span></span><div class="dbtn" data-d="up">▲</div><span></span>
       <div class="dbtn" data-d="left">◀</div><span></span><div class="dbtn" data-d="right">▶</div>
       <span></span><div class="dbtn" data-d="down">▼</div><span></span></div>
-    <button class="abtn" id="actBtn">E</button><button class="abtn" id="cBtn">C</button>
+    <div class="abtns"><button class="abtn" id="cBtn">C</button><button class="abtn" id="actBtn">E</button></div>
   </div>
   <footer><div><b>Loadout v0.4</b> — items live from <b>your account</b> (or the public demo); room furniture &amp; layout saved to the database. Tap items to take/stash; edit rooms to add, move, layer or remove furniture.</div>
     <div class="credit">Character, furniture &amp; floor art © LimeZu — limezu.itch.io</div></footer>
@@ -809,6 +810,10 @@ function refreshTools(){const on=!!selected;
   $("selLabel").innerHTML="Selected: <b>"+label+"</b>";}
 function toLogical(e){const r=cv.getBoundingClientRect();return {x:(e.clientX-r.left)*(W/r.width),y:(e.clientY-r.top)*(H/r.height)};}
 function pickAt(x,y){let best=null;for(const it of draggablesIn(room)){if(x>=it.o.x&&x<=it.o.x+it.w&&y>=it.o.y&&y<=it.o.y+it.h){const z=(it.o.z||0);if(!best||z>best._z||(z===best._z&&(it.o.y+it.h)>(best.o.y+best.h))){best=it;best._z=z;}}}return best;}
+// edit mode: double-click a storage piece to jump straight into it (no exit+walk+E)
+cv.addEventListener("dblclick",e=>{if(!editMode||isOpen()||transing)return;const p=toLogical(e);const it=pickAt(p.x,p.y);if(!it)return;const wasEdit=editMode;
+  if(it.kind==="d"){const d=roomDecor[room][it.id];if(!d||(!d.store&&!d.storeArea))return;editMode=false;if(d.storeArea)openArea(d.storeArea);else openPanelFor(d.storeLoc||("decor:"+room+":"+it.id));editMode=wasEdit;}
+  else if(it.kind==="p"){editMode=false;openContainer(it.key);editMode=wasEdit;}});
 cv.addEventListener("pointerdown",e=>{if(!editMode)return;const p=toLogical(e);
   if(wallMode){const gx=Math.floor(p.x/CELL),gy=Math.floor(p.y/CELL);if(!inRoomGrid(gx,gy))return;
     painting=isWall(room,gx,gy)?"erase":"add";setWall(room,gx,gy,painting==="add");try{cv.setPointerCapture(e.pointerId);}catch(_){}return;}
