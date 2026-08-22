@@ -200,7 +200,7 @@
 </div></div>
 
 <div class="overlay" id="overlay"><div class="panel">
-  <div class="phead"><div class="ic" id="pIc">▤</div><h2 id="pName">—</h2><button class="closeb" id="closeb">✕</button></div>
+  <div class="phead"><div class="ic" id="pIc">▤</div><h2 id="pName">—</h2><button class="closeb" id="pRen" title="Rename container" style="display:none">✎</button><button class="closeb" id="pDel" title="Delete empty container" style="display:none">🗑</button><button class="closeb" id="closeb">✕</button></div>
   <div class="cols">
     <div class="colbox"><div class="colhead" id="lHead">CRATE <b id="lCnt">0</b></div><div class="cgrid" id="lGrid"></div></div>
     <div class="colbox"><div class="colhead">BACKPACK <b id="rCnt">0</b></div><div class="cgrid" id="rGrid"></div></div>
@@ -328,9 +328,9 @@ const VZONES=[
 ];
 const ZONEMETA={};VZONES.forEach(z=>ZONEMETA[z.loc]={label:z.label,icon:z.icon});
 function cslug(s){const b=String(s||"").trim().toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"");return "c:"+(b||"misc");}
-const CLABEL={cabinet:"Cabinet",closet:"Closet"};                      // container loc -> display name (from inventory `room`)
-function locMeta(k){if(k&&k.indexOf("decor:")===0){const p=k.split(":"),d=(roomDecor[p[1]]||{})[p[2]];return{label:customName(p[1],p[2])||(d&&CAT[d.k]?CAT[d.k].label:"Storage"),icon:"📦"};}if(PLACES[k])return{...PLACES[k],label:customName(PLACES[k].room,k)||PLACES[k].label};return ZONEMETA[k]||(CLABEL[k]?{label:CLABEL[k],icon:"📦"}:{label:k,icon:"📦"});}
-function containerLocs(){return Object.keys(byLoc).filter(k=>k!=="bag"&&k.indexOf("decor:")!==0&&!PLACES[k]);}
+const CLABEL={cabinet:"Cabinet",closet:"Closet"};let CONTAINERS={};                      // container loc -> display name (from inventory `room`)
+function locMeta(k){if(k&&k.indexOf("decor:")===0){const p=k.split(":"),d=(roomDecor[p[1]]||{})[p[2]];return{label:(CONTAINERS[k]&&CONTAINERS[k].name)||customName(p[1],p[2])||(d&&CAT[d.k]?CAT[d.k].label:"Storage"),icon:"📦"};}if(CONTAINERS[k]&&CONTAINERS[k].name)return{label:CONTAINERS[k].name,icon:"📦"};if(PLACES[k])return{...PLACES[k],label:customName(PLACES[k].room,k)||PLACES[k].label};return ZONEMETA[k]||(CLABEL[k]?{label:CLABEL[k],icon:"📦"}:{label:k,icon:"📦"});}
+function containerLocs(){const s=new Set(Object.keys(byLoc));for(const k in CONTAINERS)s.add(k);return [...s].filter(k=>k!=="bag"&&k.indexOf("decor:")!==0&&!PLACES[k]);}
 const SHOP_RECT={x:28,y:360,w:120,h:92};
 const DEFAULT_DECOR={
   yourroom:[{k:"rug",x:200,y:330,s:1.5},{k:"bed",x:34,y:52},{k:"nightstand",x:150,y:62},{k:"palm",x:412,y:44},{k:"lampfloor",x:436,y:150}],
@@ -913,6 +913,7 @@ function hashStr(s){let h=0;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>
 onValue(ref(db,"public/loadout/areas"),s=>{const v=s.val();if(!v||!Object.keys(v).length){AREAS={...SEED_AREAS};set(ref(db,"public/loadout/areas"),SEED_AREAS).catch(()=>{});}else AREAS=v;
   if($("storage").classList.contains("open"))renderArea();});
 onValue(ref(db,BASE+"/loadout/cplace"),s=>{CPLACE=s.val()||{};if($("storage").classList.contains("open"))renderArea();});
+onValue(ref(db,BASE+"/loadout/containers"),s=>{CONTAINERS=s.val()||{};if($("storage").classList.contains("open"))renderArea();});
 // which area a container lives in (known van bags default to the van; explicit placement wins)
 function areaOf(loc){const cp=CPLACE[loc];if(cp&&cp.area==="tray")return null;if(cp&&cp.area)return cp.area;if(ZONEMETA[loc])return "van";if(loc==="wardrobe")return "closet";return null;}
 function posOf(loc,areaId){const p=CPLACE[loc];if(p&&p.area===areaId&&p.x!=null)return{x:p.x,y:p.y};const d=DEFAULT_XY[loc];if(d)return d;const h=hashStr(loc);return{x:20+((h%6)*46),y:26+((Math.floor(h/6)%5)*46)};}
@@ -940,7 +941,7 @@ function renderAreaChips(){const bar=$("storAreas");bar.innerHTML="";
   for(const id in AREAS){const c=document.createElement("div");c.className="achip"+(id===curArea?" on":"");c.dataset.area=id;
     c.textContent=(AREAS[id].icon||"📦")+" "+AREAS[id].name;c.onclick=()=>{closePick();openArea(id);};bar.appendChild(c);}
   const mk=(cls,txt,fn)=>{const c=document.createElement("div");c.className="achip "+cls;c.textContent=txt;c.onclick=fn;bar.appendChild(c);};
-  mk("add","＋ Area",addArea);mk("mng","🖼 Backdrop",togglePick);mk("mng","✎ Rename",renameArea);mk("mng","🗑 Delete",deleteArea);
+  mk("add","＋ Area",addArea);mk("add","＋ Container",addContainer);mk("mng","🖼 Backdrop",togglePick);mk("mng","✎ Rename",renameArea);mk("mng","🗑 Delete",deleteArea);
   mk("mng","🔎＋",()=>scaleIcons(0.2));mk("mng","🔎－",()=>scaleIcons(-0.2));}
 function scaleIcons(delta){const a=AREAS[curArea];if(!a)return;const s=Math.max(0.6,Math.min(2.6,Math.round(((a.iconScale||1)+delta)*100)/100));a.iconScale=s;update(ref(db,"public/loadout/areas/"+curArea),{iconScale:s}).catch(()=>{});renderArea();}
 function addArea(){const name=(prompt("New storage area name (e.g. Rack, Cabinet, Garage):")||"").trim();if(!name)return;
@@ -960,6 +961,9 @@ function renderPick(show){const el=$("storPick");const a=AREAS[curArea]||{};el.i
   if(show)el.classList.add("on");}
 function setBackdrop(b){update(ref(db,"public/loadout/areas/"+curArea),{bg:b.k,nw:b.nw,nh:b.nh}).catch(()=>{});
   const a=AREAS[curArea];if(a){a.bg=b.k;a.nw=b.nw;a.nh=b.nh;}$("storBg").src=A[b.k]||A.closet;requestAnimationFrame(renderArea);renderPick(true);}
+function addContainer(){const name=(prompt("New container name (e.g. Drawer, Bin, Shelf):")||"").trim();if(!name)return;const key="c_"+name.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"").slice(0,20)+"_"+Date.now().toString(36).slice(-5);set(ref(db,BASE+"/loadout/containers/"+key),{name:name.slice(0,40)}).catch(()=>{});set(ref(db,BASE+"/loadout/cplace/"+key),{area:curArea,x:24,y:24}).catch(()=>{});}
+$("pRen").addEventListener("click",()=>{if(!openPlace)return;const cur=locMeta(openPlace).label;const nn=prompt("Rename this container:",cur);if(nn===null)return;const v=nn.trim().slice(0,40);if(v){set(ref(db,BASE+"/loadout/containers/"+openPlace),{name:v}).catch(()=>{});$("pName").textContent=v;}else if(String(openPlace).indexOf("c_")!==0){remove(ref(db,BASE+"/loadout/containers/"+openPlace)).catch(()=>{});$("pName").textContent=locMeta(openPlace).label;}});
+$("pDel").addEventListener("click",()=>{if(!openPlace||String(openPlace).indexOf("c_")!==0)return;if((byLoc[openPlace]||[]).length){alert("Move its items out first.");return;}remove(ref(db,BASE+"/loadout/containers/"+openPlace)).catch(()=>{});remove(ref(db,BASE+"/loadout/cplace/"+openPlace)).catch(()=>{});$("overlay").classList.remove("open");});
 function renderTray(){const tray=$("storTray");tray.innerHTML="";
   const un=containerLocs().filter(loc=>areaOf(loc)===null);
   if(!un.length){tray.innerHTML="<span style='font-family:var(--mono);font-size:.55rem;color:var(--dim)'>All containers placed.</span>";return;}
@@ -1061,6 +1065,7 @@ let openPlace;
 function isOpen(){return $("overlay").classList.contains("open")||$("reader").classList.contains("open")||($("yukiChat")&&$("yukiChat").style.display==="flex");}
 function openPanelFor(key){if(editMode)return;openPlace=key;
   $("pName").textContent=key?locMeta(key).label:"Backpack";$("pIc").textContent=key?locMeta(key).icon:"🎒";$("dcard").classList.remove("show");
+  {const pr=$("pRen"),pd=$("pDel");if(pr)pr.style.display=key?"":"none";if(pd)pd.style.display=(key&&String(key).indexOf("c_")===0&&(byLoc[key]||[]).length===0)?"":"none";}
   document.querySelector(".cols").style.gridTemplateColumns=key?"":"1fr";document.querySelectorAll(".colbox")[0].style.display=key?"":"none";
   $("phint").textContent=key?"Tap an item to move it. Left → backpack (take) · right → crate (stash)":"Your carried items. Walk to a crate to stash them.";
   $("overlay").classList.add("open");renderPanel();}
