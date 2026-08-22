@@ -257,7 +257,7 @@
 </div></div>
 
 <div class="overlay" id="storage"><div class="storwrap">
-  <div class="storhead"><div class="ic" id="storIc">🚐</div><h2 id="storTitle">The Van</h2><div class="pill">BACKPACK <b id="storBag">0</b></div><button class="closeb" id="storClose">✕</button></div>
+  <div class="storhead"><div class="ic" id="storIc">🚐</div><h2 id="storTitle" contenteditable="true" spellcheck="false" title="Tap to rename" style="cursor:text;border-bottom:1px dashed rgba(242,165,65,.45)">The Van</h2><div class="pill">BACKPACK <b id="storBag">0</b></div><button class="closeb" id="storClose">✕</button></div>
   <div class="storbar" id="storAreas"></div>
   <div class="storpick" id="storPick"></div>
   <div class="storscene" id="storScene"><img id="storBg" alt="storage area"></div>
@@ -266,7 +266,7 @@
 </div></div>
 
 <div class="overlay" id="shop"><div class="storwrap" style="max-width:640px">
-  <div class="storhead"><div class="ic">🛒</div><h2 id="shopTitle">Field Supply Co.</h2><div class="pill">💰 $<b id="shopBal">0</b></div><button class="closeb" id="shopClose">✕</button></div>
+  <div class="storhead"><div class="ic">🛒</div><h2 id="shopTitle" contenteditable="true" spellcheck="false" title="Tap to rename" style="cursor:text;border-bottom:1px dashed rgba(242,165,65,.45)">Field Supply Co.</h2><div class="pill">💰 $<b id="shopBal">0</b></div><button class="closeb" id="shopClose">✕</button></div>
   <div class="storhint" id="shopMsg">Erik: "Gear up — you'll need parts to close Seth's tickets."</div>
   <div id="shopBody"></div>
 </div></div>
@@ -822,6 +822,9 @@ cv.addEventListener("dblclick",e=>{if(!editMode||isOpen()||transing)return;const
 let SLABELS={};onValue(ref(db,"public/loadout/slabels"),s=>{SLABELS=s.val()||{};});
 function slab(k,d){return SLABELS[k]||d;}
 function renameStruct(key,def){const cur=SLABELS[key]||def;const nn=prompt("Rename:",cur);if(nn===null)return;const v=nn.trim().slice(0,30);if(v)set(ref(db,"public/loadout/slabels/"+key),v).catch(()=>{});else remove(ref(db,"public/loadout/slabels/"+key)).catch(()=>{});}
+// tap-to-rename the shop + storage-area titles (mobile-friendly; contentEditable)
+(function(){var st=$("shopTitle");if(st){st.addEventListener("blur",function(){var v=st.textContent.trim().replace(/\s+/g," ").slice(0,30);if(v&&v!=="Field Supply Co.")set(ref(db,"public/loadout/slabels/shop"),v).catch(()=>{});else if(!v){remove(ref(db,"public/loadout/slabels/shop")).catch(()=>{});st.textContent=SLABELS.shop||"Field Supply Co.";}});st.addEventListener("keydown",function(e){if(e.key==="Enter"){e.preventDefault();st.blur();}});}
+var at=$("storTitle");if(at){at.addEventListener("blur",function(){var v=at.textContent.trim().replace(/\s+/g," ").slice(0,30);if(v&&curArea){if(AREAS[curArea])set(ref(db,"public/loadout/areas/"+curArea+"/name"),v).catch(()=>{});if(curArea==="van")set(ref(db,"public/loadout/slabels/van"),v).catch(()=>{});}});at.addEventListener("keydown",function(e){if(e.key==="Enter"){e.preventDefault();at.blur();}});}})();
 cv.addEventListener("dblclick",e=>{if(editMode||isOpen()||transing)return;const p=toLogical(e);const inR=(r)=>p.x>=r.x&&p.x<=r.x+r.w&&p.y>=r.y&&p.y<=r.y+r.h;
   if(room==="outside"){const vd=ROOMS.outside.doors[1];if(inR(vd)){renameStruct("van","ENTER VAN");return;}if(inR(SHOP_RECT)){renameStruct("shop","Field Supply Co.");return;}}
   else if(room==="street"){const HS=[["house_erik",20,40],["house_kevin",342,40],["house_nick",20,250],["house_otto",342,250]];for(const h of HS){if(p.x>=h[1]&&p.x<=h[1]+150&&p.y>=h[2]&&p.y<=h[2]+116){renameStruct(h[0],h[0].replace("house_","").toUpperCase()+"'S");return;}}}});
@@ -1064,6 +1067,7 @@ function renderShop(){$("shopBal").textContent=BAL.toFixed(0);const body=$("shop
   for(const it of items){const price=itemPrice(it);const c=document.createElement("div");c.className="shopit";
     c.innerHTML=`<div class="shopimg">${it.img?`<img src="${esc(it.img)}" onerror="this.replaceWith('📦')">`:"📦"}</div><div class="shopn">${esc(it.name)}</div><div class="shopm">owned ${it.qty||0} · $${price.toFixed(0)}</div>`;
     const b=document.createElement("button");b.className="buyb";b.textContent=price>0?("Buy $"+price.toFixed(0)):"— no price";b.disabled=price<=0||price>BAL;b.onclick=()=>buyItem(it);
+    c.ondblclick=()=>{if(BASE!=="public")openItemEdit(it);};c.style.cursor="pointer";
     c.appendChild(b);body.appendChild(c);}}
 
 // ===== service-call job loop (Seth's dispatch) =====
