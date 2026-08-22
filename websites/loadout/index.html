@@ -362,7 +362,7 @@ const DEFAULT_DECOR={
 };
 const ROOMS={
   yourroom:{name:"Your Room",floor:"wood",doors:[{to:"outside",x:232,y:480,w:48,h:24,entry:[256,70]}]},
-  outside:{name:"Outside",floor:"grass",doors:[{to:"yourroom",x:138,y:18,w:150,h:116,entry:[256,470]},{to:"van",x:330,y:168,w:156,h:104,entry:[256,320]},{to:"street",x:26,y:224,w:30,h:32,entry:[256,410]}]},
+  outside:{name:"Outside",floor:"grass",doors:[{to:"yourroom",x:138,y:18,w:150,h:116,hit:{x:198,y:108,w:34,h:24},entry:[256,470]},{to:"van",x:330,y:168,w:156,h:104,entry:[256,320]},{to:"street",x:26,y:224,w:30,h:32,entry:[256,410]}]},
   van:{name:"The Van",floor:"concrete",doors:[{to:"outside",x:232,y:480,w:48,h:24,entry:[420,300]}]},
   street:{name:"Neighborhood",floor:"grass",doors:[
     {to:"outside",x:232,y:486,w:48,h:18,entry:[48,246]},
@@ -566,8 +566,11 @@ function feetRect(x,y){return{x:x-feet.w/2,y:y-feet.h,w:feet.w,h:feet.h};}
 function hit(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;}
 function solidRects(r){const rects=[];
   if(r==="street"){for(const h of [[20,40],[342,40],[20,250],[342,250]])rects.push({x:h[0]+14,y:h[1]+24,w:122,h:68});}
+  if(r==="outside"){const vd=ROOMS.outside.doors[1],vw=(CAT.van?CAT.van.w:156)*vs("van"),vh=(CAT.van?CAT.van.h:96)*vs("van");rects.push({x:vd.x+6,y:vd.y+Math.round(vh*0.42),w:vw-12,h:Math.round(vh*0.52)});
+    const hd=ROOMS.outside.doors[0];rects.push({x:hd.x+14,y:hd.y+24,w:122,h:68});                              // house body
+    rects.push({x:SHOP_RECT.x+6,y:SHOP_RECT.y+28,w:SHOP_RECT.w-12,h:SHOP_RECT.h-32});}                         // shop
   for(const [k,p] of placesIn(r))rects.push({x:p.x,y:p.y+p.h-14,w:p.w,h:16});
-  for(const {d} of decorList(r)){if(!isSolid(d.k))continue;const s=d.s||1;let w=CAT[d.k].w*s,h=CAT[d.k].h*s;if((d.rot||0)%2){const t=w;w=h;h=t;}rects.push({x:d.x+4,y:d.y+h-12,w:w-8,h:14});}
+  for(const {d} of decorList(r)){if(!isSolid(d.k))continue;const s=d.s||1;let w=CAT[d.k].w*s,h=CAT[d.k].h*s;if((d.rot||0)%2){const t=w;w=h;h=t;}const ch=(CAT[d.k].h>=80)?Math.round(h*0.5):14;rects.push({x:d.x+4,y:d.y+h-ch,w:w-8,h:ch});}
   return rects;}
 function blocked(x,y){const r=feetRect(x,y);
   if(room!=="outside"){if(r.x<ROOMR.x||r.y<ROOMR.y-24||r.x+r.w>ROOMR.x+ROOMR.w||r.y+r.h>ROOMR.y+ROOMR.h)return true;}
@@ -577,7 +580,7 @@ function blocked(x,y){const r=feetRect(x,y);
     for(let gx=gx0;gx<=gx1;gx++)for(let gy=gy0;gy<=gy1;gy++)if(isWall(room,gx,gy))return true;}
   return false;}
 let transing=false,moveTarget=null;
-function checkDoors(){if(transing)return;const r=feetRect(player.x,player.y);for(const d of ROOMS[room].doors){if(d.to==="van")continue;if(hit(r,d)){go(d);return;}}}
+function checkDoors(){if(transing)return;const r=feetRect(player.x,player.y);for(const d of ROOMS[room].doors){if(d.to==="van")continue;if(hit(r,d.hit||d)){go(d);return;}}}
 // place the player just inside the door that leads BACK to where they came from -> both sides of a doorway line up (same spot as the door)
 function entryFrom(dest,src){const bs=(ROOMS[dest]&&ROOMS[dest].doors)||[];const back=bs.find(dd=>dd.to===src);if(!back)return null;
   const cx=back.x+back.w/2,cy=back.y+back.h/2,M=36;let ex=cx,ey=cy;
