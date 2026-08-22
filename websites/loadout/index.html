@@ -221,7 +221,7 @@
 </div></div>
 
 <div class="overlay" id="overlay"><div class="panel">
-  <div class="phead"><div class="ic" id="pIc">▤</div><h2 id="pName">—</h2><button class="closeb" id="pRen" title="Rename container" style="display:none">✎</button><button class="closeb" id="pDel" title="Delete empty container" style="display:none">🗑</button><button class="closeb" id="closeb">✕</button></div>
+  <div class="phead"><div class="ic" id="pIc">▤</div><h2 id="pName">—</h2><button class="closeb" id="pDel" title="Delete empty container" style="display:none">🗑</button><button class="closeb" id="closeb">✕</button></div>
   <div class="cols">
     <div class="colbox"><div class="colhead" id="lHead">CRATE <b id="lCnt">0</b></div><div class="cgrid" id="lGrid"></div></div>
     <div class="colbox"><div class="colhead">BACKPACK <b id="rCnt">0</b></div><div class="cgrid" id="rGrid"></div></div>
@@ -541,6 +541,8 @@ addEventListener("keydown",e=>{if(isTypingEl()){if(e.code==="Escape"&&e.target&&
     if(kk==="w"){$("wallBtn").click();e.preventDefault();return;}
     if(kk==="f"){$("floorBtn").click();e.preventDefault();return;}
     if(kk==="a"){$("addBtn").click();e.preventDefault();return;}}
+  if(e.code==="KeyI"&&!isOpen()){$("editBtn").click();e.preventDefault();return;}
+  if(e.code==="KeyJ"&&!isOpen()&&!editMode){$("jobsBtn").click();e.preventDefault();return;}
   if((e.code==="KeyE"||e.code==="Enter")&&!isOpen()&&!editMode){tryOpen();e.preventDefault();return;}
   if(MAP[e.code]){keys.add(MAP[e.code]);e.preventDefault();}});
 addEventListener("keyup",e=>{if(MAP[e.code])keys.delete(MAP[e.code]);});
@@ -700,7 +702,7 @@ function drawVanSprite(x,y){ // ~156x96 cargo van, side view, cab on left
   ctx.fillStyle="#f2a541";ctx.font="8px monospace";ctx.textAlign="center";ctx.fillText("▸ "+slab("van","ENTER VAN"),x+80,y+6);}
 function drawHouseSprite(x,y,roof,label){ // ~150x116 cottage
   ctx.fillStyle="rgba(0,0,0,.28)";ctx.beginPath();ctx.ellipse(x+75,y+114,66,7,0,0,7);ctx.fill();
-  px(x+14,y+50,122,62,"#cCa06a".replace("cC","c9")); // wall
+  px(x+14,y+50,122,62,"#c9a06a"); // wall
   for(let i=1;i<6;i++)px(x+14,y+50+i*10,122,1,"#b58e5a");
   for(let r=0;r<26;r++){const w=Math.round(18+r*4.4);px(x+10+(130-w)/2,y+24+r,w,1,r%3===0?((roof&&roof[0])||"#7a3f34"):((roof&&roof[1])||"#8c4a3d"));}
   px(x+8,y+48,134,4,"#5e3128");              // roof trim
@@ -725,7 +727,7 @@ function drawGate(x,y,w,h,label){
   const fx=x-5,fw=w+10,fy=y-16,fh=h+16;                     // stone frame + arch
   px(fx,fy+6,fw,fh-6,"#7d7168");px(fx,fy+6,3,fh-6,"#93877c");px(fx+fw-3,fy+6,3,fh-6,"#645a52");
   ctx.fillStyle="#7d7168";ctx.beginPath();ctx.moveTo(fx,fy+8);ctx.quadraticCurveTo(x+w/2,fy-8,fx+fw,fy+8);ctx.lineTo(fx+fw,fy+14);ctx.lineTo(fx,fy+14);ctx.closePath();ctx.fill();
-  px(x,y,w,h,"#5a3a22");px(x,y,w,h>24?h:h,"#5a3a22");       // door recess
+  px(x,y,w,h,"#5a3a22");       // door recess
   px(x+2,y+2,w-4,h-4,"#7a4e2c");                            // wood panel
   for(let px0=x+4;px0<x+w-3;px0+=7)px(px0,y+3,2,h-6,"#5f3d22"); // planks
   px(x+2,y+2,w-4,2,"#8f5e38");                              // top light
@@ -1010,7 +1012,6 @@ function renderPick(show){const el=$("storPick");const a=AREAS[curArea]||{};el.i
 function setBackdrop(b){update(ref(db,"public/loadout/areas/"+curArea),{bg:b.k,nw:b.nw,nh:b.nh}).catch(()=>{});
   const a=AREAS[curArea];if(a){a.bg=b.k;a.nw=b.nw;a.nh=b.nh;}$("storBg").src=A[b.k]||A.closet;requestAnimationFrame(renderArea);renderPick(true);}
 function addContainer(){const name=(prompt("New container name (e.g. Drawer, Bin, Shelf):")||"").trim();if(!name)return;const key="c_"+name.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"").slice(0,20)+"_"+Date.now().toString(36).slice(-5);set(ref(db,BASE+"/loadout/containers/"+key),{name:name.slice(0,40)}).catch(()=>{});set(ref(db,BASE+"/loadout/cplace/"+key),{area:curArea,x:24,y:24}).catch(()=>{});}
-$("pRen").addEventListener("click",()=>{if(!openPlace)return;const cur=locMeta(openPlace).label;const nn=prompt("Rename this container:",cur);if(nn===null)return;const v=nn.trim().slice(0,40);if(v){set(ref(db,BASE+"/loadout/containers/"+openPlace),{name:v}).catch(()=>{});$("pName").textContent=v;}else if(String(openPlace).indexOf("c_")!==0){remove(ref(db,BASE+"/loadout/containers/"+openPlace)).catch(()=>{});$("pName").textContent=locMeta(openPlace).label;}});
 $("pDel").addEventListener("click",()=>{if(!openPlace||String(openPlace).indexOf("c_")!==0)return;if((byLoc[openPlace]||[]).length){alert("Move its items out first.");return;}remove(ref(db,BASE+"/loadout/containers/"+openPlace)).catch(()=>{});remove(ref(db,BASE+"/loadout/cplace/"+openPlace)).catch(()=>{});$("overlay").classList.remove("open");});
 (function(){const pn=$("pName");if(!pn)return;
   pn.addEventListener("blur",()=>{const loc=pn.dataset.loc;if(!loc)return;const v=pn.textContent.trim().replace(/\s+/g," ").slice(0,40);if(v&&v!==locMeta(loc).label){set(ref(db,BASE+"/loadout/containers/"+loc),{name:v}).catch(()=>{});}else if(!v){if(String(loc).indexOf("c_")!==0)remove(ref(db,BASE+"/loadout/containers/"+loc)).catch(()=>{});pn.textContent=locMeta(loc).label;}});
