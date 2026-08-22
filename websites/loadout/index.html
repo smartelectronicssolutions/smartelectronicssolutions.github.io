@@ -579,8 +579,11 @@ function blocked(x,y){const r=feetRect(x,y);
   if(WALLS[room]){const gx0=Math.floor(r.x/CELL),gx1=Math.floor((r.x+r.w)/CELL),gy0=Math.floor(r.y/CELL),gy1=Math.floor((r.y+r.h)/CELL);
     for(let gx=gx0;gx<=gx1;gx++)for(let gy=gy0;gy<=gy1;gy++)if(isWall(room,gx,gy))return true;}
   return false;}
-let transing=false,moveTarget=null;
-function checkDoors(){if(transing)return;const r=feetRect(player.x,player.y);for(const d of ROOMS[room].doors){if(d.to==="van")continue;const hb=d.hrel?{x:d.x+d.hrel[0],y:d.y+d.hrel[1],w:d.hrel[2],h:d.hrel[3]}:(d.hit||d);if(hit(r,hb)){go(d);return;}}}
+let transing=false,moveTarget=null,doorLock=false;
+function doorHitRect(d){return d.hrel?{x:d.x+d.hrel[0],y:d.y+d.hrel[1],w:d.hrel[2],h:d.hrel[3]}:(d.hit||d);}
+function checkDoors(){if(transing)return;const r=feetRect(player.x,player.y);
+  if(doorLock){for(const d of ROOMS[room].doors){if(d.to==="van")continue;if(hit(r,doorHitRect(d)))return;}doorLock=false;}
+  for(const d of ROOMS[room].doors){if(d.to==="van")continue;if(hit(r,doorHitRect(d))){go(d);return;}}}
 // place the player just inside the door that leads BACK to where they came from -> both sides of a doorway line up (same spot as the door)
 function entryFrom(dest,src){const bs=(ROOMS[dest]&&ROOMS[dest].doors)||[];const back=bs.find(dd=>dd.to===src);if(!back)return null;
   const cx=back.x+back.w/2,cy=back.y+back.h/2,M=36;let ex=cx,ey=cy;
@@ -589,7 +592,7 @@ function entryFrom(dest,src){const bs=(ROOMS[dest]&&ROOMS[dest].doors)||[];const
   return[Math.max(16,Math.min(W-16,ex)),Math.max(16,Math.min(H-16,ey))];}
 function go(d){transing=true;moveTarget=null;keys.clear();const src=room;const f=$("fade");f.style.opacity="1";
   setTimeout(()=>{room=d.to;const e=entryFrom(d.to,src);let ex=e?e[0]:d.entry[0],ey=e?e[1]:d.entry[1];
-    player.x=ex;player.y=ey;moveTarget=null;selected=null;refreshTools();$("roomB").textContent=ROOMS[room].name;setFuelVis();f.style.opacity="0";setTimeout(()=>transing=false,140);},170);}
+    player.x=ex;player.y=ey;doorLock=true;moveTarget=null;selected=null;refreshTools();$("roomB").textContent=ROOMS[room].name;setFuelVis();f.style.opacity="0";setTimeout(()=>transing=false,140);},170);}
 function nearPlace(){let best=null,bd=1e9;for(const[k,p]of placesIn(room)){const cx=p.x+p.w/2,cy=p.y+p.h,dd=Math.hypot(player.x-cx,player.y-cy);if(dd<54&&dd<bd){bd=dd;best=k;}}return best;}
 function nearR(r,pad){return player.x>=r.x-pad&&player.x<=r.x+r.w+pad&&player.y>=r.y-pad&&player.y<=r.y+r.h+pad;}
 function nearStore(){let best=null,bd=1e9;for(const {id,d} of decorList(room)){if(!d.store&&!d.storeArea)continue;const c=CAT[d.k];if(!c)continue;const s=d.s||1,cx=d.x+c.w*s/2,cy=d.y+c.h*s;const dd=Math.hypot(player.x-cx,player.y-cy);if(dd<56&&dd<bd){bd=dd;best=id;}}return best;}
@@ -674,7 +677,7 @@ function render(){const R=ROOMS[room];
   ents.sort((a,b)=>(a.z-b.z)||(a.sy-b.sy));
   for(const e of ents){if(e.t==="d")drawDecorItem(e.d);else if(e.t==="p")drawPlace(e.k,e.p);else if(e.t==="npc")drawNPC(e.id);else if(e.t==="fx")drawFixture(e.id);else drawPlayer();}
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px monospace";ctx.textAlign="left";ctx.fillText("build b10",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px monospace";ctx.textAlign="left";ctx.fillText("build b11",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
