@@ -59,6 +59,7 @@
   .cols{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:14px;overflow:auto}
   @media (max-width:560px){.cols{grid-template-columns:1fr}}
   .colbox{background:var(--slot);border:1px solid var(--edge);border-radius:10px;display:flex;flex-direction:column;min-height:170px}
+  .colbox.dropok{outline:2px dashed var(--amber);outline-offset:-3px;background:rgba(242,165,65,.08)}.it.dragging{opacity:.4}.it{cursor:grab}
   .colhead{font-family:var(--mono);font-size:.6rem;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);padding:9px 11px;border-bottom:1px solid var(--edge);display:flex;justify-content:space-between}
   .colhead b{color:var(--amber)}
   .cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:6px;padding:10px;overflow:auto;flex:1;align-content:start}
@@ -1118,8 +1119,12 @@ function renderPanel(){const bag=byLoc.bag||[];$("rCnt").textContent=bag.length;
 function fill(grid,items,mode){grid.innerHTML="";if(!items.length){grid.innerHTML='<div class="empty">— empty —</div>';return;}
   for(const it of items){const d=document.createElement("div");d.className="it";
     d.innerHTML=(it.img?`<img src="${esc(it.img)}" alt="${esc(it.name)}" onerror="imgFail(this)">`:`<div class="empty" style="position:absolute;inset:3px;padding:2px;font-size:.5rem;line-height:1.12;word-break:break-word;overflow:hidden;display:flex;align-items:center;justify-content:center;text-align:center">${esc(it.name)}</div>`)+(mode?`<span class="mv">${mode==="take"?"→":"←"}</span>`:"");
-    d.addEventListener("click",()=>selectItem(it,mode,d));grid.appendChild(d);}}
-let selItem=null;
+    d.addEventListener("click",()=>selectItem(it,mode,d));
+    d.draggable=true;d.addEventListener("dragstart",e=>{dragIt={it,mode};d.classList.add("dragging");try{e.dataTransfer.setData("text/plain",it.name);e.dataTransfer.effectAllowed="move";}catch(_){}});d.addEventListener("dragend",()=>d.classList.remove("dragging"));
+    grid.appendChild(d);}}
+let selItem=null,dragIt=null;
+function wireDrop(el,dest){if(!el)return;el.addEventListener("dragover",e=>{if(!dragIt)return;e.preventDefault();e.dataTransfer.dropEffect="move";el.classList.add("dropok");});el.addEventListener("dragleave",e=>{if(!el.contains(e.relatedTarget))el.classList.remove("dropok");});el.addEventListener("drop",e=>{e.preventDefault();el.classList.remove("dropok");if(!dragIt)return;const it=dragIt.it;dragIt=null;if(dest==="bag"){if(it.loc!=="bag")moveItem(it,"bag");}else{if(openPlace&&it.loc!==openPlace)moveItem(it,openPlace);}});}
+wireDrop($("rGrid")&&$("rGrid").parentElement,"bag");wireDrop($("lGrid")&&$("lGrid").parentElement,"container");
 function selectItem(it,mode,cell){selItem={it,mode};showDetail(it);
   document.querySelectorAll(".it.sel").forEach(c=>c.classList.remove("sel"));if(cell)cell.classList.add("sel");
   const b=$("dMove");
