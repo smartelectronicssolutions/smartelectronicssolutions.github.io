@@ -183,7 +183,7 @@
     <button class="tbtn" id="smallerBtn" disabled>－ Size</button>
     <button class="tbtn" id="spriteBtn" disabled>✏️ Sprite</button>
     <button class="tbtn" id="imgBtn" disabled>🖼 Image</button>
-    <button class="tbtn" id="storeBtn" disabled>📦 Make Storage</button>
+    <button class="tbtn" id="nameBtn" disabled>🏷 Rename</button><button class="tbtn" id="storeBtn" disabled>📦 Make Storage</button>
     <button class="tbtn" id="readerBtn" disabled>📖 Make Reader</button>
     <button class="tbtn danger" id="delBtn" disabled>🗑 Remove</button>
   </div>
@@ -331,7 +331,7 @@ const VZONES=[
 const ZONEMETA={};VZONES.forEach(z=>ZONEMETA[z.loc]={label:z.label,icon:z.icon});
 function cslug(s){const b=String(s||"").trim().toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"");return "c:"+(b||"misc");}
 const CLABEL={};                      // container loc -> display name (from inventory `room`)
-function locMeta(k){if(k&&k.indexOf("decor:")===0){const p=k.split(":"),d=(roomDecor[p[1]]||{})[p[2]];return{label:(d&&CAT[d.k]?CAT[d.k].label:"Storage"),icon:"📦"};}return PLACES[k]||ZONEMETA[k]||(CLABEL[k]?{label:CLABEL[k],icon:"📦"}:{label:k,icon:"📦"});}
+function locMeta(k){if(k&&k.indexOf("decor:")===0){const p=k.split(":"),d=(roomDecor[p[1]]||{})[p[2]];return{label:customName(p[1],p[2])||(d&&CAT[d.k]?CAT[d.k].label:"Storage"),icon:"📦"};}if(PLACES[k])return{...PLACES[k],label:customName(PLACES[k].room,k)||PLACES[k].label};return ZONEMETA[k]||(CLABEL[k]?{label:CLABEL[k],icon:"📦"}:{label:k,icon:"📦"});}
 function containerLocs(){return Object.keys(byLoc).filter(k=>k!=="bag"&&k.indexOf("decor:")!==0&&!PLACES[k]);}
 const SHOP_RECT={x:28,y:360,w:120,h:92};
 const DEFAULT_DECOR={
@@ -476,6 +476,7 @@ function fxCX(fx){return fx.x+fx.w/2;} function fxCY(fx){return fx.y+fx.h-6;}
 let HIDDEN={};
 onValue(ref(db,"public/loadout/hidden"),s=>{HIDDEN=s.val()||{};});
 function isHidden(r,id){return !!(HIDDEN[r]&&HIDDEN[r][id]);}
+let NAMES={};onValue(ref(db,"public/loadout/names"),s=>{NAMES=s.val()||{};});function customName(r,key){return (NAMES[r]&&NAMES[r][key])||"";}
 function fixIn(r){return Object.keys(FIXTURES).filter(id=>FIXTURES[id].room===r&&!isHidden(r,id));}
 function nearFixture(){let best=null,bd=1e9;for(const id of fixIn(room)){const fx=FIXTURES[id],dd=Math.hypot(player.x-fxCX(fx),player.y-fxCY(fx));if(dd<50&&dd<bd){bd=dd;best=id;}}return best;}
 function drawFixture(id){const fx=FIXTURES[id],x=fxCX(fx),y=fxCY(fx);
@@ -766,12 +767,12 @@ function refreshTools(){const on=!!selected;
   $("biggerBtn").disabled=$("smallerBtn").disabled=!(on&&selected.kind==="d");
   $("spriteBtn").disabled=!(on&&(selected.kind==="d"||(selected.kind==="p"&&PLACES[selected.key]&&PLACES[selected.key].sprite)));
   $("imgBtn").disabled=!(on&&selected.kind==="p");
-  $("storeBtn").disabled=!(on&&selected.kind==="d");$("readerBtn").disabled=!(on&&selected.kind==="d");
+  $("storeBtn").disabled=!(on&&selected.kind==="d");$("readerBtn").disabled=!(on&&selected.kind==="d");$("nameBtn").disabled=!(on&&(selected.kind==="d"||selected.kind==="p"));
   if(on&&selected.kind==="d"){const dd=roomDecor[room][selected.id]||{};const isS=dd.store;$("storeBtn").innerHTML=isS?"📦 Storage: ON":"📦 Make Storage";$("storeBtn").classList.toggle("add",!!isS);$("readerBtn").innerHTML=dd.reader?"📖 Reader: ON":"📖 Make Reader";$("readerBtn").classList.toggle("add",!!dd.reader);}else{$("storeBtn").classList.remove("add");$("storeBtn").innerHTML="📦 Make Storage";$("readerBtn").classList.remove("add");$("readerBtn").innerHTML="📖 Make Reader";}
   if(!selected){$("selLabel").innerHTML=wallMode?"Wall mode — tap/drag the grid to build or erase walls":"Tap a piece to select · drag to move";return;}
-  let label=selected.kind==="d"?(CAT[roomDecor[room][selected.id]?.k]?.label||"Furniture")
+  let label=selected.kind==="d"?(customName(room,selected.id)||CAT[roomDecor[room][selected.id]?.k]?.label||"Furniture")
     :selected.kind==="door"?("Doorway → "+ROOMS[ROOMS[room].doors[selected.idx].to].name.split(" ")[0])
-    :PLACES[selected.key].label;
+    :(customName(room,selected.key)||PLACES[selected.key].label);
   $("selLabel").innerHTML="Selected: <b>"+label+"</b>";}
 function toLogical(e){const r=cv.getBoundingClientRect();return {x:(e.clientX-r.left)*(W/r.width),y:(e.clientY-r.top)*(H/r.height)};}
 function pickAt(x,y){let best=null;for(const it of draggablesIn(room)){if(x>=it.o.x&&x<=it.o.x+it.w&&y>=it.o.y&&y<=it.o.y+it.h){const z=(it.o.z||0);if(!best||z>best._z||(z===best._z&&(it.o.y+it.h)>(best.o.y+best.h))){best=it;best._z=z;}}}return best;}
@@ -834,6 +835,7 @@ $("addBtn").addEventListener("click",openPalette);
 $("imgBtn").addEventListener("click",()=>{if(!selected||selected.kind!=="p")return;paletteMode="assign";assignKey=selected.key;$("palTitle").textContent="Choose an image for "+PLACES[assignKey].label;paletteOpen=true;buildPalette();$("palette").classList.add("open");});
 $("storeBtn").addEventListener("click",()=>{if(!selected||selected.kind!=="d")return;const dd=roomDecor[room][selected.id];if(!dd)return;dd.store=!dd.store;if(dd.store)delete dd.reader;saveRoom(room);refreshTools();});
 $("readerBtn").addEventListener("click",()=>{if(!selected||selected.kind!=="d")return;const dd=roomDecor[room][selected.id];if(!dd)return;if(dd.reader){delete dd.reader;}else{dd.reader="books";delete dd.store;}saveRoom(room);refreshTools();});
+$("nameBtn").addEventListener("click",()=>{if(!selected||(selected.kind!=="d"&&selected.kind!=="p"))return;const key=selected.kind==="d"?selected.id:selected.key;const base=selected.kind==="d"?((CAT[roomDecor[room][selected.id]?.k]||{}).label||"item"):((PLACES[selected.key]||{}).label||"item");const nn=prompt('Rename "'+base+'"  (leave blank to reset):',customName(room,key)||base);if(nn===null)return;const path="public/loadout/names/"+room+"/"+key,val=nn.trim().slice(0,40);if(!NAMES[room])NAMES[room]={};if(val===""){delete NAMES[room][key];remove(ref(db,path)).catch(()=>{});}else{NAMES[room][key]=val;set(ref(db,path),val).catch(()=>{});}refreshTools();});
 $("palClose").addEventListener("click",closePalette);
 $("palette").addEventListener("click",e=>{if(e.target===$("palette"))closePalette();});
 function openPalette(){paletteMode="add";$("palTitle").textContent="Add furniture to this room";paletteOpen=true;buildPalette();$("palette").classList.add("open");}
