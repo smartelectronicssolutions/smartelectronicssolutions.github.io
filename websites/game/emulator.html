@@ -335,6 +335,7 @@
         window.EJS_gameUrl       = gameUrl;
         window.EJS_gameName      = window.EJS_gameName;
         window.EJS_pathtodata    = EJS_CDN;
+        window.EJS_threads       = false;   // page isn't crossOriginIsolated (no COOP/COEP on GH Pages/CF) -> threaded cores need SharedArrayBuffer and fail to start, esp. on mobile Safari. Force single-thread cores.
         window.EJS_startOnLoaded = true;
 
         window.EJS_onGameStart = async function() {
@@ -355,13 +356,10 @@
         script.onerror = () => setStatus("Emulator engine failed to load (network/CDN).","err");
         document.body.appendChild(script);
 
-        // watchdog: if the emulator never starts, tell the user instead of a black screen
+        // watchdog: two-stage so a slow cellular core-download isn't a false "failed"
         const wseq=seq;
-        setTimeout(() => {
-            if(wseq!==launchSeq) return;
-            const started = !!(window.EJS_emulator);
-            if(!started) setStatus("Engine didn't start — try again, or check connection.","err");
-        }, 22000);
+        setTimeout(() => { if(wseq===launchSeq && !window.EJS_emulator) setStatus("Still loading the emulator core… (large download on a slow connection — give it a moment)","info",true); }, 15000);
+        setTimeout(() => { if(wseq===launchSeq && !window.EJS_emulator) setStatus("Engine didn't start after 60s — pull down to hard-refresh and retry; if it keeps failing on cellular, try Wi-Fi.","err"); }, 60000);
     }
 
     /* file picker still works as a fallback */
