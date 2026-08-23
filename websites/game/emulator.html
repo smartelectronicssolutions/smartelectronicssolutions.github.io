@@ -202,14 +202,27 @@
 
     /* ── SLOTS ── */
     let currentSlot = 1;
+    // keep EmulatorJS's own "save-state-slot" (used by the controller quick-save/load) in lockstep with the on-screen slot
+    function syncEjsSlot(){ try { window.EJS_emulator && window.EJS_emulator.changeSettingOption && window.EJS_emulator.changeSettingOption("save-state-slot", String(currentSlot)); } catch(_){} }
+    function setSlotUI(n){ n=parseInt(n)||1; currentSlot=n; document.querySelectorAll(".slot-btn").forEach(b=>b.classList.toggle("active-slot",parseInt(b.dataset.slot)===n)); syncEjsSlot(); }
     document.querySelectorAll(".slot-btn").forEach(btn => {
-        btn.onclick = () => {
-            currentSlot = parseInt(btn.dataset.slot);
-            document.querySelectorAll(".slot-btn").forEach(b => b.classList.remove("active-slot"));
-            btn.classList.add("active-slot");
-            setStatus(`Slot ${currentSlot} selected.`);
-        };
+        btn.onclick = () => { setSlotUI(parseInt(btn.dataset.slot)); setStatus(`Slot ${currentSlot} selected.`); };
     });
+    // Route the CONTROLLER quick-save / quick-load through the same Firebase slots as the 1/2/3 buttons,
+    // so a gamepad quick-save persists to the cloud slot and quick-load pulls it back.
+    let _qsPatched=false;
+    function patchQuickState(gm){
+        if(_qsPatched || !gm || typeof gm.quickSave!=="function" || typeof gm.quickLoad!=="function") return;
+        _qsPatched=true;
+        const oSave=gm.quickSave.bind(gm), oLoad=gm.quickLoad.bind(gm);
+        gm.quickSave=function(slot){ slot=parseInt(slot)||currentSlot; setSlotUI(slot); let ok=false; try{ ok=oSave(slot); }catch(_){}
+            (async()=>{ try{ const st=await captureState(); const p=getStatePath(slot); if(st&&p){ await dbSave(p,st); rememberSlot(); setStatus("Quick-saved to slot "+slot+" (cloud).","ok"); } }catch(_){ setStatus("Quick-save cloud sync failed (kept local).","err"); } })();
+            return ok; };
+        gm.quickLoad=function(slot){ slot=parseInt(slot)||currentSlot; setSlotUI(slot);
+            (async()=>{ try{ const bytes=await dbLoad(getStatePath(slot)); const okk=await applyState(bytes); setStatus(okk?("Quick-loaded slot "+slot+" (cloud)."):"Quick-load apply failed.",okk?"ok":"err"); }
+                        catch(_){ try{ oLoad(slot); setStatus("Loaded local quick-save (slot "+slot+").",""); }catch(e){ setStatus("No save in slot "+slot+".","err"); } } })(); };
+        syncEjsSlot();
+    }
     function slotKey()      { return window.EJS_core && window.EJS_gameName ? `emu:slot:${window.EJS_core}:${window.EJS_gameName}` : null; }
     function rememberSlot() { const k=slotKey(); if(k) localStorage.setItem(k,currentSlot); }
     function recallSlot()   {
@@ -345,6 +358,7 @@
             const gm=await waitForEmulatorReady();
             if(seq!==launchSeq) return;
             if(!gm) { setStatus("Core ready timeout — saves may not work.","err"); startAutoSave(); return; }
+            patchQuickState(gm);
             const sPath=getStatePath();
             if(sPath) { try { const bytes=await dbLoad(sPath); if(seq!==launchSeq) return; const ok=await applyState(bytes); setStatus(ok?`Slot ${currentSlot} restored.`:"State load failed.",ok?"ok":"err"); } catch { setStatus("No save found — starting fresh.",""); } }
             else { setStatus("Running.","ok"); }
