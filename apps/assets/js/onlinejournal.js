@@ -84,8 +84,26 @@ export function renderArticleContent(article) {
         }
       }
 
-      if (item.type === "list" && Array.isArray(item.items) && item.items.length) {
-        html += `<ul>${item.items.map((i) => `<li>${escapeHtml(i)}</li>`).join("")}</ul>`;
+      if (item.type === "list" && item.items) {
+        const items = Array.isArray(item.items)
+          ? item.items
+          : (typeof item.items === "string" ? [item.items] : []);
+        if (items.length) {
+          html += `<ul>${items.map((i) => `<li>${escapeHtml(String(i))}</li>`).join("")}</ul>`;
+        }
+      }
+
+      if (item.type === "table" && Array.isArray(item.rows)) {
+        const heads = Array.isArray(item.headers) ? item.headers : [];
+        const thead = heads.length
+          ? `<thead><tr>${heads.map((h) => `<th>${escapeHtml(String(h))}</th>`).join("")}</tr></thead>`
+          : "";
+        const tbody = `<tbody>${item.rows
+          .map((row) => `<tr>${(Array.isArray(row) ? row : [row])
+            .map((c) => `<td>${escapeHtml(c == null ? "" : String(c))}</td>`)
+            .join("")}</tr>`)
+          .join("")}</tbody>`;
+        html += `<div class="article-table-wrap"><table class="article-table">${thead}${tbody}</table></div>`;
       }
 
       if (item.type === "code") {
