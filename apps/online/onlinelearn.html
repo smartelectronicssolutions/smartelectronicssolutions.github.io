@@ -181,12 +181,24 @@
       </div>
     </section>
 
-    <section>
+    <button id="reviewModeBtn" type="button" style="margin-bottom:8px">📖 Review All Q&amp;A</button>
+
+    <section id="quizWrap">
       <div id="quizSection"></div>
       <button id="previousQuestion" disabled>Previous Question</button>
       <button id="submitAnswer">Submit Answer</button>
       <button id="nextQuestion">Next Question</button>
       <button id="showAnswerButton" style="display: none">Show Answer</button>
+    </section>
+
+    <section id="reviewSection" style="display:none">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+        <button id="reviewBackBtn" type="button">← Back to Quiz</button>
+        <input type="text" id="reviewSearch" placeholder="Search questions / answers…" style="flex:1;min-width:180px" />
+        <label style="display:flex;align-items:center;gap:5px;white-space:nowrap;cursor:pointer"><input type="checkbox" id="reviewShowAll" /> Show all answers</label>
+        <span id="reviewCount" class="muted"></span>
+      </div>
+      <div id="reviewList"></div>
     </section>
 
     <button id="addNewQuestionButton">Add New Question</button>
@@ -498,7 +510,108 @@
       saveToLocalStorage("wrongAnswersCount", wrongAnswersCount);
     }
 
+    // ---- Review mode: browse all Q&A with search + collapsible answers ----
+    function reviewCurrentTopic() {
+      return (document.getElementById("indexDropdown")?.value || "");
+    }
+    function reviewQuestionSet() {
+      const topic = reviewCurrentTopic().toLowerCase();
+      let list = (allQuestions || []).slice();
+      if (topic) list = list.filter((q) => String(q.description || "").toLowerCase() === topic);
+      return list;
+    }
+    function renderReviewList() {
+      const listEl = document.getElementById("reviewList");
+      if (!listEl) return;
+      const search = String(document.getElementById("reviewSearch").value || "").toLowerCase().trim();
+      const showAll = document.getElementById("reviewShowAll").checked;
+      let items = reviewQuestionSet();
+      if (search) {
+        items = items.filter((q) => {
+          const ans = Array.isArray(q.correctAnswer) ? q.correctAnswer.join(" ") : String(q.correctAnswer || "");
+          const hay = (String(q.question || "") + " " + ans + " " + String(q.explanation || "") + " " + (q.options || []).join(" ")).toLowerCase();
+          return hay.includes(search);
+        });
+      }
+      document.getElementById("reviewCount").textContent =
+        items.length + " question" + (items.length !== 1 ? "s" : "");
+      listEl.innerHTML = "";
+      items.forEach((q, i) => {
+        const ans = Array.isArray(q.correctAnswer) ? q.correctAnswer : [q.correctAnswer];
+        const d = document.createElement("details");
+        d.style.cssText = "border:1px solid var(--edge,#2a3542);border-radius:8px;margin:6px 0;padding:4px 10px;background:var(--panel,#11161d)";
+        if (showAll || search) d.open = true;
+        const s = document.createElement("summary");
+        s.style.cssText = "cursor:pointer;font-weight:600;padding:6px 0;list-style:revert";
+        s.textContent = (i + 1) + ". " + (q.question || "(no text)");
+        d.appendChild(s);
+        const body = document.createElement("div");
+        body.style.cssText = "padding:4px 0 8px";
+        if (q.options && q.options.length) {
+          const ul = document.createElement("ul");
+          ul.style.cssText = "margin:4px 0;padding-left:18px";
+          q.options.forEach((o) => {
+            const li = document.createElement("li");
+            const isCorrect = ans.some((a) => String(a) === String(o));
+            li.textContent = (isCorrect ? "✓ " : "") + o;
+            if (isCorrect) li.style.cssText = "color:#22c55e;font-weight:600";
+            ul.appendChild(li);
+          });
+          body.appendChild(ul);
+        } else {
+          const a = document.createElement("div");
+          a.innerHTML = "<b>Answer:</b> " + (Array.isArray(q.correctAnswer) ? q.correctAnswer.join("; ") : (q.correctAnswer || ""));
+          a.style.color = "#22c55e";
+          body.appendChild(a);
+        }
+        if (q.explanation) {
+          const ex = document.createElement("div");
+          ex.style.cssText = "margin-top:6px;font-size:.9em;opacity:.85";
+          ex.innerHTML = "<b>Why:</b> " + q.explanation;
+          body.appendChild(ex);
+        }
+        const tag = document.createElement("div");
+        tag.style.cssText = "margin-top:6px;font-size:.72em;opacity:.55";
+        tag.textContent = q.description || q.pathKey || "";
+        body.appendChild(tag);
+        d.appendChild(body);
+        listEl.appendChild(d);
+      });
+    }
+    function openReview() {
+      document.getElementById("quizWrap").style.display = "none";
+      ["addNewQuestionButton", "editQuestionButton", "addQuestion"].forEach((id) => {
+        const e = document.getElementById(id);
+        if (e) e.style.display = "none";
+      });
+      document.getElementById("reviewSection").style.display = "block";
+      renderReviewList();
+    }
+    function closeReview() {
+      document.getElementById("reviewSection").style.display = "none";
+      document.getElementById("quizWrap").style.display = "";
+      ["addNewQuestionButton", "editQuestionButton"].forEach((id) => {
+        const e = document.getElementById(id);
+        if (e) e.style.display = "";
+      });
+    }
+
     function registerEventListeners() {
+      document
+        .getElementById("reviewModeBtn")
+        .addEventListener("click", openReview);
+      document
+        .getElementById("reviewBackBtn")
+        .addEventListener("click", closeReview);
+      document
+        .getElementById("reviewSearch")
+        .addEventListener("input", renderReviewList);
+      document
+        .getElementById("reviewShowAll")
+        .addEventListener("change", renderReviewList);
+      document.getElementById("indexDropdown").addEventListener("change", () => {
+        if (document.getElementById("reviewSection").style.display === "block") renderReviewList();
+      });
       document
         .getElementById("submitAnswer")
         .addEventListener("click", submitAnswer);
