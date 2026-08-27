@@ -508,6 +508,32 @@
         `Learned: ${scorePercentage}% (${correctAnswersCount} correct / ${wrongAnswersCount} wrong)`;
       saveToLocalStorage("correctAnswersCount", correctAnswersCount);
       saveToLocalStorage("wrongAnswersCount", wrongAnswersCount);
+      updateStudyStats();
+    }
+
+    // Durable per-topic progress that other apps (Loadout) read to gate content.
+    // A topic is "certified" once >=80% of its questions have been answered correctly.
+    function updateStudyStats() {
+      try {
+        if (!allQuestions || !allQuestions.length) return;
+        const byTopic = {};
+        allQuestions.forEach((q) => {
+          const topic = String(q.description || q.pathKey || "Other");
+          const key = sanitizeKey(topic);
+          if (!byTopic[key]) byTopic[key] = { name: topic, total: 0, correct: 0 };
+          byTopic[key].total++;
+          if (answeredQuestions[q.id] === "answered") byTopic[key].correct++;
+        });
+        let totalCorrect = 0;
+        Object.values(byTopic).forEach((t) => {
+          t.pct = t.total ? Math.round((100 * t.correct) / t.total) : 0;
+          t.certified = t.total > 0 && t.correct >= Math.ceil(t.total * 0.8);
+          totalCorrect += t.correct;
+        });
+        saveToFirebase("studyStats", { totalCorrect, byTopic, updated: Date.now() });
+      } catch (e) {
+        /* non-fatal */
+      }
     }
 
     // ---- Review mode: browse all Q&A with search + collapsible answers ----
