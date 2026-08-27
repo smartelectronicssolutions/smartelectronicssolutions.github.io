@@ -1048,16 +1048,23 @@
           return ta.localeCompare(tb);
         })
         .forEach(function ([rowKey, a]) {
+         try {
+          if (!a || typeof a !== "object") return;
           var div = document.createElement("div");
           div.className = "entry-card";
           var scopeLabel = a.__scope === "private" ? "Private" : "Public";
           var cardDate = "";
-          if (a.date) {
-            var parts = a.date.split('-').map(Number);
-            cardDate = new Date(parts[0], parts[1] - 1, parts[2]).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-          } else if (a.createdAt) {
-            cardDate = new Date(a.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-          }
+          var dOpts = { month: 'short', day: 'numeric', year: 'numeric' };
+          try {
+            if (typeof a.date === "string" && a.date.indexOf('-') > -1) {
+              var parts = a.date.split('-').map(Number);
+              cardDate = new Date(parts[0], parts[1] - 1, parts[2]).toLocaleDateString('en-US', dOpts);
+            } else if (a.date != null && !isNaN(a.date)) {
+              cardDate = new Date(Number(a.date)).toLocaleDateString('en-US', dOpts);
+            } else if (a.createdAt) {
+              cardDate = new Date(a.createdAt).toLocaleDateString('en-US', dOpts);
+            }
+          } catch (e) { cardDate = ""; }
           var thumbSrc = getArticleImage(a);
           var thumb = thumbSrc
             ? '<img class="entry-thumb" src="' + escapeHtml(thumbSrc) + '" loading="lazy" alt="">'
@@ -1069,6 +1076,7 @@
             "<p>" + escapeHtml(a.description || "") + "</p>";
           div.onclick = function () { renderArticle(rowKey); };
           listEl.appendChild(div);
+         } catch (e) { console.warn("journal: skipped a bad article", rowKey, e); }
         });
     }
 
