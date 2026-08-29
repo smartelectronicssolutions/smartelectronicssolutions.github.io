@@ -198,7 +198,7 @@
     <button class="tbtn add" id="addBtn">+ ADD FURNITURE</button>
     <button class="tbtn" id="studioBtn">🎨 Make sprite</button>
     <button class="tbtn" id="wallBtn">🧱 Walls <span style="opacity:.6">(W)</span></button>
-    <button class="tbtn" id="floorBtn">🟫 Floor <span style="opacity:.6">(F)</span></button>
+    <button class="tbtn" id="floorBtn">🟫 Floor <span style="opacity:.6">(F)</span></button><button class="tbtn" id="roomWless">W-</button><button class="tbtn" id="roomWmore">W+</button><button class="tbtn" id="roomLless">L-</button><button class="tbtn" id="roomLmore">L+</button>
     <span class="sel" id="selLabel">Tap a piece to select · drag to move</span>
     <button class="tbtn" id="frontBtn" disabled>▲ Front</button>
     <button class="tbtn" id="backBtn" disabled>▼ Back</button>
@@ -474,7 +474,7 @@ function saveDoor(rm,i){const d=ROOMS[rm].doors[i];update(ref(db,"public/loadout
 let WALLS={};
 onValue(ref(db,"public/loadout/walls"),snap=>{WALLS=snap.val()||{};});
 function isWall(rm,gx,gy){return !!(WALLS[rm]&&WALLS[rm][gx+"_"+gy]);}
-function inRoomGrid(gx,gy){if(room==="outside")return false;const x=gx*CELL,y=gy*CELL;return x>=ROOMR.x&&x<ROOMR.x+ROOMR.w&&y>=ROOMR.y&&y<ROOMR.y+ROOMR.h;}
+function inRoomGrid(gx,gy){if(room==="outside")return false;const gx0=Math.floor(ROOMR.x/CELL),gy0=Math.floor(ROOMR.y/CELL),gx1=Math.floor((ROOMR.x+ROOMR.w-1)/CELL),gy1=Math.floor((ROOMR.y+ROOMR.h-1)/CELL);return gx>=gx0&&gx<=gx1&&gy>=gy0&&gy<=gy1;}
 function setWall(rm,gx,gy,on){WALLS[rm]=WALLS[rm]||{};const key=gx+"_"+gy;
   if(on){WALLS[rm][key]=true;update(ref(db,"public/loadout/walls/"+rm),{[key]:true}).catch(()=>{});}
   else{delete WALLS[rm][key];remove(ref(db,"public/loadout/walls/"+rm+"/"+key)).catch(()=>{});}}
@@ -560,7 +560,7 @@ function showArticle(id){const a=JOURNAL[id];if(!a)return;$("readerTitle").textC
       else if(b.text)h+="<p>"+esc(fmtTxt(b.text))+"</p>";}}
   const body=$("readerBody");body.innerHTML=h;body.scrollTop=0;}
 $("readerClose").addEventListener("click",()=>$("reader").classList.remove("open"));
-const ROOMR={x:20,y:24,w:W-40,h:H-48};
+let ROOMR={x:20,y:24,w:W-40,h:H-48};let ROOMSIZE={};let roomOff={x:0,y:0};function computeROOMR(){const sz=(ROOMSIZE&&ROOMSIZE[room])||{};ROOMR.w=Math.max(256,Math.min(W-40,(sz.w||(W-40))));ROOMR.h=Math.max(256,Math.min(H-48,(sz.h||(H-48))));roomOff.x=Math.round(W/2-(ROOMR.x+ROOMR.w/2));roomOff.y=Math.round(H/2-(ROOMR.y+ROOMR.h/2));}onValue(ref(db,"public/loadout/roomsize"),ss=>{ROOMSIZE=ss.val()||{};computeROOMR();});function trimRoom(rm){const rx=ROOMR.x,ry=ROOMR.y,rw=ROOMR.w,rh=ROOMR.h;const out=(gx,gy)=>{const x=gx*CELL,y=gy*CELL;return (x>=rx+rw)||(y>=ry+rh)||(x+CELL<=rx)||(y+CELL<=ry);};if(WALLS[rm]){for(const k of Object.keys(WALLS[rm])){const p=k.split("_");if(out(+p[0],+p[1])){delete WALLS[rm][k];remove(ref(db,"public/loadout/walls/"+rm+"/"+k)).catch(()=>{});}}}if(FTILES[rm]){for(const k of Object.keys(FTILES[rm])){const p=k.split("_");if(out(+p[0],+p[1])){delete FTILES[rm][k];remove(ref(db,"public/loadout/ftiles/"+rm+"/"+k)).catch(()=>{});}}}}function roomSizeSet(dw,dh){const sz=ROOMSIZE[room]||{w:ROOMR.w,h:ROOMR.h};sz.w=Math.max(256,Math.min(W-40,(sz.w||(W-40))+dw));sz.h=Math.max(256,Math.min(H-48,(sz.h||(H-48))+dh));ROOMSIZE[room]=sz;computeROOMR();trimRoom(room);try{set(ref(db,"public/loadout/roomsize/"+room),{w:sz.w,h:sz.h});}catch(e){}}setTimeout(()=>{const b=(id,fn)=>{const e=$(id);if(e)e.onclick=fn;};b("roomWmore",()=>roomSizeSet(48,0));b("roomWless",()=>roomSizeSet(-48,0));b("roomLmore",()=>roomSizeSet(0,48));b("roomLless",()=>roomSizeSet(0,-48));},0);
 const CELL=16;                        // wall grid cell
 let room="yourroom";
 const player={x:256,y:410,dir:"down",moving:false,t:0,frame:0,speed:108};
@@ -676,7 +676,21 @@ function yukiBubble(who,text,cls){const box=$("yukiMsgs");if(!box)return null;co
 async function yukiModel(){try{let m=(await get(ref(db,BASE+"/bot/model"))).val();if(!m)m=(await get(ref(db,"public/bot/model"))).val();return m||"dolphin3";}catch(e){return "dolphin3";}}
 async function yukiSend(){const inp=$("yukiInput");if(!inp)return;const t=inp.value.trim();if(!t||yukiBusy)return;inp.value="";if(!yukiLoaded)await loadYukiIdentity();yukiBubble("You",t,"you");yukiHist.push({role:"user",content:t});yukiBusy=true;const pend=yukiBubble(yukiName,"\u2026","yuki");try{let reply=null;if(BASE===LUIS_UID&&typeof auth!=="undefined"&&auth&&auth.currentUser){try{const idTok=await auth.currentUser.getIdToken();const res=await fetch(COMPMAN_URL,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+idTok},body:JSON.stringify({messages:yukiHist.slice(-12)})});if(res.ok){reply=((await res.json()).reply||"").trim();}}catch(ce){reply=null;}}if(reply==null||reply===""){const model=await yukiModel();const area=(typeof ROOMS!=="undefined"&&ROOMS[room])?ROOMS[room].name:room;const mem=await yukiMemoryText();const sys="You are "+yukiName+", a warm, playful, slightly shy fairy companion inside Luis\u2019s life-inventory game \u2018Loadout\u2019. The game mirrors his REAL inventory, profit and jobs \u2014 a factual reflection of his life. Keep replies short (1-3 sentences), friendly and encouraging. Current area: "+area+". "+(yukiPersona?("Personality: "+yukiPersona+" "):"")+"To remember a fact, append [MEMORY:key=value]. To update how you feel, append [TRAIT:key=value]."+mem;const res=await fetch(YUKI_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:model,stream:false,messages:[{role:"system",content:sys},...yukiHist.slice(-10)]})});if(!res.ok)throw new Error("HTTP "+res.status);const data=await res.json();reply=((data.message&&data.message.content)||"");let mw=0;for(const m of reply.matchAll(/\[MEMORY:([^=\]]+)=([^\]]+)\]/gi)){if(mw++>=8)break;saveYukiMem(m[1].trim(),m[2].trim());}let tw=0;for(const m of reply.matchAll(/\[TRAIT:([^=\]]+)=([^\]]+)\]/gi)){if(tw++>=8)break;saveYukiTrait(m[1].trim(),m[2].trim());}}reply=(reply||"").replace(/\[MOOD:\w+\]/gi,"").replace(/\[MEMORY:[^\]]+\]/gi,"").replace(/\[TRAIT:[^\]]+\]/gi,"").trim()||"U-um\u2026";if(pend)pend.innerHTML="<b>"+yukiName+":</b> "+reply.replace(/</g,"&lt;");yukiHist.push({role:"assistant",content:reply});const box=$("yukiMsgs");if(box)box.scrollTop=box.scrollHeight;}catch(e){if(pend)pend.innerHTML="<b>"+yukiName+":</b> A-ah\u2026 I can\u2019t reach my thoughts right now.";}finally{yukiBusy=false;}}
 (function(){var b=$("yukiBtn");if(b)b.onclick=function(){yukiOpen(true);};var cl=$("yukiClose");if(cl)cl.onclick=function(){yukiOpen(false);};var sb=$("yukiSendBtn");if(sb)sb.onclick=yukiSend;var inp=$("yukiInput");if(inp)inp.addEventListener("keydown",function(e){if(e.key==="Enter"){e.preventDefault();yukiSend();}});addEventListener("keydown",function(e){if((e.key==="c"||e.key==="C")&&!isTypingEl()){var c=$("yukiChat");yukiOpen(!(c&&c.style.display==="flex"));}});if(typeof cv!=="undefined")cv.addEventListener("pointerdown",function(e){var r=cv.getBoundingClientRect();var cx=(e.clientX-r.left)*(cv.width/r.width),cy=(e.clientY-r.top)*(cv.height/r.height);if(Math.hypot(cx-fairy.x,cy-fairy.y)<20&&matchMedia("(pointer:coarse)").matches){e.stopPropagation();e.preventDefault();yukiOpen(true);}},true);})();
-function frame(ts){const dt=Math.min(.05,(ts-last)/1000||0);last=ts;if(!isOpen()&&!transing&&!editMode){if(!dlg)step(dt);stepNPCs(dt);}stepFairy(dt);render();drawFairy();requestAnimationFrame(frame);}
+function unstick(){if(editMode||transing)return;if(!blocked(player.x,player.y))return;const pgx=Math.floor(player.x/CELL),pgy=Math.floor(player.y/CELL);for(let r=1;r<=48;r++){for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++){if(Math.max(Math.abs(dx),Math.abs(dy))!==r)continue;const cx=(pgx+dx+0.5)*CELL,cy=(pgy+dy+0.5)*CELL;if(!blocked(cx,cy)){player.x=cx;player.y=cy;moveTarget=null;return;}}}}
+let gpDriving=false,gpPrev={};
+function pollGamepad(){const pads=navigator.getGamepads?navigator.getGamepads():[];let gp=null;for(const p of pads){if(p){gp=p;break;}}
+ if(!gp){if(gpDriving){joy=null;gpDriving=false;}return;}
+ let ax=gp.axes[0]||0,ay=gp.axes[1]||0;const bp=(i)=>gp.buttons[i]&&gp.buttons[i].pressed;
+ if(bp(14))ax=-1;else if(bp(15))ax=1;if(bp(12))ay=-1;else if(bp(13))ay=1;
+ const mag=Math.hypot(ax,ay);
+ if(mag>0.28&&!editMode&&!isOpen()&&!transing){moveTarget=null;joy={dx:ax/mag,dy:ay/mag};gpDriving=true;}
+ else if(gpDriving){joy=null;gpDriving=false;}
+ const edge=(i)=>{const now=bp(i);const was=gpPrev[i];gpPrev[i]=now;return now&&!was;};
+ const a=edge(0),b=edge(1);
+ if(a){if(isOpen())closePanel();else if(!editMode&&!transing)tryOpen();}
+ else if(b){if(isOpen())closePanel();}}
+window.addEventListener("gamepadconnected",e=>{try{console.log("gamepad connected:",e.gamepad.id);}catch(_){}});
+function frame(ts){const dt=Math.min(.05,(ts-last)/1000||0);last=ts;computeROOMR();pollGamepad();unstick();if(!isOpen()&&!transing&&!editMode){if(!dlg)step(dt);stepNPCs(dt);}stepFairy(dt);ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle="#0e1216";ctx.fillRect(0,0,W,H);ctx.save();ctx.translate(roomOff.x,roomOff.y);render();drawFairy();ctx.restore();requestAnimationFrame(frame);}
 function step(dt){let dx=0,dy=0;
   if(joy){dx=joy.dx;dy=joy.dy;moveTarget=null;}
   else{if(keys.has("left"))dx--;if(keys.has("right"))dx++;if(keys.has("up"))dy--;if(keys.has("down"))dy++;}
@@ -792,8 +806,7 @@ function drawShop(){const x=SHOP_RECT.x,y=SHOP_RECT.y;
   px(x+46,y+58,30,34,"#3a2d22");px(x+58,y+74,3,3,"#f2d27a");
   px(x+12,y+44,26,20,"#8fb8d0");px(x+84,y+44,26,20,"#8fb8d0");
   ctx.fillStyle="#f2a541";ctx.font="8px monospace";ctx.textAlign="center";ctx.fillText("▾ "+slab("shop","SHOP"),x+60,y+10);}
-function drawDoor(d){if(room==="outside"||room==="street")return;ctx.fillStyle="#20262d";ctx.fillRect(d.x,d.y,d.w,d.h);ctx.fillStyle="#f2a541";ctx.fillRect(d.x,d.y,d.w,3);
-  ctx.font="6px monospace";ctx.textAlign="center";ctx.fillStyle="#cfd6de";ctx.fillText("▲ "+ROOMS[d.to].name.split(" ")[0].toUpperCase(),d.x+d.w/2,d.y<40?d.y+d.h+8:d.y-4);}
+function drawDoor(d){if(d.to==="van")return;const SZ=24;const h=doorHitRect(d);const cx=h.x+h.w/2,cy=h.y+h.h/2,x=Math.round(cx-SZ/2),y=Math.round(cy-SZ/2);ctx.fillStyle="#08080b";ctx.fillRect(x,y,SZ,SZ);ctx.strokeStyle="rgba(110,190,255,.55)";ctx.lineWidth=1;ctx.strokeRect(x+.5,y+.5,SZ-1,SZ-1);}
 function drawPlace(key,p){const x=p.x,y=p.y,w=p.w,h=p.h,n=(byLoc[key]||[]).length;
   if(p.sprite&&CAT[p.sprite]&&catImg[p.sprite]&&catImg[p.sprite].complete){
     const c=CAT[p.sprite],s=Math.min((w*1.35)/c.w,(h+24)/c.h),dw=c.w*s,dh=c.h*s,dx=Math.round(x+w/2-dw/2),dy=Math.round(y+h-dh);
@@ -852,7 +865,7 @@ function refreshTools(){const on=!!selected;
     :selected.kind==="door"?((ROOMS[room].doors[selected.idx].to==="van")?("Van ("+slab("van","the van")+")"):("Doorway → "+((ROOMS[ROOMS[room].doors[selected.idx].to]||{}).name||ROOMS[room].doors[selected.idx].to)))
     :(customName(room,selected.key)||PLACES[selected.key].label);
   $("selLabel").innerHTML="Selected: <b>"+label+"</b>";}
-function toLogical(e){const r=cv.getBoundingClientRect();return {x:(e.clientX-r.left)*(W/r.width),y:(e.clientY-r.top)*(H/r.height)};}
+function toLogical(e){const r=cv.getBoundingClientRect();return {x:(e.clientX-r.left)*(W/r.width)-roomOff.x,y:(e.clientY-r.top)*(H/r.height)-roomOff.y};}
 function pickAt(x,y){let best=null;for(const it of draggablesIn(room)){if(x>=it.o.x&&x<=it.o.x+it.w&&y>=it.o.y&&y<=it.o.y+it.h){const z=(it.o.z||0);if(!best||z>best._z||(z===best._z&&(it.o.y+it.h)>(best.o.y+best.h))){best=it;best._z=z;}}}return best;}
 // edit mode: double-click a storage piece to jump straight into it (no exit+walk+E)
 cv.addEventListener("dblclick",e=>{if(!editMode||isOpen()||transing)return;const p=toLogical(e);const it=pickAt(p.x,p.y);if(!it)return;const wasEdit=editMode;
@@ -1019,7 +1032,7 @@ function openVanStorage(){openArea("vanside");}
 function openContainer(key){if(key==="wardrobe"){openArea("closet");return;}openPanelFor(key);}
 $("storClose").addEventListener("click",()=>$("storage").classList.remove("open"));
 $("storage").addEventListener("click",e=>{if(e.target===$("storage"))$("storage").classList.remove("open");});
-function renderArea(){renderAreaChips();const scene=$("storScene"),img=$("storBg"),a=areaCfg(curArea);
+function renderArea(){renderAreaChips();const scene=$("storScene"),img=$("storBg"),a=areaCfg(curArea);const _sp=$("scenePad");if(_sp&&img.naturalWidth&&_sp.clientHeight>40){const aw=_sp.clientWidth-14,ah=_sp.clientHeight-14;let sc=Math.max(0.25,Math.min(aw/img.naturalWidth,ah/img.naturalHeight));img.style.maxWidth="none";img.style.maxHeight="none";img.style.imageRendering="pixelated";img.style.width=Math.round(img.naturalWidth*sc)+"px";img.style.height=Math.round(img.naturalHeight*sc)+"px";}
   [...scene.querySelectorAll(".vzone")].forEach(z=>z.remove());
   const sw=(img.clientWidth||a.nw)/(a.nw||320),sh=(img.clientHeight||a.nh)/(a.nh||288);
   for(const loc of containerLocs()){if(areaOf(loc)!==curArea)continue;const n=(byLoc[loc]||[]).length,m=locMeta(loc),pos=posOf(loc,curArea);
