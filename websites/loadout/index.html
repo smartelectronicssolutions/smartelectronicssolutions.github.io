@@ -484,8 +484,9 @@ onValue(ref(db,"public/loadout/ftiles"),snap=>{FTILES=snap.val()||{};});
 function setFtile(rm,gx,gy,key){FTILES[rm]=FTILES[rm]||{};FTILES[rm][gx+"_"+gy]=key;update(ref(db,"public/loadout/ftiles/"+rm),{[gx+"_"+gy]:key}).catch(()=>{});}
 
 // ---- canvas ----
-const cv=$("game"),ctx=cv.getContext("2d");ctx.imageSmoothingEnabled=false;
+const cv=$("game");let ctx=cv.getContext("2d");ctx.imageSmoothingEnabled=false;
 const W=cv.width,H=cv.height,FW=A.frame.w,FH=A.frame.h,SC=1.6;
+const _bgc=document.createElement("canvas");_bgc.width=W;_bgc.height=H;const _bgctx=_bgc.getContext("2d");_bgctx.imageSmoothingEnabled=false;let _bgKey="",_bgTime=0;
 const sheet=new Image();let sheetOk=false;sheet.onload=()=>sheetOk=true;sheet.src=A.charSheet;
 const floorImg={};for(const k in A.floors){const im=new Image();im.src=A.floors[k];floorImg[k]=im;}
 // ===== NPCs (walk-up characters w/ dialogue) =====
@@ -710,12 +711,19 @@ function step(dt){let dx=0,dy=0;
 function tileFloor(key){const im=floorImg[key];if(!im||!im.complete){ctx.fillStyle="#1a1f25";ctx.fillRect(0,0,W,H);return;}
   for(let y=0;y<H;y+=im.height)for(let x=0;x<W;x+=im.width)ctx.drawImage(im,x,y);}
 function render(){const R=ROOMS[room];
-  if(room==="outside")drawOutside();else if(room==="street")drawStreet();else{tileFloor(R.floor);
-    for(const key in (FTILES[room]||{})){const p=key.split("_");drawFtile(+p[0],+p[1],FTILES[room][key]);}
-    drawWalls();}
-  for(const {d} of decorList(room))if(isFlat(d.k))drawDecorItem(d);      // rugs under
-  for(const key in (WALLS[room]||{})){const p=key.split("_");drawWallCell(+p[0],+p[1]);}
-  for(const d of R.doors)drawDoor(d);
+  // ---- cached static ground layer (floor/walls/doors/flat-decor) -> offscreen, blit each frame ----
+  const _gk=room+"|"+ROOMR.x+"_"+ROOMR.y+"_"+ROOMR.w+"_"+ROOMR.h;
+  const _now=(window.performance?performance.now():Date.now());
+  if(editMode||_gk!==_bgKey||_now-_bgTime>800){_bgKey=_gk;_bgTime=_now;
+    const _m=ctx;ctx=_bgctx;ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,W,H);
+    if(room==="outside")drawOutside();else if(room==="street")drawStreet();else{tileFloor(R.floor);
+      for(const key in (FTILES[room]||{})){const p=key.split("_");drawFtile(+p[0],+p[1],FTILES[room][key]);}
+      drawWalls();}
+    for(const {d} of decorList(room))if(isFlat(d.k))drawDecorItem(d);
+    for(const key in (WALLS[room]||{})){const p=key.split("_");drawWallCell(+p[0],+p[1]);}
+    for(const d of R.doors)drawDoor(d);
+    ctx=_m;}
+  ctx.drawImage(_bgc,0,0);
   const ents=[];
   for(const {id,d} of decorList(room))if(!isFlat(d.k)){const s=d.s||1;ents.push({t:"d",id,d,z:d.z||0,sy:d.y+CAT[d.k].h*s});}
   for(const[k,p]of placesIn(room))ents.push({t:"p",k,p,z:p.z||0,sy:p.y+p.h});
