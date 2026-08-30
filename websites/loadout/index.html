@@ -185,7 +185,7 @@
   <header>
     <div><div class="kicker">Field Service RPG · v0.4 · live DB</div><h1>LOADOUT</h1>
       <div class="tagline">Walk your world. Open storage. Build your rooms.</div></div>
-    <div class="hudR"><div class="pill">💰 $<b id="money">—</b></div><div class="pill" id="fuelPill">⛽ <b id="fuel">—</b></div><div class="pill">CARRY <b id="bagN">0</b></div>
+    <div class="hudR"><div class="pill">💰 $<b id="money">—</b></div><div class="pill" id="fuelPill">⛽ <b id="fuel">—</b></div><div class="pill">CARRY <b id="bagN">0</b></div><button class="btn ghost" id="dressBtn" title="Change your look">👕</button>
       <button class="btn ghost" id="jobsBtn">📋 Jobs</button><button class="btn ghost" id="acctBtn">👤 Log in</button><button class="btn ghost" id="editBtn">EDIT ROOM</button><button class="btn ghost" id="yukiBtn">🧚 Yuki</button><button class="btn" id="bagBtn">BACKPACK</button></div>
   </header>
   <div class="screen">
@@ -305,6 +305,27 @@
   <div id="readerBody" style="max-height:68vh;overflow:auto;padding:8px 10px 16px;color:#dbe0e6;line-height:1.55;font-size:.86rem;word-wrap:break-word;overflow-wrap:anywhere"></div>
 </div></div>
 
+<div class="overlay" id="charEditor"><div class="storwrap" style="max-width:520px">
+  <div class="storhead"><div class="ic">👕</div><h2>Changing Station</h2><button class="closeb" id="ceClose">✕</button></div>
+  <div class="cePreview"><canvas id="cePrev" width="96" height="192"></canvas></div>
+  <div class="ceTabs" id="ceTabs"></div>
+  <div class="ceGrid" id="ceGrid"></div>
+  <div class="ceFoot"><button class="btn ghost" id="ceRandom">🎲 Surprise me</button><button class="btn" id="ceSave">Save look</button></div>
+</div></div>
+<style>
+  #charEditor .cePreview{display:flex;justify-content:center;align-items:center;padding:14px;background:var(--slot);border-bottom:1px solid var(--edge)}
+  #cePrev{image-rendering:pixelated;width:96px;height:192px}
+  .ceTabs{display:flex;gap:5px;padding:9px 10px;border-bottom:1px solid var(--edge);flex-wrap:wrap;justify-content:center}
+  .ceTab{font-family:var(--mono);font-size:.62rem;color:var(--text);background:var(--slot);border:1px solid var(--edge);border-radius:6px;padding:6px 11px;cursor:pointer}
+  .ceTab.on{background:var(--amber);color:var(--bg);border-color:var(--amber);font-weight:700}
+  .ceGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(48px,1fr));gap:6px;padding:12px;max-height:42vh;overflow:auto}
+  .ceOpt{aspect-ratio:1/1.5;background:var(--slot);border:1px solid var(--edge);border-radius:7px;cursor:pointer;display:flex;align-items:flex-end;justify-content:center;overflow:hidden}
+  .ceOpt canvas{image-rendering:pixelated;width:32px;height:64px}
+  .ceOpt:hover{border-color:var(--amber)}
+  .ceOpt.on{border-color:var(--amber);box-shadow:0 0 0 2px var(--amber) inset}
+  .ceOpt.none{align-items:center;font-family:var(--mono);font-size:.56rem;color:var(--dim)}
+  .ceFoot{display:flex;gap:8px;padding:12px;border-top:1px solid var(--edge);justify-content:flex-end}
+</style>
 <div class="overlay" id="pcdesk"><div class="storwrap">
   <div class="storhead"><div class="ic">🖥️</div><h2 id="pcTitle">Computer</h2>
     <button class="closeb pchead-b" id="pcBack" style="display:none">← Apps</button>
@@ -505,6 +526,7 @@ const cv=$("game");let ctx=cv.getContext("2d");ctx.imageSmoothingEnabled=false;
 const W=cv.width,H=cv.height,FW=A.frame.w,FH=A.frame.h,SC=1.6;
 const _bgc=document.createElement("canvas");_bgc.width=W;_bgc.height=H;const _bgctx=_bgc.getContext("2d");_bgctx.imageSmoothingEnabled=false;let _bgKey="",_bgTime=0;
 const sheet=new Image();let sheetOk=false;sheet.onload=()=>sheetOk=true;sheet.src=A.charSheet;
+let charCanvas=null;   // custom composited character (LimeZu editor) overrides the default sheet when set
 const floorImg={};for(const k in A.floors){const im=new Image();im.src=A.floors[k];floorImg[k]=im;}
 // ===== NPCs (walk-up characters w/ dialogue) =====
 const npcImg={};for(const k in (A.npc||{})){const im=new Image();im.src=A.npc[k];npcImg[k]=im;}
@@ -654,6 +676,7 @@ function pickInteractable(){const cands=[];const add=(cx,cy,py,act)=>cands.push(
   const rd=nearReader();if(rd){const d=roomDecor[room][rd.id],c=CAT[d.k]||{w:32,h:32},s=d.s||1;add(d.x+c.w*s/2,d.y+c.h*s/2,d.y-8,()=>openReader(rd.kind==="lib"?"lib":"books"));}
   if(room==="outside"){const vd0=ROOMS.outside.doors[1],_vw=(CAT.van?(CAT.van.w||156):156)*vs("van"),_vh=(CAT.van?(CAT.van.h||96):96)*vs("van"),vd={x:vd0.x,y:vd0.y,w:_vw,h:_vh};if(nearR(vd,16))add(vd.x+vd.w/2,vd.y+vd.h/2,vd.y+vd.h-34,()=>openVanStorage());if(nearR(SHOP_RECT,16))add(SHOP_RECT.x+SHOP_RECT.w/2,SHOP_RECT.y+SHOP_RECT.h/2,SHOP_RECT.y-6,()=>openShop());}
   const sid=nearStore();if(sid){const d=roomDecor[room][sid],c=CAT[d.k]||{w:32,h:32},s=d.s||1;add(d.x+c.w*s/2,d.y+c.h*s/2,d.y-8,()=>{if(d.storeArea){openArea(d.storeArea);}else{openPanelFor(d.storeLoc||("decor:"+room+":"+sid));}});}
+  for(const {d:_wd} of decorList(room)){if(_wd.k==="wardrobe"){const _wc=CAT[_wd.k]||{w:58,h:46},_ws=_wd.s||1,_wcx=_wd.x+_wc.w*_ws/2,_wcy=_wd.y+_wc.h*_ws;if(Math.hypot(player.x-_wcx,player.y-_wcy)<58)add(_wcx,_wcy,_wd.y-8,openCharEditor);break;}}
   const pk=nearPlace();if(pk){const p=PLACES[pk];add(p.x+p.w/2,p.y+p.h/2,p.y,()=>openContainer(pk));}
   if(!cands.length)return null;
   const fv=player.dir==="left"?[-1,0]:player.dir==="right"?[1,0]:player.dir==="up"?[0,-1]:[0,1];
@@ -692,6 +715,25 @@ async function saveYukiMem(k,v){try{await set(ref(db,BASE+"/bot/memory/"+_memKey
 async function saveYukiTrait(k,v){try{await set(ref(db,BASE+"/bot/traits/"+_memKey(k)),{value:String(v).slice(0,400),updated:Date.now()});}catch(e){}}
 function yukiBubble(who,text,cls){const box=$("yukiMsgs");if(!box)return null;const d=document.createElement("div");d.className="ym "+(cls||"");d.innerHTML='<b>'+who+':</b> '+text.replace(/</g,"&lt;");box.appendChild(d);box.scrollTop=box.scrollHeight;return d;}
 async function yukiModel(){try{let m=(await get(ref(db,BASE+"/bot/model"))).val();if(!m)m=(await get(ref(db,"public/bot/model"))).val();return m||"dolphin3";}catch(e){return "dolphin3";}}
+// ===== Character editor (LimeZu modular parts, composited live in-browser, Firebase-saved) =====
+const CE_CATS=[{k:"body",label:"Skin",none:false},{k:"hair",label:"Hair",none:true},{k:"eyes",label:"Eyes",none:false},{k:"outfit",label:"Outfit",none:true},{k:"acc",label:"Extra",none:true}];
+let CE_MAN=null,ceSel={body:0,eyes:0,hair:0,outfit:0,acc:-1},ceTab="body",ceCache={};
+function ceLoadStrip(k,i){return new Promise(res=>{if(i<0)return res(null);const key=k+i;if(ceCache[key])return res(ceCache[key]);const im=new Image();im.onload=()=>{ceCache[key]=im;res(im);};im.onerror=()=>res(null);im.src="chars/"+k+"/"+k+i+".png";});}
+async function ceComposite(){const s=document.createElement("canvas");s.width=768;s.height=64;const c=s.getContext("2d");c.imageSmoothingEnabled=false;for(const cat of CE_CATS){const im=await ceLoadStrip(cat.k,ceSel[cat.k]);if(im)c.drawImage(im,0,0);}return s;}
+async function ceApply(){const strip=await ceComposite();const sc=document.createElement("canvas");sc.width=768;sc.height=320;const g=sc.getContext("2d");g.imageSmoothingEnabled=false;g.drawImage(strip,0,128);charCanvas=sc;}
+async function cePreview(){const strip=await ceComposite();const p=$("cePrev");if(!p)return;const g=p.getContext("2d");g.imageSmoothingEnabled=false;g.clearRect(0,0,96,192);g.drawImage(strip,18*32,0,32,64,0,0,96,192);}
+function ceTabs(){const t=$("ceTabs");if(!t)return;t.innerHTML="";for(const cat of CE_CATS){const b=document.createElement("div");b.className="ceTab"+(cat.k===ceTab?" on":"");b.textContent=cat.label;b.onclick=()=>{ceTab=cat.k;ceTabs();ceGrid();};t.appendChild(b);}}
+async function ceThumb(cat,i){const cv=document.createElement("canvas");cv.width=32;cv.height=64;const cx=cv.getContext("2d");cx.imageSmoothingEnabled=false;if(cat!=="body"){const b=await ceLoadStrip("body",ceSel.body<0?0:ceSel.body);if(b)cx.drawImage(b,18*32,0,32,64,0,0,32,64);}const im=await ceLoadStrip(cat,i);if(im)cx.drawImage(im,18*32,0,32,64,0,0,32,64);return cv;}
+async function ceGrid(){const g=$("ceGrid");if(!g)return;g.innerHTML="";const cat=CE_CATS.find(c=>c.k===ceTab);const opts=(CE_MAN&&CE_MAN[ceTab])||[];
+  const addOpt=async(i)=>{const o=document.createElement("div");o.className="ceOpt"+(ceSel[ceTab]===i?" on":"")+(i<0?" none":"");if(i<0){o.textContent="None";}else{o.appendChild(await ceThumb(ceTab,i));}o.onclick=()=>{ceSel[ceTab]=i;ceGrid();cePreview();};g.appendChild(o);};
+  if(cat.none)await addOpt(-1);
+  for(let i=0;i<opts.length;i++)await addOpt(i);}
+async function openCharEditor(){if(!CE_MAN){try{CE_MAN=await (await fetch("chars/manifest.json")).json();}catch(e){CE_MAN={};}}ceTab="body";ceTabs();await ceGrid();await cePreview();$("charEditor").classList.add("open");}
+function closeCharEditor(){$("charEditor").classList.remove("open");}
+async function ceSaveChar(){await ceApply();try{await set(ref(db,BASE+"/loadout/char"),ceSel);}catch(e){}closeCharEditor();}
+async function ceLoadSaved(){try{const v=(await get(ref(db,BASE+"/loadout/char"))).val();if(v){for(const k in ceSel)if(v[k]!=null)ceSel[k]=v[k];await ceApply();}}catch(e){}}
+(function(){const c=$("ceClose");if(c)c.onclick=closeCharEditor;const s=$("ceSave");if(s)s.onclick=ceSaveChar;const d=$("dressBtn");if(d)d.onclick=openCharEditor;const r=$("ceRandom");if(r)r.onclick=async()=>{for(const cat of CE_CATS){const opts=(CE_MAN&&CE_MAN[cat.k])||[];if(!opts.length)continue;ceSel[cat.k]=(cat.none&&Math.random()<0.25)?-1:Math.floor(Math.random()*opts.length);}await ceGrid();await cePreview();};})();
+ceLoadSaved();
 // ---- Yuki live game-editor (Tier 1: Firebase data only) ----
 function loadoutValidDecorKeys(){try{return Object.keys(catImg||{}).filter(function(k){return catImg[k]&&catImg[k].complete;});}catch(e){return [];}}
 function loadoutEditContext(){try{
@@ -884,8 +926,8 @@ function drawPlace(key,p){const x=p.x,y=p.y,w=p.w,h=p.h,n=(byLoc[key]||[]).lengt
   ctx.fillStyle="#cfd6de";ctx.fillText(p.label.toUpperCase(),x+w/2,y-5);ctx.fillStyle="#f2a541";ctx.fillText("· "+n+" ·",x+w/2,y+h-6);}
 function drawPlayer(){const base=player.dir==="up"?6:(player.dir==="down"?18:0);const yRow=128,col=base+(player.moving?player.frame:0);
   const sx=col*FW,sy=yRow,dw=FW*SC,dh=FH*SC,dx=Math.floor(player.x-dw/2),dy=Math.floor(player.y-dh+8);
-  if(!sheetOk){ctx.fillStyle="#f2a541";ctx.fillRect(player.x-6,player.y-22,12,22);return;}
-  ctx.save();if(player.dir==="left"){ctx.translate(dx+dw,dy);ctx.scale(-1,1);ctx.drawImage(sheet,sx,sy,FW,FH,0,0,dw,dh);}else ctx.drawImage(sheet,sx,sy,FW,FH,dx,dy,dw,dh);ctx.restore();}
+  const _src=charCanvas||sheet;if(!charCanvas&&!sheetOk){ctx.fillStyle="#f2a541";ctx.fillRect(player.x-6,player.y-22,12,22);return;}
+  ctx.save();if(player.dir==="left"){ctx.translate(dx+dw,dy);ctx.scale(-1,1);ctx.drawImage(_src,sx,sy,FW,FH,0,0,dw,dh);}else ctx.drawImage(_src,sx,sy,FW,FH,dx,dy,dw,dh);ctx.restore();}
 function drawPrompt(p){const px=p.x+p.w/2,py=p.y-24+Math.sin(performance.now()/240)*2;
   ctx.fillStyle="#f2a541";ctx.strokeStyle="#0c0f13";ctx.lineWidth=2;ctx.beginPath();ctx.roundRect(px-9,py-9,18,18,4);ctx.fill();ctx.stroke();
   ctx.fillStyle="#0c0f13";ctx.font="bold 11px monospace";ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText("E",px,py+1);ctx.textBaseline="alphabetic";}
