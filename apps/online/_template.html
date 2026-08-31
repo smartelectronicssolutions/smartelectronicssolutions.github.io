@@ -1,0 +1,114 @@
+<!doctype html>
+<!-- ============================================================================
+     HOUSE TEMPLATE — copy this to start a new online app. See _house-style.md.
+     Replace: <title>, the <h1>, the app <style>, NODE, and the main content.
+     DO NOT inline a firebaseConfig, DO NOT hand-roll login — both are shared.
+     ============================================================================ -->
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>App Name</title>
+
+  <link rel="stylesheet" href="../assets/css/online.css" />
+  <link rel="icon" href="../../favicon.ico" />
+
+  <!-- theme bootstrap: apply saved light/dark BEFORE first paint (prevents flash) -->
+  <script>
+    (function () {
+      const t = localStorage.getItem("ss-theme");
+      if (t === "light") document.documentElement.classList.add("light");
+    })();
+  </script>
+
+  <!-- shared login/logout wiring — drives the #auth-btn / #login-inline / #do-login template below -->
+  <script type="module" src="../assets/js/auth.js"></script>
+
+  <!-- optional per-app helper scripts, e.g.:
+  <script src="../assets/js/search.js" defer></script> -->
+
+  <style>
+    /* app-specific styles ONLY — the shared look comes from online.css */
+    .app-shell {
+      max-width: 900px;
+      margin: auto;
+      padding: 12px;
+    }
+  </style>
+</head>
+
+<body>
+
+  <header style="position:relative;">
+    <div class="logo-box"><a href="../../index.html"><img src="../../assets/img/android-chrome-192x192.png"
+          alt="Luis Solutions"></a></div>
+    <h1>App Name</h1>
+    <div class="auth-bar">
+      <span id="auth-label">Not signed in</span>
+      <button id="auth-btn">Sign In</button>
+    </div>
+    <button id="theme-toggle" title="Toggle theme">☀️</button>
+    <script>
+      (function () {
+        const btn = document.getElementById("theme-toggle");
+        const html = document.documentElement;
+        btn.textContent = html.classList.contains("light") ? "🌙" : "☀️";
+        btn.addEventListener("click", function () {
+          const next = html.classList.contains("light") ? "dark" : "light";
+          html.classList.toggle("light", next === "light");
+          localStorage.setItem("ss-theme", next);
+          btn.textContent = next === "light" ? "🌙" : "☀️";
+        });
+      })();
+    </script>
+    <div id="login-inline">
+      <h3>Sign In</h3>
+      <input type="email" id="email-in" placeholder="Email" />
+      <input type="password" id="pass-in" placeholder="Password" />
+      <button id="do-login">Sign In</button>
+      <p id="auth-err"></p>
+    </div>
+  </header>
+
+  <main>
+    <div class="app-shell">
+      <!-- app UI goes here -->
+    </div>
+  </main>
+
+  <script type="module">
+    // ── Firebase: shared init. NEVER inline a firebaseConfig here. ──
+    import { auth, database, ref, get, set, push, update, remove, onValue, onAuthStateChanged }
+      from "../assets/js/firebase-init.js";
+
+    // ── data path: your own uid node when signed in, else the shared public node ──
+    let BASE_PATH = "public";
+    const NODE = "myNode";                       // <-- the RTDB node this app owns
+    const dataRef = () => ref(database, `${BASE_PATH}/${NODE}`);
+
+    // ── login reaction: auth.js already updates the button/label + login box;
+    //    here we only set the data path and (re)load. ──
+    onAuthStateChanged(auth, (user) => {
+      BASE_PATH = user ? user.uid : "public";
+      load();
+    });
+
+    async function load() {
+      const snap = await get(dataRef());
+      render(snap.val() || {});
+    }
+
+    async function save(item) {
+      await push(dataRef(), item);               // or set(ref(database, `${BASE_PATH}/${NODE}/${id}`), item)
+    }
+
+    function render(data) {
+      // draw the UI from `data`
+    }
+
+    load();
+  </script>
+</body>
+
+</html>
