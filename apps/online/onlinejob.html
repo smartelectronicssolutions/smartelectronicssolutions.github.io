@@ -1298,6 +1298,11 @@
       document.getElementById("modal").style.display = "flex";
     }
 
+    // Overwriting a storage object keeps its download token, so the URL doesn't
+    // change and the browser keeps serving its cached copy of the old image —
+    // append a version param so re-stamped images actually refresh.
+    const bustUrl = u => u + (u.includes("?") ? "&" : "?") + "v=" + Date.now();
+
     // Crop the bottom stamp strip off an image blob. Uses the same formula
     // stampImg() uses for strip height — max(40, round(width/22)).
     function unstampImg(blob) {
@@ -1325,12 +1330,12 @@
       const item = modalItems[modalIndex];
       if (!item?.fullPath) { alert("This image can't be re-uploaded (no storage path)."); return; }
       try {
-        const res = await fetch(item.url);
+        const res = await fetch(item.url, { cache: "reload" });
         const blob = await res.blob();
         const newBlob = await transformFn(blob);
         const sRef = storageRef(storage, item.fullPath);
         await uploadBytes(sRef, newBlob, { contentType: "image/jpeg" });
-        const newUrl = await getDownloadURL(sRef);
+        const newUrl = bustUrl(await getDownloadURL(sRef));
         item.url = newUrl;
         document.getElementById("modalImage").src = newUrl;
       } catch (e) {
@@ -1588,11 +1593,11 @@
           const text = markupInp.value.trim() || auto;
           if (!confirm(`Apply label "${text}" to this image?`)) return;
           try {
-            const res = await fetch(img.url); const blob = await res.blob();
+            const res = await fetch(img.url, { cache: "reload" }); const blob = await res.blob();
             const stamped = await stampImg(blob, text);
             const sRef = storageRef(storage, img.path);
             await uploadBytes(sRef, stamped, { contentType: "image/jpeg" });
-            const newUrl = await getDownloadURL(sRef);
+            const newUrl = bustUrl(await getDownloadURL(sRef));
             const imgs = [...images]; imgs[idx] = { ...imgs[idx], url: newUrl, markup: text }; d.images = imgs;
             await set(dbRef(database, `${basePath}/images`), imgs);
             renderDeviceTable();
@@ -1607,11 +1612,11 @@
         removeBtn.onclick = async () => {
           if (!confirm("Remove the label bar from this image? (Crops one bar per click.)")) return;
           try {
-            const res = await fetch(img.url); const blob = await res.blob();
+            const res = await fetch(img.url, { cache: "reload" }); const blob = await res.blob();
             const cropped = await unstampImg(blob);
             const sRef = storageRef(storage, img.path);
             await uploadBytes(sRef, cropped, { contentType: "image/jpeg" });
-            const newUrl = await getDownloadURL(sRef);
+            const newUrl = bustUrl(await getDownloadURL(sRef));
             const imgs = [...images]; imgs[idx] = { ...imgs[idx], url: newUrl, markup: "" }; d.images = imgs;
             await set(dbRef(database, `${basePath}/images`), imgs);
             renderDeviceTable();
