@@ -385,11 +385,12 @@ $("acctClose").onclick=()=>acctModal(false);
 $("acctSignin").onclick=async()=>{ const e=$("acctEmail").value.trim(),p=$("acctPass").value,er=$("acctErr"); er.textContent="Signing in\u2026";
   try{ await signInWithEmailAndPassword(auth,e,p); }catch(x){ er.textContent=(x&&x.code==="auth/invalid-credential")?"Wrong email or password.":((x&&x.message)||"Sign-in failed."); } };
 
+// Room storage is DECOR-based (Firebase public/loadout/decor — rack/ldesk/tvtable/etc
+// with store/storeArea flags). Only two fixed interaction points remain:
+// the Closet (opens the closet area) and the in-van Storage trigger.
 const PLACES={
-  desk:{room:"yourroom",label:"Desk",icon:"▤",x:330,y:250,w:58,h:46},
-  wardrobe:{room:"yourroom",label:"Wardrobe",icon:"▣",x:70,y:250,w:58,h:46},
-  van_tools:{room:"van",label:"Tools Case",icon:"▤",x:120,y:250,w:58,h:46},
-  van_hw:{room:"van",label:"Hardware Bin",icon:"▣",x:330,y:250,w:58,h:46},
+  closet:{room:"yourroom",label:"Closet",icon:"▣",x:70,y:250,w:58,h:46},
+  van_storage:{room:"van",label:"Storage",icon:"▣",x:220,y:250,w:58,h:46},
 };
 function defaultLoc(comp){const c=(comp||"").toLowerCase();
   if(["gpu","monitor","motherboard","psu","ram"].includes(c))return "desk";
@@ -397,6 +398,7 @@ function defaultLoc(comp){const c=(comp||"").toLowerCase();
   if(c==="power tools")return "flex1";
   if(c==="bits")return "flex2";
   if(c==="tester")return "flex3";
+  if(c==="backpack")return "backpack";
   if(["supplies","unsorted"].includes(c))return "techpac";
   if(["mounting","radar","suplies"].includes(c))return "veto";
   return "shelf";}
@@ -408,7 +410,7 @@ function roomToLoc(r){if(!r)return null;const s=String(r).toLowerCase();
   if(s.indexOf("truck")>=0||s.indexOf("toolbox")>=0)return "toolbox";
   if(s.indexOf("tool bag")>=0)return "toolbag";
   if(s.indexOf("flex")>=0)return "flex1";
-  if(s.indexOf("backpack")>=0)return "bag";
+  if(s.indexOf("backpack")>=0)return "backpack";   // the physical Backpack van zone, NOT the player's carry bag
   return null;}
 // van storage-view container zones — the REAL bags/cases (over the 320x288 cargo backdrop)
 const VZONES=[
@@ -421,10 +423,11 @@ const VZONES=[
   {loc:"toolbag",label:"Tool Bag",icon:"👝",x:216,y:52,w:96,h:38},
   {loc:"techpac",label:"Tech Pac Wheeler",icon:"🎒",x:216,y:98,w:54,h:94},
   {loc:"veto",label:"Pro Pac (Veto)",icon:"👜",x:276,y:98,w:40,h:94},
+  {loc:"backpack",label:"Backpack",icon:"🎒",x:20,y:200,w:54,h:44},
 ];
 const ZONEMETA={};VZONES.forEach(z=>ZONEMETA[z.loc]={label:z.label,icon:z.icon});
 function cslug(s){const b=String(s||"").trim().toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"");return "c:"+(b||"misc");}
-const CLABEL={cabinet:"Cabinet",closet:"Closet"};let CONTAINERS={};                      // container loc -> display name (from inventory `room`)
+const CLABEL={cabinet:"Cabinet",desk:"Desk"};let CONTAINERS={};                      // container loc -> display name (from inventory `room`)
 function locMeta(k){if(k&&k.indexOf("decor:")===0){const p=k.split(":"),d=(roomDecor[p[1]]||{})[p[2]];return{label:(CONTAINERS[k]&&CONTAINERS[k].name)||customName(p[1],p[2])||(d&&CAT[d.k]?CAT[d.k].label:"Storage"),icon:"📦"};}if(CONTAINERS[k]&&CONTAINERS[k].name)return{label:CONTAINERS[k].name,icon:"📦"};if(PLACES[k])return{...PLACES[k],label:customName(PLACES[k].room,k)||PLACES[k].label};return ZONEMETA[k]||(CLABEL[k]?{label:CLABEL[k],icon:"📦"}:{label:k,icon:"📦"});}
 function containerLocs(){const s=new Set(Object.keys(byLoc));for(const k in CONTAINERS)s.add(k);return [...s].filter(k=>k!=="bag"&&k.indexOf("decor:")!==0&&!PLACES[k]);}
 const SHOP_RECT={x:28,y:360,w:120,h:92};
@@ -1137,7 +1140,7 @@ function openArea(areaId){curArea=(areaId in AREAS)?areaId:(Object.keys(AREAS)[0
   $("storBag").textContent=(byLoc.bag||[]).length;
   $("storage").classList.add("open");requestAnimationFrame(renderArea);}
 function openVanStorage(){openArea("vanside");}
-function openContainer(key){if(key==="wardrobe"){openArea("closet");return;}openPanelFor(key);}
+function openContainer(key){if(key==="closet"||key==="wardrobe"){openArea("closet");return;}if(key==="van_storage"){openVanStorage();return;}openPanelFor(key);}
 $("storClose").addEventListener("click",()=>$("storage").classList.remove("open"));
 $("storage").addEventListener("click",e=>{if(e.target===$("storage"))$("storage").classList.remove("open");});
 function renderArea(){renderAreaChips();const scene=$("storScene"),img=$("storBg"),a=areaCfg(curArea);const _sp=$("scenePad");if(_sp&&img.naturalWidth&&_sp.clientHeight>40){const aw=_sp.clientWidth-14,ah=_sp.clientHeight-14;let sc=Math.max(0.25,Math.min(aw/img.naturalWidth,ah/img.naturalHeight));img.style.maxWidth="none";img.style.maxHeight="none";img.style.imageRendering="pixelated";img.style.width=Math.round(img.naturalWidth*sc)+"px";img.style.height=Math.round(img.naturalHeight*sc)+"px";}
