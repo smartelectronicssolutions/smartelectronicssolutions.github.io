@@ -415,6 +415,9 @@
                                 <button class="hbtn mc-sw" data-mc="create" style="padding:3px 9px;font-size:0.72rem;">Create</button>
                                 <button class="hbtn mc-sw" data-mc="oddo"   style="padding:3px 9px;font-size:0.72rem;">LouCraft</button>
                                 <button class="hbtn mc-sw" data-mc="off"     style="padding:3px 9px;font-size:0.72rem;">All Off</button>
+                                <span style="border-left:1px solid var(--border);margin:0 2px"></span>
+                                <button class="hbtn" id="mc-bedrock-on"  style="padding:3px 9px;font-size:0.72rem;">Bedrock On</button>
+                                <button class="hbtn" id="mc-bedrock-off" style="padding:3px 9px;font-size:0.72rem;">Bedrock Off</button>
                             </div>
                             <div id="mc-switch-msg" style="font-size:0.72rem;color:var(--muted);margin-top:5px;min-height:1em;"></div>
                         </div>
@@ -1305,6 +1308,24 @@ MOOD TAG: End every reply with [MOOD:X] where X is one of: happy sleepy excited 
         }
         document.querySelectorAll('.mc-sw').forEach(b =>
             b.addEventListener('click', () => mcSwitch(b.dataset.mc)));
+
+        // Bedrock on/off — separate from the one-at-a-time modded switch (small footprint,
+        // off-by-default since 2026-09-02; /start //stop are LAN-only server-side)
+        async function mcBedrock(on) {
+            const msg = document.getElementById('mc-switch-msg');
+            if (msg) msg.textContent = on ? 'Starting Bedrock…' : 'Stopping Bedrock…';
+            try {
+                const res = await mcApiFetch(on ? '/start' : '/stop',
+                    { method: 'POST', signal: AbortSignal.timeout(30000) });
+                const data = await res.json();
+                if (msg) msg.textContent = data.ok ? (on ? 'Bedrock started.' : 'Bedrock stopped.') : `Failed: ${data.output || data.error || '?'}`;
+            } catch (e) {
+                if (msg) msg.textContent = `Failed: ${e.message} (LAN only)`;
+            }
+            setTimeout(loadMCStatus, 2000);
+        }
+        document.getElementById('mc-bedrock-on')?.addEventListener('click', () => mcBedrock(true));
+        document.getElementById('mc-bedrock-off')?.addEventListener('click', () => mcBedrock(false));
 
         /* ── Microsoft / OneDrive ── */
         function showMsIn(token, name) {
