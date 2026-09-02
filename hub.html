@@ -328,6 +328,30 @@
 
         <!-- Dynamic content — rendered from Firebase after auth -->
         <div id="hub-content">
+            <!-- Overview: todos / upcoming work / recent topics / goings-on -->
+            <section class="hub-section">
+                <div class="grid-2">
+                    <div class="hcard">
+                        <h3>To-Dos <a href="websites/kh/index.html" target="_blank" style="float:right;font-size:0.72rem;color:steelblue;font-weight:400;text-transform:none;letter-spacing:0;text-decoration:none">open ↗</a></h3>
+                        <div id="ov-todos"><span style="color:var(--muted);font-style:italic">Loading…</span></div>
+                    </div>
+                    <div class="hcard">
+                        <h3>Upcoming Work <a href="apps/online/onlinejob.html" target="_blank" style="float:right;font-size:0.72rem;color:steelblue;font-weight:400;text-transform:none;letter-spacing:0;text-decoration:none">open ↗</a></h3>
+                        <div id="ov-work"><span style="color:var(--muted);font-style:italic">Loading…</span></div>
+                    </div>
+                </div>
+                <div class="grid-2">
+                    <div class="hcard">
+                        <h3>Recent Topics <a href="apps/online/onlinejournal.html" target="_blank" style="float:right;font-size:0.72rem;color:steelblue;font-weight:400;text-transform:none;letter-spacing:0;text-decoration:none">open ↗</a></h3>
+                        <div id="ov-topics"><span style="color:var(--muted);font-style:italic">Loading…</span></div>
+                    </div>
+                    <div class="hcard">
+                        <h3>Goings-On</h3>
+                        <div id="ov-goings"><span style="color:var(--muted);font-style:italic">Loading…</span></div>
+                    </div>
+                </div>
+            </section>
+
             <section class="hub-section">
                 <div class="hcard">
                     <h3>Services <button id="svc-refresh-btn" class="hbtn" style="float:right;padding:2px 8px;font-size:0.7rem;margin-top:-2px">↻</button></h3>
@@ -916,6 +940,16 @@ MOOD TAG: End every reply with [MOOD:X] where X is one of: happy sleepy excited 
                 .then(s => renderNotes(s.exists() ? Object.values(s.val()) : []))
                 .catch(() => renderNotes([]));
 
+            // Overview band: todos / upcoming work / recent topics / goings-on
+            get(ref(database, `${user.uid}/todos`))
+                .then(s => renderOvTodos(s.exists() ? s.val() : {}))
+                .catch(() => renderOvTodos({}));
+            get(ref(database, `${TELAID_UID}/tasks`))
+                .then(s => renderOvWork(s.exists() ? s.val() : {}))
+                .catch(() => { const el = document.getElementById('ov-work'); if (el) el.innerHTML = ovEmpty('No access'); });
+            loadOvTopics(user);
+            loadOvGoings(user);
+
             // MC Status + Docker
             loadMCStatus();
             loadDockerStatus();
@@ -1014,6 +1048,102 @@ MOOD TAG: End every reply with [MOOD:X] where X is one of: happy sleepy excited 
         document.getElementById('stat-sort')?.addEventListener('change', renderStatTimeline);
 
         /* ── Quick Notes ── */
+        /* ── Overview cards (todos / work / topics / goings-on) ── */
+        const TELAID_UID = 'SDN0vKPQ1qfN5vxkvhR3auVhDYq1';
+        const RTDB_URL = 'https://persinfo-df93f-default-rtdb.firebaseio.com';
+        const ovRow = (main, sub, extra) => `
+            <div style="padding:5px 0;border-bottom:1px solid #15273d;line-height:1.5">
+                <span style="color:steelblue;font-size:0.82rem">${main}</span>
+                ${extra ? `<span style="color:var(--muted);font-size:0.7rem;margin-left:8px">${extra}</span>` : ''}
+                ${sub ? `<br><span style="color:var(--muted);font-size:0.75rem">${sub}</span>` : ''}
+            </div>`;
+        const ovEmpty = msg => `<span style="color:var(--muted);font-style:italic">${msg}</span>`;
+
+        function renderOvTodos(todos) {
+            const el = document.getElementById('ov-todos'); if (!el) return;
+            const all = Object.values(todos || {}).filter(t => t && !t.archived);
+            const open = all.filter(t => t.type !== 'habit' && !t.done)
+                .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+            const habits = all.filter(t => t.type === 'habit');
+            const today = new Date().toLocaleDateString('en-CA');
+            const habitsDone = habits.filter(h => h.history && h.history[today]).length;
+            let html = open.slice(0, 6).map(t => {
+                const subs = Array.isArray(t.subtasks) ? t.subtasks : [];
+                const prog = subs.length ? `${subs.filter(s => s.done).length}/${subs.length}` : '';
+                return ovRow(escH(t.text || ''), '', prog);
+            }).join('');
+            if (habits.length) html += ovRow(`Habits today: ${habitsDone}/${habits.length}`, '', '');
+            if (open.length > 6) html += `<div style="color:var(--muted);font-size:0.72rem;padding-top:5px">+${open.length - 6} more</div>`;
+            el.innerHTML = html || ovEmpty('All clear');
+        }
+
+        function renderOvWork(tasks) {
+            const el = document.getElementById('ov-work'); if (!el) return;
+            const now = Date.now(), dayAgo = now - 86400000;
+            const rows = Object.entries(tasks || {})
+                .filter(([, t]) => t && typeof t === 'object' && t.startTime)
+                .map(([k, t]) => ({ t, ms: Date.parse(t.startTime) || 0 }))
+                .filter(r => r.ms >= dayAgo || (r.t.startTime && !r.t.endTime))
+                .sort((a, b) => a.ms - b.ms);
+            el.innerHTML = rows.slice(0, 6).map(({ t, ms }) => {
+                const open = t.startTime && !t.endTime;
+                const when = new Date(ms).toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
+                return ovRow(escH(t.customerName || t.project || '?'),
+                    escH([t.workOrder ? 'WO ' + t.workOrder : t.project, t.customerAddress].filter(Boolean).join(' · ').slice(0, 70)),
+                    when + (open ? ' · <span style="color:#4ade80">open</span>' : ''));
+            }).join('') || ovEmpty('Nothing scheduled');
+        }
+
+        async function loadOvTopics(user) {
+            const el = document.getElementById('ov-topics'); if (!el) return;
+            try {
+                const tok = await user.getIdToken();
+                const scopes = [[`${user.uid}/journalArticles`, 'private'], ['public/journalArticles', 'public']];
+                const ids = [];
+                for (const [path, scope] of scopes) {
+                    const r = await fetch(`${RTDB_URL}/${path}.json?shallow=true&auth=${tok}`);
+                    const keys = Object.keys(await r.json() || {});
+                    keys.sort().slice(-6).forEach(id => ids.push({ id, path, scope }));
+                }
+                ids.sort((a, b) => Number(b.id) - Number(a.id));
+                const top = ids.slice(0, 6);
+                const titles = await Promise.all(top.map(x =>
+                    fetch(`${RTDB_URL}/${x.path}/${x.id}/title.json?auth=${tok}`).then(r => r.json()).catch(() => null)));
+                el.innerHTML = top.map((x, i) => {
+                    if (!titles[i]) return '';
+                    const d = new Date(Number(x.id)).toLocaleDateString();
+                    return `<a href="apps/online/onlinejournal.html?id=${x.id}" target="_blank" style="text-decoration:none">${ovRow(escH(String(titles[i]).slice(0, 60)), '', `${d} · ${x.scope}`)}</a>`;
+                }).join('') || ovEmpty('No articles');
+            } catch { el.innerHTML = ovEmpty('Unavailable'); }
+        }
+
+        async function loadOvGoings(user) {
+            const el = document.getElementById('ov-goings'); if (!el) return;
+            const bits = [];
+            try {
+                const mb = await get(ref(database, `${user.uid}/fleet/mailbox/droplet`));
+                if (mb.exists()) {
+                    const msgs = Object.values(mb.val()).filter(m => m && m.status === 'pending');
+                    if (msgs.length) bits.push(ovRow(`📬 ${msgs.length} pending for Droplet`, escH(String(msgs[0].message || msgs[0].text || '').slice(0, 80)), ''));
+                }
+            } catch { }
+            try {
+                const rb = await get(ref(database, 'public/rotationBot/updated'));
+                if (rb.exists()) {
+                    const age = Math.round((Date.now() - Number(rb.val())) / 60000);
+                    bits.push(ovRow('📈 BTC/ETH rotation bot', '', age < 90 ? `checked ${age}m ago` : `stale ${Math.round(age / 60)}h`));
+                }
+            } catch { }
+            try {
+                const tk = await get(ref(database, 'public/serviceTickets'));
+                if (tk.exists()) {
+                    const openN = Object.values(tk.val()).filter(t => t && t.status !== 'closed' && t.status !== 'done').length;
+                    if (openN) bits.push(ovRow(`🎫 ${openN} open service tickets`, '', ''));
+                }
+            } catch { }
+            el.innerHTML = bits.join('') || ovEmpty('Quiet');
+        }
+
         function renderNotes(items) {
             const el = document.getElementById('notes-list');
             if (!el) return;
