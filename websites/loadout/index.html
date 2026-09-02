@@ -710,12 +710,29 @@ $("npcbox").addEventListener("click",e=>{e.stopPropagation();advDlg();});
 let joy=null,ptr=null,ptrMoved=false;
 cv.addEventListener("pointerdown",e=>{if(editMode||isOpen()||transing)return;ptr={id:e.pointerId,cx:e.clientX,cy:e.clientY,p:toLogical(e)};ptrMoved=false;joy=null;try{cv.setPointerCapture(e.pointerId);}catch(_){}});
 cv.addEventListener("pointermove",e=>{if(!ptr||e.pointerId!==ptr.id)return;const ax=e.clientX-ptr.cx,ay=e.clientY-ptr.cy,l=Math.hypot(ax,ay);if(l>=14){ptrMoved=true;moveTarget=null;joy={dx:ax/l,dy:ay/l};}});
-let lastTap=null; // double-tap = interact (same as the E button)
+// double-tap = interact with WHATEVER is under the taps (storage decor, NPC, place, shop, van...)
+function interactAt(p){
+  for(const id of npcsIn(room)){const n=NPCS[id];if(Math.hypot(p.x-n.x,p.y-n.y)<34)return()=>showDialogue(id);}
+  for(const {id,d} of decorList(room)){const c=CAT[d.k];if(!c)continue;const s=d.s||1;
+    if(p.x>=d.x&&p.x<=d.x+c.w*s&&p.y>=d.y&&p.y<=d.y+c.h*s){
+      if(d.changeStation)return openCharEditor;
+      if(d.reader)return()=>openReader(d.reader==="lib"?"lib":"books");
+      if(d.storeArea)return()=>openArea(d.storeArea);
+      if(d.store)return()=>openPanelFor(d.storeLoc||("decor:"+room+":"+id));
+    }}
+  for(const[k,pl]of placesIn(room)){if(p.x>=pl.x&&p.x<=pl.x+pl.w&&p.y>=pl.y&&p.y<=pl.y+pl.h)return()=>openContainer(k);}
+  if(room==="outside"){
+    const vd0=ROOMS.outside.doors[1],vw=(CAT.van?(CAT.van.w||156):156)*vs("van"),vh=(CAT.van?(CAT.van.h||96):96)*vs("van");
+    if(p.x>=vd0.x&&p.x<=vd0.x+vw&&p.y>=vd0.y&&p.y<=vd0.y+vh)return openVanStorage;
+    if(p.x>=SHOP_RECT.x&&p.x<=SHOP_RECT.x+SHOP_RECT.w&&p.y>=SHOP_RECT.y&&p.y<=SHOP_RECT.y+SHOP_RECT.h)return openShop;}
+  return null;}
+let lastTap=null;
 function endPtr(e){if(!ptr||(e&&e.pointerId!==ptr.id))return;
   if(!ptrMoved){
     const now=performance.now();
     if(lastTap&&now-lastTap.t<320&&Math.hypot(ptr.cx-lastTap.x,ptr.cy-lastTap.y)<48){
-      lastTap=null;moveTarget=null;tryOpen();
+      const act=interactAt(ptr.p);lastTap=null;
+      if(act){moveTarget=null;act();}else onPlayTap(ptr.p);
     }else{lastTap={t:now,x:ptr.cx,y:ptr.cy};onPlayTap(ptr.p);}
   }
   joy=null;ptr=null;}
@@ -1387,8 +1404,10 @@ function fitPass(){const app=document.querySelector(".app"),wrap=document.queryS
   if(!app||!wrap||!scr)return;
   const cs=getComputedStyle(app),pad=parseFloat(cs.paddingTop)+parseFloat(cs.paddingBottom);
   let chrome=0;for(const el of wrap.children){if(el===scr)continue;const r=el.getBoundingClientRect();if(!r.height)continue;
-    const m=getComputedStyle(el);chrome+=r.height+parseFloat(m.marginTop)+parseFloat(m.marginBottom);}
-  const availW=Math.min(app.clientWidth-24,860),availH=window.innerHeight-pad-chrome-12;
+    const m=getComputedStyle(el);if(m.position==="fixed"||m.position==="absolute"||m.display==="none")continue; // overlaid controls take no flow space
+    chrome+=r.height+parseFloat(m.marginTop)+parseFloat(m.marginBottom);}
+  const wide=matchMedia("(pointer:coarse) and (orientation:landscape)").matches;
+  const availW=Math.min(app.clientWidth-24,wide?1e4:860),availH=window.innerHeight-pad-chrome-12;
   const size=Math.max(240,Math.min(availW,availH));
   scr.style.width=size+"px";scr.style.height=size+"px";wrap.style.width=availW+"px";
   const sp=$("scenePad"),bg=$("storBg");                       // storage backdrop -> its real free space
