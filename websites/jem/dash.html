@@ -55,6 +55,7 @@
                   <option value="contacted">Contacted</option>
                   <option value="scheduled">Scheduled</option>
                   <option value="completed">Completed</option>
+                  <option value="paid">Paid</option>
                 </select>
               </div>
             </div>
@@ -108,6 +109,7 @@
         ref,
         set,
         get,
+        update,
         push,
         remove,
         onValue,
@@ -340,6 +342,10 @@
                 Open Invoice
               </button>
 
+              <button class="btn" data-paid="true">
+                💵 Paid
+              </button>
+
               <button class="btn btn-danger" data-delete="true">
                 Delete
               </button>
@@ -441,6 +447,84 @@
             }
 
             // 3. Open invoice with the task pre-loaded via URL param.
+            openIframe(`../../apps/online/onlineinvoice.html?task=${encodeURIComponent(taskId)}`);
+          });
+
+          // One-press close-out: make a paid-in-full invoice straight from the ticket.
+          // Writes the same record shape onlineinvoice saves (so it opens/prints there)
+          // plus the same income ledger tx, then marks the ticket "paid".
+          card.querySelector("[data-paid]").addEventListener("click", async () => {
+            if (!currentUser) { alert("Sign in first."); return; }
+            const amtStr = prompt(`Amount collected for ${ticket.ticketNumber || ticket.id} ($):`);
+            if (amtStr === null) return;
+            const amount = Math.round(Math.abs(parseFloat(amtStr) || 0) * 100) / 100;
+            if (!amount) { alert("Enter a dollar amount."); return; }
+
+            const noteParts = [];
+            if (ticket.service) noteParts.push(`Service: ${ticket.service}`);
+            if (ticket.vehicle) noteParts.push(`Vehicle: ${ticket.vehicle}`);
+            if (ticket.notes)   noteParts.push(ticket.notes);
+
+            // find-or-create the job record (same lookup as Open Invoice)
+            let taskId = null, existingTask = null;
+            try {
+              const tasksSnap = await get(ref(database, `${currentUser.uid}/tasks`));
+              const hit = Object.entries(tasksSnap.val() || {}).find(([_, t]) => t && t.fromTicketId === ticket.id);
+              if (hit) { taskId = hit[0]; existingTask = hit[1]; }
+            } catch (e) { /* fall through to create */ }
+            if (!taskId) {
+              taskId = Date.now().toString();
+              try {
+                await set(ref(database, `${currentUser.uid}/tasks/${taskId}`), {
+                  id: taskId,
+                  customerName:    ticket.name    || '',
+                  project:         ticket.ticketNumber || ticket.id || '',
+                  customerAddress: ticket.city    || '',
+                  customerPhone:   ticket.phone   || '',
+                  customerEmail:   ticket.email   || '',
+                  notes:           noteParts.join('\n'),
+                  segments:        [],
+                  fromTicketId:    ticket.id,
+                  createdFrom:     'ticket-paid-direct',
+                });
+              } catch (err) { alert("Failed to create job: " + err.message); return; }
+            }
+
+            const today = new Date().toISOString().slice(0, 10);
+            const amt2 = amount.toFixed(2);
+            const inv = {
+              invoiceType: 'invoice',
+              number: ticket.ticketNumber || ticket.id || '',
+              invoiceDate: today, due: today,
+              customerName: ticket.name || '', customerPhone: ticket.phone || '',
+              customerEmail: ticket.email || '', customerAddress: ticket.city || '',
+              invoiceNotes: noteParts.join('\n'),
+              parts: [],
+              labor: [{ desc: [ticket.service, ticket.vehicle].filter(Boolean).join(' — ') || 'Service', hours: '', rate: '', total: amt2 }],
+              taxPercent: 0, subtotal: amt2, tax: '0.00', total: amt2,
+              amountPaid: amount, paidDate: today,
+              invoiceTitle: localStorage.getItem('ss-lastBiz') || 'JE Auto Care',
+              paid: true, savedAt: Date.now(), invoiceSaved: true,
+            };
+            const dateTS = Date.UTC(+today.slice(0, 4), +today.slice(5, 7) - 1, +today.slice(8, 10), 12, 0, 0);
+            const year = new Date(dateTS).getUTCFullYear();
+            // reuse an existing payment tx if the invoice was already paid once (no duplicates)
+            const txId = (existingTask && existingTask.paymentTxId) || String(Date.now());
+            const txYear = (existingTask && Number(existingTask.paymentTxYear)) || year;
+            try {
+              await update(ref(database, `${currentUser.uid}/tasks/${taskId}`), inv);
+              if (txYear !== year) await set(ref(database, `${currentUser.uid}/ledgerTx/${txYear}/${txId}`), null);
+              await set(ref(database, `${currentUser.uid}/ledgerTx/${year}/${txId}`), {
+                amt: amount, cat: '', sub: '', sku: '', link: '', img: '', imgPath: '',
+                name: `Invoice Payment — ${ticket.name || 'Unknown'} (${ticket.ticketNumber || ticket.id})`,
+                desc: `Source invoiceId: ${taskId}`,
+                tags: ['invoice', 'payment'], type: 'income', date: dateTS,
+              });
+              await update(ref(database, `${currentUser.uid}/tasks/${taskId}`), { paymentTxId: txId, paymentTxYear: year });
+              await set(ref(database, `public/serviceTickets/${ticket.id}`), { ...ticket, status: 'paid', updatedAt: Date.now() });
+            } catch (err) { alert("Failed to record payment: " + err.message); return; }
+
+            // open the finished invoice for print/PDF
             openIframe(`../../apps/online/onlineinvoice.html?task=${encodeURIComponent(taskId)}`);
           });
 
