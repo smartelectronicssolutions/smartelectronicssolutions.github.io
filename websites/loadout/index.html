@@ -284,6 +284,7 @@
       <div class="stpal" id="stPal"></div>
       <label class="stc">Custom <input type="color" id="stColor" value="#c9a06a"></label>
       <div class="stsize">W<input type="number" id="stW" min="4" max="72" value="24">H<input type="number" id="stH" min="4" max="72" value="32"><button class="sttool" id="stResize">Resize</button></div>
+      <div class="stsize" title="How many pixels up from the bottom block walking. 0 = walk right through. Blank = automatic.">🚶<input type="number" id="stBase" min="0" max="72" placeholder="auto" style="width:52px">px blocks</div>
       <button class="sttool" id="stClear">Clear</button>
       <button class="sttool" id="stLoad">Load a piece…</button>
     </div>
@@ -662,7 +663,11 @@ function solidRects(r){const rects=[];
     const hd=ROOMS.outside.doors[0];rects.push({x:hd.x+14,y:hd.y+24,w:122,h:68});                              // house body
     rects.push({x:SHOP_RECT.x+6,y:SHOP_RECT.y+28,w:SHOP_RECT.w-12,h:SHOP_RECT.h-32});}                         // shop
   for(const [k,p] of placesIn(r))rects.push({x:p.x,y:p.y+p.h-14,w:p.w,h:16});
-  for(const {d} of decorList(r)){if(!isSolid(d.k))continue;const s=d.s||1;let w=CAT[d.k].w*s,h=CAT[d.k].h*s;if((d.rot||0)%2){const t=w;w=h;h=t;}const ch=(CAT[d.k].h>=80)?Math.round(h*0.5):14;rects.push({x:d.x+4,y:d.y+h-ch,w:w-8,h:ch});}
+  for(const {d} of decorList(r)){const cb=CAT[d.k]?CAT[d.k].base:undefined;
+    if(cb!=null){if(cb<=0)continue;}else if(!isSolid(d.k))continue;
+    const s=d.s||1;let w=CAT[d.k].w*s,h=CAT[d.k].h*s;if((d.rot||0)%2){const t=w;w=h;h=t;}
+    const ch=(cb!=null)?Math.max(1,Math.round(cb*s)):((CAT[d.k].h>=80)?Math.round(h*0.5):14);
+    rects.push({x:d.x+4,y:d.y+h-ch,w:w-8,h:ch});}
   return rects;}
 function blocked(x,y){const r=feetRect(x,y);
   if(room!=="outside"){if(r.x<ROOMR.x||r.y<ROOMR.y-24||r.x+r.w>ROOMR.x+ROOMR.w||r.y+r.h>ROOMR.y+ROOMR.h)return true;}
@@ -1124,7 +1129,7 @@ function stBlank(w,h){return Array.from({length:h},()=>Array.from({length:w},()=
 $("studioBtn").addEventListener("click",openStudio);
 $("stClose").addEventListener("click",()=>$("studio").classList.remove("open"));
 $("studio").addEventListener("click",e=>{if(e.target===$("studio"))$("studio").classList.remove("open");});
-function openStudio(){ST.w=Math.max(4,Math.min(72,+$("stW").value||24));ST.h=Math.max(4,Math.min(72,+$("stH").value||32));ST.cells=stBlank(ST.w,ST.h);ST.loadKey=null;$("stTitle").textContent="Sprite Studio";$("stName").value="";buildStTools();buildStPal();stFit();stDraw();$("studio").classList.add("open");}
+function openStudio(){ST.w=Math.max(4,Math.min(72,+$("stW").value||24));ST.h=Math.max(4,Math.min(72,+$("stH").value||32));ST.cells=stBlank(ST.w,ST.h);ST.loadKey=null;$("stTitle").textContent="Sprite Studio";$("stName").value="";$("stBase").value="";buildStTools();buildStPal();stFit();stDraw();$("studio").classList.add("open");}
 function buildStTools(){const t=$("stTools");t.innerHTML="";[["pencil","✏️ Draw"],["eraser","⌫ Erase"],["fill","🪣 Fill"],["pick","💧 Pick"]].forEach(([k,l])=>{const b=document.createElement("div");b.className="sttool"+(ST.tool===k?" on":"");b.textContent=l;b.onclick=()=>{ST.tool=k;buildStTools();};t.appendChild(b);});}
 function buildStPal(){const p=$("stPal");p.innerHTML="";PALS.forEach(c=>{const s=document.createElement("div");s.className="sw"+(c===ST.color?" on":"");s.style.background=c==="transparent"?"repeating-conic-gradient(#555 0 25%,#333 0 50%) 0/8px 8px":c;s.title=c;s.onclick=()=>{ST.color=c;if(c!=="transparent")$("stColor").value=c;buildStPal();};p.appendChild(s);});}
 $("stColor").addEventListener("input",e=>{ST.color=e.target.value;buildStPal();});
@@ -1147,13 +1152,14 @@ $("stClear").addEventListener("click",()=>{ST.cells=stBlank(ST.w,ST.h);stDraw();
 $("stLoad").addEventListener("click",()=>{const keys=Object.keys(CAT).sort();const k=prompt("Load which piece to edit?\n\n"+keys.join(", "));if(k&&CAT[k])stLoadPiece(k.trim());});
 function stLoadPiece(k){const c=CAT[k];const im=new Image();im.onload=()=>{const w=Math.min(72,c.w),h=Math.min(72,c.h);const oc=document.createElement("canvas");oc.width=w;oc.height=h;const o=oc.getContext("2d");o.imageSmoothingEnabled=false;o.drawImage(im,0,0,w,h);const dt=o.getImageData(0,0,w,h).data;ST.w=w;ST.h=h;ST.cells=stBlank(w,h);
   for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=(y*w+x)*4;if(dt[i+3]>40)ST.cells[y][x]="#"+[dt[i],dt[i+1],dt[i+2]].map(n=>n.toString(16).padStart(2,"0")).join("");}
-  $("stW").value=w;$("stH").value=h;ST.loadKey=k;$("stTitle").textContent="Editing: "+(c.label||k);$("stName").value=c.label||k;stFit();stDraw();};im.src=c.du||c.url;}
+  $("stW").value=w;$("stH").value=h;ST.loadKey=k;$("stTitle").textContent="Editing: "+(c.label||k);$("stName").value=c.label||k;$("stBase").value=(c.base!=null?c.base:"");stFit();stDraw();};im.src=c.du||c.url;}
 $("stSave").addEventListener("click",()=>{const oc=document.createElement("canvas");oc.width=ST.w;oc.height=ST.h;const o=oc.getContext("2d");
   let any=false;for(let y=0;y<ST.h;y++)for(let x=0;x<ST.w;x++){const v=ST.cells[y][x];if(v){o.fillStyle=v;o.fillRect(x,y,1,1);any=true;}}
   if(!any){alert("Draw something first.");return;}
   const name=($("stName").value||"Custom sprite").trim(),cat=$("stCat").value;
   const key=ST.loadKey||("custom_"+Date.now().toString(36)+Math.floor(Math.random()*1e3).toString(36));
   const entry={du:oc.toDataURL("image/png"),w:ST.w,h:ST.h,cat,label:name};
+  const bv=$("stBase").value.trim();if(bv!=="")entry.base=Math.max(0,Math.min(ST.h,Math.round(+bv||0)));
   set(ref(db,"public/loadout/catalog/"+key),entry).catch(e=>alert("Save failed: "+e));
   CAT[key]=entry;delete catImg[key];loadCatImages();
   $("studio").classList.remove("open");
