@@ -86,6 +86,9 @@
   .colhead{font-family:var(--mono);font-size:.6rem;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);padding:9px 11px;border-bottom:1px solid var(--edge);display:flex;justify-content:space-between}
   .colhead b{color:var(--amber)}
   .cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:6px;padding:10px;overflow:auto;flex:1;align-content:start}
+  .allsec{margin:0 0 16px}
+  .allhead{display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:.66rem;letter-spacing:.12em;color:#f2d9a0;padding:5px 3px;border-bottom:1px solid var(--edge);margin-bottom:7px;position:sticky;top:0;background:var(--panel);z-index:1}
+  .allgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:6px}
   .it{aspect-ratio:1;background:linear-gradient(145deg,#0c1013,#0a0d10);border:1px solid var(--edge);border-radius:7px;position:relative;cursor:pointer}
   .it:hover{border-color:var(--amber);box-shadow:inset 0 0 20px -8px var(--amber)}
   .it img{position:absolute;inset:6px;width:calc(100% - 12px);height:calc(100% - 12px);object-fit:contain;border-radius:3px;background:#f4f5f6;pointer-events:none}
@@ -300,12 +303,17 @@
 </div></div>
 
 <div class="overlay" id="storage"><div class="storwrap">
-  <div class="storhead"><div class="ic" id="storIc">🚐</div><h2 id="storTitle" contenteditable="true" spellcheck="false" title="Tap to rename" style="cursor:text;border-bottom:1px dashed rgba(242,165,65,.45)">The Van</h2><div class="pill">BACKPACK <b id="storBag">0</b></div><button class="closeb" id="storClose">✕</button></div>
+  <div class="storhead"><div class="ic" id="storIc">🚐</div><h2 id="storTitle" contenteditable="true" spellcheck="false" title="Tap to rename" style="cursor:text;border-bottom:1px dashed rgba(242,165,65,.45)">The Van</h2><div class="pill">BACKPACK <b id="storBag">0</b></div><button class="closeb" id="storAll" title="Browse all storage" style="width:auto;padding:0 10px;font-size:.7rem">📋 All</button><button class="closeb" id="storClose">✕</button></div>
   <div class="storbar" id="storAreas"></div>
   <div class="storpick" id="storPick"></div>
   <div class="scenepad" id="scenePad"><div class="storscene" id="storScene"><img id="storBg" alt="storage area"></div></div>
   <div class="stortray" id="storTray"></div>
   <div class="storhint">Drag a container to arrange it · tap to open · drag from the tray above to place it here · drag onto an area tab to move it</div>
+</div></div>
+
+<div class="overlay" id="allstor"><div class="storwrap">
+  <div class="storhead"><div class="ic">📋</div><h2>All Storage</h2><div class="pill">TAP AN ITEM → ITS CRATE</div><button class="closeb" id="allClose">✕</button></div>
+  <div id="allBody" style="flex:1;min-height:0;overflow:auto;padding:12px 14px 48px"></div>
 </div></div>
 
 <div class="overlay" id="shop"><div class="storwrap" style="max-width:640px">
@@ -1192,6 +1200,22 @@ function openArea(areaId){curArea=(areaId in AREAS)?areaId:(Object.keys(AREAS)[0
 function openVanStorage(){openArea("van");}
 function openContainer(key){if(key==="closet"||key==="wardrobe"){openArea("closet");return;}if(key==="van_storage"){openVanStorage();return;}openPanelFor(key);}
 $("storClose").addEventListener("click",()=>$("storage").classList.remove("open"));
+function openAllStorage(){const body=$("allBody");body.innerHTML="";
+  const seen=new Set(),order=[];const add=k=>{if(k&&k!=="bag"&&!seen.has(k)){seen.add(k);order.push(k);}};
+  for(const k in PLACES)add(k);if(typeof VZONES!=="undefined")VZONES.forEach(z=>add(z.loc));Object.keys(byLoc).forEach(add);for(const k in CONTAINERS)add(k);
+  const card=it=>{const d=document.createElement("div");d.className="it";
+    d.innerHTML=(it.img?`<img src="${esc(it.img)}" alt="${esc(it.name)}" onerror="this.style.display='none'">`:`<div class="empty" style="position:absolute;inset:3px;font-size:.5rem;line-height:1.12;display:flex;align-items:center;justify-content:center;text-align:center;word-break:break-word;overflow:hidden">${esc(it.name)}</div>`)+((it.qty||0)>1?`<span class="qn">${it.qty}</span>`:"");
+    d.title=it.name;d.addEventListener("click",()=>{$("allstor").classList.remove("open");openPanelFor(it.loc==="bag"?null:it.loc);});return d;};
+  const sec=(loc,items)=>{const m=locMeta(loc);const s=document.createElement("div");s.className="allsec";
+    const h=document.createElement("div");h.className="allhead";h.innerHTML=`<span>${m.icon||"📦"} ${esc(m.label)}</span><b>${items.length}</b>`;s.appendChild(h);
+    const g=document.createElement("div");g.className="allgrid";
+    if(!items.length){g.innerHTML='<div style="grid-column:1/-1;opacity:.45;font-size:.7rem;padding:4px 2px">— empty —</div>';}else{items.forEach(it=>g.appendChild(card(it)));}
+    s.appendChild(g);body.appendChild(s);};
+  sec("bag",byLoc.bag||[]);for(const loc of order)sec(loc,byLoc[loc]||[]);
+  $("allstor").classList.add("open");}
+$("storAll").addEventListener("click",openAllStorage);
+$("allClose").addEventListener("click",()=>$("allstor").classList.remove("open"));
+$("allstor").addEventListener("click",e=>{if(e.target===$("allstor"))$("allstor").classList.remove("open");});
 $("storage").addEventListener("click",e=>{if(e.target===$("storage"))$("storage").classList.remove("open");});
 // tapping the blank background inside the storage view (scene padding or the backdrop picture itself,
 // anywhere that's not a container/chip/tray) backs out of storage
