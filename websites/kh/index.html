@@ -92,6 +92,20 @@
           <label for="t-due">Due date</label>
           <input type="date" id="t-due">
         </div>
+        <div class="due-wrap" id="time-wrap">
+          <label for="t-time">Time (opt)</label>
+          <input type="time" id="t-time">
+        </div>
+        <div class="due-wrap" id="remind-wrap">
+          <label for="t-remind">Remind</label>
+          <select id="t-remind">
+            <option value="0">at time</option>
+            <option value="15">15m before</option>
+            <option value="30">30m before</option>
+            <option value="60">1h before</option>
+            <option value="none">no ping</option>
+          </select>
+        </div>
         <button type="submit">Add</button>
       </form>
     </section>
@@ -107,6 +121,11 @@
 
     <section class="card" id="auth-gate" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;margin-bottom:16px;">
       <p style="margin:0;">Sign in to use your todo list. Data lives under your Firebase uid; the Week's Five planner reads from this same list.</p>
+    </section>
+
+    <section class="card today-card" id="today-card" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 18px;margin-bottom:16px;">
+      <h3 style="margin:0 0 10px;font-size:.9rem;">📅 Today</h3>
+      <ul id="today-list" style="list-style:none;margin:0;padding:0;"></ul>
     </section>
 
     <div id="anchors-container"></div>
@@ -201,6 +220,7 @@
         wfSlots = {};
         wfReviewNotes = '';
         container.innerHTML = '';
+        document.getElementById('today-card').style.display = 'none';
         const wf = document.getElementById('weeks-five-card');
         const rc = document.getElementById('review-card');
         if (wf) wf.style.display = 'none';
@@ -366,6 +386,8 @@
       assigneeWrap.style.display = isHabitOrRecurring ? 'block' : 'none';
       customDaysWrap.style.display = (isHabitOrRecurring && freqSel.value === 'custom') ? 'block' : 'none';
       dueWrap.classList.toggle('show', t === 'oneshot');
+      document.getElementById('time-wrap').classList.toggle('show', t === 'oneshot');
+      document.getElementById('remind-wrap').classList.toggle('show', t === 'oneshot');
     }
     typeSel.addEventListener('change', updateAddFormFields);
     freqSel.addEventListener('change', updateAddFormFields);
@@ -396,6 +418,12 @@
         payload.done = false;
         const due = document.getElementById('t-due').value;
         if (due) payload.dueDate = due;
+        const time = document.getElementById('t-time').value;
+        const remind = document.getElementById('t-remind').value;
+        if (time) {
+          payload.time = time;
+          if (remind !== 'none') payload.remindMin = parseInt(remind, 10) || 0;
+        }
         payload.subtasks = [];
       }
       push(ref(database, `${basePath}/todos`), payload);
@@ -467,9 +495,10 @@
       if (t.done) return { cls: '', label: 'done' };
       if (!t.dueDate) return { cls: '', label: 'no due date' };
       const today = todayISO();
-      if (t.dueDate < today) return { cls: 'overdue', label: `overdue (${t.dueDate})` };
-      if (t.dueDate === today) return { cls: 'due-today', label: 'due today' };
-      return { cls: '', label: `due ${t.dueDate}` };
+      const at = t.time ? ` ${t.time}` : '';
+      if (t.dueDate < today) return { cls: 'overdue', label: `overdue (${t.dueDate}${at})` };
+      if (t.dueDate === today) return { cls: 'due-today', label: `due today${at}` };
+      return { cls: '', label: `due ${t.dueDate}${at}` };
     }
 
     // ---- Year-grid ----
@@ -671,7 +700,55 @@
       setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 100);
     }
 
+    // ---- Today view: timed events first, then due items, then pending habits ----
+    function renderToday() {
+      const card = document.getElementById('today-card');
+      const list = document.getElementById('today-list');
+      const today = todayISO();
+      const items = [];
+      Object.entries(allTodos).forEach(([id, t]) => {
+        if (!t || t.archived) return;
+        const entry = { id, ...t };
+        if (!isTaskDueToday(entry)) return;
+        if (entry.type === 'oneshot') {
+          items.push({ entry, sort: entry.time ? '1' + entry.time : (entry.dueDate < today ? '0' : '2'),
+                       badge: entry.time || (entry.dueDate < today ? 'overdue' : 'due'), act: () => toggleOneshot(entry) });
+        } else if (entry.type === 'recurring') {
+          items.push({ entry, sort: '3', badge: frequencyLabel(entry), act: () => tickRecurring(entry) });
+        } else if (entry.type === 'habit') {
+          items.push({ entry, sort: '4', badge: 'habit', act: () => toggleHabitDay(entry, today) });
+        }
+      });
+      if (!items.length || !basePath) { card.style.display = 'none'; return; }
+      card.style.display = 'block';
+      items.sort((a, b) => a.sort.localeCompare(b.sort));
+      list.innerHTML = '';
+      items.forEach(it => {
+        const li = document.createElement('li');
+        li.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);font-size:.86rem;';
+        const badge = document.createElement('span');
+        const timed = /^\d\d:\d\d$/.test(it.badge);
+        badge.style.cssText = `min-width:56px;text-align:center;border-radius:4px;padding:2px 6px;font-size:.72rem;font-family:monospace;${timed ? 'background:var(--primary);color:#fff;' : 'background:var(--surface2,rgba(128,128,128,.15));color:var(--muted);'}`;
+        badge.textContent = it.badge;
+        const pill = document.createElement('span');
+        pill.className = `anchor-pill pill-${(it.entry.anchor || 'wildcard').toLowerCase()}`;
+        pill.style.fontSize = '.66rem';
+        pill.textContent = (it.entry.anchor || 'wildcard').slice(0, 4);
+        const txt = document.createElement('span');
+        txt.style.flex = '1';
+        txt.textContent = it.entry.text;
+        const done = document.createElement('button');
+        done.textContent = '✓';
+        done.title = 'Mark done';
+        done.style.cssText = 'background:var(--success,#1f8a3a);color:#fff;border:0;border-radius:4px;padding:2px 10px;cursor:pointer;';
+        done.addEventListener('click', it.act);
+        li.append(badge, pill, txt, done);
+        list.appendChild(li);
+      });
+    }
+
     function render() {
+      renderToday();
       container.innerHTML = '';
       const byAnchor = {};
       ANCHORS.forEach(a => byAnchor[a.key] = []);
