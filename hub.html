@@ -610,6 +610,14 @@
         .dc-switch { cursor: pointer; }
         .dc-log { font-family: monospace; font-size: 0.76rem; color: var(--muted); }
         .dc-log div { padding: 6px 0; border-bottom: 1px solid var(--border); }
+        /* mode toggle + quick mode: hide the review columns, one box -> auto-send */
+        #dc-mode { margin-left: auto; background: transparent; border: 1px solid var(--border); color: var(--muted);
+            border-radius: 6px; padding: 4px 11px; cursor: pointer; font-size: 0.72rem; font-family: var(--font-mono); }
+        #dc-mode:hover { color: var(--text); border-color: var(--text); }
+        #dc-wb.dc-quick .dc-wb { grid-template-columns: 1fr; }
+        #dc-wb.dc-quick .dc-wb .dc-col:nth-child(2), #dc-wb.dc-quick .dc-wb .dc-col:nth-child(3) { display: none; }
+        #dc-wb.dc-quick .dc-wb .dc-col { height: auto; min-height: 140px; max-height: 30vh; }
+        #dc-wb.dc-quick #dc-final { display: none; }
     </style>
     <div id="dc-console">
         <div class="dc-bar">
@@ -624,6 +632,7 @@
             <button class="dc-tab active" data-tab="wb">Workbench</button>
             <button class="dc-tab" data-tab="rt">Routines</button>
             <button class="dc-tab" data-tab="pg">Pings</button>
+            <button id="dc-mode" title="quick = one box, auto-enhance + auto-send; full = review every step">🔬 full</button>
         </div>
         <div class="dc-body">
             <!-- WORKBENCH -->
@@ -922,10 +931,24 @@
             await set(j, { kind: 'wake', status: 'queued', createdAt: Date.now(), ping: false });
             onValue(j, s => { const v = s.val(); if (v && (v.status === 'done' || v.status === 'error')) { b.textContent = '▲ wake Droplet'; b.disabled = false; } });
         };
-        $('#dc-enhance').onclick = enhance;
+        // mode: full = review every step; quick = enhance silently then auto-send
+        let dcMode = localStorage.getItem('dcMode') || 'full';
+        function applyMode() {
+            const quick = dcMode === 'quick';
+            $('#dc-wb').classList.toggle('dc-quick', quick);
+            $('#dc-mode').textContent = quick ? '⚡ quick' : '🔬 full';
+            $('#dc-enhance').textContent = quick ? '⚡ Send' : 'Enhance ▶';
+        }
+        applyMode();
+        $('#dc-mode').onclick = () => { dcMode = dcMode === 'quick' ? 'full' : 'quick'; localStorage.setItem('dcMode', dcMode); applyMode(); };
+        async function goRough() {
+            await enhance();
+            if (dcMode === 'quick' && $('#dc-final').value.trim()) pushToDroplet();
+        }
+        $('#dc-enhance').onclick = goRough;
         $('#dc-clear').onclick = () => { $('#dc-rough').value = ''; $('#dc-enh').innerHTML = '<span style="color:var(--muted)">Enhanced prompt appears here.</span>'; $('#dc-final').value = ''; $('#dc-sugg').innerHTML = ''; $('#dc-idx').innerHTML = ''; $('#dc-hitn').textContent = ''; $('#dc-verdict').textContent = ''; $('#dc-verdict').className = 'dc-vd'; $('#dc-mstatus').textContent = ''; $('#dc-push').disabled = true; };
         $('#dc-push').onclick = pushToDroplet;
-        $('#dc-rough').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) enhance(); });
+        $('#dc-rough').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) goRough(); });
         $('#dc-rt-add').onclick = addRoutine;
         $('#dc-rt-type').onchange = e => { const iv = e.target.value === 'interval'; $('#dc-rt-every').style.display = iv ? '' : 'none'; $('#dc-rt-time').style.display = iv ? 'none' : ''; };
         $('#dc-pg-enabled').onchange = e => set(ref(database, `${DC.base}/pings/settings`), { channel: 'telegram_dm', enabled: e.target.checked });
