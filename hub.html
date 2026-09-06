@@ -618,6 +618,15 @@
         #dc-wb.dc-quick .dc-wb .dc-col:nth-child(2), #dc-wb.dc-quick .dc-wb .dc-col:nth-child(3) { display: none; }
         #dc-wb.dc-quick .dc-wb .dc-col { height: auto; min-height: 140px; max-height: 30vh; }
         #dc-wb.dc-quick #dc-final { display: none; }
+        /* fleet tab */
+        .dc-fleet { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+        .dc-fleet .fp { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border);
+            border-radius: 8px; font-size: 0.8rem; font-family: var(--font-mono); background: var(--bg); }
+        .dc-fleet .fp .d { width: 8px; height: 8px; border-radius: 50%; background: #f87171; flex-shrink: 0; }
+        .dc-fleet .fp.up .d { background: #4ade80; }
+        #dc-autos .au { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 0.82rem; }
+        #dc-autos .au b { min-width: 220px; font-weight: 600; }
+        #dc-autos .au span { color: var(--muted); }
     </style>
     <div id="dc-console">
         <div class="dc-bar">
@@ -632,6 +641,7 @@
             <button class="dc-tab active" data-tab="wb">Workbench</button>
             <button class="dc-tab" data-tab="rt">Routines</button>
             <button class="dc-tab" data-tab="pg">Pings</button>
+            <button class="dc-tab" data-tab="fl">Fleet</button>
             <button id="dc-mode" title="quick = one box, auto-enhance + auto-send; full = review every step">🔬 full</button>
         </div>
         <div class="dc-body">
@@ -713,6 +723,21 @@
                 <h4 style="font-size:0.62rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin:14px 0 8px">Recent pings</h4>
                 <div class="dc-log" id="dc-pglog"></div>
             </div>
+            <!-- FLEET -->
+            <div class="dc-panel" id="dc-fl-panel">
+                <h4 style="font-size:0.62rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin:0 0 8px">Bots &amp; services <span id="dc-fl-age" style="text-transform:none;letter-spacing:0;margin-left:8px"></span></h4>
+                <div id="dc-fleet" class="dc-fleet"></div>
+                <div class="dc-rt" style="margin-top:16px">
+                    <label class="dc-chk" style="font-size:0.9rem"><input type="checkbox" id="dc-kh-enabled" class="dc-switch"> kh schedule reminders (⏰ timed pings + 📅 morning agenda)</label>
+                    <div class="dc-row" style="margin-top:8px">
+                        <label class="dc-chk">agenda at</label>
+                        <input type="time" class="dc-in" id="dc-kh-agenda" value="07:15">
+                        <span class="dc-status" id="dc-kh-status" style="margin:0"></span>
+                    </div>
+                </div>
+                <h4 style="font-size:0.62rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin:16px 0 8px">Standing automations (outside the Routines tab)</h4>
+                <div class="dc-log" id="dc-autos"></div>
+            </div>
         </div>
     </div>
     <script type="module">
@@ -747,7 +772,42 @@
             onValue(ref(database, `${DC.base}/routines`), s => renderRoutines(s.val() || {}));
             onValue(ref(database, `${DC.base}/pings/settings`), s => { $('#dc-pg-enabled').checked = (s.val() || {}).enabled !== false; });
             onValue(query(ref(database, `${DC.base}/pings/log`), limitToLast(20)), s => renderPingLog(s.val() || {}));
+            onValue(ref(database, `${DC.base}/fleet`), s => renderFleet(s.val() || {}));
+            onValue(ref(database, `${DC.base}/automations`), s => renderAutos(s.val() || {}));
+            onValue(ref(database, `${DC.base}/khReminders`), s => {
+                const c = s.val() || {};
+                $('#dc-kh-enabled').checked = c.enabled !== false;
+                if (document.activeElement !== $('#dc-kh-agenda')) $('#dc-kh-agenda').value = c.agendaTime || '07:15';
+            });
         });
+
+        function renderFleet(f) {
+            const names = Object.keys(f);
+            if (!names.length) { $('#dc-fleet').innerHTML = '<span style="color:var(--muted);font-size:0.82rem">No fleet data yet — daemon publishes every 2 min.</span>'; return; }
+            let newest = 0;
+            $('#dc-fleet').innerHTML = names.sort().map(n => {
+                newest = Math.max(newest, f[n].at || 0);
+                return `<div class="fp ${f[n].up ? 'up' : ''}"><span class="d"></span>${esc(n)}</div>`;
+            }).join('');
+            $('#dc-fl-age').textContent = newest ? 'checked ' + Math.round((Date.now() - newest) / 60000) + 'm ago' : '';
+        }
+
+        function renderAutos(a) {
+            $('#dc-autos').innerHTML = Object.keys(a).sort().map(k => {
+                const v = a[k] || {};
+                return `<div class="au"><b>${esc(v.label || k)}</b><span>${esc(v.where || '')}</span><span>${esc(v.schedule || '')}</span><span>→ ${esc(v.channel || '')}</span></div>`;
+            }).join('') || '<span style="color:var(--muted);font-size:0.82rem">Registry empty.</span>';
+        }
+
+        function saveKh() {
+            if (!DC.base) return;
+            set(ref(database, `${DC.base}/khReminders`), {
+                enabled: $('#dc-kh-enabled').checked,
+                agendaTime: $('#dc-kh-agenda').value || '07:15'
+            });
+            $('#dc-kh-status').textContent = 'saved';
+            setTimeout(() => $('#dc-kh-status').textContent = '', 1500);
+        }
 
         function renderMeta(m) {
             const dOn = m.daemonBeat && (Date.now() - m.daemonBeat < 60000);
@@ -959,7 +1019,10 @@
             $('#dc-wb').classList.toggle('active', t.dataset.tab === 'wb');
             $('#dc-rt-panel').classList.toggle('active', t.dataset.tab === 'rt');
             $('#dc-pg-panel').classList.toggle('active', t.dataset.tab === 'pg');
+            $('#dc-fl-panel').classList.toggle('active', t.dataset.tab === 'fl');
         });
+        $('#dc-kh-enabled').onchange = saveKh;
+        $('#dc-kh-agenda').onchange = saveKh;
         window.openDropletConsole = () => $('#dc-console').classList.add('open');
     </script>
 
