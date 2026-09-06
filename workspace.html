@@ -130,6 +130,14 @@
       display: block;
     }
 
+    /* ── Workspace search bar (sites/apps, mirrors hub) ── */
+    .ws-search {
+      width:100%; max-width:320px; padding:7px 12px; margin-bottom:14px; display:block;
+      background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+      color:var(--text); font-size:var(--sm); font-family:var(--font); outline:none;
+    }
+    .ws-search:focus { border-color:var(--accent); }
+
     /* ── Hub grid ── */
     .hub-grid {
       display: grid;
@@ -937,6 +945,7 @@
             <button class="pill" data-filter="personal">Personal</button>
             <button class="pill" data-filter="client">Client</button>
           </div>
+          <input type="search" id="siteSearch" placeholder="Search sites…" autocomplete="off" class="ws-search">
           <div class="sites-grid" id="sitesGrid"></div>
         </div>
 
@@ -951,6 +960,7 @@
             <button class="pill" data-cat="data">Data</button>
             <button class="pill" data-cat="games">Games</button>
           </div>
+          <input type="search" id="appSearch" placeholder="Search apps…" autocomplete="off" class="ws-search">
           <div id="appsGrid"></div>
         </div>
 
@@ -1108,6 +1118,12 @@
       for (let i = 0; i < str.length; i++) h = ((h * 33) ^ str.charCodeAt(i)) >>> 0;
       return PALETTE[h % PALETTE.length];
     }
+    // color by first letter (same letter -> same palette color), used across hub/apps/sites
+    function letterColor(str) {
+      const c = (str || '?').trim().toUpperCase().charCodeAt(0);
+      const i = (c >= 65 && c <= 90) ? c - 65 : (c >= 48 && c <= 57 ? c - 48 : 0);
+      return PALETTE[i % PALETTE.length];
+    }
 
     // ── Hub ──
     function buildHubItems() {
@@ -1148,7 +1164,7 @@
 
       function addCard(item, isFrequent) {
         const c = counts[item.id] || 0;
-        const color = hashColor(item.id);
+        const color = letterColor(item.title);
         const el = document.createElement('div');
         el.className = 'hub-card';
         el.style.boxShadow = `-3px 0 0 0 ${color}`;
@@ -1236,12 +1252,15 @@
     function renderSites(tag = 'all') {
       const grid = document.getElementById('sitesGrid');
       if (!grid) return;
+      const q = (document.getElementById('siteSearch')?.value || '').trim().toLowerCase();
       grid.innerHTML = '';
-      ALL_SITES
-        .filter(s => tag === 'all' || s.tag === tag)
+      const matches = ALL_SITES.filter(s => (tag === 'all' || s.tag === tag)
+        && (!q || (s.title + ' ' + (s.desc || '') + ' ' + (s.tag || '')).toLowerCase().includes(q)));
+      matches
         .forEach(s => {
           const a = document.createElement('a');
           a.className = 'site-card';
+          a.style.boxShadow = '-3px 0 0 0 ' + letterColor(s.title);
           a.href = s.link;
           a.target = '_blank';
           a.rel = 'noopener noreferrer';
@@ -1255,16 +1274,19 @@
           `;
           grid.appendChild(a);
         });
+      if (!matches.length) grid.innerHTML = '<p style="color:var(--muted);grid-column:1/-1;">No matches.</p>';
     }
 
     // ── Apps panel ──
     function renderApps(cat = 'all') {
       const grid = document.getElementById('appsGrid');
       if (!grid) return;
+      const q = (document.getElementById('appSearch')?.value || '').trim().toLowerCase();
       grid.innerHTML = '';
       const cats = cat === 'all' ? [...new Set(ALL_APPS.map(a => a.cat))] : [cat];
       cats.forEach(c => {
-        const items = ALL_APPS.filter(a => a.cat === c);
+        const items = ALL_APPS.filter(a => a.cat === c
+          && (!q || (a.title + ' ' + (a.desc || '') + ' ' + (a.tag || '')).toLowerCase().includes(q)));
         if (!items.length) return;
         const title = document.createElement('p');
         title.className = 'cat-title';
@@ -1277,6 +1299,7 @@
           el.className = 'app-tile';
           el.dataset.link = a.link;
           el.dataset.title = a.title;
+          el.style.boxShadow = '-3px 0 0 0 ' + letterColor(a.title);
           el.innerHTML = `<h3>${a.title}</h3><span class="tag">${a.tag || a.cat}</span><p>${a.desc || ''}</p>`;
           el.addEventListener('click', e => {
             bump(a.link);
@@ -1287,6 +1310,7 @@
         });
         grid.appendChild(g);
       });
+      if (!grid.children.length) grid.innerHTML = '<p class="cat-title" style="color:var(--muted);">No matches.</p>';
     }
 
 
@@ -1329,6 +1353,11 @@
       renderSites();
       renderApps();
     });
+
+    document.getElementById('siteSearch')?.addEventListener('input', () =>
+      renderSites(document.querySelector('#site-pills .pill.active')?.dataset.filter || 'all'));
+    document.getElementById('appSearch')?.addEventListener('input', () =>
+      renderApps(document.querySelector('#app-pills .pill.active')?.dataset.cat || 'all'));
 
     document.getElementById('hubSearch').addEventListener('input', function () {
       const q = this.value.trim().toLowerCase();

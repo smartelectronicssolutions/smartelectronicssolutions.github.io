@@ -535,6 +535,411 @@
         </form>
     </div>
 
+    <!-- ═══ Droplet Console (Yuki upgrade) ═══ -->
+    <style>
+        #dc-console { position: fixed; inset: 0; z-index: 2000; background: var(--bg);
+            display: none; flex-direction: column; }
+        #dc-console.open { display: flex; }
+        .dc-bar { display: flex; align-items: center; gap: 14px; padding: 12px 20px;
+            border-bottom: 1px solid var(--border); background: var(--surface); }
+        .dc-bar .dc-brand { font-weight: 600; color: #c084fc; display: flex; align-items: center; gap: 8px; font-size: 1rem; }
+        .dc-bar .dc-sp { flex: 1; }
+        .dc-pill { font-family: monospace; font-size: 0.68rem; padding: 3px 9px; border-radius: 20px;
+            border: 1px solid var(--border); color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+        .dc-pill .d { width: 7px; height: 7px; border-radius: 50%; background: #888; }
+        .dc-pill.on .d { background: #4ea; box-shadow: 0 0 0 3px rgba(70,238,170,.15); }
+        .dc-pill.off .d { background: #e77; }
+        #dc-x { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 6px;
+            padding: 5px 11px; cursor: pointer; font-size: 0.9rem; }
+        #dc-x:hover { color: var(--text); border-color: var(--accent); }
+        .dc-tabs { display: flex; gap: 4px; padding: 10px 20px 0; border-bottom: 1px solid var(--border); background: var(--surface); }
+        .dc-tab { background: none; border: none; border-bottom: 2px solid transparent; color: var(--muted);
+            padding: 8px 16px; cursor: pointer; font-size: 0.85rem; }
+        .dc-tab.active { color: #c084fc; border-bottom-color: #c084fc; }
+        .dc-body { flex: 1; overflow: auto; padding: 18px 20px; }
+        .dc-panel { display: none; } .dc-panel.active { display: block; }
+        .dc-wb { display: grid; grid-template-columns: 1fr 1.15fr 0.85fr; gap: 14px; }
+        @media (max-width: 900px) { .dc-wb { grid-template-columns: 1fr; } }
+        .dc-col { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+            padding: 14px; display: flex; flex-direction: column; min-height: 0; }
+        .dc-wb .dc-col { height: 42vh; min-height: 240px; max-height: 440px; }
+        .dc-col h4 { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted);
+            margin-bottom: 10px; display: flex; gap: 8px; align-items: baseline; }
+        .dc-col h4 .n { color: #c084fc; font-family: monospace; }
+        #dc-rough, #dc-final { flex: 1; width: 100%; resize: vertical; background: var(--bg); color: var(--text);
+            border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-family: monospace; font-size: 0.85rem; line-height: 1.6; }
+        .dc-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+        .dc-btn { padding: 8px 16px; border-radius: 6px; border: 1px solid #c084fc; background: #c084fc; color: #1a0d28;
+            font-weight: 600; cursor: pointer; font-size: 0.85rem; }
+        .dc-btn:hover { filter: brightness(1.08); } .dc-btn:disabled { opacity: .5; cursor: default; }
+        .dc-btn.ghost { background: transparent; color: var(--muted); border-color: var(--border); font-weight: 500; }
+        .dc-btn.push { background: #4ea884; border-color: #4ea884; color: #04231a; }
+        .dc-chk { font-size: 0.78rem; color: var(--muted); display: inline-flex; gap: 5px; align-items: center; cursor: pointer; }
+        .dc-status { font-family: monospace; font-size: 0.72rem; color: var(--muted); min-height: 15px; margin-bottom: 8px; }
+        .dc-enh { flex: 1; font-family: monospace; font-size: 0.85rem; line-height: 1.6; white-space: pre-wrap; color: var(--text); overflow: auto; }
+        .dc-idx { display: flex; flex-direction: column; gap: 5px; overflow: auto; flex: 1 1 0; min-height: 0; }
+        .dc-i { padding: 7px 9px; border: 1px solid var(--border); border-left: 3px solid var(--border);
+            border-radius: 6px; background: var(--bg); font-size: 0.78rem; }
+        .dc-i.hit { border-left-color: #d9a441; background: rgba(217,164,65,.08); }
+        .dc-i.filed { border-left-color: #9a6fe0; background: rgba(154,111,224,.07); }
+        .dc-i .ftag { font-family: monospace; font-size: 0.58rem; text-transform: uppercase; color: #9a6fe0; border: 1px solid #9a6fe0; border-radius: 4px; padding: 0 4px; margin-left: 4px; }
+        .dc-vd { font-family: monospace; font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.5px; padding: 2px 7px; border-radius: 20px; border: 1px solid var(--border); color: var(--muted); }
+        .dc-vd:empty { display: none; }
+        .dc-vd.ok { color: #4ea884; border-color: #4ea884; }
+        .dc-vd.soft { color: #d9a441; border-color: #d9a441; }
+        .dc-vd.filed { color: #9a6fe0; border-color: #9a6fe0; }
+        .dc-vd.strong { color: #e0687a; border-color: #e0687a; background: rgba(224,104,122,.08); }
+        .dc-i .t { font-weight: 600; display: flex; gap: 6px; align-items: center; }
+        .dc-i .t i { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+        .dc-i .h { color: var(--muted); font-size: 0.72rem; margin-top: 2px; }
+        .ty-project { background: #2fb0a9; } .ty-feedback { background: #a878e0; }
+        .ty-reference { background: #6f9bd8; } .ty-user { background: #e0687a; } .ty-security { background: #e0687a; }
+        .dc-sugg { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+        .dc-s { border: 1px solid var(--border); border-left: 3px solid var(--sc, var(--border)); border-radius: 6px;
+            padding: 7px 10px; background: var(--bg); cursor: pointer; font-size: 0.76rem; max-width: 280px; }
+        .dc-s:hover { background: var(--surface); } .dc-s.used { opacity: .45; cursor: default; }
+        .dc-s .k { font-family: monospace; font-size: 0.62rem; text-transform: uppercase; color: var(--sc); font-weight: 700; }
+        .s-add { --sc: #4ea884; } .s-think { --sc: #d9a441; } .s-recon { --sc: #9a6fe0; } .s-risk { --sc: #e0687a; }
+        .dc-reply { margin-top: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
+        .dc-reply pre { white-space: pre-wrap; font-size: 0.8rem; color: var(--text); margin: 0; max-height: 260px; overflow: auto; }
+        .dc-rt { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px; }
+        .dc-rt .hd { display: flex; align-items: center; gap: 10px; }
+        .dc-rt .nm { font-weight: 600; flex: 1; }
+        .dc-rt .meta { font-family: monospace; font-size: 0.7rem; color: var(--muted); margin-top: 4px; }
+        .dc-in { background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 6px 9px; font-size: 0.82rem; }
+        .dc-switch { cursor: pointer; }
+        .dc-log { font-family: monospace; font-size: 0.76rem; color: var(--muted); }
+        .dc-log div { padding: 6px 0; border-bottom: 1px solid var(--border); }
+    </style>
+    <div id="dc-console">
+        <div class="dc-bar">
+            <span class="dc-brand">🌸 Yuki Console</span>
+            <span class="dc-sp"></span>
+            <span class="dc-pill" id="dc-daemon"><span class="d"></span>daemon</span>
+            <span class="dc-pill" id="dc-droplet"><span class="d"></span>droplet</span>
+            <button id="dc-wake" style="display:none;background:transparent;border:1px solid #c084fc;color:#c084fc;border-radius:6px;padding:4px 11px;cursor:pointer;font-size:0.72rem;font-family:var(--font-mono)">▲ wake Droplet</button>
+            <button id="dc-x">✕ close</button>
+        </div>
+        <div class="dc-tabs">
+            <button class="dc-tab active" data-tab="wb">Workbench</button>
+            <button class="dc-tab" data-tab="rt">Routines</button>
+            <button class="dc-tab" data-tab="pg">Pings</button>
+        </div>
+        <div class="dc-body">
+            <!-- WORKBENCH -->
+            <div class="dc-panel active" id="dc-wb">
+                <div class="dc-wb">
+                    <div class="dc-col">
+                        <h4><span class="n">01</span> Rough</h4>
+                        <textarea id="dc-rough" placeholder="Drop the rough idea — shorthand is fine."></textarea>
+                        <div class="dc-row">
+                            <button class="dc-btn" id="dc-enhance">Enhance ▶</button>
+                            <button class="dc-btn ghost" id="dc-clear">clear</button>
+                        </div>
+                    </div>
+                    <div class="dc-col">
+                        <h4><span class="n">02</span> Enhancing</h4>
+                        <div class="dc-status" id="dc-mstatus"></div>
+                        <div class="dc-enh" id="dc-enh"><span style="color:var(--muted)">Enhanced prompt appears here.</span></div>
+                        <div class="dc-sugg" id="dc-sugg"></div>
+                    </div>
+                    <div class="dc-col">
+                        <h4><span class="n">03</span> Recall · Index <span id="dc-verdict" class="dc-vd"></span><span style="margin-left:auto;color:var(--muted)" id="dc-hitn"></span></h4>
+                        <div class="dc-idx" id="dc-idx"></div>
+                    </div>
+                </div>
+                <div class="dc-col" style="margin-top:14px;min-height:auto">
+                    <h4><span class="n">✓</span> Final · send</h4>
+                    <textarea id="dc-final" placeholder="Enhance first — the final prompt lands here, editable." style="min-height:80px"></textarea>
+                    <div class="dc-row">
+                        <label class="dc-chk">to</label>
+                        <select id="dc-target" class="dc-in">
+                            <option value="droplet">Droplet (terminal task)</option>
+                            <option value="compman">CompMan (clean reply)</option>
+                        </select>
+                        <label class="dc-chk"><input type="checkbox" id="dc-ping"> ping when done</label>
+                        <button class="dc-btn push" id="dc-push" disabled>▲ Send</button>
+                        <span class="dc-status" id="dc-pushstatus" style="margin:0"></span>
+                    </div>
+                </div>
+                <div class="dc-reply" id="dc-replybox" style="display:none">
+                    <h4 style="font-size:0.62rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin-bottom:8px">Droplet's reply</h4>
+                    <pre id="dc-reply"></pre>
+                </div>
+            </div>
+            <!-- ROUTINES -->
+            <div class="dc-panel" id="dc-rt-panel">
+                <div id="dc-rtlist"></div>
+                <div class="dc-rt" style="border-style:dashed">
+                    <h4 style="font-size:0.62rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin-bottom:10px">New routine</h4>
+                    <div class="dc-row">
+                        <input class="dc-in" id="dc-rt-name" placeholder="name" style="flex:1;min-width:160px">
+                        <select class="dc-in" id="dc-rt-type">
+                            <option value="daily">daily</option><option value="weekly">weekly</option>
+                            <option value="interval">every N min</option>
+                        </select>
+                        <input class="dc-in" id="dc-rt-time" type="time" value="08:00">
+                        <input class="dc-in" id="dc-rt-every" type="number" placeholder="min" value="60" style="width:80px;display:none">
+                    </div>
+                    <div class="dc-row">
+                        <select class="dc-in" id="dc-rt-steptype">
+                            <option value="command">command</option><option value="prompt">prompt→Droplet</option>
+                            <option value="ask_bot">ask CompMan</option><option value="check_url">check URL</option>
+                        </select>
+                        <input class="dc-in" id="dc-rt-stepval" placeholder="command / prompt / url" style="flex:1;min-width:200px">
+                    </div>
+                    <div class="dc-row">
+                        <label class="dc-chk"><input type="checkbox" id="dc-rt-pingdone" checked> ping on done</label>
+                        <label class="dc-chk"><input type="checkbox" id="dc-rt-pingerr" checked> ping on error</label>
+                        <button class="dc-btn" id="dc-rt-add">+ Add routine</button>
+                    </div>
+                </div>
+            </div>
+            <!-- PINGS -->
+            <div class="dc-panel" id="dc-pg-panel">
+                <div class="dc-rt">
+                    <label class="dc-chk" style="font-size:0.9rem"><input type="checkbox" id="dc-pg-enabled" class="dc-switch"> Telegram pings enabled (DM to you)</label>
+                    <div class="meta" style="margin-top:6px">Droplet DMs you via @compman61work_bot on job/routine completion.</div>
+                </div>
+                <h4 style="font-size:0.62rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin:14px 0 8px">Recent pings</h4>
+                <div class="dc-log" id="dc-pglog"></div>
+            </div>
+        </div>
+    </div>
+    <script type="module">
+        import { database, ref, onValue, push, set, update, remove, get, query, limitToLast } from './assets/js/firebase-init.js';
+        import { onUserReady } from './apps/assets/js/auth.js';
+
+        const OLLAMA = 'https://api.luissolutions.us/chat';
+        const MODEL = 'qwen3:14b';
+        const $ = s => document.querySelector(s);
+        const DC = { uid: null, base: null, memory: [], watchJob: null };
+
+        const RULES = [
+            { tag: 'always', label: 'voice: direct, markdown, no padding', topics: ['*'] },
+            { tag: 'always', label: 'security: no live secrets in prompt', topics: ['*'] },
+            { tag: 'always', label: "enhance, don't redirect", topics: ['*'] },
+            { tag: 'always', label: "never invent content — memory is background, a question stays a question", topics: ['*'] },
+            { tag: 'rule', label: 'surgical: exactly the edit', topics: ['fix','edit','add','change','tweak','only','adjust'] },
+            { tag: 'rule', label: 'keep page script inline', topics: ['loadout','app','page','html','ui','site','hub'] },
+            { tag: 'rule', label: 'Loadout: block comments only (no //)', topics: ['loadout'] },
+            { tag: 'rule', label: 'node --check before push', topics: ['loadout','push','app'] },
+            { tag: 'rule', label: "no auto-push", topics: ['push','commit','deploy','git'] },
+            { tag: 'rule', label: 'finance: human-in-the-loop', topics: ['finance','ledger','money','budget','invoice','tax'] },
+            { tag: 'rule', label: 'Firebase: UTF-8 byte PUT + gcloud token', topics: ['firebase','rtdb','journal','put','write'] },
+            { tag: 'rule', label: 'PS: pure ASCII, commit -F', topics: ['powershell','ps','script','ps1'] }
+        ];
+        const SLABEL = { add:'add info', think:'think more', recon:'recon first', risk:'risk' };
+
+        onUserReady(u => {
+            DC.uid = u.uid; DC.base = `${u.uid}/console`;
+            onValue(ref(database, `${DC.base}/memoryIndex`), s => { DC.memory = s.val() || []; });
+            onValue(ref(database, `${DC.base}/meta`), s => renderMeta(s.val() || {}));
+            onValue(ref(database, `${DC.base}/routines`), s => renderRoutines(s.val() || {}));
+            onValue(ref(database, `${DC.base}/pings/settings`), s => { $('#dc-pg-enabled').checked = (s.val() || {}).enabled !== false; });
+            onValue(query(ref(database, `${DC.base}/pings/log`), limitToLast(20)), s => renderPingLog(s.val() || {}));
+        });
+
+        function renderMeta(m) {
+            const dOn = m.daemonBeat && (Date.now() - m.daemonBeat < 60000);
+            const dp = $('#dc-daemon'); dp.className = 'dc-pill ' + (dOn ? 'on' : 'off');
+            dp.lastChild.textContent = dOn ? 'daemon online' : 'daemon offline';
+            const drp = $('#dc-droplet'); drp.className = 'dc-pill ' + (m.dropletUp ? 'on' : 'off');
+            drp.lastChild.textContent = m.dropletUp ? 'droplet up' : 'droplet down';
+            $('#dc-wake').style.display = m.dropletUp ? 'none' : 'inline-flex';
+        }
+
+        function tokens(t) { return (t.toLowerCase().match(/[a-z0-9]{3,}/g) || []); }
+        function matchIndex(rough) {
+            const toks = [...new Set(tokens(rough))];
+            return DC.memory.map((e, i) => {
+                const authored = (e.title + ' ' + (e.hook || '')).toLowerCase();
+                const filed = ((e.keywords || []).join(' ') + ' ' + (e.tags || []).join(' ')).toLowerCase();
+                const derived = toks.some(t => authored.includes(t));   // in the record's own words
+                const hit = derived || toks.some(t => filed.includes(t)); // or filed under a keyword
+                return { ...e, i, hit, derived };
+            });
+        }
+        // doubt tier (ported from the Grove) — say "I don't hold this" instead of confabulating
+        function recallVerdict(rough, idx) {
+            const qt = [...new Set(tokens(rough))].filter(t => t.length >= 4);
+            if (!qt.length) return { tier: 'none', label: '' };
+            const derivedHits = idx.filter(e => e.derived);
+            const hits = idx.filter(e => e.hit);
+            if (!derivedHits.length) {
+                return hits.length
+                    ? { tier: 'filed', label: 'matched only by filed keywords, not the record’s own words — verify' }
+                    : { tier: 'strong', label: 'the index does not appear to hold this — recall is closest-ground, not fact' };
+            }
+            const authored = derivedHits.map(e => (e.title + ' ' + (e.hook || '')).toLowerCase());
+            const covered = qt.filter(t => authored.some(h => h.includes(t))).length / qt.length;
+            if (covered < 0.5) return { tier: 'soft', label: 'weak overlap (' + Math.round(covered * 100) + '% of terms) — treat these as guesses' };
+            return { tier: 'ok', label: '' };
+        }
+        function renderVerdict(v) {
+            const el = $('#dc-verdict');
+            const map = { ok: ['✓ held', 'ok'], soft: ['weak', 'soft'], filed: ['filed', 'filed'], strong: ['not held', 'strong'], none: ['', ''] };
+            const [txt, cls] = map[v.tier] || ['', ''];
+            el.className = 'dc-vd ' + cls; el.textContent = txt; el.title = v.label || '';
+        }
+        function matchTopics(rough) {
+            const low = ' ' + rough.toLowerCase() + ' ';
+            const set = new Set();
+            RULES.forEach(r => r.topics.forEach(t => { if (t !== '*' && low.includes(t)) set.add(t); }));
+            tokens(rough).forEach(t => set.add(t));
+            return set;
+        }
+        function pickRules(topics) {
+            return RULES.filter(r => r.topics.includes('*') || r.topics.some(t => topics.has(t)));
+        }
+        function buildSuggestions(rough, topics) {
+            const low = ' ' + rough.toLowerCase() + ' ', s = [], has = a => a.some(t => topics.has(t));
+            if (has(['loadout','app','page','site','html','ui','game','hub'])) s.push({ type:'recon', text:'Read the current code first — check how the relevant function works before editing.' });
+            if (/\b(better|improve|nicer|somehow|maybe|clean|good)\b/.test(low)) s.push({ type:'think', text:"'Better' is fuzzy — pin the concrete behavior you want." });
+            if (/\btap|image|bigger|enlarge|photo|zoom\b/.test(low)) s.push({ type:'think', text:'Enlarge in place vs jump — which interaction?' });
+            if (has(['loadout','app','firebase','data','inventory','storage'])) s.push({ type:'add', text:'Name the target: which account/uid + Firebase node?' });
+            if (has(['finance','ledger','money','budget','invoice','tax'])) s.push({ type:'risk', text:'Finance — human-in-the-loop; verify, never auto-mutate.' });
+            if (has(['password','secret','token','cred','scrub'])) s.push({ type:'risk', text:'Secret in play — keep it out of the prompt; scrub after.' });
+            if (has(['push','commit','deploy'])) s.push({ type:'add', text:"Commit only, or push? Default: don't auto-push." });
+            if (!s.length) s.push({ type:'think', text:'Add a constraint or acceptance check so the result is unambiguous.' });
+            return s;
+        }
+
+        async function enhance() {
+            const rough = $('#dc-rough').value.trim();
+            if (!rough) return;
+            $('#dc-enhance').disabled = true; $('#dc-push').disabled = true;
+            $('#dc-mstatus').textContent = 'matching index…';
+            const idx = matchIndex(rough), topics = matchTopics(rough), rules = pickRules(topics);
+            const hits = idx.filter(e => e.hit);
+            const verdict = recallVerdict(rough, idx);
+            renderIdx(idx); $('#dc-hitn').textContent = hits.length + ' hits'; renderVerdict(verdict);
+            // only feed the enhancer memory it actually holds; nothing on strong doubt
+            const derivedHits = idx.filter(e => e.derived);
+            const ctxHits = verdict.tier === 'strong' ? [] : (derivedHits.length ? derivedHits : hits);
+            $('#dc-mstatus').textContent = 'enhancing with ' + MODEL + '…';
+            const sys = "You enhance Luis's rough prompt into a clearer, more complete, better-scoped version. "
+                + "HARD RULE: enhance, do not redirect — keep his intent, targets, and literal values (paths, IPs, names, coords) EXACT. "
+                + "HARD RULE: NEVER invent content. Do not answer the prompt, expand it into a checklist of specifics, or substitute items from the memory context below — memory is background only, it never becomes the prompt. 'List my todos' enhances to 'List my current todos', NOT to a fabricated todo list. A question stays a question. "
+                + "Golden test: the enhanced prompt must ask for exactly what the rough one asked for — same verb, same object, no new nouns Luis didn't imply. "
+                + "Output ONLY the enhanced prompt: no preamble, no explanation, no quotes. Direct, markdown, no padding. "
+                + "If it's already clear, return it nearly unchanged. /no_think\n\n"
+                + "Honor these conventions:\n" + rules.map(r => '- ' + r.label).join('\n')
+                + (ctxHits.length ? "\n\nRelevant memory (for context, don't dump it back):\n" + ctxHits.slice(0, 6).map(h => '- ' + h.title + ': ' + (h.hook || '')).join('\n')
+                    : "\n\n(No memory in the record strongly matches this — do not fabricate prior context.)");
+            let text = rough;
+            try {
+                const res = await fetch(OLLAMA, { method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({ model: MODEL, stream: false, messages: [{role:'system',content:sys},{role:'user',content:rough}] }) });
+                const data = await res.json();
+                text = (data.message?.content || rough).replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+            } catch (e) { $('#dc-mstatus').textContent = 'ollama unreachable — using rough as-is'; }
+            $('#dc-enh').textContent = text;
+            $('#dc-final').value = text;
+            $('#dc-mstatus').textContent = 'enhanced · ' + hits.length + ' hits · ' + rules.length + ' rules' + (verdict.label ? ' · ⚠ ' + verdict.label : '');
+            renderSugg(buildSuggestions(rough, topics));
+            $('#dc-enhance').disabled = false; $('#dc-push').disabled = false;
+        }
+        function renderIdx(idx) {
+            $('#dc-idx').innerHTML = idx.map(e =>
+                `<div class="dc-i ${e.hit ? 'hit' : ''} ${e.hit && !e.derived ? 'filed' : ''}"><div class="t"><i class="ty-${e.type}"></i>${esc(e.title)}${e.hit && !e.derived ? ' <span class="ftag">filed</span>' : ''}</div><div class="h">${esc(e.hook || '')}</div></div>`
+            ).join('') || '<span style="color:var(--muted)">index syncing…</span>';
+        }
+        function renderSugg(list) {
+            const w = $('#dc-sugg'); w.innerHTML = '';
+            list.forEach(sg => {
+                const c = document.createElement('div'); c.className = 'dc-s s-' + sg.type;
+                c.innerHTML = `<div class="k">${SLABEL[sg.type]}</div>${esc(sg.text)}`;
+                c.onclick = () => { if (c.classList.contains('used')) return; c.classList.add('used');
+                    $('#dc-final').value = $('#dc-final').value.replace(/\s*$/, '') + '\n— also: ' + sg.text; };
+                w.appendChild(c);
+            });
+        }
+        function esc(s) { return (s || '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+        async function pushToDroplet() {
+            const enhanced = $('#dc-final').value.trim();
+            if (!enhanced || !DC.base) return;
+            const target = $('#dc-target').value;
+            $('#dc-push').disabled = true; $('#dc-pushstatus').textContent = 'sent to ' + target + ' → …';
+            const jref = push(ref(database, `${DC.base}/jobs`));
+            await set(jref, { kind:'prompt', target, rough: $('#dc-rough').value.trim(), enhanced,
+                status:'queued', createdAt: Date.now(), ping: $('#dc-ping').checked });
+            if (DC.watchJob) DC.watchJob();
+            $('#dc-replybox').style.display = 'block'; $('#dc-reply').textContent = '⏳ waiting for Droplet…';
+            DC.watchJob = onValue(jref, s => {
+                const j = s.val(); if (!j) return;
+                $('#dc-pushstatus').textContent = 'status: ' + j.status;
+                if (j.status === 'done') { $('#dc-reply').textContent = j.reply || '(done, no captured reply)'; $('#dc-push').disabled = false; }
+                else if (j.status === 'error' || j.status === 'failed') { $('#dc-reply').textContent = '⚠ ' + (j.error || j.reply || 'failed'); $('#dc-push').disabled = false; }
+                else if (j.status === 'running') { $('#dc-reply').textContent = '⏳ ' + (j.progress || j.reply || 'working…'); }
+            });
+        }
+
+        function renderRoutines(obj) {
+            const list = $('#dc-rtlist'); const ids = Object.keys(obj);
+            if (!ids.length) { list.innerHTML = '<div style="color:var(--muted);font-size:0.85rem;margin-bottom:10px">No routines yet.</div>'; return; }
+            list.innerHTML = ids.map(id => {
+                const r = obj[id], sc = r.schedule || {};
+                const when = sc.type === 'interval' ? `every ${sc.everyMin}m` : `${sc.type} ${sc.time || ''}`;
+                const next = r.nextRun ? new Date(r.nextRun).toLocaleString() : '—';
+                return `<div class="dc-rt"><div class="hd">
+                    <label class="dc-chk dc-switch"><input type="checkbox" data-en="${id}" ${r.enabled ? 'checked' : ''}></label>
+                    <span class="nm">${esc(r.name || id)}</span>
+                    <span class="dc-pill">${when}</span>
+                    <button class="dc-btn ghost" data-del="${id}" style="padding:4px 10px">del</button></div>
+                    <div class="meta">next: ${next} · last: ${r.lastStatus || '—'} · steps: ${(r.steps || []).length}</div>
+                    ${r.lastResult ? `<div class="meta" style="margin-top:6px;white-space:pre-wrap;color:var(--text)">${esc(r.lastResult.slice(0, 400))}</div>` : ''}</div>`;
+            }).join('');
+            list.querySelectorAll('[data-en]').forEach(cb => cb.onchange = () =>
+                update(ref(database, `${DC.base}/routines/${cb.dataset.en}`), { enabled: cb.checked, nextRun: 0 }));
+            list.querySelectorAll('[data-del]').forEach(b => b.onclick = () =>
+                remove(ref(database, `${DC.base}/routines/${b.dataset.del}`)));
+        }
+        async function addRoutine() {
+            const name = $('#dc-rt-name').value.trim(); if (!name || !DC.base) return;
+            const type = $('#dc-rt-type').value;
+            const sched = { type };
+            if (type === 'interval') sched.everyMin = parseInt($('#dc-rt-every').value) || 60;
+            else sched.time = $('#dc-rt-time').value;
+            const step = { type: $('#dc-rt-steptype').value, value: $('#dc-rt-stepval').value.trim() };
+            if (step.type === 'ask_bot') step.bot = 'compman';
+            await push(ref(database, `${DC.base}/routines`), { name, enabled: true, schedule: sched,
+                steps: [step], pings: { onDone: $('#dc-rt-pingdone').checked, onError: $('#dc-rt-pingerr').checked }, nextRun: 0 });
+            $('#dc-rt-name').value = ''; $('#dc-rt-stepval').value = '';
+        }
+        function renderPingLog(obj) {
+            const rows = Object.values(obj).sort((a, b) => b.at - a.at);
+            $('#dc-pglog').innerHTML = rows.map(p => `<div>${new Date(p.at).toLocaleString()} — ${esc(p.text.slice(0, 120))}</div>`).join('') || '<div>No pings yet.</div>';
+        }
+
+        // wiring
+        $('#dc-x').onclick = () => $('#dc-console').classList.remove('open');
+        $('#dc-wake').onclick = async () => {
+            if (!DC.base) return;
+            const b = $('#dc-wake'); b.textContent = 'waking…'; b.disabled = true;
+            const j = push(ref(database, `${DC.base}/jobs`));
+            await set(j, { kind: 'wake', status: 'queued', createdAt: Date.now(), ping: false });
+            onValue(j, s => { const v = s.val(); if (v && (v.status === 'done' || v.status === 'error')) { b.textContent = '▲ wake Droplet'; b.disabled = false; } });
+        };
+        $('#dc-enhance').onclick = enhance;
+        $('#dc-clear').onclick = () => { $('#dc-rough').value = ''; $('#dc-enh').innerHTML = '<span style="color:var(--muted)">Enhanced prompt appears here.</span>'; $('#dc-final').value = ''; $('#dc-sugg').innerHTML = ''; $('#dc-idx').innerHTML = ''; $('#dc-hitn').textContent = ''; $('#dc-verdict').textContent = ''; $('#dc-verdict').className = 'dc-vd'; $('#dc-mstatus').textContent = ''; $('#dc-push').disabled = true; };
+        $('#dc-push').onclick = pushToDroplet;
+        $('#dc-rough').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) enhance(); });
+        $('#dc-rt-add').onclick = addRoutine;
+        $('#dc-rt-type').onchange = e => { const iv = e.target.value === 'interval'; $('#dc-rt-every').style.display = iv ? '' : 'none'; $('#dc-rt-time').style.display = iv ? 'none' : ''; };
+        $('#dc-pg-enabled').onchange = e => set(ref(database, `${DC.base}/pings/settings`), { channel: 'telegram_dm', enabled: e.target.checked });
+        document.querySelectorAll('.dc-tab').forEach(t => t.onclick = () => {
+            document.querySelectorAll('.dc-tab').forEach(x => x.classList.remove('active'));
+            document.querySelectorAll('.dc-panel').forEach(x => x.classList.remove('active'));
+            t.classList.add('active');
+            $('#dc-wb').classList.toggle('active', t.dataset.tab === 'wb');
+            $('#dc-rt-panel').classList.toggle('active', t.dataset.tab === 'rt');
+            $('#dc-pg-panel').classList.toggle('active', t.dataset.tab === 'pg');
+        });
+        window.openDropletConsole = () => $('#dc-console').classList.add('open');
+    </script>
+
     <div id="footer-placeholder"></div>
 
     <!-- Links aside (inline — uses root-relative path unlike shared links-aside.js) -->
@@ -610,7 +1015,7 @@ MOOD TAG: End every reply with [MOOD:X] where X is one of: happy sleepy excited 
 
         onUserReady(user => { currentUser = user; });
 
-        toggle.addEventListener('click', () => window.location.href = 'apps/online/onlinechat.html#yuki');
+        toggle.addEventListener('click', () => window.openDropletConsole ? window.openDropletConsole() : (window.location.href = 'apps/online/onlinechat.html#yuki'));
         closeBtn.addEventListener('click', () => sidebar.classList.remove('open'));
 
         function addMsg(text, role) {
