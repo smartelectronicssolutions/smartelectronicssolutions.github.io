@@ -21,6 +21,8 @@ The shared pattern every app in `apps/online/` follows. **Start a new app by cop
 - `auth.js` handles the login/logout **UI**; the page's own `onAuthStateChanged` handles **data** (set `BASE_PATH`, load). Both listeners coexist — that's expected.
 - **Paths from `apps/online/`:** shared assets are `../assets/...` (the `apps/assets/` shims); the home logo + favicon reach the repo root via `../../`.
 - **Telaid apps** (`apps/telaid/`) intentionally read/write under the Telaid uid (`SDN0vK…`), not the signed-in user — that's by design, not a deviation.
+- **`onlinereg.html` is the one sanctioned auth exception**: it calls `createUserWithEmailAndPassword` / `signInWithEmailAndPassword` directly because account *registration* is its purpose — auth.js only handles login/logout UI. Don't "fix" it, and don't copy its pattern anywhere else.
+- **`onlineresume.html` is grandfathered off-template** (standalone print-oriented page, own styling). Known deviation, not an example to follow.
 
 ## Reference apps
 
