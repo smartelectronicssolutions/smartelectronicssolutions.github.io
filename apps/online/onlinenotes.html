@@ -1,4 +1,7 @@
-﻿<head>
+﻿<!doctype html>
+<html lang="en">
+
+<head>
   <title>Live Notes</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <link rel="stylesheet" href="../assets/css/online.css">
@@ -24,18 +27,6 @@
         placeholder="Password" /><button id="do-login">Sign In</button>
       <p id="auth-err"></p>
     </div>
-    <section id="login-section" style="display:none">
-      <form id="login-form">
-        <label for="username">Email:</label>
-        <input type="email" id="username" required>
-        <br>
-        <label for="password">Password:</label>
-        <input type="password" id="password" required>
-        <br>
-        <button type="submit">Login</button>
-      </form>
-      <button id="logout" style="display: none;">Logout</button>
-    </section>
   </header>
 
   <main>
@@ -60,7 +51,7 @@
   </main>
 
   <script type="module">
-    import { auth, onAuthStateChanged, database, ref, onValue, set, get, off, initializeAuth, app } from '../assets/js/firebase-init.js';
+    import { auth, onAuthStateChanged, database, ref, onValue, set, get } from '../assets/js/firebase-init.js';
 
     const nameInput = document.getElementById('input-name');
     const notesTextarea = document.getElementById('note');
@@ -68,6 +59,7 @@
     let deletedNotes = [];
     let autoSaveInterval;
     let DATABASE_BASE_PATH = 'public';
+    let unsub = null;
 
     onAuthStateChanged(auth, (user) => {
       DATABASE_BASE_PATH = user ? `${user.uid}` : 'public';
@@ -77,7 +69,7 @@
     const setupEventListeners = () => {
       document.getElementById('copy-btn').addEventListener('click', copyNote);
       document.getElementById('paste-btn').addEventListener('click', pasteNote);
-      document.getElementById('save-btn').addEventListener('click', saveNote);
+      document.getElementById('save-btn').addEventListener('click', () => saveNote());
       document.getElementById('delete-btn').addEventListener('click', deleteNote);
       document.getElementById('clear-btn').addEventListener('click', clearNoteInputs);
       document.getElementById('undo-btn').addEventListener('click', undoDelete);
@@ -93,11 +85,16 @@
     };
 
     const pasteNote = async () => {
-      const clipboardData = await navigator.clipboard.readText();
-      notesTextarea.value += clipboardData;
+      try {
+        const clipboardData = await navigator.clipboard.readText();
+        notesTextarea.value += clipboardData;
+      } catch (err) {
+        console.error('Failed to paste from clipboard:', err);
+        alert('Failed to paste from clipboard.');
+      }
     };
 
-    const saveNote = async () => {
+    const saveNote = async (silent = false) => {
       const nameToSave = nameInput.value.trim();
       const noteToSave = notesTextarea.value.trim();
       const saveBtn = document.getElementById('save-btn');
@@ -108,25 +105,30 @@
         return;
       }
 
-      const notesRef = ref(database, `${DATABASE_BASE_PATH}/notes/${nameToSave}`);
-      const snapshot = await get(notesRef);
-      const existingNote = snapshot.val();
+      try {
+        const notesRef = ref(database, `${DATABASE_BASE_PATH}/notes/${nameToSave}`);
+        const snapshot = await get(notesRef);
+        const existingNote = snapshot.val();
 
-      if (!existingNote || new Date(timestamp) > new Date(existingNote.timestamp)) {
-        await set(notesRef, { name: nameToSave, note: noteToSave, timestamp });
-        console.log('Note saved successfully');
-        updateSaveButton(saveBtn);
-      } else {
-        const userChoice = confirm(
-          `⚠️ A newer version of "${nameToSave}" already exists.\nDo you want to overwrite it with your current changes?`
-        );
-        if (userChoice) {
+        if (!existingNote || new Date(timestamp) > new Date(existingNote.timestamp)) {
           await set(notesRef, { name: nameToSave, note: noteToSave, timestamp });
-          console.log('Note overwritten by user choice');
+          console.log('Note saved successfully');
           updateSaveButton(saveBtn);
         } else {
-          console.log('Save cancelled. Newer note preserved.');
+          const userChoice = confirm(
+            `⚠️ A newer version of "${nameToSave}" already exists.\nDo you want to overwrite it with your current changes?`
+          );
+          if (userChoice) {
+            await set(notesRef, { name: nameToSave, note: noteToSave, timestamp });
+            console.log('Note overwritten by user choice');
+            updateSaveButton(saveBtn);
+          } else {
+            console.log('Save cancelled. Newer note preserved.');
+          }
         }
+      } catch (err) {
+        console.error('Failed to save note:', err);
+        if (!silent) alert('Failed to save the note. Please try again.');
       }
     };
 
@@ -149,51 +151,31 @@
           return;
         }
 
-        const notesRef = ref(database, `${DATABASE_BASE_PATH}/notes`);
-        const snapshot = await get(notesRef);
-        const notes = snapshot.val();
+        try {
+          const notesRef = ref(database, `${DATABASE_BASE_PATH}/notes`);
+          const snapshot = await get(notesRef);
+          const notes = snapshot.val();
 
-        if (notes) {
-          const noteId = Object.keys(notes).find(id => notes[id].name === nameToDelete);
-          if (noteId) {
-            const deletedNote = notes[noteId];
-            storeDeletedNote(deletedNote.name, deletedNote.note);
-            await set(ref(database, `${DATABASE_BASE_PATH}/notes/${noteId}`), null);
-            clearNoteInputs();
-            console.log(`Deleted the note with name: ${nameToDelete}`);
+          if (notes) {
+            const noteId = Object.keys(notes).find(id => notes[id].name === nameToDelete);
+            if (noteId) {
+              const deletedNote = notes[noteId];
+              storeDeletedNote(deletedNote.name, deletedNote.note);
+              await set(ref(database, `${DATABASE_BASE_PATH}/notes/${noteId}`), null);
+              clearNoteInputs();
+              console.log(`Deleted the note with name: ${nameToDelete}`);
+            } else {
+              console.log('Note not found.');
+            }
           } else {
-            console.log('Note not found.');
+            console.log('No notes available.');
           }
-        } else {
-          console.log('No notes available.');
+        } catch (err) {
+          console.error('Failed to delete note:', err);
+          alert('Failed to delete the note. Please try again.');
         }
       } else {
         console.log('Please enter the name of the note to delete.');
-      }
-    };
-
-    const loadNote = async () => {
-      const nameToLoad = nameInput.value.trim();
-
-      if (nameToLoad) {
-        const notesRef = ref(database, `${DATABASE_BASE_PATH}/notes/`);
-        onValue(notesRef, snapshot => {
-          const notes = snapshot.val();
-          if (notes) {
-            const noteId = Object.keys(notes).find(id => notes[id].name === nameToLoad);
-            if (noteId) {
-              const selectedNote = notes[noteId];
-              notesTextarea.value = selectedNote.note;
-              console.log(`Loaded the note with name: ${nameToLoad}`);
-            } else {
-              console.log(`No note found with the name: ${nameToLoad}`);
-            }
-          } else {
-            console.log('No notes found');
-          }
-        });
-      } else {
-        console.log('Please enter the name of the note to load');
       }
     };
 
@@ -203,8 +185,12 @@
     };
 
     const populateNoteList = () => {
+      if (unsub) {
+        unsub();
+        unsub = null;
+      }
       const notesRef = ref(database, `${DATABASE_BASE_PATH}/notes`);
-      onValue(notesRef, snapshot => {
+      unsub = onValue(notesRef, snapshot => {
         const notes = snapshot.val();
         noteList.innerHTML = '';
 
@@ -269,7 +255,7 @@
 
     const toggleAutoSave = (event) => {
       if (event.target.checked) {
-        autoSaveInterval = setInterval(saveNote, 40000);
+        autoSaveInterval = setInterval(() => saveNote(true), 40000);
       } else {
         clearInterval(autoSaveInterval);
       }
@@ -284,7 +270,7 @@
 
     document.addEventListener("DOMContentLoaded", () => {
       setupEventListeners();
-      autoSaveInterval = setInterval(saveNote, 40000);
+      autoSaveInterval = setInterval(() => saveNote(true), 40000);
     });
 
     document.getElementById('resizeTextareaBtn').addEventListener('click', () => {
@@ -292,3 +278,5 @@
     });
   </script>
 </body>
+
+</html>

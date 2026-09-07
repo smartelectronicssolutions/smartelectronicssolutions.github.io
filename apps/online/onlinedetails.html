@@ -10,7 +10,6 @@
   <script type="module" src="../assets/js/microsoftAuth.js"></script>
   <script type="module" src="../assets/js/auth.js"></script>
   <script src="../assets/js/links-aside.js" defer></script>
-  <script src="../assets/js/sidebar.js"></script>
   <script src="../assets/js/search.js" defer></script>
   <style>
     .hidden {
@@ -772,8 +771,13 @@
       });
     }
 
-    const getFavorites = () =>
-      JSON.parse(localStorage.getItem("favorites") || "{}");
+    const getFavorites = () => {
+      try {
+        return JSON.parse(localStorage.getItem("favorites") || "{}");
+      } catch {
+        return {};
+      }
+    };
 
     async function updateGallery() {
       const safeProjectName = sanitize(currentProjectName || currentProject);
@@ -802,7 +806,7 @@
         }
       }
 
-      const favorites = JSON.parse(localStorage.getItem("favorites") || "{}");
+      const favorites = getFavorites();
       items.sort(
         (a, b) =>
           (favorites[b.fullPath] ? 1 : 0) - (favorites[a.fullPath] ? 1 : 0),
@@ -1076,12 +1080,17 @@
       // store notes on the OWNER task so they persist across duplicate/new task IDs
       const utcTimestamp = Date.now();
 
-      await update(dbRef(database, commentsBasePath()), {
-        [utcTimestamp]: text,
-      });
+      try {
+        await update(dbRef(database, commentsBasePath()), {
+          [utcTimestamp]: text,
+        });
 
-      await loadNotes();
-      alert("Note saved successfully!");
+        await loadNotes();
+        alert("Note saved successfully!");
+      } catch (err) {
+        console.error("Save note failed:", err);
+        alert("Failed to save note. See console for details.");
+      }
     }
 
     async function loadNotes() {
@@ -1139,65 +1148,70 @@
         return alert("Enter a valid Project ID and Total Devices");
       }
 
-      // update current task node
-      const timestamp = currentProject || Date.now().toString();
-      const taskRef = dbRef(
-        database,
-        `${DATABASE_BASE_PATH}/tasks/${timestamp}`,
-      );
+      try {
+        // update current task node
+        const timestamp = currentProject || Date.now().toString();
+        const taskRef = dbRef(
+          database,
+          `${DATABASE_BASE_PATH}/tasks/${timestamp}`,
+        );
 
-      await update(taskRef, {
-        id: timestamp,
-        project: projectNameRaw,
-        sensorCount: count,
-        updatedAt: Date.now(),
-      });
+        await update(taskRef, {
+          id: timestamp,
+          project: projectNameRaw,
+          sensorCount: count,
+          updatedAt: Date.now(),
+        });
 
-      // update local state
-      currentProject = timestamp;
-      currentProjectName = projectNameRaw;
+        // update local state
+        currentProject = timestamp;
+        currentProjectName = projectNameRaw;
 
-      await resolveMetaOwnerTaskId();
+        await resolveMetaOwnerTaskId();
 
-      const ownerRef = dbRef(
-        database,
-        `${DATABASE_BASE_PATH}/tasks/${metaOwnerTaskId}`,
-      );
-      await update(ownerRef, {
-        sensorCount: count,
-        updatedAt: Date.now(),
-      });
+        const ownerRef = dbRef(
+          database,
+          `${DATABASE_BASE_PATH}/tasks/${metaOwnerTaskId}`,
+        );
+        await update(ownerRef, {
+          sensorCount: count,
+          updatedAt: Date.now(),
+        });
 
-      expectedSensors = count;
+        expectedSensors = count;
 
-      await populateProjects();
-      document.getElementById("projectList").value = timestamp;
-      populateSensorDropdown(expectedSensors);
-      await updateSiteImages();
-      await loadNotes();
-      await updateGallery();
+        await populateProjects();
+        document.getElementById("projectList").value = timestamp;
+        populateSensorDropdown(expectedSensors);
+        await updateSiteImages();
+        await loadNotes();
+        await updateGallery();
 
-      alert(`Project "${projectNameRaw}" saved successfully!`);
+        alert(`Project "${projectNameRaw}" saved successfully!`);
 
-      // placeholders
-      const safeProjectName = sanitize(projectNameRaw);
-      const basePath = `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}`;
-      const blob = createPlaceholderBlob();
+        // placeholders
+        const safeProjectName = sanitize(projectNameRaw);
+        const basePath = `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}`;
+        const blob = createPlaceholderBlob();
 
-      const uploadPlaceholder = async (folder, name = ".init.txt") => {
-        const fullPath = folder
-          ? `${basePath}/${folder}/${name}`
-          : `${basePath}/${name}`;
-        try {
-          await uploadBytes(storageRef(storage, fullPath), blob);
-        } catch (err) {
-          console.warn(`Failed to upload dummy to ${folder}:`, err);
-        }
-      };
+        const uploadPlaceholder = async (folder, name = ".init.txt") => {
+          const fullPath = folder
+            ? `${basePath}/${folder}/${name}`
+            : `${basePath}/${name}`;
+          try {
+            await uploadBytes(storageRef(storage, fullPath), blob);
+          } catch (err) {
+            console.warn(`Failed to upload dummy to ${folder}:`, err);
+          }
+        };
 
-      await uploadPlaceholder("siteImages");
-      await uploadPlaceholder("sensors");
-      await uploadPlaceholder("");
+        await uploadPlaceholder("siteImages");
+        await uploadPlaceholder("sensors");
+        await uploadPlaceholder("");
+      } catch (err) {
+        console.error("Save project failed:", err);
+        alert("Failed to save project. See console for details.");
+      }
     }
 
     function showModal(url, name, folderPath) {
@@ -1330,11 +1344,16 @@
         return alert("Sensor number and serial are required.");
 
       const deviceData = { serial, m1, m2, m3 };
-      await set(
-        dbRef(database, `${sensorMetaBasePath()}/${num}`),
-        deviceData,
-      );
-      alert("Sensor info saved!");
+      try {
+        await set(
+          dbRef(database, `${sensorMetaBasePath()}/${num}`),
+          deviceData,
+        );
+        alert("Sensor info saved!");
+      } catch (err) {
+        console.error("Save sensor info failed:", err);
+        alert("Failed to save sensor info. See console for details.");
+      }
     };
 
     // ✅ autofill serial using metaOwnerTaskId

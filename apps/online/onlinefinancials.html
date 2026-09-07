@@ -579,8 +579,12 @@
     const YEAR_STORAGE_KEY = "financeLedger.selectedYear.v1";
 
     function loadSavedYear() {
-      const v = parseInt(localStorage.getItem(YEAR_STORAGE_KEY) || "", 10);
-      return Number.isFinite(v) ? v : null;
+      try {
+        const v = parseInt(localStorage.getItem(YEAR_STORAGE_KEY) || "", 10);
+        return Number.isFinite(v) ? v : null;
+      } catch {
+        return null;
+      }
     }
 
     function saveSelectedYear(y) {
@@ -797,23 +801,33 @@
       const next = stripTxForSave(nextTx);
       const nextYear = yearFromTS(next.date);
 
-      // if date moved across years, delete old location first
-      if (prevTx) {
-        const prevYear = yearFromTS(prevTx.date);
-        if (prevYear !== nextYear) {
-          await set(ref(database, txItemPath(prevYear, prevTx.id)), null);
+      try {
+        // if date moved across years, delete old location first
+        if (prevTx) {
+          const prevYear = yearFromTS(prevTx.date);
+          if (prevYear !== nextYear) {
+            await set(ref(database, txItemPath(prevYear, prevTx.id)), null);
+          }
         }
-      }
 
-      await set(ref(database, txItemPath(nextYear, nextTx.id)), next);
+        await set(ref(database, txItemPath(nextYear, nextTx.id)), next);
+      } catch (err) {
+        alert(`Save failed: ${err.message}`);
+        throw err;
+      }
     }
 
     async function deleteTxFull(tx) {
       if (!canWrite()) return;
       const y = yearFromTS(tx.date);
-      await set(ref(database, txItemPath(y, tx.id)), null);
-      // best-effort image cleanup
-      await removeStorageImage(tx.imgPath);
+      try {
+        await set(ref(database, txItemPath(y, tx.id)), null);
+        // best-effort image cleanup
+        await removeStorageImage(tx.imgPath);
+      } catch (err) {
+        alert(`Delete failed: ${err.message}`);
+        throw err;
+      }
     }
 
     /* =========================
@@ -2564,26 +2578,6 @@
       return document.getElementById("import-dedupe-mode")?.value || "loose";
     }
 
-    function parseCSVLine(line) {
-      const out = [];
-      let cur = "",
-        inQuotes = false;
-      for (let i = 0; i < line.length; i++) {
-        const ch = line[i];
-        if (ch === '"') {
-          if (inQuotes && line[i + 1] === '"') {
-            cur += '"';
-            i++;
-          } else inQuotes = !inQuotes;
-        } else if (ch === "," && !inQuotes) {
-          out.push(cur);
-          cur = "";
-        } else cur += ch;
-      }
-      out.push(cur);
-      return out.map((s) => s.trim());
-    }
-
     function importParse(rawText, mode, year) {
       const raw = String(rawText || "").trim();
       if (!raw) return [];
@@ -3018,6 +3012,7 @@
       });
     }
 
+    let _columnToggleListenersAttached = false;
     function setupColumnToggleCheckboxes() {
       const toggles = document.querySelectorAll(
         '#column-toggles input[type="checkbox"]',
@@ -3028,12 +3023,14 @@
         const col = input.dataset.col;
         input.checked = colMap[col] !== false;
 
+        if (_columnToggleListenersAttached) return;
         input.addEventListener("change", () => {
           colMap[col] = input.checked;
           saveColumnVisibility(colMap);
           updateTableColumnVisibility();
         });
       });
+      _columnToggleListenersAttached = true;
     }
 
     const USE_POSTED_DATE_KEY = "financeLedger.usePostedDate.v1";

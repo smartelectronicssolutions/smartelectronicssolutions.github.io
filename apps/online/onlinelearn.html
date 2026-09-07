@@ -257,6 +257,7 @@
     let appInitialized = false;
     let domListenersRegistered = false;
     let questionsUnsubscribe = null;
+    let highScoresUnsubscribe = null;
     let currentViewMode = "normal";
     const filterInput = document.getElementById("filterInput");
     const questionSearchHelper = window.SearchEngine?.attachAuto
@@ -274,6 +275,8 @@
     onAuthStateChanged(auth, (user) => {
       DATABASE_BASE_PATH = user ? user.uid : "public";
 
+      subscribeHighScores();
+
       if (!appInitialized) {
         initializeApp();
         appInitialized = true;
@@ -284,15 +287,21 @@
       }
     });
 
+    function subscribeHighScores() {
+      if (highScoresUnsubscribe) {
+        highScoresUnsubscribe();
+      }
+
+      highScoresUnsubscribe = watchFirebase("highScores", [], (highScores) => {
+        displayHighScores(highScores);
+      });
+    }
+
     function initializeApp() {
       if (!domListenersRegistered) {
         registerEventListeners();
         domListenersRegistered = true;
       }
-
-      watchFirebase("highScores", [], (highScores) => {
-        displayHighScores(highScores);
-      });
 
       loadSavedData().then(() => {
         fetchQuestions(true);
@@ -1124,9 +1133,13 @@
         answeredQuestions[currentQuestion.id] = "answered";
         correctAnswersCount++;
 
-        saveToFirebase("answeredQuestions", answeredQuestions);
-        saveToFirebase("correctAnswersCount", correctAnswersCount);
-        saveToFirebase("wrongAnswersCount", wrongAnswersCount);
+        Promise.all([
+          saveToFirebase("answeredQuestions", answeredQuestions),
+          saveToFirebase("correctAnswersCount", correctAnswersCount),
+          saveToFirebase("wrongAnswersCount", wrongAnswersCount),
+        ]).catch((error) => {
+          alert("Failed to save progress: " + error.message);
+        });
 
         const explanationText = currentQuestion.explanation
           ? `\nExplanation: ${currentQuestion.explanation}`
@@ -1159,9 +1172,13 @@
           wrongAnswersCount++;
         }
 
-        saveToFirebase("answeredQuestions", answeredQuestions);
-        saveToFirebase("correctAnswersCount", correctAnswersCount);
-        saveToFirebase("wrongAnswersCount", wrongAnswersCount);
+        Promise.all([
+          saveToFirebase("answeredQuestions", answeredQuestions),
+          saveToFirebase("correctAnswersCount", correctAnswersCount),
+          saveToFirebase("wrongAnswersCount", wrongAnswersCount),
+        ]).catch((error) => {
+          alert("Failed to save progress: " + error.message);
+        });
 
         const showIncorrect =
           document.getElementById("showIncorrect").checked;
@@ -1293,6 +1310,8 @@
         alert("Question added to the database.");
         resetAddQuestionForm();
         fetchQuestions(true);
+      }).catch((error) => {
+        alert("Error adding question: " + error.message);
       });
     }
 
@@ -1493,10 +1512,14 @@
         return;
       }
 
-      saveToFirebase("startTime", null);
-      saveToFirebase("correctAnswersCount", correctAnswersCount);
-      saveToFirebase("wrongAnswersCount", wrongAnswersCount);
-      saveToFirebase("answeredQuestions", answeredQuestions);
+      Promise.all([
+        saveToFirebase("startTime", null),
+        saveToFirebase("correctAnswersCount", correctAnswersCount),
+        saveToFirebase("wrongAnswersCount", wrongAnswersCount),
+        saveToFirebase("answeredQuestions", answeredQuestions),
+      ]).catch((error) => {
+        alert("Failed to save reset state: " + error.message);
+      });
 
       localStorage.removeItem("correctAnswersCount");
       localStorage.removeItem("wrongAnswersCount");

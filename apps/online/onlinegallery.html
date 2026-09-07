@@ -220,25 +220,6 @@
                 placeholder="Password" /><button id="do-login">Sign In</button>
             <p id="auth-err"></p>
         </div>
-        <section id="login-section" style="display:none">
-            <form id="login-form">
-                <label for="username">Email:</label>
-                <input type="email" id="username" required>
-                <br>
-                <label for="password">Password:</label>
-                <input type="password" id="password" required>
-                <br>
-                <button type="submit">Login</button>
-            </form>
-            <button id="logout" style="display: none;">Logout</button>
-
-            <div class="ms" style="display: none;">
-                <button id="loginButton">Login to Microsoft</button>
-                <button id="logoutButton">Logout of Microsoft</button>
-                <p id="loginStatus">Checking login status...</p>
-            </div>
-
-        </section>
     </header>
     <main>
 
@@ -285,7 +266,6 @@
             <div id="gallery"></div>
 
         </div>
-        <button id="uploadFolderToOneDrive">Upload Folder to OneDrive</button>
 
     </main>
 
@@ -317,7 +297,6 @@
     </div>
 
     <script type="module">
-        import { accessToken } from '../assets/js/microsoftAuth.js';
         import {
             storage, storageRef, uploadBytesResumable, getDownloadURL,
             listAll, deleteObject, onAuthStateChanged, auth,
@@ -784,57 +763,64 @@
                 const imageRef = storageRef(storage, modal.dataset.fullPath);
                 const blob = await getBlob(imageRef);
 
-                const reader = new FileReader();
-                reader.onload = async () => {
-                    const img = new Image();
-                    img.src = reader.result;
+                const croppedBlob = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onerror = () => reject(reader.error || new Error("Failed to read image."));
+                    reader.onload = () => {
+                        const img = new Image();
+                        img.onerror = () => reject(new Error("Failed to decode image."));
+                        img.onload = () => {
 
-                    img.onload = async () => {
+                            // 🔥 SAME FORMULA used in markup
+                            const barHeight = Math.floor(img.width * 0.12);
 
-                        // 🔥 SAME FORMULA used in markup
-                        const barHeight = Math.floor(img.width * 0.12);
+                            // Safety check
+                            if (img.height <= barHeight) {
+                                reject(new Error("Image too small to remove markup."));
+                                return;
+                            }
 
-                        // Safety check
-                        if (img.height <= barHeight) {
-                            alert("Image too small to remove markup.");
-                            hideLoading();
-                            return;
-                        }
+                            const canvas = document.createElement("canvas");
+                            canvas.width = img.width;
+                            canvas.height = img.height - barHeight;
 
-                        const canvas = document.createElement("canvas");
-                        canvas.width = img.width;
-                        canvas.height = img.height - barHeight;
+                            const ctx = canvas.getContext("2d");
 
-                        const ctx = canvas.getContext("2d");
+                            // Crop bottom portion off
+                            ctx.drawImage(
+                                img,
+                                0,
+                                0,
+                                img.width,
+                                img.height - barHeight,
+                                0,
+                                0,
+                                img.width,
+                                img.height - barHeight
+                            );
 
-                        // Crop bottom portion off
-                        ctx.drawImage(
-                            img,
-                            0,
-                            0,
-                            img.width,
-                            img.height - barHeight,
-                            0,
-                            0,
-                            img.width,
-                            img.height - barHeight
-                        );
-
-                        canvas.toBlob(async (croppedBlob) => {
-                            await uploadBytes(imageRef, croppedBlob);
-
-                            modal.style.display = "none";
-                            await loadImages(folderDropdown.value);
-                            hideLoading();
-                        }, "image/jpeg", 0.95);
+                            canvas.toBlob((outBlob) => {
+                                if (!outBlob) {
+                                    reject(new Error("Failed to encode image."));
+                                    return;
+                                }
+                                resolve(outBlob);
+                            }, "image/jpeg", 0.95);
+                        };
+                        img.src = reader.result;
                     };
-                };
+                    reader.readAsDataURL(blob);
+                });
 
-                reader.readAsDataURL(blob);
+                await uploadBytes(imageRef, croppedBlob);
+
+                modal.style.display = "none";
+                await loadImages(folderDropdown.value);
 
             } catch (err) {
                 console.error("Remove markup failed:", err);
-                alert("Failed to remove markup.");
+                alert(err?.message || "Failed to remove markup.");
+            } finally {
                 hideLoading();
             }
         };

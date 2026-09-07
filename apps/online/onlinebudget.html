@@ -107,19 +107,6 @@
       </div>
       <p class="muted">Plan monthly budgets for next year, enter actuals each month, and see variances live.</p>
     </div>
-    <section id="login-section" style="display:none">
-      <form id="login-form">
-        <label for="username">Email:</label>
-        <input type="email" id="username" required>
-        <br>
-        <label for="password">Password:</label>
-        <input type="password" id="password" required>
-        <br>
-        <button type="submit">Login</button>
-      </form>
-      <button id="logout" style="display: none;">Logout</button>
-    </section>
-
     <nav>
       <a href="onlinefinancials.html"><button>Ledger</button></a>
       <a href="onlineinventory.html"><button>Inventory</button></a>
@@ -1230,11 +1217,6 @@
     URL.revokeObjectURL(url);
   }
 
-  const csvEscape = (v) => {
-    const s = String(v ?? '');
-    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-  };
-
   function deleteCategory(catName) {
     if (!catName) return;
     if (!confirm(`Delete category "${catName}" and all its data? This cannot be undone.`)) return;
@@ -1290,31 +1272,34 @@
     }
 
     // buttons
-    document.addEventListener('click', async (e) => {
-      const t = e.target;
-      if (!(t instanceof HTMLElement)) return;
+    if (!document._budgetClickWired) {
+      document.addEventListener('click', async (e) => {
+        const t = e.target;
+        if (!(t instanceof HTMLElement)) return;
 
-      if (t.matches('#add-year')) {
-        try { await addYearFlow(); } catch (err) { console.error(err); alert('Failed to add year.'); }
-      }
-      if (t.matches('#save')) saveToDB();
-      if (t.matches('#export-csv')) exportCSV();
-      if (t.matches('#reset-defaults')) {
-        if (!confirm('Reset this year to default baseline?')) return;
-        const keepYear = STATE.year;
-        const keepIncome = STATE.incomeYear;
-        STATE = structuredClone(DEFAULT_BASE);
-        STATE.year = keepYear;
-        STATE.incomeYear = keepIncome;
-        ensureShapes();
-        renderAll();
-        saveToDB();
-      }
-      if (t.matches('#sync-from-tracker')) {
-        try { await syncFromFinancialTracker(); }
-        catch (err) { console.error(err); alert('Sync failed. See console for details.'); }
-      }
-    });
+        if (t.matches('#add-year')) {
+          try { await addYearFlow(); } catch (err) { console.error(err); alert('Failed to add year.'); }
+        }
+        if (t.matches('#save')) saveToDB();
+        if (t.matches('#export-csv')) exportCSV();
+        if (t.matches('#reset-defaults')) {
+          if (!confirm('Reset this year to default baseline?')) return;
+          const keepYear = STATE.year;
+          const keepIncome = STATE.incomeYear;
+          STATE = structuredClone(DEFAULT_BASE);
+          STATE.year = keepYear;
+          STATE.incomeYear = keepIncome;
+          ensureShapes();
+          renderAll();
+          saveToDB();
+        }
+        if (t.matches('#sync-from-tracker')) {
+          try { await syncFromFinancialTracker(); }
+          catch (err) { console.error(err); alert('Sync failed. See console for details.'); }
+        }
+      });
+      document._budgetClickWired = true;
+    }
 
     const yearSelEl = document.getElementById('year');
     if (yearSelEl && !yearSelEl._wired) {
@@ -1327,9 +1312,12 @@
       yearSelEl._wired = true;
     }
 
-    (async () => { await fetchAvailableYearsAndMaybeInit(); })();
+    if (!window._budgetOnceWired) {
+      (async () => { await fetchAvailableYearsAndMaybeInit(); })();
 
-    window.addEventListener('beforeunload', () => saveToDB());
+      window.addEventListener('beforeunload', () => saveToDB());
+      window._budgetOnceWired = true;
+    }
   }
 
   onAuthStateChanged(auth, async (user) => {
