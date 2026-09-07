@@ -533,6 +533,11 @@
     // -------------------------------------------------------------------
     let DATABASE_BASE_PATH = "public";
     let authReady = false;
+    // Writes and moves are owner-only (same rule as onlinedetails): the raw editor can reach any path.
+    const OWNER_UID = "7cIh8rrhVNOjjj5CBDgb3IlqzEh2";
+    const isAdmin = () => auth.currentUser?.uid === OWNER_UID;
+    // Key names and Storage paths are data, not markup: escape before any innerHTML.
+    const escHtml = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
     // -------------------------------------------------------------------
     // Explorer Elements
@@ -615,7 +620,7 @@
       for (const part of parts) {
         curr = joinPath(curr, part);
         links.push(
-          `<span style="opacity:.6;">/</span><span class="mono" style="cursor:pointer;" data-bc="${curr}">${part}</span>`,
+          `<span style="opacity:.6;">/</span><span class="mono" style="cursor:pointer;" data-bc="${escHtml(curr)}">${escHtml(part)}</span>`,
         );
       }
 
@@ -964,6 +969,7 @@
 
     saveNodeBtn.onclick = async () => {
       if (!authReady) { alert("Still verifying sign-in — try again in a moment."); return; }
+      if (!isAdmin()) { alert("Owner account only."); return; }
       if (!selectedNodePath) return;
 
       let newVal = valueEditor.value;
@@ -982,15 +988,26 @@
         }
       }
 
-      await update(ref(getDatabase()), { [selectedNodePath]: newVal });
+      try {
+        await update(ref(getDatabase()), { [selectedNodePath]: newVal });
+      } catch (err) {
+        alert("Save failed: " + (err?.message || err));
+        return;
+      }
       await loadRoot(currentRootPath);
     };
 
     deleteNodeBtn.onclick = async () => {
       if (!authReady) { alert("Still verifying sign-in — try again in a moment."); return; }
+      if (!isAdmin()) { alert("Owner account only."); return; }
       if (!selectedNodePath) return;
       if (!confirm(`Delete ${selectedNodePath}?`)) return;
-      await update(ref(getDatabase()), { [selectedNodePath]: null });
+      try {
+        await update(ref(getDatabase()), { [selectedNodePath]: null });
+      } catch (err) {
+        alert("Delete failed: " + (err?.message || err));
+        return;
+      }
       await loadRoot(currentRootPath);
     };
 
@@ -1787,7 +1804,7 @@
       transferPlanSummary.textContent = `${plan.total} item(s)`;
 
       if (plan.total === 0) {
-        transferPlanBody.innerHTML = `<div class="small-muted">From path <span class="mono">${fromPath}</span> is empty.</div>`;
+        transferPlanBody.innerHTML = `<div class="small-muted">From path <span class="mono">${escHtml(fromPath)}</span> is empty.</div>`;
         return;
       }
 
@@ -1796,10 +1813,10 @@
       const extra = Math.max(0, plan.entries.length - maxRows);
 
       transferPlanBody.innerHTML = `
-                <div class="kv"><b>From</b><span class="mono">${fromPath}</span></div>
+                <div class="kv"><b>From</b><span class="mono">${escHtml(fromPath)}</span></div>
                 <div class="kv"><b>Type</b><span>${plan.kind === "file" ? "File" : "Folder"}</span></div>
                 <div style="font-weight:700; margin-top:8px;">Files that will be copied/moved</div>
-                <ul class="file-list">${visible.map((f) => `<li class="mono">${f}</li>`).join("")}</ul>
+                <ul class="file-list">${visible.map((f) => `<li class="mono">${escHtml(f)}</li>`).join("")}</ul>
                 ${extra ? `<div class="small-muted">...and ${extra} more item(s).</div>` : ""}
             `;
     }
@@ -1934,6 +1951,7 @@
 
     moveButton.addEventListener("click", async () => {
       if (!authReady) { alert("Still verifying sign-in — try again in a moment."); return; }
+      if (!isAdmin()) { alert("Owner account only."); return; }
       const manualFrom = fromPathInput?.value.trim();
       const manualTo = toPathInput?.value.trim();
       const fromFolder = manualFrom || fromDropdown.value.trim();
