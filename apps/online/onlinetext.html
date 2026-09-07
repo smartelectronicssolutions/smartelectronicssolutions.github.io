@@ -38,6 +38,20 @@
             text-align: left;
             font-size: 1em;
             color: white;
+            white-space: pre-wrap;
+            line-height: 1.5;
+        }
+
+        .doc-meta {
+            font-size: .85em;
+            opacity: .75;
+            margin: 6px 0;
+        }
+
+        #titleInput {
+            width: 420px;
+            max-width: 90%;
+            margin-bottom: 6px;
         }
 
         .slider-container {
@@ -82,6 +96,8 @@
                 <option value="">Select a saved text</option>
             </select>
             <button id="deleteTextButton" disabled>Delete Text</button>
+            <button id="pdfButton" disabled>Download PDF</button>
+            <div id="docMeta" class="doc-meta"></div>
         </div>
         <div id="display">Text will appear here</div>
         <div id="controls">
@@ -109,6 +125,8 @@
             </div>
         </div>
         <div>
+            <input type="text" id="titleInput" placeholder="Title (optional)" maxlength="120">
+            <br>
             <textarea id="textInput" rows="5" cols="50" placeholder="Paste your text here..."></textarea>
             <br>
             <button id="saveTextButton">Save Text</button>
@@ -119,13 +137,18 @@
     </main>
     <script type="module" src="../assets/js/auth.js"></script>
     <script src="../assets/js/links-aside.js" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
     <script type="module">
         import { getDatabase, ref, set, push, onValue, remove, auth, onAuthStateChanged } from '../assets/js/firebase-init.js';
 
         const database = getDatabase();
-        // Scope saved texts to the signed-in user; fall back to shared public node when signed out.
+        // Dual read (house pattern): public/texts is always listed; the signed-in user's {uid}/texts is listed
+        // with it under "Mine". New saves go to the signed-in uid, or to public when signed out.
         let DB = 'public';
-        let unsubTexts = null;
+        let UIDBASE = null;
+        const scopes = { public: {}, mine: {} };   // raw rows per scope
+        let docs = {};                              // 'scope:key' -> {text, title?, createdAt?, source?}
+        let unsubPublic = null, unsubMine = null;
 
         function escHtml(s) {
             return String(s ?? '').replace(/[&<>"']/g, c => ({
@@ -145,6 +168,9 @@
         const fullText = document.getElementById('fullText');
         const deleteTextButton = document.getElementById('deleteTextButton');
         const clearTextButton = document.getElementById('clearTextButton');
+        const titleInput = document.getElementById('titleInput');
+        const pdfButton = document.getElementById('pdfButton');
+        const docMeta = document.getElementById('docMeta');
 
         let words = [];
         let currentIndex = 0;
@@ -183,34 +209,72 @@
             }
             if (savedSettings.textInput) {
                 textInput.value = savedSettings.textInput;
-            } else if (savedSettings.selectedText) {
-                const selectedTextRef = ref(database, `${DB}/texts/${savedSettings.selectedText}`);
-                onValue(selectedTextRef, (snapshot) => {
-                    if (snapshot.exists()) {
-                        textInput.value = snapshot.val().text;
-                    }
-                }, { onlyOnce: true });
             }
+            // a remembered selection is filled in by renderList() once the lists arrive
+        }
+
+        // 'scope:key' -> RTDB path (null when the scope is not available, e.g. "mine" while signed out)
+        function pathOf(sel) {
+            const i = String(sel || '').indexOf(':');
+            if (i < 0) return null;
+            const scope = sel.slice(0, i), key = sel.slice(i + 1);
+            const base = scope === 'mine' ? UIDBASE : 'public';
+            return base && key ? `${base}/texts/${key}` : null;
+        }
+
+        function renderList() {
+            docs = {};
+            savedTexts.innerHTML = '<option value="">Select a saved text</option>';
+            for (const [scope, label] of [['mine', 'Mine'], ['public', 'Public']]) {
+                const rows = scopes[scope] || {};
+                // newest first; legacy rows without createdAt sort last in key order
+                const keys = Object.keys(rows).filter(k => rows[k] && typeof rows[k] === 'object')
+                    .sort((a, b) => (rows[b].createdAt || 0) - (rows[a].createdAt || 0));
+                if (!keys.length) continue;
+                const group = document.createElement('optgroup');
+                group.label = label;
+                for (const key of keys) {
+                    const sel = `${scope}:${key}`;
+                    docs[sel] = rows[key];
+                    const option = document.createElement('option');
+                    option.value = sel;
+                    option.textContent = docLabel(rows[key]);
+                    group.appendChild(option);
+                }
+                savedTexts.appendChild(group);
+            }
+            // restore the remembered selection; a legacy bare key maps to whichever scope holds it
+            const saved = (JSON.parse(localStorage.getItem('textPlaybackSettings') || '{}') || {}).selectedText;
+            if (saved) {
+                const sel = docs[saved] ? saved : (docs['mine:' + saved] ? 'mine:' + saved : (docs['public:' + saved] ? 'public:' + saved : ''));
+                savedTexts.value = sel;
+                if (sel && !textInput.value.trim()) {
+                    textInput.value = docs[sel].text || '';
+                    titleInput.value = docs[sel].title || '';
+                    fullText.textContent = textInput.value;
+                }
+            }
+            deleteTextButton.disabled = !savedTexts.value;
+            showDocMeta(savedTexts.value);
         }
 
         function fetchSavedTexts() {
-            if (unsubTexts) unsubTexts();
-            unsubTexts = onValue(ref(database, `${DB}/texts`), (snapshot) => {
-                savedTexts.innerHTML = '<option value="">Select a saved text</option>';
-                const data = snapshot.val();
-                if (data) {
-                    for (const key in data) {
-                        const option = document.createElement('option');
-                        option.value = key;
-                        option.textContent = data[key].text.substring(0, 30) + '...';
-                        savedTexts.appendChild(option);
-                    }
-                }
-                const savedSettings = JSON.parse(localStorage.getItem('textPlaybackSettings') || '{}');
-                if (savedSettings?.selectedText) {
-                    savedTexts.value = savedSettings.selectedText;
-                }
-            });
+            if (!unsubPublic) {
+                unsubPublic = onValue(ref(database, 'public/texts'), (snapshot) => {
+                    scopes.public = snapshot.val() || {};
+                    renderList();
+                });
+            }
+            if (unsubMine) { unsubMine(); unsubMine = null; }
+            scopes.mine = {};
+            if (UIDBASE) {
+                unsubMine = onValue(ref(database, `${UIDBASE}/texts`), (snapshot) => {
+                    scopes.mine = snapshot.val() || {};
+                    renderList();
+                });
+            } else {
+                renderList();
+            }
         }
 
         function startPlayback() {
@@ -299,47 +363,182 @@
             const text = textInput.value.trim();
             if (text) {
                 const newTextRef = push(ref(database, `${DB}/texts`));
-                set(newTextRef, { text }).then(() => {
+                const title = titleInput.value.trim();
+                const doc = { text, createdAt: Date.now(), source: 'web' };
+                if (title) doc.title = title;
+                set(newTextRef, doc).then(() => {
                     alert('Text saved successfully.');
                     textInput.value = '';
+                    titleInput.value = '';
                     saveSettings();
                 });
             }
         });
 
         savedTexts.addEventListener('change', () => {
-            const selectedKey = savedTexts.value;
-            if (selectedKey) {
-                const selectedTextRef = ref(database, `${DB}/texts/${selectedKey}`);
-                onValue(selectedTextRef, (snapshot) => {
-                    if (snapshot.exists()) {
-                        textInput.value = snapshot.val().text;
+            const d = docs[savedTexts.value];
+            if (d) {
+                textInput.value = d.text || '';
+                titleInput.value = d.title || '';
 
-                        words = [];
-                        currentIndex = 0;
-                        display.textContent = 'Text will appear here';
-                        fullText.textContent = textInput.value;
+                words = [];
+                currentIndex = 0;
+                display.textContent = 'Text will appear here';
+                fullText.textContent = textInput.value;
 
-                        saveSettings();
-                    }
-                }, { onlyOnce: true });
+                saveSettings();
             }
 
             deleteTextButton.disabled = !savedTexts.value;
+            showDocMeta(savedTexts.value);
         });
 
         deleteTextButton.addEventListener('click', () => {
-            const selectedKey = savedTexts.value;
-            if (selectedKey) {
-                const selectedTextRef = ref(database, `${DB}/texts/${selectedKey}`);
-                remove(selectedTextRef).then(() => {
+            const path = pathOf(savedTexts.value);
+            if (path) {
+                remove(ref(database, path)).then(() => {
                     alert('Text deleted successfully.');
-                    fetchSavedTexts();
                     savedTexts.value = '';
+                    saveSettings();
+                    showDocMeta('');
                 }).catch(error => {
                     console.error('Error deleting text: ', error);
                 });
             }
+        });
+
+        // --- documents: list label, meta line, PDF download (jsPDF from cdnjs; text only, paginated) ---
+        function docLabel(d) {
+            if (d.title) return d.title;
+            const t = String(d.text || '');
+            return t.substring(0, 30) + (t.length > 30 ? '...' : '');
+        }
+
+        function showDocMeta(key) {
+            const d = key && docs[key];
+            pdfButton.disabled = !d;
+            if (!d) { docMeta.textContent = ''; return; }
+            const parts = [];
+            if (d.source) parts.push('from ' + (d.source === 'compman' ? 'CompMan' : d.source));
+            if (d.createdAt) parts.push(new Date(d.createdAt).toLocaleDateString());
+            parts.push(String(d.text || '').trim().split(/\s+/).filter(Boolean).length + ' words');
+            docMeta.textContent = parts.join(' · ');
+        }
+
+        // Plain text -> blocks the PDF can typeset on its own (no AI): blank lines split blocks; a short line in
+        // ALL CAPS / ending with ':' / starting with # is a heading; lines starting with - * • or 1. are a list;
+        // > is a quote; a block of short lines is verse (line breaks kept); everything else is a paragraph
+        // whose soft-wrapped lines are re-joined. Markdown emphasis markers are stripped.
+        function parseBlocks(text) {
+            const clean = String(text || '').replace(/\r\n?/g, '\n').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+            const strip = s => s.replace(/\*\*(.+?)\*\*/g, '$1').replace(/__(.+?)__/g, '$1').replace(/(^|\s)\*(\S.*?\S)\*(?=\s|$)/g, '$1$2').replace(/`([^`]*)`/g, '$1');
+            const blocks = [];
+            for (const raw of clean.split(/\n\s*\n/)) {
+                const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+                if (!lines.length) continue;
+                const one = lines.length === 1 ? lines[0] : null;
+                const md = one && /^#{1,3}\s+/.test(one);
+                const caps = one && one.length <= 70 && /[A-Z]{3,}/.test(one) && one === one.toUpperCase() && !/[.!?]$/.test(one);
+                const colon = one && one.length <= 70 && /:$/.test(one) && one.split(/\s+/).length <= 8;
+                if (md || caps || colon) {
+                    blocks.push({ kind: 'heading', level: md ? one.match(/^#+/)[0].length : 2, text: strip(one.replace(/^#+\s+/, '')) });
+                } else if (lines.every(l => /^([-*•]|\d+[.)])\s+/.test(l))) {
+                    blocks.push({ kind: 'list', items: lines.map(l => ({ marker: /^\d+[.)]/.test(l) ? l.match(/^\d+/)[0] + '.' : '•', text: strip(l.replace(/^([-*•]|\d+[.)])\s+/, '')) })) });
+                } else if (lines.every(l => /^>\s?/.test(l))) {
+                    blocks.push({ kind: 'quote', text: strip(lines.map(l => l.replace(/^>\s?/, '')).join(' ')) });
+                } else if (lines.length >= 2 && lines.reduce((a, l) => a + l.length, 0) / lines.length < 45) {
+                    blocks.push({ kind: 'verse', lines: lines.map(strip) });
+                } else {
+                    blocks.push({ kind: 'para', text: strip(lines.join(' ')) });
+                }
+            }
+            return blocks;
+        }
+
+        function downloadPdf(d) {
+            if (!window.jspdf) { alert('PDF library still loading - try again in a moment.'); return; }
+            const { jsPDF } = window.jspdf;
+            const pdf = new jsPDF({ unit: 'pt', format: 'letter' });
+            const W = pdf.internal.pageSize.getWidth(), H = pdf.internal.pageSize.getHeight();
+            const M = 60, TOP = 64, BOTTOM = H - 60, COL = W - 2 * M;
+            const title = d.title || docLabel(d);
+            const dateStr = d.createdAt ? new Date(d.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }) : '';
+            let y = TOP;
+            const need = (h) => { if (y + h > BOTTOM) { pdf.addPage(); y = TOP; } };
+            const put = (text, x, width, font, style, size, lh, indent = 0) => {
+                pdf.setFont(font, style);
+                pdf.setFontSize(size);
+                const lines = pdf.splitTextToSize(text, width - indent);
+                lines.forEach((line, i) => { need(lh); pdf.text(line, x + (i ? indent : 0), y); y += lh; });
+            };
+
+            // title page head: title, meta, rule
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(20);
+            for (const line of pdf.splitTextToSize(title, COL)) { pdf.text(line, M, y); y += 26; }
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(9.5);
+            pdf.setTextColor(110);
+            const meta = [dateStr, d.source === 'compman' ? 'transcribed by CompMan' : (d.source || ''), String(d.text || '').trim().split(/\s+/).filter(Boolean).length + ' words'].filter(Boolean).join('  ·  ');
+            pdf.text(meta, M, y);
+            pdf.setTextColor(0);
+            y += 10;
+            pdf.setDrawColor(190);
+            pdf.line(M, y, W - M, y);
+            y += 22;
+
+            for (const b of parseBlocks(d.text)) {
+                if (b.kind === 'heading') {
+                    const size = b.level === 1 ? 15 : (b.level === 2 ? 13 : 11.5);
+                    y += 6;
+                    need(size + 10);
+                    put(b.text, M, COL, 'helvetica', 'bold', size, size + 5);
+                    y += 4;
+                } else if (b.kind === 'list') {
+                    for (const it of b.items) {
+                        need(15);
+                        pdf.setFont('times', 'normal');
+                        pdf.setFontSize(11.5);
+                        pdf.text(it.marker, M + 6, y);
+                        put(it.text, M + 24, COL - 24, 'times', 'normal', 11.5, 15);
+                        y += 2;
+                    }
+                    y += 6;
+                } else if (b.kind === 'quote') {
+                    const start = y;
+                    put(b.text, M + 18, COL - 18, 'times', 'italic', 11.5, 15);
+                    pdf.setDrawColor(170);
+                    pdf.line(M + 6, start - 11, M + 6, y - 5);
+                    y += 8;
+                } else if (b.kind === 'verse') {
+                    for (const line of b.lines) put(line, M + 12, COL - 12, 'times', 'normal', 11.5, 15);
+                    y += 8;
+                } else {
+                    put(b.text, M, COL, 'times', 'normal', 11.5, 15.5);
+                    y += 8;
+                }
+            }
+
+            // running header (from page 2) + page numbers
+            const n = pdf.getNumberOfPages();
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(8.5);
+            pdf.setTextColor(130);
+            for (let i = 1; i <= n; i++) {
+                pdf.setPage(i);
+                if (i > 1) {
+                    pdf.text(title.length > 80 ? title.slice(0, 77) + '...' : title, M, 36);
+                    if (dateStr) pdf.text(dateStr, W - M, 36, { align: 'right' });
+                }
+                pdf.text(`${i} / ${n}`, W / 2, H - 30, { align: 'center' });
+            }
+            const name = title.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'document';
+            pdf.save(name + '.pdf');
+        }
+
+        pdfButton.addEventListener('click', () => {
+            const d = docs[savedTexts.value];
+            if (d) downloadPdf(d);
         });
 
         // On live speed/group changes, reschedule the next step at the new pace.
@@ -368,7 +567,8 @@
 
         // Re-point the DB base path on auth changes and refresh the saved-text list.
         onAuthStateChanged(auth, (user) => {
-            DB = user ? user.uid : 'public';
+            UIDBASE = user ? user.uid : null;
+            DB = UIDBASE || 'public';
             fetchSavedTexts();
         });
 
