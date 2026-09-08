@@ -396,6 +396,13 @@
             </section>
 
             <section class="hub-section">
+                <div class="hcard">
+                    <h3>Claude Usage <span id="usage-age" style="float:right;font-size:0.65rem;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0"></span></h3>
+                    <div id="usage-body"><span style="color:var(--muted);font-style:italic">Loading...</span></div>
+                </div>
+            </section>
+
+            <section class="hub-section">
                 <div class="hcard"><h3>Quick Commands</h3><div id="cmd-list"></div></div>
             </section>
 
@@ -774,6 +781,7 @@
             onValue(query(ref(database, `${DC.base}/pings/log`), limitToLast(20)), s => renderPingLog(s.val() || {}));
             onValue(ref(database, `${DC.base}/fleet`), s => renderFleet(s.val() || {}));
             onValue(ref(database, `${DC.base}/automations`), s => renderAutos(s.val() || {}));
+            onValue(ref(database, `${DC.base}/usage`), s => renderUsage(s.val() || {}));
             onValue(ref(database, `${DC.base}/khReminders`), s => {
                 const c = s.val() || {};
                 $('#dc-kh-enabled').checked = c.enabled !== false;
@@ -790,6 +798,40 @@
                 return `<div class="fp ${f[n].up ? 'up' : ''}"><span class="d"></span>${esc(n)}</div>`;
             }).join('');
             $('#dc-fl-age').textContent = newest ? 'checked ' + Math.round((Date.now() - newest) / 60000) + 'm ago' : '';
+        }
+
+        /* Claude Usage card: daemon publishes usage_census.py hourly to console/usage.
+           Output tokens = the work; cache reads are cheap context re-reads. The bar is today's output against
+           the 30-day peak day (plan-window % is only in Claude Code's /usage, not readable here). */
+        function fmtTok(n) {
+            n = +n || 0;
+            return n >= 1e9 ? (n / 1e9).toFixed(2) + 'B' : n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(n);
+        }
+        function renderUsage(u) {
+            const box = $('#usage-body');
+            if (!u || !u.today) { box.innerHTML = '<span style="color:var(--muted);font-size:0.82rem">No usage data yet — the daemon publishes hourly.</span>'; return; }
+            const peak = Math.max(1, u.peakDayOut || 1);
+            const pct = Math.min(100, Math.round((u.today.out || 0) / peak * 100));
+            const days = Object.keys(u.days || {}).sort().slice(-7);
+            const strip = days.map(d => {
+                const o = (u.days[d] || {}).out || 0, h = Math.max(2, Math.round(o / peak * 36));
+                const wd = 'SMTWTFS'[new Date(d + 'T12:00:00').getDay()];
+                return `<div title="${esc(d)}: ${fmtTok(o)} out" style="display:flex;flex-direction:column;align-items:center;gap:3px;flex:1">
+                            <div style="height:36px;display:flex;align-items:flex-end;width:100%"><div style="width:100%;height:${h}px;background:${d === days[days.length - 1] ? 'steelblue' : 'var(--muted)'};border-radius:3px 3px 0 0;opacity:.85"></div></div>
+                            <span style="font-size:0.62rem;color:var(--muted)">${wd}</span></div>`;
+            }).join('');
+            const models = Object.entries(u.models30d || {}).slice(0, 3).map(([m, v]) => `${esc(m.replace('claude-', ''))} ${fmtTok(v)}`).join(' · ');
+            box.innerHTML = `
+                <div style="font-size:0.82rem;margin-bottom:4px"><b>Today</b> ${fmtTok(u.today.out)} out · ${fmtTok(u.today.cache_read)} cache-read · ${u.today.msgs || 0} msgs
+                    <span style="float:right;color:var(--muted)">${pct}% of peak day (${fmtTok(peak)})</span></div>
+                <div style="height:12px;background:var(--border);border-radius:6px;overflow:hidden;margin-bottom:10px"><div style="width:${pct}%;height:100%;background:steelblue"></div></div>
+                <div style="display:flex;gap:6px;margin-bottom:8px">${strip}</div>
+                <div style="font-size:0.78rem;color:var(--muted);line-height:1.5">
+                    7 days: <b>${fmtTok((u.week || {}).out)}</b> out · ${fmtTok((u.week || {}).cache_read)} cache-read<br>
+                    all time since ${esc(u.first_day || '?')}: <b>${fmtTok((u.allTime || {}).out)}</b> out · ${fmtTok((u.allTime || {}).cache_read)} cache-read · ${(u.allTime || {}).msgs || 0} msgs<br>
+                    models (30d): ${models || '—'}
+                </div>`;
+            $('#usage-age').textContent = u.updatedAt ? 'updated ' + Math.round((Date.now() - u.updatedAt) / 60000) + 'm ago' : '';
         }
 
         function renderAutos(a) {
