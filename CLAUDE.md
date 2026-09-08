@@ -6,11 +6,13 @@ any commit. **Do not `git push` unless asked.**
 
 ## Building or editing apps in `apps/online/`
 
-Read `apps/online/_house-style.md` FIRST — it defines the shared auth/init/css/data
-pattern every app follows. Start new apps by copying `apps/online/_template.html`
-**in place** (its relative paths only resolve from that directory).
+Read the **House Style journal** FIRST — Firebase `journalArticles/1788865988976` (private, uid
+`7cIh8…`; Droplet reads it via the recall mirror, CompMan via `get_journal`). It defines the shared
+auth/init/css/data pattern every app follows. Start a new app by copying `_meta/_template.html`
+into `apps/online/<name>.html` — it must land in `apps/online/` for its `../assets/…` paths to resolve.
+(The house-style doc + template moved out of `apps/online/` 2026-09-08 so that folder holds only real apps.)
 
-Non-negotiables (details in the house-style doc):
+Non-negotiables (details in the house-style journal):
 - Never inline a `firebaseConfig` or hand-roll login UI — shared `auth.js` + `firebase-init.js` only.
 - Keep each page's own script inline in the page — no per-page file splits.
 - Data path: `BASE_PATH = user ? user.uid : "public"`.
