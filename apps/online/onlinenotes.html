@@ -42,14 +42,7 @@
       <button id="save-btn">💾</button>
       <button class="clear-button" id="delete-btn">❌</button>
       <button id="undo-btn">↩️</button>
-      <select id="share-target" title="Share the current note to another account">
-        <option value="">Share to…</option>
-        <option value="JuKhM8rlSgQ3Ki1xGr0iXwUWJ193">Smart Electronics Solutions</option>
-        <option value="SDN0vKPQ1qfN5vxkvhR3auVhDYq1">Telaid (W2)</option>
-        <option value="YHIJWVQOmefgigMVCcvueIZidze2">Telaid PM</option>
-        <option value="LSjib8ujVsNwKv4duYmzXcqY0E23">Shared account</option>
-      </select>
-      <button id="share-btn" title="Share this note to the selected account">📤</button>
+      <button id="share-btn" title="Share this note to the shared account (asks whether to password-protect it)">📤 Share</button>
       <label id="enc-lbl" title="Encrypt this note's body with a password (AES-256-GCM)"><input type="checkbox" id="enc-toggle"> 🔒</label>
       <input type="password" id="enc-pass" placeholder="note password" style="display:none;width:auto" autocomplete="off">
       <button id="unlock-btn" style="display:none">🔓 Unlock</button>
@@ -210,50 +203,40 @@
       }, 2000);
     };
 
-    // --- Share a note to another account (copies it into their notes; collision-safe) ---
-    const SHARE_LABELS = {
-      'JuKhM8rlSgQ3Ki1xGr0iXwUWJ193': 'Smart Electronics Solutions',
-      'SDN0vKPQ1qfN5vxkvhR3auVhDYq1': 'Telaid (W2)',
-      'YHIJWVQOmefgigMVCcvueIZidze2': 'Telaid PM',
-      'LSjib8ujVsNwKv4duYmzXcqY0E23': 'the shared account'
-    };
+    // --- Share the current note to the shared account. Auto-target; just asks about a password. ---
+    const SHARE_TARGET = 'LSjib8ujVsNwKv4duYmzXcqY0E23';   // the shared account
     const shareNote = async () => {
       const name = nameInput.value.trim();
-      const targetUid = document.getElementById('share-target').value;
-      if (!name) { alert('Load or type a note (name + body) before sharing.'); return; }
-      if (!targetUid) { alert('Pick who to share with first.'); return; }
-      if (targetUid === DATABASE_BASE_PATH) { alert('That is the account you are already signed into.'); return; }
+      if (!name) { alert('Load or type a note first.'); return; }
+      if (SHARE_TARGET === DATABASE_BASE_PATH) { alert('You are signed into the shared account already.'); return; }
 
-      // Body: pass a locked note's ciphertext straight through; encrypt on the fly if 🔒 is on; else plaintext.
+      // Already-encrypted (locked) note: send its ciphertext as-is. Otherwise ask whether to add a password.
       let bodyToShare, encFlag = false;
       if (lockedBlob) { bodyToShare = lockedBlob; encFlag = true; }
       else {
         const noteText = notesTextarea.value.trim();
         if (!noteText) { alert('The note body is empty.'); return; }
-        if (encToggle.checked) {
-          const pw = encPass.value;
-          if (!pw) { alert('Enter a password to encrypt before sharing (or uncheck 🔒).'); return; }
+        if (confirm('Add a password so only someone with it can read this shared note?')) {
+          const pw = prompt('Password for this shared note:');
+          if (!pw) { alert('No password entered — share cancelled.'); return; }
           try { bodyToShare = await encryptText(noteText, pw); encFlag = true; }
           catch (e) { console.error('Encryption failed:', e); alert('Encryption failed.'); return; }
         } else { bodyToShare = noteText; }
       }
 
-      const label = SHARE_LABELS[targetUid] || 'that account';
-      if (!confirm(`Share "${name}"${encFlag ? ' (encrypted)' : ''} to ${label}? A copy lands in their notes.`)) return;
       try {
         const mine = (auth.currentUser && auth.currentUser.email) ? auth.currentUser.email : DATABASE_BASE_PATH;
         let key = name;
-        const existing = await get(ref(database, `${targetUid}/notes/${key}`));
-        if (existing.exists()) key = `${name} (from ${mine})`;   // never clobber their note of the same name
-        await set(ref(database, `${targetUid}/notes/${key}`), {
+        const existing = await get(ref(database, `${SHARE_TARGET}/notes/${key}`));
+        if (existing.exists()) key = `${name} (from ${mine})`;   // never clobber a same-named note
+        await set(ref(database, `${SHARE_TARGET}/notes/${key}`), {
           name: key, note: bodyToShare, timestamp: new Date().toISOString(),
           enc: encFlag, sharedBy: DATABASE_BASE_PATH, sharedByLabel: mine
         });
-        document.getElementById('share-target').value = '';
-        alert(`Shared "${name}" to ${label}.${encFlag ? ' They will need the password to read it — send it separately.' : ''}`);
+        alert(`Shared "${name}" to the shared account${encFlag ? ' (encrypted — send the password separately)' : ''}.`);
       } catch (err) {
         console.error('Share failed:', err);
-        alert('Could not share — you may not have write access to that account.');
+        alert('Could not share — no write access to the shared account.');
       }
     };
 
