@@ -42,10 +42,9 @@
       <button id="save-btn">💾</button>
       <button class="clear-button" id="delete-btn">❌</button>
       <button id="undo-btn">↩️</button>
-      <button id="share-btn" title="Share this note to the shared account (asks whether to password-protect it)">📤 Share</button>
-      <label id="enc-lbl" title="Encrypt this note's body with a password (AES-256-GCM)"><input type="checkbox" id="enc-toggle"> 🔒</label>
-      <input type="password" id="enc-pass" placeholder="note password" style="display:none;width:auto" autocomplete="off">
-      <button id="unlock-btn" style="display:none">🔓 Unlock</button>
+      <button id="share-btn" title="Copy a shareable read-link to this note">📤 Share link</button>
+      <label id="enc-lbl" title="Encryption key — set it and the note saves encrypted (AES-256-GCM); enter it on an encrypted note + press Enter to read">🔑 <input type="password" id="note-key" placeholder="key (optional)" style="width:auto" autocomplete="off"></label>
+      <label title="Show the encrypted form of the note"><input type="checkbox" id="show-enc"> show encrypted</label>
       <label for="autosave-checkbox">Auto-💾:</label>
       <input type="checkbox" id="autosave-checkbox" checked>
       <section id="note-list"></section>
@@ -55,7 +54,7 @@
   </main>
 
   <script type="module">
-    import { auth, onAuthStateChanged, database, ref, onValue, set, get } from '../assets/js/firebase-init.js';
+    import { auth, onAuthStateChanged, database, ref, onValue, set, get, push } from '../assets/js/firebase-init.js';
 
     const nameInput = document.getElementById('input-name');
     const notesTextarea = document.getElementById('note');
@@ -68,10 +67,9 @@
     // ---- Password encryption for a note's body (AES-256-GCM, PBKDF2 key). ----
     // Stored blob: "AGCM1.<saltB64>.<ivB64>.<cipherB64>". Only the body is encrypted;
     // the note NAME stays plaintext (it is the Firebase key + list label).
-    const encToggle = document.getElementById('enc-toggle');
-    const encPass = document.getElementById('enc-pass');
-    const unlockBtn = document.getElementById('unlock-btn');
-    let lockedBlob = null;   // ciphertext of an encrypted note that is loaded but not yet unlocked
+    const keyInput = document.getElementById('note-key');
+    const showEncChk = document.getElementById('show-enc');
+    let plainCache = '';     // holds the plaintext while "show encrypted" is displaying the cipher
     const ENC_PREFIX = 'AGCM1.';
     const isEncrypted = s => typeof s === 'string' && s.startsWith(ENC_PREFIX);
     const _b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
@@ -95,6 +93,20 @@
       return new TextDecoder().decode(pt);
     }
 
+    // Shared read-view: onlinenotes.html?s=<id> loads a note someone shared (public/sharedNotes).
+    async function loadSharedView() {
+      const id = new URLSearchParams(location.search).get('s');
+      if (!id) return;
+      try {
+        const snap = await get(ref(database, `public/sharedNotes/${id}`));
+        const n = snap.val();
+        if (!n) { alert('That shared note was not found (it may have been removed).'); return; }
+        nameInput.value = n.name || '(shared note)';
+        notesTextarea.value = n.note || '';
+        if (isEncrypted(n.note)) alert('This shared note is encrypted. Put its key in the 🔑 field and press Enter to read it.');
+      } catch (e) { console.error('shared view failed:', e); }
+    }
+
     onAuthStateChanged(auth, (user) => {
       DATABASE_BASE_PATH = user ? `${user.uid}` : 'public';
       populateNoteList();
@@ -108,19 +120,27 @@
       document.getElementById('clear-btn').addEventListener('click', clearNoteInputs);
       document.getElementById('undo-btn').addEventListener('click', undoDelete);
       document.getElementById('share-btn').addEventListener('click', shareNote);
-      encToggle.addEventListener('change', () => {
-        encPass.style.display = encToggle.checked ? '' : 'none';
-        if (encToggle.checked) encPass.focus(); else encPass.value = '';
+      // "show encrypted": flip the box between the plaintext you're editing and its encrypted form.
+      showEncChk.addEventListener('change', async () => {
+        const key = keyInput.value.trim();
+        if (showEncChk.checked) {
+          if (!key) { alert('Enter a key first to see the encrypted form.'); showEncChk.checked = false; return; }
+          plainCache = notesTextarea.value;
+          try { notesTextarea.value = await encryptText(plainCache, key); notesTextarea.readOnly = true; }
+          catch (e) { console.error(e); alert('Could not encrypt.'); showEncChk.checked = false; }
+        } else {
+          notesTextarea.value = plainCache; notesTextarea.readOnly = false; plainCache = '';
+        }
       });
-      unlockBtn.addEventListener('click', async () => {
-        if (!lockedBlob) return;
-        const pw = encPass.value;
-        if (!pw) { alert('Enter the password.'); return; }
-        try {
-          notesTextarea.value = await decryptText(lockedBlob, pw);
-          lockedBlob = null;                 // unlocked; 🔒 stays checked so a re-save re-encrypts
-          unlockBtn.style.display = 'none';
-        } catch (e) { alert('Wrong password (or the note is corrupted).'); }
+      // Reading an encrypted note: put its key in 🔑 and press Enter to decrypt the box in place.
+      keyInput.addEventListener('keydown', async (e) => {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        const key = keyInput.value.trim();
+        if (key && isEncrypted(notesTextarea.value.trim())) {
+          try { notesTextarea.value = await decryptText(notesTextarea.value.trim(), key); showEncChk.checked = false; notesTextarea.readOnly = false; }
+          catch { alert('That key does not match this note.'); }
+        }
       });
       document.getElementById('autosave-checkbox').addEventListener('change', toggleAutoSave);
       document.addEventListener("keydown", handleKeyboardShortcuts);
@@ -148,21 +168,18 @@
       const saveBtn = document.getElementById('save-btn');
       const timestamp = new Date().toISOString();
 
-      // A locked (encrypted, not-yet-unlocked) note is loaded: never overwrite its ciphertext.
-      if (lockedBlob) { if (!silent) alert('Unlock this note (enter its password) before saving, or Clear to start a new one.'); return; }
-
-      let noteToSave = notesTextarea.value.trim();
-      if (!nameToSave || !noteToSave) {
+      // Current plaintext (or the cached plaintext if "show encrypted" is displaying the cipher).
+      const plaintext = (showEncChk.checked ? plainCache : notesTextarea.value).trim();
+      if (!nameToSave || !plaintext) {
         if (!silent) console.log('Please enter both the name and note before saving');
         return;
       }
 
-      // Encrypt the body if 🔒 is on.
-      let encFlag = false;
-      if (encToggle.checked) {
-        const pw = encPass.value;
-        if (!pw) { if (!silent) alert('Enter a password to encrypt this note (or uncheck 🔒).'); return; }
-        try { noteToSave = await encryptText(noteToSave, pw); encFlag = true; }
+      // If a key is set, store the note encrypted; otherwise store plaintext.
+      let noteToSave = plaintext, encFlag = false;
+      const key = keyInput.value.trim();
+      if (key) {
+        try { noteToSave = await encryptText(plaintext, key); encFlag = true; }
         catch (e) { console.error('Encryption failed:', e); if (!silent) alert('Encryption failed.'); return; }
       }
 
@@ -203,40 +220,26 @@
       }, 2000);
     };
 
-    // --- Share the current note to the shared account. Auto-target; just asks about a password. ---
-    const SHARE_TARGET = 'LSjib8ujVsNwKv4duYmzXcqY0E23';   // the shared account
+    // --- Share: copy the note to a public share node and put a read-link in the clipboard. ---
     const shareNote = async () => {
       const name = nameInput.value.trim();
-      if (!name) { alert('Load or type a note first.'); return; }
-      if (SHARE_TARGET === DATABASE_BASE_PATH) { alert('You are signed into the shared account already.'); return; }
-
-      // Already-encrypted (locked) note: send its ciphertext as-is. Otherwise ask whether to add a password.
-      let bodyToShare, encFlag = false;
-      if (lockedBlob) { bodyToShare = lockedBlob; encFlag = true; }
-      else {
-        const noteText = notesTextarea.value.trim();
-        if (!noteText) { alert('The note body is empty.'); return; }
-        if (confirm('Add a password so only someone with it can read this shared note?')) {
-          const pw = prompt('Password for this shared note:');
-          if (!pw) { alert('No password entered — share cancelled.'); return; }
-          try { bodyToShare = await encryptText(noteText, pw); encFlag = true; }
-          catch (e) { console.error('Encryption failed:', e); alert('Encryption failed.'); return; }
-        } else { bodyToShare = noteText; }
+      const key = keyInput.value.trim();
+      const plaintext = (showEncChk.checked ? plainCache : notesTextarea.value).trim();
+      if (!name || !plaintext) { alert('Load or type a note first.'); return; }
+      let body = plaintext, encFlag = false;
+      if (key) {   // if a key is set, the shared copy is encrypted too
+        try { body = await encryptText(plaintext, key); encFlag = true; }
+        catch (e) { console.error('Encryption failed:', e); alert('Encryption failed.'); return; }
       }
-
       try {
-        const mine = (auth.currentUser && auth.currentUser.email) ? auth.currentUser.email : DATABASE_BASE_PATH;
-        let key = name;
-        const existing = await get(ref(database, `${SHARE_TARGET}/notes/${key}`));
-        if (existing.exists()) key = `${name} (from ${mine})`;   // never clobber a same-named note
-        await set(ref(database, `${SHARE_TARGET}/notes/${key}`), {
-          name: key, note: bodyToShare, timestamp: new Date().toISOString(),
-          enc: encFlag, sharedBy: DATABASE_BASE_PATH, sharedByLabel: mine
-        });
-        alert(`Shared "${name}" to the shared account${encFlag ? ' (encrypted — send the password separately)' : ''}.`);
+        const shareRef = push(ref(database, 'public/sharedNotes'));
+        await set(shareRef, { name, note: body, enc: encFlag, sharedBy: DATABASE_BASE_PATH, timestamp: new Date().toISOString() });
+        const link = `${location.origin}${location.pathname}?s=${shareRef.key}`;
+        try { await navigator.clipboard.writeText(link); alert(`Share link copied to clipboard${encFlag ? ' — the note is encrypted, so send the key separately' : ''}:\n\n${link}`); }
+        catch { prompt('Copy this share link:', link); }
       } catch (err) {
         console.error('Share failed:', err);
-        alert('Could not share — no write access to the shared account.');
+        alert('Could not create the share link.');
       }
     };
 
@@ -281,10 +284,10 @@
     const clearNoteInputs = () => {
       nameInput.value = '';
       notesTextarea.value = '';
-      lockedBlob = null;
-      encToggle.checked = false;
-      encPass.style.display = 'none'; encPass.value = '';
-      unlockBtn.style.display = 'none';
+      notesTextarea.readOnly = false;
+      showEncChk.checked = false;
+      plainCache = '';
+      // keyInput is left as-is, so you can Clear and write another note under the same key.
     };
 
     const populateNoteList = () => {
@@ -331,26 +334,25 @@
       if (isEncrypted(note.note)) {
         const lockTag = document.createElement('span');
         lockTag.textContent = ' 🔒';
-        lockTag.title = 'Encrypted — needs a password to read';
+        lockTag.title = 'Encrypted — set the matching key to read';
         lockTag.style.marginLeft = '6px';
         listItem.appendChild(lockTag);
       }
 
-      listItem.addEventListener('click', () => {
+      listItem.addEventListener('click', async () => {
         nameInput.value = note.name;
+        showEncChk.checked = false; notesTextarea.readOnly = false; plainCache = '';
         if (isEncrypted(note.note)) {
-          // Locked view — don't dump ciphertext into the editor; require Unlock.
-          lockedBlob = note.note;
-          notesTextarea.value = '🔒 Encrypted note. Enter the password and click 🔓 Unlock to read it.';
-          encToggle.checked = true;
-          encPass.style.display = ''; encPass.value = ''; encPass.focus();
-          unlockBtn.style.display = '';
+          const key = keyInput.value.trim();
+          if (key) {
+            try { notesTextarea.value = await decryptText(note.note, key); }
+            catch { notesTextarea.value = note.note; alert('That key does not match this note — showing its encrypted text. Set the right key in 🔑 and press Enter.'); }
+          } else {
+            notesTextarea.value = note.note;
+            alert('This note is encrypted. Put its key in the 🔑 field and press Enter to read it.');
+          }
         } else {
-          lockedBlob = null;
           notesTextarea.value = note.note;
-          encToggle.checked = false;
-          encPass.style.display = 'none'; encPass.value = '';
-          unlockBtn.style.display = 'none';
         }
       });
 
@@ -402,6 +404,7 @@
     document.addEventListener("DOMContentLoaded", () => {
       setupEventListeners();
       autoSaveInterval = setInterval(() => saveNote(true), 40000);
+      loadSharedView();
     });
 
     document.getElementById('resizeTextareaBtn').addEventListener('click', () => {
