@@ -1196,9 +1196,19 @@
             a.download = 'droplet-chat-' + new Date().toISOString().slice(0, 10) + '.md'; a.click();
         };
         $('#dc-chat-clear').onclick = async () => {
-            if (!DC.base || !confirm('Start a fresh thread? The current one stays in the record (export first if you want a copy).')) return;
-            const stamp = Date.now();
-            await update(ref(database), { [`${DC.base}/chat/archive/${stamp}`]: DC.chatTurns || {}, [`${DC.base}/chat/turns`]: null });
+            if (!DC.base) return;
+            if (!Object.keys(DC.chatTurns || {}).length) { $('#dc-chat-status').textContent = 'nothing to archive'; return; }
+            if (!confirm("Archive this thread into Droplet's memory and start fresh?")) return;
+            // Phase 2: the daemon (on se, with D:\ access) serializes the thread into the cascade
+            // Memory then clears the live turns — the difference between talking and having talked.
+            $('#dc-chat-status').textContent = '📎 archiving to Droplet’s memory…';
+            const jref = push(ref(database, `${DC.base}/jobs`));
+            await set(jref, { kind: 'chat_archive', status: 'queued', createdAt: Date.now() });
+            const unwatch = onValue(jref, s => {
+                const j = s.val(); if (!j) return;
+                if (j.status === 'done') { $('#dc-chat-status').textContent = '✓ ' + (j.reply || 'archived to memory'); unwatch(); }
+                else if (j.status === 'error' || j.status === 'failed') { $('#dc-chat-status').textContent = '⚠ ' + (j.error || 'archive failed'); unwatch(); }
+            });
         };
         window.openDropletConsole = () => $('#dc-console').classList.add('open');
     </script>
