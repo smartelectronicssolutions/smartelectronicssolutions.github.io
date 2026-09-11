@@ -50,6 +50,9 @@
         <option value="LSjib8ujVsNwKv4duYmzXcqY0E23">Shared account</option>
       </select>
       <button id="share-btn" title="Share this note to the selected account">📤</button>
+      <label id="enc-lbl" title="Encrypt this note's body with a password (AES-256-GCM)"><input type="checkbox" id="enc-toggle"> 🔒</label>
+      <input type="password" id="enc-pass" placeholder="note password" style="display:none;width:auto" autocomplete="off">
+      <button id="unlock-btn" style="display:none">🔓 Unlock</button>
       <label for="autosave-checkbox">Auto-💾:</label>
       <input type="checkbox" id="autosave-checkbox" checked>
       <section id="note-list"></section>
@@ -69,6 +72,36 @@
     let DATABASE_BASE_PATH = 'public';
     let unsub = null;
 
+    // ---- Password encryption for a note's body (AES-256-GCM, PBKDF2 key). ----
+    // Stored blob: "AGCM1.<saltB64>.<ivB64>.<cipherB64>". Only the body is encrypted;
+    // the note NAME stays plaintext (it is the Firebase key + list label).
+    const encToggle = document.getElementById('enc-toggle');
+    const encPass = document.getElementById('enc-pass');
+    const unlockBtn = document.getElementById('unlock-btn');
+    let lockedBlob = null;   // ciphertext of an encrypted note that is loaded but not yet unlocked
+    const ENC_PREFIX = 'AGCM1.';
+    const isEncrypted = s => typeof s === 'string' && s.startsWith(ENC_PREFIX);
+    const _b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+    const _unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+    async function _deriveKey(password, salt) {
+      const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+      return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 210000, hash: 'SHA-256' },
+        km, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+    }
+    async function encryptText(plaintext, password) {
+      const salt = crypto.getRandomValues(new Uint8Array(16));
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const key = await _deriveKey(password, salt);
+      const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(plaintext));
+      return ENC_PREFIX + _b64(salt) + '.' + _b64(iv) + '.' + _b64(ct);
+    }
+    async function decryptText(blob, password) {
+      const [, saltB, ivB, ctB] = blob.split('.');
+      const key = await _deriveKey(password, _unb64(saltB));
+      const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: _unb64(ivB) }, key, _unb64(ctB));
+      return new TextDecoder().decode(pt);
+    }
+
     onAuthStateChanged(auth, (user) => {
       DATABASE_BASE_PATH = user ? `${user.uid}` : 'public';
       populateNoteList();
@@ -82,6 +115,20 @@
       document.getElementById('clear-btn').addEventListener('click', clearNoteInputs);
       document.getElementById('undo-btn').addEventListener('click', undoDelete);
       document.getElementById('share-btn').addEventListener('click', shareNote);
+      encToggle.addEventListener('change', () => {
+        encPass.style.display = encToggle.checked ? '' : 'none';
+        if (encToggle.checked) encPass.focus(); else encPass.value = '';
+      });
+      unlockBtn.addEventListener('click', async () => {
+        if (!lockedBlob) return;
+        const pw = encPass.value;
+        if (!pw) { alert('Enter the password.'); return; }
+        try {
+          notesTextarea.value = await decryptText(lockedBlob, pw);
+          lockedBlob = null;                 // unlocked; 🔒 stays checked so a re-save re-encrypts
+          unlockBtn.style.display = 'none';
+        } catch (e) { alert('Wrong password (or the note is corrupted).'); }
+      });
       document.getElementById('autosave-checkbox').addEventListener('change', toggleAutoSave);
       document.addEventListener("keydown", handleKeyboardShortcuts);
       notesTextarea.addEventListener('input', () => autoResizeTextarea('note'));
@@ -105,22 +152,35 @@
 
     const saveNote = async (silent = false) => {
       const nameToSave = nameInput.value.trim();
-      const noteToSave = notesTextarea.value.trim();
       const saveBtn = document.getElementById('save-btn');
       const timestamp = new Date().toISOString();
 
+      // A locked (encrypted, not-yet-unlocked) note is loaded: never overwrite its ciphertext.
+      if (lockedBlob) { if (!silent) alert('Unlock this note (enter its password) before saving, or Clear to start a new one.'); return; }
+
+      let noteToSave = notesTextarea.value.trim();
       if (!nameToSave || !noteToSave) {
-        console.log('Please enter both the name and note before saving');
+        if (!silent) console.log('Please enter both the name and note before saving');
         return;
+      }
+
+      // Encrypt the body if 🔒 is on.
+      let encFlag = false;
+      if (encToggle.checked) {
+        const pw = encPass.value;
+        if (!pw) { if (!silent) alert('Enter a password to encrypt this note (or uncheck 🔒).'); return; }
+        try { noteToSave = await encryptText(noteToSave, pw); encFlag = true; }
+        catch (e) { console.error('Encryption failed:', e); if (!silent) alert('Encryption failed.'); return; }
       }
 
       try {
         const notesRef = ref(database, `${DATABASE_BASE_PATH}/notes/${nameToSave}`);
         const snapshot = await get(notesRef);
         const existingNote = snapshot.val();
+        const rec = { name: nameToSave, note: noteToSave, timestamp, enc: encFlag };
 
         if (!existingNote || new Date(timestamp) > new Date(existingNote.timestamp)) {
-          await set(notesRef, { name: nameToSave, note: noteToSave, timestamp });
+          await set(notesRef, rec);
           console.log('Note saved successfully');
           updateSaveButton(saveBtn);
         } else {
@@ -128,7 +188,7 @@
             `⚠️ A newer version of "${nameToSave}" already exists.\nDo you want to overwrite it with your current changes?`
           );
           if (userChoice) {
-            await set(notesRef, { name: nameToSave, note: noteToSave, timestamp });
+            await set(notesRef, rec);
             console.log('Note overwritten by user choice');
             updateSaveButton(saveBtn);
           } else {
@@ -159,24 +219,38 @@
     };
     const shareNote = async () => {
       const name = nameInput.value.trim();
-      const noteText = notesTextarea.value.trim();
       const targetUid = document.getElementById('share-target').value;
-      if (!name || !noteText) { alert('Load or type a note (name + body) before sharing.'); return; }
+      if (!name) { alert('Load or type a note (name + body) before sharing.'); return; }
       if (!targetUid) { alert('Pick who to share with first.'); return; }
       if (targetUid === DATABASE_BASE_PATH) { alert('That is the account you are already signed into.'); return; }
+
+      // Body: pass a locked note's ciphertext straight through; encrypt on the fly if 🔒 is on; else plaintext.
+      let bodyToShare, encFlag = false;
+      if (lockedBlob) { bodyToShare = lockedBlob; encFlag = true; }
+      else {
+        const noteText = notesTextarea.value.trim();
+        if (!noteText) { alert('The note body is empty.'); return; }
+        if (encToggle.checked) {
+          const pw = encPass.value;
+          if (!pw) { alert('Enter a password to encrypt before sharing (or uncheck 🔒).'); return; }
+          try { bodyToShare = await encryptText(noteText, pw); encFlag = true; }
+          catch (e) { console.error('Encryption failed:', e); alert('Encryption failed.'); return; }
+        } else { bodyToShare = noteText; }
+      }
+
       const label = SHARE_LABELS[targetUid] || 'that account';
-      if (!confirm(`Share the note "${name}" to ${label}? A copy lands in their notes.`)) return;
+      if (!confirm(`Share "${name}"${encFlag ? ' (encrypted)' : ''} to ${label}? A copy lands in their notes.`)) return;
       try {
         const mine = (auth.currentUser && auth.currentUser.email) ? auth.currentUser.email : DATABASE_BASE_PATH;
         let key = name;
         const existing = await get(ref(database, `${targetUid}/notes/${key}`));
         if (existing.exists()) key = `${name} (from ${mine})`;   // never clobber their note of the same name
         await set(ref(database, `${targetUid}/notes/${key}`), {
-          name: key, note: noteText, timestamp: new Date().toISOString(),
-          sharedBy: DATABASE_BASE_PATH, sharedByLabel: mine
+          name: key, note: bodyToShare, timestamp: new Date().toISOString(),
+          enc: encFlag, sharedBy: DATABASE_BASE_PATH, sharedByLabel: mine
         });
         document.getElementById('share-target').value = '';
-        alert(`Shared "${name}" to ${label}.`);
+        alert(`Shared "${name}" to ${label}.${encFlag ? ' They will need the password to read it — send it separately.' : ''}`);
       } catch (err) {
         console.error('Share failed:', err);
         alert('Could not share — you may not have write access to that account.');
@@ -224,6 +298,10 @@
     const clearNoteInputs = () => {
       nameInput.value = '';
       notesTextarea.value = '';
+      lockedBlob = null;
+      encToggle.checked = false;
+      encPass.style.display = 'none'; encPass.value = '';
+      unlockBtn.style.display = 'none';
     };
 
     const populateNoteList = () => {
@@ -267,9 +345,30 @@
         listItem.appendChild(shareTag);
       }
 
+      if (isEncrypted(note.note)) {
+        const lockTag = document.createElement('span');
+        lockTag.textContent = ' 🔒';
+        lockTag.title = 'Encrypted — needs a password to read';
+        lockTag.style.marginLeft = '6px';
+        listItem.appendChild(lockTag);
+      }
+
       listItem.addEventListener('click', () => {
         nameInput.value = note.name;
-        notesTextarea.value = note.note;
+        if (isEncrypted(note.note)) {
+          // Locked view — don't dump ciphertext into the editor; require Unlock.
+          lockedBlob = note.note;
+          notesTextarea.value = '🔒 Encrypted note. Enter the password and click 🔓 Unlock to read it.';
+          encToggle.checked = true;
+          encPass.style.display = ''; encPass.value = ''; encPass.focus();
+          unlockBtn.style.display = '';
+        } else {
+          lockedBlob = null;
+          notesTextarea.value = note.note;
+          encToggle.checked = false;
+          encPass.style.display = 'none'; encPass.value = '';
+          unlockBtn.style.display = 'none';
+        }
       });
 
       noteList.appendChild(listItem);
