@@ -661,55 +661,11 @@
         </div>
         <div class="dc-tabs">
             <button class="dc-tab active" data-tab="ch">Chat</button>
-            <button class="dc-tab" data-tab="wb">Workbench</button>
             <button class="dc-tab" data-tab="rt">Routines</button>
-            <button class="dc-tab" data-tab="pg">Pings</button>
             <button class="dc-tab" data-tab="fl">Fleet</button>
-            <button id="dc-mode" title="Workbench: quick = one box, auto-enhance + auto-send; full = review every step">🔬 full</button>
         </div>
         <div class="dc-body">
-            <!-- WORKBENCH -->
-            <div class="dc-panel" id="dc-wb">
-                <div class="dc-wb">
-                    <div class="dc-col">
-                        <h4><span class="n">01</span> Rough</h4>
-                        <textarea id="dc-rough" placeholder="Drop the rough idea — shorthand is fine."></textarea>
-                        <div class="dc-row">
-                            <button class="dc-btn" id="dc-enhance">Enhance ▶</button>
-                            <button class="dc-btn ghost" id="dc-clear">clear</button>
-                        </div>
-                    </div>
-                    <div class="dc-col">
-                        <h4><span class="n">02</span> Enhancing</h4>
-                        <div class="dc-status" id="dc-mstatus"></div>
-                        <div class="dc-enh" id="dc-enh"><span style="color:var(--muted)">Enhanced prompt appears here.</span></div>
-                        <div class="dc-sugg" id="dc-sugg"></div>
-                    </div>
-                    <div class="dc-col">
-                        <h4><span class="n">03</span> Recall · Index <span id="dc-verdict" class="dc-vd"></span><span style="margin-left:auto;color:var(--muted)" id="dc-hitn"></span></h4>
-                        <div class="dc-idx" id="dc-idx"></div>
-                    </div>
-                </div>
-                <div class="dc-col" style="margin-top:14px;min-height:auto">
-                    <h4><span class="n">✓</span> Final · send</h4>
-                    <textarea id="dc-final" placeholder="Enhance first — the final prompt lands here, editable." style="min-height:80px"></textarea>
-                    <div class="dc-row">
-                        <label class="dc-chk">to</label>
-                        <select id="dc-target" class="dc-in">
-                            <option value="compman" selected>CompMan (clean reply)</option>
-                            <option value="droplet">Droplet (terminal task)</option>
-                        </select>
-                        <label class="dc-chk"><input type="checkbox" id="dc-ping"> ping when done</label>
-                        <button class="dc-btn push" id="dc-push" disabled>▲ Send</button>
-                        <span class="dc-status" id="dc-pushstatus" style="margin:0"></span>
-                    </div>
-                </div>
-                <div class="dc-reply" id="dc-replybox" style="display:none">
-                    <h4 style="font-size:0.62rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin-bottom:8px">Droplet's reply</h4>
-                    <pre id="dc-reply"></pre>
-                </div>
-            </div>
-            <!-- CHAT: the unified surface — talk to Droplet, with the Workbench's enhance + all targets inline -->
+            <!-- CHAT: the unified surface — talk to Droplet, with enhance + all targets inline -->
             <div class="dc-panel active" id="dc-chat-panel">
                 <div class="dc-chat">
                     <div class="dc-chat-head">
@@ -764,16 +720,7 @@
                     </div>
                 </div>
             </div>
-            <!-- PINGS -->
-            <div class="dc-panel" id="dc-pg-panel">
-                <div class="dc-rt">
-                    <label class="dc-chk" style="font-size:0.9rem"><input type="checkbox" id="dc-pg-enabled" class="dc-switch"> Telegram pings enabled (DM to you)</label>
-                    <div class="meta" style="margin-top:6px">Droplet DMs you via @compman61work_bot on job/routine completion.</div>
-                </div>
-                <h4 style="font-size:0.62rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin:14px 0 8px">Recent pings</h4>
-                <div class="dc-log" id="dc-pglog"></div>
-            </div>
-            <!-- FLEET -->
+            <!-- FLEET (also holds Pings, folded in) -->
             <div class="dc-panel" id="dc-fl-panel">
                 <h4 style="font-size:0.62rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin:0 0 8px">Bots &amp; services <span id="dc-fl-age" style="text-transform:none;letter-spacing:0;margin-left:8px"></span></h4>
                 <div id="dc-fleet" class="dc-fleet"></div>
@@ -787,6 +734,12 @@
                 </div>
                 <h4 style="font-size:0.62rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin:16px 0 8px">Standing automations (outside the Routines tab)</h4>
                 <div class="dc-log" id="dc-autos"></div>
+                <div class="dc-rt" style="margin-top:16px">
+                    <label class="dc-chk" style="font-size:0.9rem"><input type="checkbox" id="dc-pg-enabled" class="dc-switch"> Telegram pings enabled (DM to you)</label>
+                    <div class="meta" style="margin-top:6px">Droplet DMs you via @compman61work_bot on job/routine completion.</div>
+                </div>
+                <h4 style="font-size:0.62rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin:14px 0 8px">Recent pings</h4>
+                <div class="dc-log" id="dc-pglog"></div>
             </div>
         </div>
     </div>
@@ -1149,24 +1102,7 @@
             await set(j, { kind: 'wake', status: 'queued', createdAt: Date.now(), ping: false });
             onValue(j, s => { const v = s.val(); if (v && (v.status === 'done' || v.status === 'error')) { b.textContent = '▲ wake Droplet'; b.disabled = false; } });
         };
-        // mode: full = review every step; quick = enhance silently then auto-send
-        let dcMode = localStorage.getItem('dcMode') || 'quick';
-        function applyMode() {
-            const quick = dcMode === 'quick';
-            $('#dc-wb').classList.toggle('dc-quick', quick);
-            $('#dc-mode').textContent = quick ? '⚡ quick' : '🔬 full';
-            $('#dc-enhance').textContent = quick ? '⚡ Send' : 'Enhance ▶';
-        }
-        applyMode();
-        $('#dc-mode').onclick = () => { dcMode = dcMode === 'quick' ? 'full' : 'quick'; localStorage.setItem('dcMode', dcMode); applyMode(); };
-        async function goRough() {
-            await enhance();
-            if (dcMode === 'quick' && $('#dc-final').value.trim()) pushToDroplet();
-        }
-        $('#dc-enhance').onclick = goRough;
-        $('#dc-clear').onclick = () => { $('#dc-rough').value = ''; $('#dc-enh').innerHTML = '<span style="color:var(--muted)">Enhanced prompt appears here.</span>'; $('#dc-final').value = ''; $('#dc-sugg').innerHTML = ''; $('#dc-idx').innerHTML = ''; $('#dc-hitn').textContent = ''; $('#dc-verdict').textContent = ''; $('#dc-verdict').className = 'dc-vd'; $('#dc-mstatus').textContent = ''; $('#dc-push').disabled = true; };
-        $('#dc-push').onclick = pushToDroplet;
-        $('#dc-rough').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) goRough(); });
+        // Workbench tab retired 2026-09-11 — its enhance lives inline in the Chat now (computeEnhance).
         $('#dc-rt-add').onclick = addRoutine;
         $('#dc-rt-type').onchange = e => { const iv = e.target.value === 'interval'; $('#dc-rt-every').style.display = iv ? '' : 'none'; $('#dc-rt-time').style.display = iv ? 'none' : ''; };
         $('#dc-pg-enabled').onchange = e => set(ref(database, `${DC.base}/pings/settings`), { channel: 'telegram_dm', enabled: e.target.checked });
@@ -1174,11 +1110,9 @@
             document.querySelectorAll('.dc-tab').forEach(x => x.classList.remove('active'));
             document.querySelectorAll('.dc-panel').forEach(x => x.classList.remove('active'));
             t.classList.add('active');
-            $('#dc-wb').classList.toggle('active', t.dataset.tab === 'wb');
             $('#dc-chat-panel').classList.toggle('active', t.dataset.tab === 'ch');
             if (t.dataset.tab === 'ch') { const l = $('#dc-chat-log'); if (l) l.scrollTop = l.scrollHeight; setTimeout(() => $('#dc-chat-in') && $('#dc-chat-in').focus(), 50); }
             $('#dc-rt-panel').classList.toggle('active', t.dataset.tab === 'rt');
-            $('#dc-pg-panel').classList.toggle('active', t.dataset.tab === 'pg');
             $('#dc-fl-panel').classList.toggle('active', t.dataset.tab === 'fl');
         });
         $('#dc-kh-enabled').onchange = saveKh;
