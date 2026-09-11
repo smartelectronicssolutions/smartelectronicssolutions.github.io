@@ -609,6 +609,19 @@
         .s-add { --sc: #4ea884; } .s-think { --sc: #d9a441; } .s-recon { --sc: #9a6fe0; } .s-risk { --sc: #e0687a; }
         .dc-reply { margin-top: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
         .dc-reply pre { white-space: pre-wrap; font-size: 0.8rem; color: var(--text); margin: 0; max-height: 260px; overflow: auto; }
+        .dc-chat { display: flex; flex-direction: column; height: 72vh; max-height: 640px; }
+        .dc-chat-head { display: flex; align-items: center; gap: 10px; font-size: 0.78rem; color: var(--muted); padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+        .dc-chat-head .n { color: #c084fc; font-weight: 600; }
+        .dc-chat-log { flex: 1; overflow: auto; padding: 14px 4px; display: flex; flex-direction: column; gap: 12px; }
+        .dc-bub { max-width: 78%; padding: 9px 13px; border-radius: 14px; font-size: 0.9rem; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; }
+        .dc-bub .who { display: block; font-size: 0.58rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.6; margin-bottom: 3px; }
+        .dc-bub.me { align-self: flex-end; background: #2b6a55; color: #eafff6; border-bottom-right-radius: 4px; }
+        .dc-bub.drop { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); color: var(--text); border-bottom-left-radius: 4px; }
+        .dc-bub.drop.pending { opacity: 0.7; font-style: italic; }
+        .dc-bub .ts { font-size: 0.56rem; opacity: 0.45; margin-top: 4px; }
+        .dc-chat-input { display: flex; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
+        .dc-chat-input textarea { flex: 1; resize: none; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; font-family: inherit; font-size: 0.9rem; }
+        .dc-chat-input .dc-btn.push { align-self: stretch; padding: 0 18px; font-size: 1.1rem; }
         .dc-rt { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px; }
         .dc-rt .hd { display: flex; align-items: center; gap: 10px; }
         .dc-rt .nm { font-weight: 600; flex: 1; }
@@ -646,6 +659,7 @@
         </div>
         <div class="dc-tabs">
             <button class="dc-tab active" data-tab="wb">Workbench</button>
+            <button class="dc-tab" data-tab="ch">Chat</button>
             <button class="dc-tab" data-tab="rt">Routines</button>
             <button class="dc-tab" data-tab="pg">Pings</button>
             <button class="dc-tab" data-tab="fl">Fleet</button>
@@ -691,6 +705,23 @@
                 <div class="dc-reply" id="dc-replybox" style="display:none">
                     <h4 style="font-size:0.62rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin-bottom:8px">Droplet's reply</h4>
                     <pre id="dc-reply"></pre>
+                </div>
+            </div>
+            <!-- CHAT: a running conversation with Droplet, over the same job->tmux relay -->
+            <div class="dc-panel" id="dc-chat-panel">
+                <div class="dc-chat">
+                    <div class="dc-chat-head">
+                        <span>Conversation with <span class="n">Droplet</span> — persists in the record</span>
+                        <span class="dc-sp"></span>
+                        <button class="dc-btn ghost" id="dc-chat-export" title="Download this thread as markdown">Export .md</button>
+                        <button class="dc-btn ghost" id="dc-chat-clear" title="Start a fresh thread (the old one stays in the record)">New thread</button>
+                    </div>
+                    <div class="dc-chat-log" id="dc-chat-log"><div style="color:var(--muted);font-size:0.85rem;text-align:center;margin-top:20px">No turns yet. Say something to Droplet.</div></div>
+                    <div class="dc-chat-input">
+                        <textarea id="dc-chat-in" rows="2" placeholder="Message Droplet…  (Enter to send, Shift+Enter for a newline)"></textarea>
+                        <button class="dc-btn push" id="dc-chat-send">▲</button>
+                    </div>
+                    <div class="dc-status" id="dc-chat-status" style="margin:6px 2px 0"></div>
                 </div>
             </div>
             <!-- ROUTINES -->
@@ -788,7 +819,56 @@
                 $('#dc-kh-enabled').checked = c.enabled !== false;
                 if (document.activeElement !== $('#dc-kh-agenda')) $('#dc-kh-agenda').value = c.agendaTime || '07:15';
             });
+            onValue(query(ref(database, `${DC.base}/chat/turns`), limitToLast(120)), s => renderChat(s.val() || {}));
         });
+
+        // --- Droplet chat: a running thread over the same job->tmux relay the workbench uses ---
+        DC.chatTurns = {};
+        function renderChat(obj) {
+            DC.chatTurns = obj;
+            const log = $('#dc-chat-log');
+            const keys = Object.keys(obj);
+            if (!keys.length) { log.innerHTML = '<div style="color:var(--muted);font-size:0.85rem;text-align:center;margin-top:20px">No turns yet. Say something to Droplet.</div>'; return; }
+            const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
+            log.innerHTML = keys.map(k => {
+                const t = obj[k]; const me = t.s === 'L';
+                const who = me ? 'You' : 'Droplet';
+                const time = t.ts ? new Date(t.ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+                const pend = (!me && t.pending) ? ' pending' : '';
+                return `<div class="dc-bub ${me ? 'me' : 'drop'}${pend}"><span class="who">${who}</span>${esc(t.text || '')}<div class="ts">${time}</div></div>`;
+            }).join('');
+            if (atBottom) log.scrollTop = log.scrollHeight;
+        }
+
+        async function sendChat() {
+            const ta = $('#dc-chat-in'); const text = ta.value.trim();
+            if (!text || !DC.base) return;
+            const send = $('#dc-chat-send'); send.disabled = true;
+            const turns = `${DC.base}/chat/turns`;
+            try {
+                await push(ref(database, turns), { s: 'L', text, ts: Date.now() });
+                ta.value = '';
+                const pendRef = push(ref(database, turns));
+                await set(pendRef, { s: 'D', text: '…thinking', ts: Date.now(), pending: true });
+                const jref = push(ref(database, `${DC.base}/jobs`));
+                await set(jref, { kind: 'prompt', target: 'droplet', rough: text, enhanced: text, chat: true, status: 'queued', createdAt: Date.now() });
+                $('#dc-chat-status').textContent = 'sent → Droplet is working…';
+                const unwatch = onValue(jref, async s => {
+                    const j = s.val(); if (!j) return;
+                    if (j.status === 'done') {
+                        await set(pendRef, { s: 'D', text: j.reply || '(done, no captured reply)', ts: Date.now(), jobId: jref.key });
+                        $('#dc-chat-status').textContent = ''; send.disabled = false; unwatch();
+                    } else if (j.status === 'error' || j.status === 'failed') {
+                        await set(pendRef, { s: 'D', text: '⚠ ' + (j.error || j.reply || 'failed'), ts: Date.now(), jobId: jref.key });
+                        $('#dc-chat-status').textContent = ''; send.disabled = false; unwatch();
+                    } else if (j.status === 'running') {
+                        $('#dc-chat-status').textContent = '⏳ ' + (j.progress || 'working…');
+                    }
+                });
+            } catch (e) {
+                $('#dc-chat-status').textContent = '⚠ send failed: ' + (e.message || e); send.disabled = false;
+            }
+        }
 
         function renderFleet(f) {
             const names = Object.keys(f);
@@ -1060,12 +1140,31 @@
             document.querySelectorAll('.dc-panel').forEach(x => x.classList.remove('active'));
             t.classList.add('active');
             $('#dc-wb').classList.toggle('active', t.dataset.tab === 'wb');
+            $('#dc-chat-panel').classList.toggle('active', t.dataset.tab === 'ch');
+            if (t.dataset.tab === 'ch') { const l = $('#dc-chat-log'); if (l) l.scrollTop = l.scrollHeight; setTimeout(() => $('#dc-chat-in') && $('#dc-chat-in').focus(), 50); }
             $('#dc-rt-panel').classList.toggle('active', t.dataset.tab === 'rt');
             $('#dc-pg-panel').classList.toggle('active', t.dataset.tab === 'pg');
             $('#dc-fl-panel').classList.toggle('active', t.dataset.tab === 'fl');
         });
         $('#dc-kh-enabled').onchange = saveKh;
         $('#dc-kh-agenda').onchange = saveKh;
+        $('#dc-chat-send').onclick = sendChat;
+        $('#dc-chat-in').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } });
+        $('#dc-chat-export').onclick = () => {
+            const keys = Object.keys(DC.chatTurns || {});
+            if (!keys.length) return;
+            const md = '# Droplet chat — ' + new Date().toLocaleString() + '\n\n' + keys.map(k => {
+                const t = DC.chatTurns[k]; return '>' + (t.s || '?') + ': ' + (t.text || '');
+            }).join('\n\n') + '\n';
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob([md], { type: 'text/markdown' }));
+            a.download = 'droplet-chat-' + new Date().toISOString().slice(0, 10) + '.md'; a.click();
+        };
+        $('#dc-chat-clear').onclick = async () => {
+            if (!DC.base || !confirm('Start a fresh thread? The current one stays in the record (export first if you want a copy).')) return;
+            const stamp = Date.now();
+            await update(ref(database), { [`${DC.base}/chat/archive/${stamp}`]: DC.chatTurns || {}, [`${DC.base}/chat/turns`]: null });
+        };
         window.openDropletConsole = () => $('#dc-console').classList.add('open');
     </script>
 
