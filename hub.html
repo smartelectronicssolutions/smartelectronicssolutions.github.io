@@ -528,7 +528,7 @@
     </div>
 
     <!-- Yuki sidebar -->
-    <button id="yuki-toggle" title="Ask Yuki">🌸</button>
+    <button id="yuki-toggle" title="Droplet Console">💧</button>
     <div id="yuki-sidebar">
         <div id="yuki-sidebar-header">
             <span>🌸 Yuki</span>
@@ -619,7 +619,9 @@
         .dc-bub.drop { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); color: var(--text); border-bottom-left-radius: 4px; }
         .dc-bub.drop.pending { opacity: 0.7; font-style: italic; }
         .dc-bub .ts { font-size: 0.56rem; opacity: 0.45; margin-top: 4px; }
-        .dc-chat-input { display: flex; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
+        .dc-chat-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 2px 0; font-size: 0.76rem; }
+        .dc-chat-controls .dc-in { padding: 4px 8px; font-size: 0.76rem; }
+        .dc-chat-input { display: flex; gap: 8px; padding-top: 8px; }
         .dc-chat-input textarea { flex: 1; resize: none; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; font-family: inherit; font-size: 0.9rem; }
         .dc-chat-input .dc-btn.push { align-self: stretch; padding: 0 18px; font-size: 1.1rem; }
         .dc-rt { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px; }
@@ -650,7 +652,7 @@
     </style>
     <div id="dc-console">
         <div class="dc-bar">
-            <span class="dc-brand">🌸 Yuki Console</span>
+            <span class="dc-brand">💧 Droplet Console</span>
             <span class="dc-sp"></span>
             <span class="dc-pill" id="dc-daemon"><span class="d"></span>daemon</span>
             <span class="dc-pill" id="dc-droplet"><span class="d"></span>droplet</span>
@@ -658,16 +660,16 @@
             <button id="dc-x">✕ close</button>
         </div>
         <div class="dc-tabs">
-            <button class="dc-tab active" data-tab="wb">Workbench</button>
-            <button class="dc-tab" data-tab="ch">Chat</button>
+            <button class="dc-tab active" data-tab="ch">Chat</button>
+            <button class="dc-tab" data-tab="wb">Workbench</button>
             <button class="dc-tab" data-tab="rt">Routines</button>
             <button class="dc-tab" data-tab="pg">Pings</button>
             <button class="dc-tab" data-tab="fl">Fleet</button>
-            <button id="dc-mode" title="quick = one box, auto-enhance + auto-send; full = review every step">🔬 full</button>
+            <button id="dc-mode" title="Workbench: quick = one box, auto-enhance + auto-send; full = review every step">🔬 full</button>
         </div>
         <div class="dc-body">
             <!-- WORKBENCH -->
-            <div class="dc-panel active" id="dc-wb">
+            <div class="dc-panel" id="dc-wb">
                 <div class="dc-wb">
                     <div class="dc-col">
                         <h4><span class="n">01</span> Rough</h4>
@@ -707,16 +709,26 @@
                     <pre id="dc-reply"></pre>
                 </div>
             </div>
-            <!-- CHAT: a running conversation with Droplet, over the same job->tmux relay -->
-            <div class="dc-panel" id="dc-chat-panel">
+            <!-- CHAT: the unified surface — talk to Droplet, with the Workbench's enhance + all targets inline -->
+            <div class="dc-panel active" id="dc-chat-panel">
                 <div class="dc-chat">
                     <div class="dc-chat-head">
-                        <span>Conversation with <span class="n">Droplet</span> — persists in the record</span>
+                        <span>Conversation — persists in the record</span>
                         <span class="dc-sp"></span>
                         <button class="dc-btn ghost" id="dc-chat-export" title="Download this thread as markdown">Export .md</button>
                         <button class="dc-btn ghost" id="dc-chat-clear" title="Start a fresh thread (the old one stays in the record)">New thread</button>
                     </div>
                     <div class="dc-chat-log" id="dc-chat-log"><div style="color:var(--muted);font-size:0.85rem;text-align:center;margin-top:20px">No turns yet. Say something to Droplet.</div></div>
+                    <div class="dc-chat-controls">
+                        <label class="dc-chk">to</label>
+                        <select id="dc-chat-target" class="dc-in" title="where your message goes">
+                            <option value="droplet" selected>💧 Droplet (terminal)</option>
+                            <option value="compman">🤖 CompMan (clean reply)</option>
+                            <option value="command">⌘ Command (se PowerShell)</option>
+                        </select>
+                        <label class="dc-chk" title="polish the message with the enhancer (ollama + rules + memory recall) before it goes"><input type="checkbox" id="dc-chat-enhance"> ✨ enhance</label>
+                        <label class="dc-chk" title="Telegram DM you when the reply lands"><input type="checkbox" id="dc-chat-ping"> ping</label>
+                    </div>
                     <div class="dc-chat-input">
                         <textarea id="dc-chat-in" rows="2" placeholder="Message Droplet…  (Enter to send, Shift+Enter for a newline)"></textarea>
                         <button class="dc-btn push" id="dc-chat-send">▲</button>
@@ -832,7 +844,7 @@
             const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
             log.innerHTML = keys.map(k => {
                 const t = obj[k]; const me = t.s === 'L';
-                const who = me ? 'You' : 'Droplet';
+                const who = me ? 'You' : (t.who || 'Droplet');
                 const time = t.ts ? new Date(t.ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
                 const pend = (!me && t.pending) ? ' pending' : '';
                 return `<div class="dc-bub ${me ? 'me' : 'drop'}${pend}"><span class="who">${who}</span>${esc(t.text || '')}<div class="ts">${time}</div></div>`;
@@ -840,26 +852,44 @@
             if (atBottom) log.scrollTop = log.scrollHeight;
         }
 
+        // unified send: target (Droplet / CompMan / Command) + optional inline enhance + ping.
+        // This is the chat doing everything the Workbench + terminal do, from one box.
+        const CHAT_WHO = { droplet: 'Droplet', compman: 'CompMan', command: 'se' };
         async function sendChat() {
-            const ta = $('#dc-chat-in'); const text = ta.value.trim();
-            if (!text || !DC.base) return;
+            const ta = $('#dc-chat-in'); const raw = ta.value.trim();
+            if (!raw || !DC.base) return;
+            const target = ($('#dc-chat-target') && $('#dc-chat-target').value) || 'droplet';
+            const enhOn = !!($('#dc-chat-enhance') && $('#dc-chat-enhance').checked) && target !== 'command';
+            const wantPing = !!($('#dc-chat-ping') && $('#dc-chat-ping').checked);
+            const who = CHAT_WHO[target] || 'Droplet';
             const send = $('#dc-chat-send'); send.disabled = true;
             const turns = `${DC.base}/chat/turns`;
             try {
-                await push(ref(database, turns), { s: 'L', text, ts: Date.now() });
+                await push(ref(database, turns), { s: 'L', text: raw, ts: Date.now(), target });
                 ta.value = '';
+                let prompt = raw, note = '';
+                if (enhOn) {
+                    $('#dc-chat-status').textContent = '✨ enhancing…';
+                    const r = await computeEnhance(raw);
+                    prompt = r.enhanced;
+                    note = (r.ollamaFailed ? 'ollama down — sent raw' : 'enhanced') + ' · ' + r.hits.length + ' hits'
+                        + (r.verdict.tier === 'strong' || r.verdict.tier === 'filed' ? ' · ⚠ recall ' + r.verdict.tier : '');
+                }
                 const pendRef = push(ref(database, turns));
-                await set(pendRef, { s: 'D', text: '…thinking', ts: Date.now(), pending: true });
+                await set(pendRef, { s: 'D', who, text: '…thinking', ts: Date.now(), pending: true });
                 const jref = push(ref(database, `${DC.base}/jobs`));
-                await set(jref, { kind: 'prompt', target: 'droplet', rough: text, enhanced: text, chat: true, status: 'queued', createdAt: Date.now() });
-                $('#dc-chat-status').textContent = 'sent → Droplet is working…';
+                const job = target === 'command'
+                    ? { kind: 'command', command: raw, chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing }
+                    : { kind: 'prompt', target, rough: raw, enhanced: prompt, chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing };
+                await set(jref, job);
+                $('#dc-chat-status').textContent = (note ? note + ' · ' : '') + 'sent → ' + who + '…';
                 const unwatch = onValue(jref, async s => {
                     const j = s.val(); if (!j) return;
                     if (j.status === 'done') {
-                        await set(pendRef, { s: 'D', text: j.reply || '(done, no captured reply)', ts: Date.now(), jobId: jref.key });
+                        await set(pendRef, { s: 'D', who, text: j.reply || '(done, no captured reply)', ts: Date.now(), jobId: jref.key });
                         $('#dc-chat-status').textContent = ''; send.disabled = false; unwatch();
                     } else if (j.status === 'error' || j.status === 'failed') {
-                        await set(pendRef, { s: 'D', text: '⚠ ' + (j.error || j.reply || 'failed'), ts: Date.now(), jobId: jref.key });
+                        await set(pendRef, { s: 'D', who, text: '⚠ ' + (j.error || j.reply || 'failed'), ts: Date.now(), jobId: jref.key });
                         $('#dc-chat-status').textContent = ''; send.disabled = false; unwatch();
                     } else if (j.status === 'running') {
                         $('#dc-chat-status').textContent = '⏳ ' + (j.progress || 'working…');
@@ -997,19 +1027,14 @@
             return s;
         }
 
-        async function enhance() {
-            const rough = $('#dc-rough').value.trim();
-            if (!rough) return;
-            $('#dc-enhance').disabled = true; $('#dc-push').disabled = true;
-            $('#dc-mstatus').textContent = 'matching index…';
+        // pure enhance core — no DOM. Used by BOTH the Workbench and the Chat.
+        async function computeEnhance(rough) {
             const idx = matchIndex(rough), topics = matchTopics(rough), rules = pickRules(topics);
             const hits = idx.filter(e => e.hit);
             const verdict = recallVerdict(rough, idx);
-            renderIdx(idx); $('#dc-hitn').textContent = hits.length + ' hits'; renderVerdict(verdict);
             // only feed the enhancer memory it actually holds; nothing on strong doubt
             const derivedHits = idx.filter(e => e.derived);
             const ctxHits = verdict.tier === 'strong' ? [] : (derivedHits.length ? derivedHits : hits);
-            $('#dc-mstatus').textContent = 'enhancing with ' + MODEL + '…';
             const sys = "You enhance Luis's rough prompt into a clearer, more complete, better-scoped version. "
                 + "HARD RULE: enhance, do not redirect — keep his intent, targets, and literal values (paths, IPs, names, coords) EXACT. "
                 + "HARD RULE: NEVER invent content. Do not answer the prompt, expand it into a checklist of specifics, or substitute items from the memory context below — memory is background only, it never becomes the prompt. 'List my todos' enhances to 'List my current todos', NOT to a fabricated todo list. A question stays a question. "
@@ -1019,17 +1044,27 @@
                 + "Honor these conventions:\n" + rules.map(r => '- ' + r.label).join('\n')
                 + (ctxHits.length ? "\n\nRelevant memory (for context, don't dump it back):\n" + ctxHits.slice(0, 6).map(h => '- ' + h.title + ': ' + (h.hook || '')).join('\n')
                     : "\n\n(No memory in the record strongly matches this — do not fabricate prior context.)");
-            let text = rough;
+            let text = rough, ollamaFailed = false;
             try {
                 const res = await fetch(OLLAMA, { method:'POST', headers:{'Content-Type':'application/json'},
                     body: JSON.stringify({ model: MODEL, stream: false, messages: [{role:'system',content:sys},{role:'user',content:rough}] }) });
                 const data = await res.json();
                 text = (data.message?.content || rough).replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-            } catch (e) { $('#dc-mstatus').textContent = 'ollama unreachable — using rough as-is'; }
-            $('#dc-enh').textContent = text;
-            $('#dc-final').value = text;
-            $('#dc-mstatus').textContent = 'enhanced · ' + hits.length + ' hits · ' + rules.length + ' rules' + (verdict.label ? ' · ⚠ ' + verdict.label : '');
-            renderSugg(buildSuggestions(rough, topics));
+            } catch (e) { ollamaFailed = true; }
+            return { enhanced: text, idx, hits, verdict, topics, rules, ollamaFailed };
+        }
+
+        async function enhance() {
+            const rough = $('#dc-rough').value.trim();
+            if (!rough) return;
+            $('#dc-enhance').disabled = true; $('#dc-push').disabled = true;
+            $('#dc-mstatus').textContent = 'matching index… enhancing with ' + MODEL + '…';
+            const r = await computeEnhance(rough);
+            renderIdx(r.idx); $('#dc-hitn').textContent = r.hits.length + ' hits'; renderVerdict(r.verdict);
+            $('#dc-enh').textContent = r.enhanced;
+            $('#dc-final').value = r.enhanced;
+            $('#dc-mstatus').textContent = (r.ollamaFailed ? 'ollama unreachable — using rough · ' : 'enhanced · ') + r.hits.length + ' hits · ' + r.rules.length + ' rules' + (r.verdict.label ? ' · ⚠ ' + r.verdict.label : '');
+            renderSugg(buildSuggestions(rough, r.topics));
             $('#dc-enhance').disabled = false; $('#dc-push').disabled = false;
         }
         function renderIdx(idx) {
