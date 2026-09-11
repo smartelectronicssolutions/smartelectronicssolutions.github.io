@@ -42,6 +42,14 @@
       <button id="save-btn">💾</button>
       <button class="clear-button" id="delete-btn">❌</button>
       <button id="undo-btn">↩️</button>
+      <select id="share-target" title="Share the current note to another account">
+        <option value="">Share to…</option>
+        <option value="JuKhM8rlSgQ3Ki1xGr0iXwUWJ193">Smart Electronics Solutions</option>
+        <option value="SDN0vKPQ1qfN5vxkvhR3auVhDYq1">Telaid (W2)</option>
+        <option value="YHIJWVQOmefgigMVCcvueIZidze2">Telaid PM</option>
+        <option value="LSjib8ujVsNwKv4duYmzXcqY0E23">Shared account</option>
+      </select>
+      <button id="share-btn" title="Share this note to the selected account">📤</button>
       <label for="autosave-checkbox">Auto-💾:</label>
       <input type="checkbox" id="autosave-checkbox" checked>
       <section id="note-list"></section>
@@ -73,6 +81,7 @@
       document.getElementById('delete-btn').addEventListener('click', deleteNote);
       document.getElementById('clear-btn').addEventListener('click', clearNoteInputs);
       document.getElementById('undo-btn').addEventListener('click', undoDelete);
+      document.getElementById('share-btn').addEventListener('click', shareNote);
       document.getElementById('autosave-checkbox').addEventListener('change', toggleAutoSave);
       document.addEventListener("keydown", handleKeyboardShortcuts);
       notesTextarea.addEventListener('input', () => autoResizeTextarea('note'));
@@ -139,6 +148,39 @@
         button.textContent = '💾';
         button.style.backgroundColor = '';
       }, 2000);
+    };
+
+    // --- Share a note to another account (copies it into their notes; collision-safe) ---
+    const SHARE_LABELS = {
+      'JuKhM8rlSgQ3Ki1xGr0iXwUWJ193': 'Smart Electronics Solutions',
+      'SDN0vKPQ1qfN5vxkvhR3auVhDYq1': 'Telaid (W2)',
+      'YHIJWVQOmefgigMVCcvueIZidze2': 'Telaid PM',
+      'LSjib8ujVsNwKv4duYmzXcqY0E23': 'the shared account'
+    };
+    const shareNote = async () => {
+      const name = nameInput.value.trim();
+      const noteText = notesTextarea.value.trim();
+      const targetUid = document.getElementById('share-target').value;
+      if (!name || !noteText) { alert('Load or type a note (name + body) before sharing.'); return; }
+      if (!targetUid) { alert('Pick who to share with first.'); return; }
+      if (targetUid === DATABASE_BASE_PATH) { alert('That is the account you are already signed into.'); return; }
+      const label = SHARE_LABELS[targetUid] || 'that account';
+      if (!confirm(`Share the note "${name}" to ${label}? A copy lands in their notes.`)) return;
+      try {
+        const mine = (auth.currentUser && auth.currentUser.email) ? auth.currentUser.email : DATABASE_BASE_PATH;
+        let key = name;
+        const existing = await get(ref(database, `${targetUid}/notes/${key}`));
+        if (existing.exists()) key = `${name} (from ${mine})`;   // never clobber their note of the same name
+        await set(ref(database, `${targetUid}/notes/${key}`), {
+          name: key, note: noteText, timestamp: new Date().toISOString(),
+          sharedBy: DATABASE_BASE_PATH, sharedByLabel: mine
+        });
+        document.getElementById('share-target').value = '';
+        alert(`Shared "${name}" to ${label}.`);
+      } catch (err) {
+        console.error('Share failed:', err);
+        alert('Could not share — you may not have write access to that account.');
+      }
     };
 
     const deleteNote = async () => {
@@ -217,6 +259,13 @@
 
       listItem.appendChild(nameSpan);
       listItem.appendChild(timestampSpan);
+
+      if (note.sharedBy) {
+        const shareTag = document.createElement('span');
+        shareTag.textContent = ' · shared' + (note.sharedByLabel ? ' by ' + note.sharedByLabel : '');
+        shareTag.style.cssText = 'font-weight:normal;font-size:0.8em;color:#4a90d9;margin-left:6px';
+        listItem.appendChild(shareTag);
+      }
 
       listItem.addEventListener('click', () => {
         nameInput.value = note.name;
