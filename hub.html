@@ -864,38 +864,60 @@
             $('#dc-fl-age').textContent = newest ? 'checked ' + Math.round((Date.now() - newest) / 60000) + 'm ago' : '';
         }
 
-        /* Claude Usage card: daemon publishes usage_census.py hourly to console/usage.
+        /* Claude Usage card: daemon publishes usage_census.py every ~2 min to console/usage (near-live).
            Output tokens = the work; cache reads are cheap context re-reads. The bar is today's output against
            the 30-day peak day (plan-window % is only in Claude Code's /usage, not readable here). */
         function fmtTok(n) {
             n = +n || 0;
             return n >= 1e9 ? (n / 1e9).toFixed(2) + 'B' : n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(n);
         }
+        function agoStr(ms){ if(!ms) return ''; let s=Math.max(0,Math.round((Date.now()-ms)/1000)); if(s<60) return s+'s ago'; let m=Math.round(s/60); if(m<60) return m+'m ago'; let h=Math.round(m/60); if(h<24) return h+'h ago'; return Math.round(h/24)+'d ago'; }
         function renderUsage(u) {
             const box = $('#usage-body');
-            if (!u || !u.today) { box.innerHTML = '<span style="color:var(--muted);font-size:0.82rem">No usage data yet — the daemon publishes hourly.</span>'; return; }
+            if (!u || !u.today) { box.innerHTML = '<span style="color:var(--muted);font-size:0.82rem">No usage data yet - the daemon publishes every couple of minutes.</span>'; return; }
             const peak = Math.max(1, u.peakDayOut || 1);
             const pct = Math.min(100, Math.round((u.today.out || 0) / peak * 100));
             const days = Object.keys(u.days || {}).sort().slice(-7);
             const strip = days.map(d => {
-                const o = (u.days[d] || {}).out || 0, h = Math.max(2, Math.round(o / peak * 36));
+                const o = (u.days[d] || {}).out || 0, h = Math.max(2, Math.round(o / peak * 34));
                 const wd = 'SMTWTFS'[new Date(d + 'T12:00:00').getDay()];
-                return `<div title="${esc(d)}: ${fmtTok(o)} out" style="display:flex;flex-direction:column;align-items:center;gap:3px;flex:1">
-                            <div style="height:36px;display:flex;align-items:flex-end;width:100%"><div style="width:100%;height:${h}px;background:${d === days[days.length - 1] ? 'steelblue' : 'var(--muted)'};border-radius:3px 3px 0 0;opacity:.85"></div></div>
-                            <span style="font-size:0.62rem;color:var(--muted)">${wd}</span></div>`;
+                const isToday = d === days[days.length - 1];
+                return `<div title="${esc(d)}: ${fmtTok(o)} tokens written" style="display:flex;flex-direction:column;align-items:center;gap:3px;flex:1">
+                            <div style="height:34px;display:flex;align-items:flex-end;width:100%"><div style="width:100%;height:${h}px;background:${isToday ? 'steelblue' : 'var(--muted)'};border-radius:3px 3px 0 0;opacity:.85"></div></div>
+                            <span style="font-size:0.6rem;color:var(--muted)">${wd}</span></div>`;
             }).join('');
-            const models = Object.entries(u.models30d || {}).slice(0, 3).map(([m, v]) => `${esc(m.replace('claude-', ''))} ${fmtTok(v)}`).join(' · ');
+            const models = Object.entries(u.models30d || {}).slice(0, 3).map(([m, v]) => `${esc(m.replace('claude-', ''))} ${fmtTok(v)}`).join(' &middot; ');
+            const recent = (u.recent || []).slice(0, 8).map(e => {
+                let tm = ''; try { tm = new Date(e.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } catch (_) {}
+                const proj = (e.proj || '').replace(/^D--/, '').replace(/--/g, '/');
+                return `<div style="display:flex;gap:8px;font-size:0.72rem;padding:1px 0;border-bottom:1px solid var(--border)">
+                            <span style="color:var(--muted);width:50px;flex:none">${esc(tm)}</span>
+                            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(e.proj || '')}">${esc(proj)}</span>
+                            <span style="color:var(--muted);flex:none">${esc(e.model || '')}</span>
+                            <span style="width:48px;text-align:right;flex:none"><b>${fmtTok(e.out || 0)}</b></span></div>`;
+            }).join('');
+            const lastAct = u.lastActivity ? Date.parse(u.lastActivity) : 0;
             box.innerHTML = `
-                <div style="font-size:0.82rem;margin-bottom:4px"><b>Today</b> ${fmtTok(u.today.out)} out · ${fmtTok(u.today.cache_read)} cache-read · ${u.today.msgs || 0} msgs
-                    <span style="float:right;color:var(--muted)">${pct}% of peak day (${fmtTok(peak)})</span></div>
-                <div style="height:12px;background:var(--border);border-radius:6px;overflow:hidden;margin-bottom:10px"><div style="width:${pct}%;height:100%;background:steelblue"></div></div>
-                <div style="display:flex;gap:6px;margin-bottom:8px">${strip}</div>
-                <div style="font-size:0.78rem;color:var(--muted);line-height:1.5">
-                    7 days: <b>${fmtTok((u.week || {}).out)}</b> out · ${fmtTok((u.week || {}).cache_read)} cache-read<br>
-                    all time since ${esc(u.first_day || '?')}: <b>${fmtTok((u.allTime || {}).out)}</b> out · ${fmtTok((u.allTime || {}).cache_read)} cache-read · ${(u.allTime || {}).msgs || 0} msgs<br>
-                    models (30d): ${models || '—'}
+                <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:2px">
+                    <span style="font-size:1.5rem;font-weight:700;color:steelblue">${fmtTok(u.today.out)}</span>
+                    <span style="font-size:0.72rem;color:var(--muted)">tokens written today &middot; ${u.today.msgs || 0} replies${lastAct ? ` &middot; last active ${agoStr(lastAct)}` : ''}</span>
+                </div>
+                <div style="font-size:0.7rem;color:var(--muted);margin-bottom:5px">today vs your busiest day in 30d (${fmtTok(peak)} on ${esc(u.peakDay || '?')})</div>
+                <div style="height:10px;background:var(--border);border-radius:6px;overflow:hidden"><div style="width:${pct}%;height:100%;background:steelblue"></div></div>
+                <div style="font-size:0.64rem;color:var(--muted);text-align:right;margin-bottom:10px">${pct}% of peak</div>
+                <div style="display:flex;gap:5px">${strip}</div>
+                <div style="font-size:0.63rem;color:var(--muted);text-align:center;margin-bottom:10px">tokens written &middot; last 7 days</div>
+                ${recent ? `<div style="font-weight:600;font-size:0.68rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:2px">Recent activity</div><div style="margin-bottom:10px">${recent}</div>` : ''}
+                <div style="font-size:0.74rem;color:var(--muted);line-height:1.5">
+                    7 days: <b>${fmtTok((u.week || {}).out)}</b> written &middot; ${(u.week || {}).msgs || 0} replies<br>
+                    all-time (since ${esc(u.first_day || '?')}): <b>${fmtTok((u.allTime || {}).out)}</b> written &middot; ${(u.allTime || {}).msgs || 0} replies<br>
+                    top models (30d): ${models || '-'}
+                </div>
+                <div style="font-size:0.64rem;color:var(--muted);margin-top:8px;padding-top:6px;border-top:1px solid var(--border);line-height:1.45">
+                    <b>tokens written</b> = the actual work Claude generated (cheap cache re-reads are left out).<br>
+                    The bar/percent compare today to your own busiest day - <b>not</b> your plan limit. For the 5-hour / weekly plan windows, run <code>/usage</code> inside Claude Code.
                 </div>`;
-            $('#usage-age').textContent = u.updatedAt ? 'updated ' + Math.round((Date.now() - u.updatedAt) / 60000) + 'm ago' : '';
+            $('#usage-age').textContent = u.updatedAt ? 'updated ' + agoStr(u.updatedAt) : '';
         }
 
         function renderAutos(a) {
