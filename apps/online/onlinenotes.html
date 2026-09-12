@@ -42,9 +42,7 @@
       <button id="save-btn">💾</button>
       <button class="clear-button" id="delete-btn">❌</button>
       <button id="undo-btn">↩️</button>
-      <button id="share-btn" title="Copy a shareable read-link to this note">📤 Share link</button>
-      <label id="enc-lbl" title="Encryption key — set it and the note saves encrypted (AES-256-GCM); enter it on an encrypted note + press Enter to read">🔑 <input type="password" id="note-key" placeholder="key (optional)" style="width:auto" autocomplete="off"></label>
-      <label title="Show the encrypted form of the note"><input type="checkbox" id="show-enc"> show encrypted</label>
+      <label id="enc-lbl" title="Type the key to unlock/read this note (press Enter); clear it to lock. With a key set, the note is stored encrypted (AES-256-GCM). No key = plain note.">🔑 <input type="password" id="note-key" placeholder="key — locks / unlocks" style="width:auto" autocomplete="off"></label>
       <label for="autosave-checkbox">Auto-💾:</label>
       <input type="checkbox" id="autosave-checkbox" checked>
       <section id="note-list"></section>
@@ -68,8 +66,8 @@
     // Stored blob: "AGCM1.<saltB64>.<ivB64>.<cipherB64>". Only the body is encrypted;
     // the note NAME stays plaintext (it is the Firebase key + list label).
     const keyInput = document.getElementById('note-key');
-    const showEncChk = document.getElementById('show-enc');
-    let plainCache = '';     // holds the plaintext while "show encrypted" is displaying the cipher
+    let plainCache = '';     // holds the plaintext while the box is locked (showing the cipher)
+    let lastKey = '';        // remembers the note's key so it stays encrypted even after the 🔑 field is cleared
     const ENC_PREFIX = 'AGCM1.';
     const isEncrypted = s => typeof s === 'string' && s.startsWith(ENC_PREFIX);
     const _b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
@@ -103,7 +101,8 @@
         if (!n) { alert('That shared note was not found (it may have been removed).'); return; }
         nameInput.value = n.name || '(shared note)';
         notesTextarea.value = n.note || '';
-        if (isEncrypted(n.note)) alert('This shared note is encrypted. Put its key in the 🔑 field and press Enter to read it.');
+        if (isEncrypted(n.note)) { notesTextarea.readOnly = true; alert('This shared note is encrypted. Put its key in the 🔑 field and press Enter to read it.'); }
+        else notesTextarea.readOnly = false;
       } catch (e) { console.error('shared view failed:', e); }
     }
 
@@ -119,27 +118,27 @@
       document.getElementById('delete-btn').addEventListener('click', deleteNote);
       document.getElementById('clear-btn').addEventListener('click', clearNoteInputs);
       document.getElementById('undo-btn').addEventListener('click', undoDelete);
-      document.getElementById('share-btn').addEventListener('click', shareNote);
-      // "show encrypted": flip the box between the plaintext you're editing and its encrypted form.
-      showEncChk.addEventListener('change', async () => {
-        const key = keyInput.value.trim();
-        if (showEncChk.checked) {
-          if (!key) { alert('Enter a key first to see the encrypted form.'); showEncChk.checked = false; return; }
-          plainCache = notesTextarea.value;
-          try { notesTextarea.value = await encryptText(plainCache, key); notesTextarea.readOnly = true; }
-          catch (e) { console.error(e); alert('Could not encrypt.'); showEncChk.checked = false; }
-        } else {
-          notesTextarea.value = plainCache; notesTextarea.readOnly = false; plainCache = '';
-        }
-      });
-      // Reading an encrypted note: put its key in 🔑 and press Enter to decrypt the box in place.
+      // ACTIVE CONVERTER — driven by the 🔑 password field itself (no separate toggle).
+      // Type the key + Enter to UNLOCK a locked note (decrypt -> readable/editable).
+      // Clear the key field to LOCK the open note (encrypt -> cipher). With a key set the note is
+      // stored encrypted; only the blob is ever saved. No key at all = plain note.
       keyInput.addEventListener('keydown', async (e) => {
         if (e.key !== 'Enter') return;
         e.preventDefault();
         const key = keyInput.value.trim();
         if (key && isEncrypted(notesTextarea.value.trim())) {
-          try { notesTextarea.value = await decryptText(notesTextarea.value.trim(), key); showEncChk.checked = false; notesTextarea.readOnly = false; }
+          try { notesTextarea.value = await decryptText(notesTextarea.value.trim(), key); lastKey = key; plainCache = ''; notesTextarea.readOnly = false; }
           catch { alert('That key does not match this note.'); }
+        }
+      });
+      keyInput.addEventListener('input', async () => {
+        const v = keyInput.value.trim();
+        if (v) { lastKey = v; return; }   // remember the key as it's typed, so clearing can re-lock
+        // Key cleared while a readable note is open -> lock it back to the cipher.
+        if (lastKey && !notesTextarea.readOnly && notesTextarea.value.trim() && !isEncrypted(notesTextarea.value.trim())) {
+          plainCache = notesTextarea.value;
+          try { notesTextarea.value = await encryptText(plainCache, lastKey); notesTextarea.readOnly = true; }
+          catch (e) { console.error(e); }
         }
       });
       document.getElementById('autosave-checkbox').addEventListener('change', toggleAutoSave);
@@ -168,8 +167,8 @@
       const saveBtn = document.getElementById('save-btn');
       const timestamp = new Date().toISOString();
 
-      // Current plaintext (or the cached plaintext if "show encrypted" is displaying the cipher).
-      const plaintext = (showEncChk.checked ? plainCache : notesTextarea.value).trim();
+      // Current plaintext: the box value when unlocked, or the cached plaintext when locked (readOnly).
+      const plaintext = (notesTextarea.readOnly ? plainCache : notesTextarea.value).trim();
       if (!nameToSave || !plaintext) {
         if (!silent) console.log('Please enter both the name and note before saving');
         return;
@@ -177,9 +176,9 @@
 
       // If a key is set, store the note encrypted; otherwise store plaintext.
       let noteToSave = plaintext, encFlag = false;
-      const key = keyInput.value.trim();
+      const key = keyInput.value.trim() || lastKey;
       if (key) {
-        try { noteToSave = await encryptText(plaintext, key); encFlag = true; }
+        try { noteToSave = await encryptText(plaintext, key); encFlag = true; lastKey = key; }
         catch (e) { console.error('Encryption failed:', e); if (!silent) alert('Encryption failed.'); return; }
       }
 
@@ -223,8 +222,8 @@
     // --- Share: copy the note to a public share node and put a read-link in the clipboard. ---
     const shareNote = async () => {
       const name = nameInput.value.trim();
-      const key = keyInput.value.trim();
-      const plaintext = (showEncChk.checked ? plainCache : notesTextarea.value).trim();
+      const key = keyInput.value.trim() || lastKey;
+      const plaintext = (notesTextarea.readOnly ? plainCache : notesTextarea.value).trim();
       if (!name || !plaintext) { alert('Load or type a note first.'); return; }
       let body = plaintext, encFlag = false;
       if (key) {   // if a key is set, the shared copy is encrypted too
@@ -285,8 +284,8 @@
       nameInput.value = '';
       notesTextarea.value = '';
       notesTextarea.readOnly = false;
-      showEncChk.checked = false;
       plainCache = '';
+      lastKey = '';
       // keyInput is left as-is, so you can Clear and write another note under the same key.
     };
 
@@ -341,18 +340,17 @@
 
       listItem.addEventListener('click', async () => {
         nameInput.value = note.name;
-        showEncChk.checked = false; notesTextarea.readOnly = false; plainCache = '';
+        plainCache = '';
         if (isEncrypted(note.note)) {
-          const key = keyInput.value.trim();
+          const key = keyInput.value.trim() || lastKey;
           if (key) {
-            try { notesTextarea.value = await decryptText(note.note, key); }
-            catch { notesTextarea.value = note.note; alert('That key does not match this note — showing its encrypted text. Set the right key in 🔑 and press Enter.'); }
-          } else {
-            notesTextarea.value = note.note;
-            alert('This note is encrypted. Put its key in the 🔑 field and press Enter to read it.');
+            try { notesTextarea.value = await decryptText(note.note, key); lastKey = key; notesTextarea.readOnly = false; return; }
+            catch { /* wrong/no key -> fall through to the locked view */ }
           }
+          // Locked: show the cipher, read-only. Type the key + Enter to unlock.
+          notesTextarea.value = note.note; notesTextarea.readOnly = true;
         } else {
-          notesTextarea.value = note.note;
+          notesTextarea.value = note.note; notesTextarea.readOnly = false; lastKey = '';
         }
       });
 
