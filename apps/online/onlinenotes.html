@@ -42,9 +42,8 @@
       <button id="save-btn">💾</button>
       <button class="clear-button" id="delete-btn">❌</button>
       <button id="undo-btn">↩️</button>
-      <label id="enc-lbl" title="Type your note + a secret word, then 🔒 Lock to encrypt & hide it (AES-256). Type the same word + 👁 Show (or Enter) to read/edit it. No word = plain note. Only the encrypted text is stored.">🔑 <input type="password" id="note-key" placeholder="secret word" style="width:auto" autocomplete="off"></label>
-      <button id="show-btn" title="Show: type this note's word above, then click to decrypt and read/edit it.">👁️</button>
-      <button id="lock-btn" title="Lock: encrypt this note under the word above (AES-256) and hide it.">🔒</button>
+      <label id="enc-lbl" title="Type your note, then type a secret word — a moment after you stop typing, the note auto-encrypts (AES-256) in place. Type the word again to open it. Empty word = plain note. Only the encrypted text is stored.">🔑 <input type="password" id="note-key" placeholder="secret word (auto-locks)" style="width:auto" autocomplete="off"></label>
+      <span id="enc-status" style="font-size:.85em;opacity:.75;margin-left:6px"></span>
       <label for="autosave-checkbox">Auto-💾:</label>
       <input type="checkbox" id="autosave-checkbox" checked>
       <section id="note-list"></section>
@@ -68,50 +67,59 @@
     // Stored blob: "AGCM1.<saltB64>.<ivB64>.<cipherB64>". Only the body is encrypted;
     // the note NAME stays plaintext (it is the Firebase key + list label).
     const keyInput = document.getElementById('note-key');
-    let clearText = '';        // the note's plaintext; null while HIDDEN (recoverable only by decrypting with the word)
+    let clearText = '';        // the note's plaintext - held for the whole session once known; null only for a saved note not yet opened
     let lockedBlob = null;     // the stored cipher blob (AGCM1. AES, or legacy SXOR1.); null for a plain, never-encrypted note
+    let revealed = true;       // is the window showing plaintext (editable) vs the encrypted cipher block (read-only)?
+    let lastWord = '';         // the word this note is encrypted under this session (memory only, never stored) - lets edits re-save encrypted
+    let wordTimer = null;      // debounce so the live convert waits until you stop typing the word
+    const WORD_DELAY = 1600;   // ms after the last key keystroke before the note auto-converts
     const ENC_PREFIX = 'AGCM1.';   // AES-256-GCM notes - the real engine, shared with testbed/encryption.html
     const SX_PREFIX = 'SXOR1.';    // legacy light cipher from an interim build - READ-ONLY: revealed notes re-save as AES
     const SX_MAGIC = 'SXOK';
     const isEncrypted = s => typeof s === 'string' && (s.startsWith(ENC_PREFIX) || s.startsWith(SX_PREFIX));
+    const setStatus = t => { const e = document.getElementById('enc-status'); if (e) e.textContent = t; };
     // Legacy SXOR1 read-back ONLY (so notes saved by the interim build still open); new notes are always AES.
     function _sxSeed(s){ let h = 2166136261 >>> 0; for (let i=0;i<s.length;i++){ h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
     function _sxStream(seed, n){ let x = (seed || 0x9e3779b9) >>> 0; const o = new Uint8Array(n); for (let i=0;i<n;i++){ x ^= x<<13; x ^= x>>>17; x ^= x<<5; x >>>= 0; o[i] = x & 0xff; } return o; }
     function sxDecode(blob, pw){ try { const r = Uint8Array.from(atob(blob.slice(SX_PREFIX.length)), c=>c.charCodeAt(0)); const k = _sxStream(_sxSeed(pw), r.length); const o = new Uint8Array(r.length); for (let i=0;i<r.length;i++) o[i] = r[i]^k[i]; const t = new TextDecoder('utf-8', {fatal:false}).decode(o); return t.startsWith(SX_MAGIC) ? {ok:true, plain:t.slice(SX_MAGIC.length)} : {ok:false}; } catch(_){ return {ok:false}; } }
-    // Display reflects state: plain/fresh -> editable; revealed (clearText held) -> editable; hidden -> clean cipher block (read-only).
+    // Display reflects `revealed`: true -> plaintext, editable; false -> the clean cipher block, read-only.
     const _cipherView = b => (b || '').replace(ENC_PREFIX, '').replace(SX_PREFIX, '');
     function renderNote(){
-      if (!lockedBlob) { notesTextarea.value = clearText || ''; notesTextarea.readOnly = false; return; }   // plain / fresh
-      if (clearText != null) { notesTextarea.value = clearText; notesTextarea.readOnly = false; return; }    // revealed
-      notesTextarea.value = _cipherView(lockedBlob); notesTextarea.readOnly = true;                          // hidden
+      if (revealed) {
+        notesTextarea.value = clearText || '';
+        notesTextarea.readOnly = false;
+        setStatus(lockedBlob ? 'open - type the word to lock' : '');
+      } else {
+        notesTextarea.value = lockedBlob ? _cipherView(lockedBlob) : (clearText || '');
+        notesTextarea.readOnly = !!lockedBlob;
+        setStatus(lockedBlob ? 'encrypted - type the word to open' : '');
+      }
     }
-    // Show: decrypt the note with the word in the key box, then reveal it (editable).
-    async function showNote(){
-      if (!lockedBlob || clearText != null) return;         // nothing to reveal (plain, or already open)
-      const pw = keyInput.value.trim();
-      if (!pw) { keyInput.focus(); return; }
-      try {
-        if (lockedBlob.startsWith(SX_PREFIX)) {             // legacy SXOR note -> decode, then it re-saves as AES on lock/save
-          const r = sxDecode(lockedBlob, pw);
-          if (!r.ok) throw 0;
-          clearText = r.plain;
-        } else {
-          clearText = await decryptText(lockedBlob, pw);   // AES-256-GCM
-        }
-        renderNote();
-      } catch { alert('That word does not match this note.'); }
+    // LIVE CONVERT (no buttons): a short pause after you type the key word flips the note. Typing the word toggles locked/open.
+    function scheduleWord(){
+      if (wordTimer) clearTimeout(wordTimer);
+      if (keyInput.value.trim()) setStatus('... converting');
+      wordTimer = setTimeout(wordSettled, WORD_DELAY);
     }
-    // Lock: encrypt the note (AES) under the word in the key box, then blank the box and hide it.
-    async function lockNote(){
-      if (clearText == null) { renderNote(); return; }      // already hidden
-      if (!clearText.trim()) return;                        // nothing to lock
+    async function wordSettled(){
+      wordTimer = null;
       const pw = keyInput.value.trim();
-      if (!pw) { keyInput.focus(); return; }                // need a word
-      try { lockedBlob = await encryptText(clearText, pw); }
-      catch { alert('Encryption failed.'); return; }
-      keyInput.value = '';
-      clearText = null;
-      renderNote();
+      if (!revealed) {                                       // LOCKED -> the word opens it
+        if (!pw) { renderNote(); return; }
+        let plain = null;
+        try {
+          if (lockedBlob.startsWith(SX_PREFIX)) { const r = sxDecode(lockedBlob, pw); if (r.ok) plain = r.plain; }
+          else plain = await decryptText(lockedBlob, pw);
+        } catch (_){}
+        if (plain != null) { clearText = plain; lastWord = pw; revealed = true; keyInput.value = ''; renderNote(); }
+        else if (clearText != null) { revealed = true; keyInput.value = ''; renderNote(); }   // in-session: we still hold it
+        else setStatus('wrong word');
+      } else {                                               // OPEN -> the word locks it (encrypt)
+        if (!pw || !(clearText && clearText.trim())) { renderNote(); return; }
+        try { lockedBlob = await encryptText(clearText, pw); lastWord = pw; }
+        catch { setStatus('encryption failed'); return; }
+        revealed = false; keyInput.value = ''; renderNote();
+      }
     }
     const _b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
     const _unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
@@ -143,8 +151,9 @@
         const n = snap.val();
         if (!n) { alert('That shared note was not found (it may have been removed).'); return; }
         nameInput.value = n.name || '(shared note)';
-        if (isEncrypted(n.note)) { lockedBlob = n.note; clearText = null; renderNote(); }
-        else { lockedBlob = null; clearText = n.note || ''; renderNote(); }
+        lastWord = '';
+        if (isEncrypted(n.note)) { lockedBlob = n.note; clearText = null; revealed = false; renderNote(); }
+        else { lockedBlob = null; clearText = n.note || ''; revealed = true; renderNote(); }
       } catch (e) { console.error('shared view failed:', e); }
     }
 
@@ -160,22 +169,21 @@
       document.getElementById('delete-btn').addEventListener('click', deleteNote);
       document.getElementById('clear-btn').addEventListener('click', clearNoteInputs);
       document.getElementById('undo-btn').addEventListener('click', undoDelete);
-      // 🔒 Lock encrypts (AES-256) & hides; 👁 Show decrypts & reveals. Enter = Show a hidden note, else Lock.
-      // The word is captured only when you Lock/Show, so typing/backspacing it can never corrupt a stored note.
-      document.getElementById('lock-btn').addEventListener('click', lockNote);
-      document.getElementById('show-btn').addEventListener('click', showNote);
+      // LIVE, no buttons: typing the 🔑 word auto-converts after a short pause (scheduleWord -> wordSettled).
+      // Typing the word toggles the note between open (editable) and encrypted. Enter applies immediately.
+      keyInput.addEventListener('input', scheduleWord);
       keyInput.addEventListener('keydown', (e) => {
         if (e.key !== 'Enter') return;
         e.preventDefault();
-        if (lockedBlob && clearText == null) showNote();   // hidden encrypted note -> reveal
-        else lockNote();                                   // fresh / revealed -> encrypt & hide
+        if (wordTimer) clearTimeout(wordTimer);
+        wordSettled();
       });
       document.getElementById('autosave-checkbox').addEventListener('change', toggleAutoSave);
       document.addEventListener("keydown", handleKeyboardShortcuts);
       notesTextarea.addEventListener('input', () => {
         autoResizeTextarea('note');
         if (notesTextarea.readOnly) return;                            // hidden cipher view isn't editable
-        clearText = notesTextarea.value;                               // edits captured; re-encrypted (AES) on 🔒 Lock or 💾 Save
+        clearText = notesTextarea.value;                               // edits captured; re-encrypted (AES) on auto-convert or 💾 Save
       });
     };
 
@@ -200,18 +208,18 @@
       const saveBtn = document.getElementById('save-btn');
       const timestamp = new Date().toISOString();
 
-      // The plaintext lives in clearText; store the CIPHER whenever a word is set (never the plaintext).
-      const pw = keyInput.value.trim();
+      // The plaintext lives in clearText; store the CIPHER whenever the note has a word (never the plaintext).
+      // The word box is blank at rest, so re-encrypt from lastWord (the word this note is locked under this session).
       const hasContent = (clearText != null && clearText.trim()) || (lockedBlob != null);
       if (!nameToSave || !hasContent) {
         if (!silent) console.log('Please enter both the name and note before saving');
         return;
       }
       let noteToSave, encFlag = false;
-      if (clearText != null) {                                                    // we hold plaintext (fresh/plain or revealed)
-        if (pw) { noteToSave = await encryptText(clearText, pw); encFlag = true; } // word set -> AES-256 encrypt
-        else { noteToSave = clearText; encFlag = false; }                          // no word -> plain note
-      } else {                                                                    // hidden -> store the existing cipher as-is
+      if (clearText != null) {                                                            // we hold the plaintext (open/authoring or in-session locked)
+        if (lastWord) { noteToSave = await encryptText(clearText, lastWord); encFlag = true; }  // encrypted note -> re-encrypt the latest text
+        else { noteToSave = clearText; encFlag = false; }                                  // never given a word -> plain note
+      } else {                                                                            // a saved encrypted note not opened this session -> store its cipher as-is
         noteToSave = lockedBlob; encFlag = true;
       }
 
@@ -319,7 +327,11 @@
       notesTextarea.readOnly = false;
       clearText = '';
       lockedBlob = null;
-      // keyInput is left as-is, so you can Clear and write another note under the same word.
+      revealed = true;
+      lastWord = '';
+      keyInput.value = '';
+      if (wordTimer) { clearTimeout(wordTimer); wordTimer = null; }
+      setStatus('');
     };
 
     const populateNoteList = () => {
@@ -373,12 +385,13 @@
 
       listItem.addEventListener('click', () => {
         nameInput.value = note.name;
+        lastWord = '';
         if (isEncrypted(note.note)) {
-          lockedBlob = note.note; clearText = null;   // encrypted: hidden until the matching word is typed
+          lockedBlob = note.note; clearText = null; revealed = false;   // encrypted: shows cipher until the word is typed
         } else {
-          lockedBlob = null; clearText = note.note;   // plain: readable; type a word + 🔒 to encrypt it
+          lockedBlob = null; clearText = note.note; revealed = true;    // plain: readable; type a word to encrypt it
         }
-        keyInput.value = '';                          // don't carry a previous note's word onto this one
+        keyInput.value = '';                                            // don't carry a previous note's word onto this one
         renderNote();
       });
 
