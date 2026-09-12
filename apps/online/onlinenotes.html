@@ -66,10 +66,11 @@
     // Stored blob: "AGCM1.<saltB64>.<ivB64>.<cipherB64>". Only the body is encrypted;
     // the note NAME stays plaintext (it is the Firebase key + list label).
     const keyInput = document.getElementById('note-key');
-    let clearText = '';        // the note's plaintext (the working content source)
-    let lockedBlob = null;     // when a LOADED note is encrypted: its stored cipher blob (reading mode)
+    let clearText = '';        // the note's plaintext — the true content; null while LOCKED (dropped, recoverable only via the key)
+    let lockedBlob = null;     // the stored cipher blob (SXOR1./AGCM1.); null for a plain, never-keyed note
+    let pwCommitted = false;   // false while composing a note's FIRST key (keystrokes re-key live); true once locked/loaded (keystrokes only unlock)
     const ENC_PREFIX = 'AGCM1.';   // legacy AES notes (read-only compat, decrypt via Enter)
-    const SX_PREFIX = 'SXOR1.';    // live stream cipher — morphs the window as you type the key
+    const SX_PREFIX = 'SXOR1.';    // live stream cipher — the key is a reveal LENS: right word shows the note, no/wrong word shows gibberish
     const SX_MAGIC = 'SXOK';  // integrity marker -> detect the correct key for display
     const isEncrypted = s => typeof s === 'string' && (s.startsWith(SX_PREFIX) || s.startsWith(ENC_PREFIX));
     // Fast keystream (FNV seed -> xorshift PRNG). Lighter than AES, chosen for the real-time per-keystroke morph.
@@ -77,18 +78,26 @@
     function _sxStream(seed, n){ let x = (seed || 0x9e3779b9) >>> 0; const o = new Uint8Array(n); for (let i=0;i<n;i++){ x ^= x<<13; x ^= x>>>17; x ^= x<<5; x >>>= 0; o[i] = x & 0xff; } return o; }
     function sxEncrypt(plain, pw){ const d = new TextEncoder().encode(SX_MAGIC + plain); const k = _sxStream(_sxSeed(pw), d.length); const o = new Uint8Array(d.length); for (let i=0;i<d.length;i++) o[i] = d[i]^k[i]; return SX_PREFIX + btoa(String.fromCharCode(...o)); }
     function sxDecode(blob, pw){ try { const r = Uint8Array.from(atob(blob.slice(SX_PREFIX.length)), c=>c.charCodeAt(0)); const k = _sxStream(_sxSeed(pw), r.length); const o = new Uint8Array(r.length); for (let i=0;i<r.length;i++) o[i] = r[i]^k[i]; const t = new TextDecoder('utf-8', {fatal:false}).decode(o); return t.startsWith(SX_MAGIC) ? {ok:true, plain:t.slice(SX_MAGIC.length)} : {ok:false, view:t}; } catch(_){ return {ok:false, view:''}; } }
-    // Central render: repaint the note window from state + the current key, live on every keystroke.
+    // Central render: the key is a REVEAL LENS. Right word -> the note (editable). No/wrong word -> gibberish (locked).
     function renderNote(){
       const pw = keyInput.value;
-      if (lockedBlob) {                                    // reading a loaded encrypted note
-        if (lockedBlob.startsWith(SX_PREFIX)) {
-          const r = sxDecode(lockedBlob, pw);
-          if (r.ok) { clearText = r.plain; notesTextarea.value = r.plain; notesTextarea.readOnly = false; }
-          else { notesTextarea.value = pw ? r.view : lockedBlob; notesTextarea.readOnly = true; }
-        } else { notesTextarea.value = lockedBlob; notesTextarea.readOnly = true; }   // legacy AES: Enter to decrypt
-      } else {                                             // authoring
-        notesTextarea.value = pw ? sxEncrypt(clearText, pw) : clearText;
-        notesTextarea.readOnly = !!pw;                     // scrambled view is read-only; clear the key to edit
+      if (!lockedBlob) {                                   // plain note — no key ever set
+        notesTextarea.value = clearText || '';
+        notesTextarea.readOnly = false;
+        return;
+      }
+      if (lockedBlob.startsWith(ENC_PREFIX)) {             // legacy AES note — press Enter with the key to decrypt
+        notesTextarea.value = lockedBlob; notesTextarea.readOnly = true; return;
+      }
+      const r = sxDecode(lockedBlob, pw);
+      if (pw && r.ok) {                                    // the same word -> the real note, editable
+        clearText = r.plain;
+        notesTextarea.value = clearText;
+        notesTextarea.readOnly = false;
+      } else {                                             // no word / wrong word -> unreadable, locked; drop the plaintext
+        clearText = null;
+        notesTextarea.value = r.view;
+        notesTextarea.readOnly = true;
       }
     }
     const _b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
@@ -121,8 +130,8 @@
         const n = snap.val();
         if (!n) { alert('That shared note was not found (it may have been removed).'); return; }
         nameInput.value = n.name || '(shared note)';
-        if (isEncrypted(n.note)) { lockedBlob = n.note; clearText = ''; renderNote(); }
-        else { lockedBlob = null; clearText = n.note || ''; renderNote(); }
+        if (isEncrypted(n.note)) { lockedBlob = n.note; clearText = null; pwCommitted = true; renderNote(); }
+        else { lockedBlob = null; clearText = n.note || ''; pwCommitted = false; renderNote(); }
       } catch (e) { console.error('shared view failed:', e); }
     }
 
@@ -138,18 +147,29 @@
       document.getElementById('delete-btn').addEventListener('click', deleteNote);
       document.getElementById('clear-btn').addEventListener('click', clearNoteInputs);
       document.getElementById('undo-btn').addEventListener('click', undoDelete);
-      // ACTIVE LIVE CONVERTER — the note window morphs on EVERY keystroke of the 🔑 key field.
-      // Authoring: type the note (no key), then type a key and watch it scramble live; saved encrypted.
-      // Reading: open an encrypted note, type the key and watch it unscramble (readable at the right key).
-      // Only the cipher is ever stored; no key = plain note.
-      keyInput.addEventListener('input', renderNote);
+      // ACTIVE REVEAL LENS — the note window responds on EVERY keystroke of the 🔑 key field.
+      // Type a note, then type a key: the note stays readable while you set the word (it's being encrypted underneath).
+      // Take the key away and it turns to gibberish; type the SAME word back and the note returns. Only the cipher is stored.
+      keyInput.addEventListener('input', () => {
+        const pw = keyInput.value;
+        if (!pwCommitted) {                                  // still composing this note's first key
+          if (pw && clearText != null) lockedBlob = sxEncrypt(clearText, pw);   // re-key live so building the word never scrambles
+          else if (!pw && lockedBlob) pwCommitted = true;    // key taken away -> lock it in (render drops the plaintext)
+        }
+        renderNote();
+      });
       // Legacy AES notes (AGCM1.) can't morph live — press Enter with the key to decrypt one.
       keyInput.addEventListener('keydown', async (e) => {
         if (e.key !== 'Enter') return;
         e.preventDefault();
         const key = keyInput.value.trim();
         if (lockedBlob && lockedBlob.startsWith(ENC_PREFIX) && key) {
-          try { clearText = await decryptText(lockedBlob, key); lockedBlob = null; keyInput.value = ''; notesTextarea.value = clearText; notesTextarea.readOnly = false; }
+          try {
+            clearText = await decryptText(lockedBlob, key);   // legacy AES decrypt...
+            lockedBlob = sxEncrypt(clearText, key);           // ...then upgrade to the live SXOR cipher under the same word
+            pwCommitted = true;                               // existing encrypted note: the word unlocks; clearing it re-locks
+            renderNote();                                     // key stays in the field -> shows the note, editable
+          }
           catch { alert('That key does not match this note.'); }
         }
       });
@@ -157,9 +177,11 @@
       document.addEventListener("keydown", handleKeyboardShortcuts);
       notesTextarea.addEventListener('input', () => {
         autoResizeTextarea('note');
-        if (notesTextarea.readOnly) return;               // scrambled/locked view isn't editable
+        if (notesTextarea.readOnly) return;               // locked / gibberish view isn't editable
         clearText = notesTextarea.value;
-        if (lockedBlob) lockedBlob = sxEncrypt(clearText, keyInput.value);   // reading mode: keep the cipher current
+        const pw = keyInput.value;
+        if (pw) lockedBlob = sxEncrypt(clearText, pw);    // a key is set -> keep the stored cipher current under it
+        else lockedBlob = null;                           // no key -> a plain note
       });
     };
 
@@ -184,15 +206,16 @@
       const saveBtn = document.getElementById('save-btn');
       const timestamp = new Date().toISOString();
 
-      // The plaintext lives in clearText; store the CIPHER when a key is/was used (never the plaintext).
+      // The plaintext lives in clearText; store the CIPHER whenever a key is/was used (never the plaintext).
       const pw = keyInput.value;
-      if (!nameToSave || !clearText.trim()) {
+      const hasContent = (clearText != null && clearText.trim()) || (lockedBlob && lockedBlob.startsWith(SX_PREFIX));
+      if (!nameToSave || !hasContent) {
         if (!silent) console.log('Please enter both the name and note before saving');
         return;
       }
       let noteToSave = clearText, encFlag = false;
-      if (lockedBlob) { noteToSave = lockedBlob; encFlag = true; }              // reading mode: the working cipher
-      else if (pw) { noteToSave = sxEncrypt(clearText, pw); encFlag = true; }   // authoring + key -> encrypt now
+      if (lockedBlob) { noteToSave = lockedBlob; encFlag = true; }                          // encrypted (locked or unlocked) -> store the cipher
+      else if (pw && clearText) { noteToSave = sxEncrypt(clearText, pw); encFlag = true; }  // safety net: key set but no blob yet
 
       try {
         const notesRef = ref(database, `${DATABASE_BASE_PATH}/notes/${nameToSave}`);
@@ -235,7 +258,7 @@
     const shareNote = async () => {
       const name = nameInput.value.trim();
       const key = keyInput.value;
-      const plaintext = clearText.trim();
+      const plaintext = (clearText || '').trim();
       if (!name || !plaintext) { alert('Load or type a note first.'); return; }
       let body = plaintext, encFlag = false;
       if (key) {   // if a key is set, the shared copy is encrypted too
@@ -298,6 +321,7 @@
       notesTextarea.readOnly = false;
       clearText = '';
       lockedBlob = null;
+      pwCommitted = false;
       // keyInput is left as-is, so you can Clear and write another note under the same key.
     };
 
@@ -353,9 +377,9 @@
       listItem.addEventListener('click', () => {
         nameInput.value = note.name;
         if (isEncrypted(note.note)) {
-          lockedBlob = note.note; clearText = '';   // reading mode: type the key and it morphs open live
+          lockedBlob = note.note; clearText = null; pwCommitted = true;   // encrypted: locked until the same word is typed
         } else {
-          lockedBlob = null; clearText = note.note;
+          lockedBlob = null; clearText = note.note; pwCommitted = false;  // plain: readable, and a key can encrypt it
         }
         renderNote();
       });
