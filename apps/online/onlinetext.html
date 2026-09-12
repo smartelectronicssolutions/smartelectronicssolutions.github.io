@@ -97,6 +97,8 @@
             </select>
             <button id="deleteTextButton" disabled>Delete Text</button>
             <button id="pdfButton" disabled>Download PDF</button>
+            <button id="polishButton" disabled title="Fix typos, spacing & punctuation only — never rewords. Saves a separate polished copy; your original stays untouched.">✨ Polish</button>
+            <label id="polishToggleWrap" hidden style="font-size:.85em;margin-left:6px"><input type="checkbox" id="polishToggle"> Show polished</label>
             <div id="docMeta" class="doc-meta"></div>
         </div>
         <div id="display">Text will appear here</div>
@@ -171,6 +173,13 @@
         const titleInput = document.getElementById('titleInput');
         const pdfButton = document.getElementById('pdfButton');
         const docMeta = document.getElementById('docMeta');
+        const polishButton = document.getElementById('polishButton');
+        const polishToggle = document.getElementById('polishToggle');
+        const polishToggleWrap = document.getElementById('polishToggleWrap');
+        const POLISH_URL = 'https://chat.luissolutions.us/chat';   // reuse the apps' Ollama proxy (CF tunnel -> se)
+        const POLISH_MODEL = 'gemma2:9b';
+        function currentDoc() { return docs[savedTexts.value]; }
+        function viewText() { const d = currentDoc(); return (d && polishToggle.checked && d.polished) ? d.polished : (d ? (d.text || '') : ''); }
 
         let words = [];
         let currentIndex = 0;
@@ -390,6 +399,7 @@
             }
 
             deleteTextButton.disabled = !savedTexts.value;
+            polishToggle.checked = false;
             showDocMeta(savedTexts.value);
         });
 
@@ -404,6 +414,51 @@
                 }).catch(error => {
                     console.error('Error deleting text: ', error);
                 });
+            }
+        });
+
+        // --- S9: narrow copy-edit polish (fixes typos/spacing only; original never touched, saved as `polished`) ---
+        function refreshPolishUI() {
+            const sel = savedTexts.value, d = docs[sel];
+            polishButton.disabled = !(d && sel.startsWith('mine:'));   // only your own docs (signed in)
+            polishToggleWrap.hidden = !(d && d.polished);
+            if (!(d && d.polished)) polishToggle.checked = false;
+            polishButton.textContent = (d && d.polished) ? '✨ Re-polish' : '✨ Polish';
+        }
+        function applyView() {
+            const t = viewText();
+            textInput.value = t; fullText.textContent = t;
+            words = []; currentIndex = 0; display.textContent = 'Text will appear here';
+        }
+        polishToggle.addEventListener('change', () => { applyView(); showDocMeta(savedTexts.value); });
+        polishButton.addEventListener('click', async () => {
+            const sel = savedTexts.value, d = docs[sel], path = pathOf(sel);
+            const orig = ((d && d.text) || '').trim();
+            if (!d || !path || !orig) return;
+            const prev = polishButton.textContent;
+            polishButton.disabled = true; polishButton.textContent = '✨ Polishing…';
+            try {
+                const res = await fetch(POLISH_URL, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        model: POLISH_MODEL, stream: false, messages: [
+                            { role: 'system', content: "You are a careful copy editor. Fix ONLY spelling, punctuation, spacing, capitalization, and obvious transcription errors in the user's text. Do NOT change wording, phrasing, style, tone, or add or remove any content. Return ONLY the corrected text — no preamble, notes, or code fences." },
+                            { role: 'user', content: orig }
+                        ]
+                    })
+                });
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                let polished = (((await res.json()).message || {}).content || '').trim().replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/, '').trim();
+                if (!polished) throw new Error('empty result');
+                await set(ref(database, `${path}/polished`), polished);
+                await set(ref(database, `${path}/polishedAt`), Date.now());
+                d.polished = polished; d.polishedAt = Date.now();
+                polishToggle.checked = true; applyView(); showDocMeta(sel);
+            } catch (e) {
+                console.error('polish failed', e); alert('Polish failed: ' + e.message);
+                polishButton.textContent = prev;
+            } finally {
+                polishButton.disabled = !(docs[savedTexts.value] && savedTexts.value.startsWith('mine:'));
             }
         });
 
@@ -422,7 +477,9 @@
             if (d.source) parts.push('from ' + (d.source === 'compman' ? 'CompMan' : d.source));
             if (d.createdAt) parts.push(new Date(d.createdAt).toLocaleDateString());
             parts.push(String(d.text || '').trim().split(/\s+/).filter(Boolean).length + ' words');
+            if (d.polished) parts.push(polishToggle.checked ? '✨ viewing polished' : '✨ polished available');
             docMeta.textContent = parts.join(' · ');
+            refreshPolishUI();
         }
 
         // Plain text -> blocks the PDF can typeset on its own (no AI): blank lines split blocks; a short line in
@@ -537,8 +594,8 @@
         }
 
         pdfButton.addEventListener('click', () => {
-            const d = docs[savedTexts.value];
-            if (d) downloadPdf(d);
+            const d = currentDoc();
+            if (d) downloadPdf({ ...d, text: viewText() });
         });
 
         // On live speed/group changes, reschedule the next step at the new pace.
