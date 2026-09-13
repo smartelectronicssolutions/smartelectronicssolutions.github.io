@@ -613,6 +613,10 @@
         .dc-chat-head { display: flex; align-items: center; gap: 10px; font-size: 0.78rem; color: var(--muted); padding-bottom: 10px; border-bottom: 1px solid var(--border); }
         .dc-chat-head .n { color: #c084fc; font-weight: 600; }
         .dc-chat-log { flex: 1; overflow: auto; padding: 14px 4px; display: flex; flex-direction: column; gap: 12px; }
+        .dc-ideas { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 4px 8px; border-bottom: 1px solid var(--border); }
+        .dc-ideas-lbl { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-right: 2px; }
+        .dc-idea { font-size: 0.72rem; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 3px 9px; cursor: pointer; color: inherit; }
+        .dc-idea:hover { border-color: #c084fc; color: #c084fc; }
         .dc-bub { max-width: 78%; padding: 9px 13px; border-radius: 14px; font-size: 0.9rem; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; }
         .dc-bub .who { display: block; font-size: 0.58rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.6; margin-bottom: 3px; }
         .dc-bub.me { align-self: flex-end; background: #2b6a55; color: #eafff6; border-bottom-right-radius: 4px; }
@@ -674,6 +678,7 @@
                         <button class="dc-btn ghost" id="dc-chat-export" title="Download this thread as markdown">Export .md</button>
                         <button class="dc-btn ghost" id="dc-chat-clear" title="Start a fresh thread (the old one stays in the record)">New thread</button>
                     </div>
+                    <div id="dc-ideas" class="dc-ideas" hidden></div>
                     <div class="dc-chat-log" id="dc-chat-log"><div style="color:var(--muted);font-size:0.85rem;text-align:center;margin-top:20px">No turns yet. Say something to Droplet.</div></div>
                     <div class="dc-chat-controls">
                         <label class="dc-chk">to</label>
@@ -785,9 +790,23 @@
                 if (document.activeElement !== $('#dc-kh-agenda')) $('#dc-kh-agenda').value = c.agendaTime || '07:15';
             });
             onValue(query(ref(database, `${DC.base}/chat/turns`), limitToLast(120)), s => renderChat(s.val() || {}));
+            onValue(query(ref(database, `${DC.uid}/todos`), limitToLast(80)), s => renderIdeas(s.val() || {}));
         });
 
         // --- Droplet chat: a running thread over the same job->tmux relay the workbench uses ---
+        // dterm: "recent ideas" strip from the tickler (your open todos) — click a chip to drop it into the message box
+        function renderIdeas(obj) {
+            const box = $('#dc-ideas'); if (!box) return;
+            const items = Object.entries(obj || {})
+                .filter(([k, v]) => v && typeof v === 'object' && v.type !== 'habit' && !v.done)
+                .map(([k, v]) => ({ text: v.text || v.title || v.task || '', ts: v.createdAt || v.ts || 0 }))
+                .filter(i => i.text).sort((a, b) => b.ts - a.ts).slice(0, 6);
+            if (!items.length) { box.hidden = true; box.innerHTML = ''; return; }
+            box.hidden = false;
+            box.innerHTML = '<span class="dc-ideas-lbl">💡 recent ideas</span>' + items.map(i =>
+                `<button class="dc-idea" data-t="${esc(i.text)}">${esc(i.text.length > 42 ? i.text.slice(0, 42) + '…' : i.text)}</button>`).join('');
+            box.querySelectorAll('.dc-idea').forEach(b => b.onclick = () => { const inp = $('#dc-chat-in'); if (inp) { inp.value = (inp.value ? inp.value + ' ' : '') + b.dataset.t; inp.focus(); } });
+        }
         DC.chatTurns = {};
         function renderChat(obj) {
             DC.chatTurns = obj;
