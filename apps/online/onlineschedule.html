@@ -113,6 +113,7 @@
                     <textarea id="appointmentNotes"></textarea><br>
 
                     <button type="submit">Save Appointment</button>
+                    <button type="button" id="startButton" style="display:none;">▶ Start job (moves to onlinejob)</button>
                     <button type="button" id="deleteButton" style="display:none;">Delete Appointment</button>
                 </form>
             </div>
@@ -128,6 +129,7 @@
         const closeBtn = document.querySelector(".close");
         const form = document.getElementById("appointmentForm");
         const deleteButton = document.getElementById('deleteButton');
+        const startButton = document.getElementById('startButton');
         let DATABASE_BASE_PATH = 'public';
         let unsubTasks = null;
 
@@ -193,6 +195,7 @@
             document.getElementById('appointmentDate').value = dateStr;
             modal.style.display = "block";
             deleteButton.style.display = 'none';
+            startButton.style.display = 'none';
         }
 
         function openModalForExistingTask(event) {
@@ -200,6 +203,8 @@
             fillFormWithTaskDetails(event);
             modal.style.display = "block";
             deleteButton.style.display = 'block';
+            const p = event.extendedProps || {};
+            startButton.style.display = (p.status === 'scheduled' && !p.endTime) ? 'block' : 'none';
         }
 
         closeBtn.onclick = () => modal.style.display = "none";
@@ -221,11 +226,22 @@
             }
         });
 
+        // Flip a scheduled (future) job to active so it moves into onlinejob's active log — same record, no re-entry.
+        startButton.addEventListener('click', function () {
+            const id = document.getElementById('id').value;
+            if (!id) return;
+            update(ref(database, `${DATABASE_BASE_PATH}/tasks/${id}`), { status: 'active' })
+                .then(() => { modal.style.display = 'none'; })
+                .catch(err => console.error('Error starting job:', err));
+        });
+
         function formatTaskAsEvent(task, id) {
-            const eventColor = getEventColor(task.invoiceType, task.startTime);
+            const state = jobState(task);
+            const eventColor = getEventColor(task);
+            const badge = { complete: '✓ ', scheduled: '🗓 ', active: '● ' }[state];
             return {
                 id: id,
-                title: task.customerName,
+                title: badge + (task.customerName || '(no name)'),
                 start: task.startTime,
                 end: task.endTime,
                 backgroundColor: eventColor,
@@ -234,12 +250,15 @@
             };
         }
 
-        function getEventColor(invoiceType, startTime) {
-            const taskDate = new Date(startTime);
-            const currentDate = new Date();
-            if (invoiceType === 'invoice') return 'lightgreen';
-            if (invoiceType === 'quote' && taskDate < currentDate) return 'lightcoral';
-            return 'lightblue';
+        // Job state drives the calendar indicator: complete = has an end time; scheduled = future job (status);
+        // active = undergoing (default, incl. legacy jobs with no status field).
+        function jobState(task) {
+            if (task.endTime) return 'complete';
+            if (task.status === 'scheduled') return 'scheduled';
+            return 'active';
+        }
+        function getEventColor(task) {
+            return { complete: '#4ade80', scheduled: '#60a5fa', active: '#fbbf24' }[jobState(task)];
         }
 
         function fillFormWithTaskDetails(event) {
@@ -266,15 +285,18 @@
 
             const localDateTime = new Date(`${date}T${time}:00`).toISOString();
 
-            return {
+            const existingId = document.getElementById('id').value;
+            const data = {
                 customerName: document.getElementById('customerName').value,
                 startTime: localDateTime,
                 customerAddress: document.getElementById('customerAddress').value,
                 customerPhone: document.getElementById('customerPhone').value,
                 notes: document.getElementById('appointmentNotes').value,
                 project: document.getElementById('project').value,
-                id: document.getElementById('id').value || Date.now().toString()
+                id: existingId || Date.now().toString()
             };
+            if (!existingId) data.status = 'scheduled';   // brand-new = a future/scheduled job; edits leave status untouched
+            return data;
         }
 
         function saveAppointmentToDatabase(appointment) {
