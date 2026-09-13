@@ -84,6 +84,12 @@
     </header>
     <section>
 
+        <div id="cal-legend" style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;padding:8px 4px;font-size:0.85rem">
+            <span style="font-weight:600">Show:</span>
+            <label><input type="checkbox" class="cal-filter" value="scheduled" checked> <span style="color:#2563eb">🗓 Scheduled</span></label>
+            <label><input type="checkbox" class="cal-filter" value="active" checked> <span style="color:#d97706">● Active</span></label>
+            <label><input type="checkbox" class="cal-filter" value="complete" checked> <span style="color:#16a34a">✓ Complete</span></label>
+        </div>
         <div id="calendar"></div>
         <div id="appointmentModal" class="modal">
             <div class="modal-content">
@@ -159,6 +165,7 @@
             calendar.render();
 
             setupFirebaseListener();
+            document.querySelectorAll('.cal-filter').forEach(c => c.addEventListener('change', renderEvents));
         });
 
         function setupFirebaseListener() {
@@ -170,20 +177,8 @@
                 const tasksRef = ref(database, DATABASE_BASE_PATH + '/tasks');
 
                 unsubTasks = onValue(tasksRef, (snapshot) => {
-                    if (!calendar) return;
-
-                    if (snapshot.exists()) {
-                        const tasks = snapshot.val();
-
-                        calendar.getEvents().forEach(event => event.remove());
-
-                        Object.keys(tasks).forEach(id => {
-                            const event = formatTaskAsEvent(tasks[id], id);
-                            calendar.addEvent(event);
-                        });
-                    } else {
-                        console.log("No tasks found.");
-                    }
+                    lastTasks = snapshot.val() || {};
+                    renderEvents();
                 }, (error) => {
                     console.error("Firebase read error:", error);
                 });
@@ -235,6 +230,17 @@
                 .catch(err => console.error('Error starting job:', err));
         });
 
+        let lastTasks = {};
+        // Re-render the calendar from the latest tasks, honoring the Show: filters (scheduled/active/complete).
+        function renderEvents() {
+            if (!calendar) return;
+            const show = new Set([...document.querySelectorAll('.cal-filter:checked')].map(c => c.value));
+            calendar.getEvents().forEach(e => e.remove());
+            Object.keys(lastTasks).forEach(id => {
+                const t = lastTasks[id];
+                if (t && typeof t === 'object' && show.has(jobState(t))) calendar.addEvent(formatTaskAsEvent(t, id));
+            });
+        }
         function formatTaskAsEvent(task, id) {
             const state = jobState(task);
             const eventColor = getEventColor(task);
