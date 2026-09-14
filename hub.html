@@ -555,6 +555,7 @@
         .dc-bar .dc-brand { font-weight: 600; color: #c084fc; display: flex; align-items: center; gap: 4px; font-size: 0.95rem; margin-right: 4px; }
         .dc-bar .dc-tab { padding: 5px 10px; font-size: 0.82rem; border-radius: 0; }
         .dc-bar .dc-in { width: auto; flex: 0 0 auto; max-width: 11em; padding: 3px 6px; font-size: 0.76rem; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; font-family: var(--font-mono); }   /* master.css makes selects 100% wide - that wrapped the whole bar */
+        .dc-account { font-family: var(--font-mono); font-size: 0.74rem; color: var(--muted); margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
         .dc-menu { position: relative; }
         .dc-gear { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 6px; padding: 3px 8px; cursor: pointer; font-size: 0.85rem; }
         .dc-gear:hover, .dc-gear.open { color: #c084fc; border-color: #c084fc; }
@@ -725,8 +726,7 @@
         <div class="dc-bar">
             <span class="dc-brand">💧<span class="dc-brand-t"> Droplet Console</span></span>
             <button class="dc-tab active" data-tab="ch">Chat</button>
-            <button class="dc-tab" data-tab="rt">Routines</button>
-            <button class="dc-tab" data-tab="fl">Fleet</button>
+            <button class="dc-tab" data-tab="sys" title="account · daemon · routines · fleet · pings">System</button>
             <select id="dc-chat-target" class="dc-in" title="where your message goes">
                 <option value="droplet" selected>💧 Droplet</option>
                 <option value="compman">🤖 CompMan</option>
@@ -763,8 +763,9 @@
                     <div class="dc-status" id="dc-chat-status" style="margin:6px 2px 0"></div>
                 </div>
             </div>
-            <!-- ROUTINES -->
+            <!-- SYSTEM tab = account line + ROUTINES panel + FLEET panel (both toggled together) -->
             <div class="dc-panel" id="dc-rt-panel">
+                <div class="dc-account"><span id="dc-account">signed in as …</span><span id="dc-account-daemon"></span></div>
                 <div id="dc-rtlist"></div>
                 <div class="dc-rt" style="border-style:dashed">
                     <h4 style="font-size:0.62rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin-bottom:10px">New routine</h4>
@@ -842,6 +843,7 @@
         onUserReady(u => {
             if (!u) return;   /* signed out: auth.js fires with null; the console section needs a uid */
             DC.uid = u.uid; DC.base = `${u.uid}/console`;
+            const acc = $('#dc-account'); if (acc) acc.textContent = 'signed in as ' + (u.email || '(no email)') + ' · uid ' + u.uid.slice(0, 6) + '…';
             onValue(ref(database, `${DC.base}/memoryIndex`), s => { DC.memory = s.val() || []; });
             onValue(ref(database, `${DC.base}/meta`), s => renderMeta(s.val() || {}));
             onValue(ref(database, `${DC.base}/routines`), s => renderRoutines(s.val() || {}));
@@ -1008,7 +1010,9 @@
                 await set(lref, { s: 'L', text: raw, ts: Date.now(), target });
                 ta.value = '';
                 let prompt = raw, note = '';
-                if (enhOn) {
+                if (enhOn && DC.kdaemon) {
+                    note = '✨ enhance by your daemon';       // their ollama, server-side; it writes `enhanced` onto this turn
+                } else if (enhOn) {
                     $('#dc-chat-status').textContent = '✨ enhancing…';
                     const r = await computeEnhance(raw);
                     prompt = r.enhanced;
@@ -1021,7 +1025,8 @@
                 await set(pendRef, { s: 'D', who, text: '…thinking', ts: Date.now(), pending: true, jobId: jref.key });   // jobId => reconcilePending fills it even after a reload
                 const job = target === 'command'
                     ? { kind: 'command', command: raw, chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing }
-                    : { kind: 'prompt', target, rough: raw, enhanced: prompt, chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing };
+                    : { kind: 'prompt', target, rough: raw, enhanced: prompt, chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing,
+                        enhance: !!(enhOn && DC.kdaemon), lturn: lref.key };   // kdaemon: enhance server-side + which turn to annotate
                 await set(jref, job);
                 DC.lastJob = jref.key;
                 $('#dc-chat-status').textContent = (note ? note + ' · ' : '') + 'sent → ' + who + '…';
@@ -1092,7 +1097,20 @@
             dp.lastChild.textContent = dOn ? 'daemon online' : 'daemon offline';
             const drp = $('#dc-droplet'); drp.className = 'dc-pill ' + (m.dropletUp ? 'on' : 'off');
             drp.lastChild.textContent = m.dropletUp ? 'droplet up' : 'droplet down';
-            $('#dc-wake').style.display = 'inline-flex';  // always available (dropletUp can be true with a dead claude inside)
+            // kdaemon (a user's own portable daemon): Droplet runs per message (claude -p), no wake; enhance runs
+            // on THEIR daemon and is greyed out until it detects ollama on their PC.
+            DC.kdaemon = m.daemonKind === 'kdaemon';
+            DC.ollamaUp = !!(m.ollama && m.ollama.up);
+            const ad = $('#dc-account-daemon'); if (ad) ad.textContent = ' · daemon: ' + (m.daemonKind === 'kdaemon' ? 'kdaemon' + (m.host ? ' on ' + m.host : '') : 'se console daemon') + ' (' + (dOn ? 'online' : 'offline') + (m.version ? ', ' + m.version : '') + ')' + (DC.kdaemon ? ' · ollama ' + (DC.ollamaUp ? 'detected' : 'not detected') : '');
+            if (DC.kdaemon) { drp.className = 'dc-pill ' + (dOn ? 'on' : 'off'); drp.lastChild.textContent = 'droplet: per message'; $('#dc-wake').style.display = 'none'; }
+            else $('#dc-wake').style.display = 'inline-flex';  // always available (dropletUp can be true with a dead claude inside)
+            const enh = $('#dc-chat-enhance'), enhLbl = enh && enh.closest('label');
+            if (enh) {
+                const off = DC.kdaemon && !DC.ollamaUp;
+                enh.disabled = off; if (off) enh.checked = false;
+                if (enhLbl) { enhLbl.style.opacity = off ? '.45' : ''; enhLbl.title = off ? 'greyed out: your daemon has not detected Ollama on your PC yet (install Ollama and it turns on by itself)'
+                    : (DC.kdaemon ? 'polish the message with Ollama on your PC (' + ((m.ollama && m.ollama.model) || 'model') + ') before Droplet sees it' : 'polish the message with the enhancer (ollama + rules + memory recall) before it goes; also renders replies clean'); }
+            }
         }
 
         function tokens(t) { return (t.toLowerCase().match(/[a-z0-9]{3,}/g) || []); }
@@ -1314,8 +1332,9 @@
             t.classList.add('active');
             $('#dc-chat-panel').classList.toggle('active', t.dataset.tab === 'ch');
             if (t.dataset.tab === 'ch') { const l = $('#dc-chat-log'); if (l) l.scrollTop = newestFirst() ? 0 : l.scrollHeight; setTimeout(() => $('#dc-chat-in') && $('#dc-chat-in').focus(), 50); }
-            $('#dc-rt-panel').classList.toggle('active', t.dataset.tab === 'rt');
-            $('#dc-fl-panel').classList.toggle('active', t.dataset.tab === 'fl');
+            // System = one tab: account + daemon line, then Routines, then Fleet (with Pings) - both panels show together
+            $('#dc-rt-panel').classList.toggle('active', t.dataset.tab === 'sys');
+            $('#dc-fl-panel').classList.toggle('active', t.dataset.tab === 'sys');
         });
         $('#dc-kh-enabled').onchange = saveKh;
         $('#dc-kh-agenda').onchange = saveKh;
