@@ -615,6 +615,14 @@
         .dc-reply pre { white-space: pre-wrap; font-size: 0.8rem; color: var(--text); margin: 0; max-height: 260px; overflow: auto; }
         /* dterm: fills the console body edge to edge (was 72vh capped at 640px) */
         .dc-chat { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+        /* newest-first: input moves up under the strips, log runs newest -> oldest below it (phone-friendly) */
+        .dc-chat.newest-first .dc-chat-head { order: 1; } .dc-chat.newest-first .dc-ideas { order: 2; }
+        .dc-chat.newest-first .dc-quick { order: 3; padding-bottom: 6px; } .dc-chat.newest-first .dc-chat-input { order: 4; padding-top: 4px; }
+        .dc-chat.newest-first .dc-status { order: 5; margin: 4px 2px 0; } .dc-chat.newest-first .dc-chat-controls { order: 6; padding-top: 4px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+        .dc-chat.newest-first .dc-chat-log { order: 7; }
+        .dc-chat-controls .dc-size { font-family: var(--font-mono); font-size: 0.66rem; opacity: .7; }
+        .dc-chat-controls input[type=number] { width: 3.6em; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 2px 5px; font-size: 0.72rem; font-family: var(--font-mono); }
+        .dc-chat-controls .dc-btn.sm { padding: 3px 9px; font-size: 0.72rem; }
         .dc-chat-head { display: flex; align-items: center; gap: 10px; font-size: 0.78rem; color: var(--muted); padding-bottom: 8px; border-bottom: 1px solid var(--border); }
         .dc-chat-head .n { color: #c084fc; font-weight: 600; }
         .dc-chat-log { flex: 1; overflow: auto; padding: 14px 4px; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
@@ -720,12 +728,6 @@
             <!-- CHAT: the unified surface — talk to Droplet, with enhance + all targets inline -->
             <div class="dc-panel active" id="dc-chat-panel">
                 <div class="dc-chat">
-                    <div class="dc-chat-head">
-                        <span class="dc-chat-title">Conversation — persists in the record</span>
-                        <span class="dc-sp"></span>
-                        <button class="dc-btn ghost" id="dc-chat-export" title="Download this thread as markdown">Export .md</button>
-                        <button class="dc-btn ghost" id="dc-chat-clear" title="Start a fresh thread (the old one stays in the record)">New thread</button>
-                    </div>
                     <div id="dc-ideas" class="dc-ideas" hidden></div>
                     <div class="dc-chat-log" id="dc-chat-log"><div style="color:var(--muted);font-size:0.85rem;text-align:center;margin-top:20px">No turns yet. Say something to Droplet.</div></div>
                     <div class="dc-chat-controls">
@@ -737,6 +739,10 @@
                         </select>
                         <label class="dc-chk" title="polish the message with the enhancer (ollama + rules + memory recall) before it goes"><input type="checkbox" id="dc-chat-enhance"> ✨ enhance</label>
                         <label class="dc-chk" title="Telegram DM you when the reply lands"><input type="checkbox" id="dc-chat-ping"> ping</label>
+                        <label class="dc-chk" title="newest messages at the top, input right under the strips"><input type="checkbox" id="dc-newest"> ⬆ newest</label>
+                        <button class="dc-btn ghost sm" id="dc-chat-clear" title="Archive this thread to Droplet's memory (with an ollama summary) and start fresh">📎 New thread</button>
+                        <span class="dc-size" id="dc-thread-size" title="size of the live thread; the daemon auto-archives past the limit"></span>
+                        <label class="dc-chk" title="auto-archive the thread (summary to memory) once it passes this many thousand characters; 0 = never">at <input type="number" id="dc-auto-arch" min="0" max="500" step="5">k</label>
                     </div>
                     <div id="dc-quick" class="dc-quick"></div>
                     <div class="dc-chat-input">
@@ -839,6 +845,7 @@
                 $('#dc-kh-enabled').checked = c.enabled !== false;
                 if (document.activeElement !== $('#dc-kh-agenda')) $('#dc-kh-agenda').value = c.agendaTime || '07:15';
             });
+            onValue(ref(database, `${DC.base}/settings/autoArchiveChars`), s => { DC.autoArchiveChars = Number(s.val() || 0); const b = $('#dc-auto-arch'); if (b && document.activeElement !== b) b.value = Math.round(DC.autoArchiveChars / 1000); updateThreadSize(DC.chatTurns || {}); });
             onValue(query(ref(database, `${DC.base}/chat/turns`), limitToLast(120)), s => renderChat(s.val() || {}));
             onValue(query(ref(database, `${DC.uid}/todos`), limitToLast(80)), s => renderIdeas(s.val() || {}));
         });
@@ -902,26 +909,57 @@
             s = s.replace(/\n{3,}/g, '\n\n').trim();
             return s || '(that reply was all code/commands - turn off enhance to see it raw)';
         }
+        // newest-first (default on): input sits under the strips, the log runs newest -> oldest. Persisted per device.
+        function newestFirst() { let v = null; try { v = localStorage.getItem('dc_newest_first'); } catch (_) {} return v === null ? true : v === '1'; }
+        function bubbleHtml(t, clean) {
+            const me = t.s === 'L';
+            const who = me ? 'You' : (t.who || 'Droplet');
+            const time = t.ts ? new Date(t.ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+            const pend = (!me && t.pending) ? ' pending' : '';
+            const body = (!me && clean && !t.pending) ? cleanReply(t.text || '') : (t.text || '');
+            // enhance visibility: your bubble shows what the enhancer actually sent (collapsed), or "unchanged"
+            const changed = me && t.enhanced && t.enhanced !== t.text;
+            const tag = me && t.enhanced ? (changed ? ' · ✨ enhanced' : ' · ✨ unchanged') : '';
+            const enh = changed ? `<details class="enh"><summary>✨ see what was sent</summary><div>${esc(t.enhanced)}</div></details>` : '';
+            return { cls: `dc-bub ${me ? 'me' : 'drop'}${pend}`, html: `<span class="who">${who}${tag}</span>${esc(body)}${enh}<div class="ts">${time}</div>` };
+        }
+        // PERF: keyed incremental render - only turns whose content changed are re-built; the rest of the DOM is
+        // untouched (the old version rebuilt all 120 bubbles as one innerHTML on every change, which stuttered on the phone).
+        DC.bubbleSig = {};
         function renderChat(obj) {
             DC.chatTurns = obj;
             const log = $('#dc-chat-log');
             const keys = Object.keys(obj);
-            if (!keys.length) { log.innerHTML = '<div style="color:var(--muted);font-size:0.85rem;text-align:center;margin-top:20px">No turns yet. Say something to Droplet.</div>'; return; }
-            const clean = $('#dc-chat-enhance') && $('#dc-chat-enhance').checked;
-            log.innerHTML = keys.map(k => {
-                const t = obj[k]; const me = t.s === 'L';
-                const who = me ? 'You' : (t.who || 'Droplet');
-                const time = t.ts ? new Date(t.ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
-                const pend = (!me && t.pending) ? ' pending' : '';
-                const body = (!me && clean && !t.pending) ? cleanReply(t.text || '') : (t.text || '');
-                // enhance visibility: your bubble shows what the enhancer actually sent (collapsed), or "unchanged"
-                const changed = me && t.enhanced && t.enhanced !== t.text;
-                const tag = me && t.enhanced ? (changed ? ' · ✨ enhanced' : ' · ✨ unchanged') : '';
-                const enh = changed ? `<details class="enh"><summary>✨ see what was sent</summary><div>${esc(t.enhanced)}</div></details>` : '';
-                return `<div class="dc-bub ${me ? 'me' : 'drop'}${pend}"><span class="who">${who}${tag}</span>${esc(body)}${enh}<div class="ts">${time}</div></div>`;
-            }).join('');
-            log.scrollTop = log.scrollHeight;   // ALWAYS show the latest (was gated on atBottom -> new msgs got stranded)
+            const nf = newestFirst();
+            $('.dc-chat') && $('.dc-chat').classList.toggle('newest-first', nf);
+            if (!keys.length) { log.innerHTML = '<div style="color:var(--muted);font-size:0.85rem;text-align:center;margin-top:20px">No turns yet. Say something to Droplet.</div>'; DC.bubbleSig = {}; updateThreadSize(obj); return; }
+            const clean = !!($('#dc-chat-enhance') && $('#dc-chat-enhance').checked);
+            const order = nf ? keys.slice().reverse() : keys;
+            if (log.firstElementChild && !log.firstElementChild.dataset.k) log.innerHTML = '';   // drop the placeholder
+            const live = new Set(order);
+            for (const el of Array.from(log.children)) { if (!live.has(el.dataset.k)) { el.remove(); delete DC.bubbleSig[el.dataset.k]; } }
+            let prev = null;
+            for (const k of order) {
+                const t = obj[k]; const b = bubbleHtml(t, clean);
+                const sig = b.cls + '|' + b.html;
+                let el = log.querySelector(`[data-k="${k}"]`);
+                if (!el) { el = document.createElement('div'); el.dataset.k = k; }
+                if (DC.bubbleSig[k] !== sig) { el.className = b.cls; el.innerHTML = b.html; DC.bubbleSig[k] = sig; }
+                const want = prev ? prev.nextSibling : log.firstChild;
+                if (el !== want) log.insertBefore(el, want);
+                prev = el;
+            }
+            log.scrollTop = nf ? 0 : log.scrollHeight;   // newest is always in view, whichever end it lives at
+            updateThreadSize(obj);
             reconcilePending(obj);
+        }
+        // thread size (chars) in the head + the auto-archive limit the daemon enforces (console/settings/autoArchiveChars)
+        function updateThreadSize(obj) {
+            const el = $('#dc-thread-size'); if (!el) return;
+            const chars = Object.values(obj || {}).reduce((n, t) => n + ((t && t.text) ? t.text.length : 0), 0);
+            const lim = DC.autoArchiveChars || 0;
+            el.textContent = `${(chars / 1000).toFixed(1)}k chars` + (lim ? ` / auto-archive at ${(lim / 1000).toFixed(0)}k` : '');
+            el.style.color = (lim && chars > lim * 0.85) ? '#d9a441' : '';
         }
         // A pending "…thinking" bubble used to depend on the sender's in-page watcher: reload the page (or the
         // phone sleeps) mid-job and the daemon's reply landed in jobs/<id> but the bubble stayed "…thinking" forever.
@@ -1112,12 +1150,13 @@
             // only feed the enhancer memory it actually holds; nothing on strong doubt
             const derivedHits = idx.filter(e => e.derived);
             const ctxHits = verdict.tier === 'strong' ? [] : (derivedHits.length ? derivedHits : hits);
-            const sys = "You enhance Luis's rough prompt into a clearer, more complete, better-scoped version. "
+            const sys = "You enhance Luis's rough prompt to Droplet (his AI collaborator running his homelab) into a FULLER, clearer, better-scoped version. "
+                + "Do real work on it, not just spelling: expand shorthand and abbreviations he uses (S3, N1, dterm, se, kh, WD, the vault), split a run-on into the separate asks it contains, make each ask explicit (what + where + the deliverable he expects back), name the constraints he implies (mobile, no push, surgical edit), and, when it's a question, sharpen it into the precise question. "
+                + "Use the memory context below ONLY to expand HIS references correctly (e.g. 'S3' -> the tickler item it names); never to add new asks. "
                 + "HARD RULE: enhance, do not redirect — keep his intent, targets, and literal values (paths, IPs, names, coords) EXACT. "
-                + "HARD RULE: NEVER invent content. Do not answer the prompt, expand it into a checklist of specifics, or substitute items from the memory context below — memory is background only, it never becomes the prompt. 'List my todos' enhances to 'List my current todos', NOT to a fabricated todo list. A question stays a question. "
-                + "Golden test: the enhanced prompt must ask for exactly what the rough one asked for — same verb, same object, no new nouns Luis didn't imply. "
-                + "Output ONLY the enhanced prompt: no preamble, no explanation, no quotes. Direct, markdown, no padding. "
-                + "If it's already clear, return it nearly unchanged. /no_think\n\n"
+                + "HARD RULE: NEVER invent content. Do not answer the prompt, do not turn it into a checklist of specifics he didn't say, do not substitute items from memory — 'List my todos' enhances to 'List my current todos', NOT to a fabricated todo list. A question stays a question. "
+                + "Golden test: the enhanced prompt asks for exactly what the rough one asked for — same verbs, same objects, no new nouns Luis didn't imply — just said completely. "
+                + "Output ONLY the enhanced prompt: no preamble, no explanation, no quotes. Direct, plain markdown (short numbered list if there are several asks), no padding. /no_think\n\n"
                 + "Honor these conventions:\n" + rules.map(r => '- ' + r.label).join('\n')
                 + (ctxHits.length ? "\n\nRelevant memory (for context, don't dump it back):\n" + ctxHits.slice(0, 6).map(h => '- ' + h.title + ': ' + (h.hook || '')).join('\n')
                     : "\n\n(No memory in the record strongly matches this — do not fabricate prior context.)");
@@ -1240,7 +1279,7 @@
             document.querySelectorAll('.dc-panel').forEach(x => x.classList.remove('active'));
             t.classList.add('active');
             $('#dc-chat-panel').classList.toggle('active', t.dataset.tab === 'ch');
-            if (t.dataset.tab === 'ch') { const l = $('#dc-chat-log'); if (l) l.scrollTop = l.scrollHeight; setTimeout(() => $('#dc-chat-in') && $('#dc-chat-in').focus(), 50); }
+            if (t.dataset.tab === 'ch') { const l = $('#dc-chat-log'); if (l) l.scrollTop = newestFirst() ? 0 : l.scrollHeight; setTimeout(() => $('#dc-chat-in') && $('#dc-chat-in').focus(), 50); }
             $('#dc-rt-panel').classList.toggle('active', t.dataset.tab === 'rt');
             $('#dc-fl-panel').classList.toggle('active', t.dataset.tab === 'fl');
         });
@@ -1263,16 +1302,12 @@
             const inp = $('#dc-chat-in'); if (inp) inp.focus();
         });
         const psGlyph = document.querySelector('.dc-chat-input .ps'); if (psGlyph) psGlyph.onclick = () => $('#dc-chat-in').focus();
-        $('#dc-chat-export').onclick = () => {
-            const keys = Object.keys(DC.chatTurns || {});
-            if (!keys.length) return;
-            const md = '# Droplet chat — ' + new Date().toLocaleString() + '\n\n' + keys.map(k => {
-                const t = DC.chatTurns[k]; return '>' + (t.s || '?') + ': ' + (t.text || '');
-            }).join('\n\n') + '\n';
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(new Blob([md], { type: 'text/markdown' }));
-            a.download = 'droplet-chat-' + new Date().toISOString().slice(0, 10) + '.md'; a.click();
-        };
+        // ⬆ newest-first toggle (persisted) - re-renders in place
+        const nfBox = $('#dc-newest');
+        if (nfBox) { nfBox.checked = newestFirst(); nfBox.addEventListener('change', () => { try { localStorage.setItem('dc_newest_first', nfBox.checked ? '1' : '0'); } catch (_) {} DC.bubbleSig = {}; renderChat(DC.chatTurns || {}); }); }
+        // auto-archive limit lives in Firebase (console/settings/autoArchiveChars) so the daemon enforces it; the box edits it
+        const aaBox = $('#dc-auto-arch');
+        if (aaBox) aaBox.addEventListener('change', () => { if (!DC.base) return; const k = Math.max(0, Math.round(Number(aaBox.value) || 0)); set(ref(database, `${DC.base}/settings/autoArchiveChars`), k * 1000); });
         $('#dc-chat-clear').onclick = async () => {
             if (!DC.base) return;
             if (!Object.keys(DC.chatTurns || {}).length) { $('#dc-chat-status').textContent = 'nothing to archive'; return; }
