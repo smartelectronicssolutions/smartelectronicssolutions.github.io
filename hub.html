@@ -927,7 +927,7 @@
             const body = (!me && clean && !t.pending) ? cleanReply(t.text || '') : (t.text || '');
             // enhance visibility: your bubble shows what the enhancer actually sent (collapsed), or "unchanged"
             const changed = me && t.enhanced && t.enhanced !== t.text;
-            const tag = me && t.enhanced ? (changed ? ' · ✨ enhanced' : ' · ✨ unchanged') : '';
+            const tag = me && t.enhanced ? (t.enhNote ? ' · ✨ rejected: ' + esc(t.enhNote) : (changed ? ' · ✨ enhanced' : ' · ✨ unchanged')) : '';
             const enh = changed ? `<details class="enh"><summary>✨ see what was sent</summary><div>${esc(t.enhanced)}</div></details>` : '';
             return { cls: `dc-bub ${me ? 'me' : 'drop'}${pend}`, html: `<span class="who">${who}${tag}</span>${esc(body)}${enh}<div class="ts">${time}</div>` };
         }
@@ -1012,9 +1012,9 @@
                     $('#dc-chat-status').textContent = '✨ enhancing…';
                     const r = await computeEnhance(raw);
                     prompt = r.enhanced;
-                    note = (r.ollamaFailed ? 'ollama down — sent raw' : 'enhanced') + ' · ' + r.hits.length + ' hits'
+                    note = (r.ollamaFailed ? 'ollama down — sent raw' : (r.rejected ? '✨ rejected (' + r.rejected + ') — sent raw' : 'enhanced')) + ' · ' + r.hits.length + ' hits'
                         + (r.verdict.tier === 'strong' || r.verdict.tier === 'filed' ? ' · ⚠ recall ' + r.verdict.tier : '');
-                    await update(lref, { enhanced: prompt });   // your bubble shows "✨ see what was sent"
+                    await update(lref, { enhanced: prompt, enhNote: r.rejected || '' });   // your bubble shows "✨ see what was sent" / "✨ rejected"
                 }
                 const jref = push(ref(database, `${DC.base}/jobs`));
                 const pendRef = push(ref(database, turns));
@@ -1159,16 +1159,17 @@
             // only feed the enhancer memory it actually holds; nothing on strong doubt
             const derivedHits = idx.filter(e => e.derived);
             const ctxHits = verdict.tier === 'strong' ? [] : (derivedHits.length ? derivedHits : hits);
-            const sys = "You enhance Luis's rough prompt to Droplet (his AI collaborator running his homelab) into a FULLER, clearer, better-scoped version. "
-                + "Do real work on it, not just spelling: expand shorthand and abbreviations he uses (S3, N1, dterm, se, kh, WD, the vault), split a run-on into the separate asks it contains, make each ask explicit (what + where + the deliverable he expects back), name the constraints he implies (mobile, no push, surgical edit), and, when it's a question, sharpen it into the precise question. "
-                + "Use the memory context below ONLY to expand HIS references correctly (e.g. 'S3' -> the tickler item it names); never to add new asks. "
-                + "HARD RULE: enhance, do not redirect — keep his intent, targets, and literal values (paths, IPs, names, coords) EXACT. "
-                + "HARD RULE: NEVER invent content. Do not answer the prompt, do not turn it into a checklist of specifics he didn't say, do not substitute items from memory — 'List my todos' enhances to 'List my current todos', NOT to a fabricated todo list. A question stays a question. "
-                + "Golden test: the enhanced prompt asks for exactly what the rough one asked for — same verbs, same objects, no new nouns Luis didn't imply — just said completely. "
-                + "Output ONLY the enhanced prompt: no preamble, no explanation, no quotes. Direct, plain markdown (short numbered list if there are several asks), no padding. /no_think\n\n"
+            // 2026-09-14: the earlier "fuller" prompt + memory hooks made the enhancer INVENT workflows/components/constraints
+            // around a one-line question. Now: same ask said clearly, no new nouns, glossary = titles only, and a guard below.
+            const sys = "You enhance Luis's rough prompt to Droplet (his AI collaborator running his homelab) into a clearer, complete version of THE SAME ask. "
+                + "Do: fix grammar; expand an abbreviation only if it literally appears in his text (S3, N1, dterm, se, kh, WD = the vault) using the glossary; split a run-on into its separate asks as a short numbered list; make each ask explicit (what + where + what he expects back) using only what his words say or directly imply. "
+                + "Do NOT: add context, background, workflows, components, tools, file names, constraints, or deliverables he did not mention. Do not guess what he is 'really' asking. Do not answer. A short question comes back as one polished question, nothing more. "
+                + "HARD RULE: no new nouns. Every file, app, service, tool or component in your output must appear in his rough text (glossary expansion of an abbreviation he typed is the only exception). "
+                + "Golden test: someone reading only your output must learn nothing Luis did not type. "
+                + "Output ONLY the enhanced prompt: no preamble, no explanation, no quotes. Plain markdown. /no_think\n\n"
                 + "Honor these conventions:\n" + rules.map(r => '- ' + r.label).join('\n')
-                + (ctxHits.length ? "\n\nRelevant memory (for context, don't dump it back):\n" + ctxHits.slice(0, 6).map(h => '- ' + h.title + ': ' + (h.hook || '')).join('\n')
-                    : "\n\n(No memory in the record strongly matches this — do not fabricate prior context.)");
+                + (ctxHits.length ? "\n\nGlossary (titles of records his words touched; use ONLY to expand an abbreviation he typed, never otherwise):\n" + ctxHits.slice(0, 6).map(h => '- ' + h.title).join('\n')
+                    : "\n\n(No glossary matches — expand nothing, add nothing.)");
             let text = rough, ollamaFailed = false;
             try {
                 const res = await fetch(OLLAMA, { method:'POST', headers:{'Content-Type':'application/json'},
@@ -1176,7 +1177,16 @@
                 const data = await res.json();
                 text = (data.message?.content || rough).replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
             } catch (e) { ollamaFailed = true; }
-            return { enhanced: text, idx, hits, verdict, topics, rules, ollamaFailed };
+            // FABRICATION GUARD: reject the enhancement (send raw) if it names files he didn't, or balloons past 3x.
+            let rejected = '';
+            if (!ollamaFailed && text !== rough) {
+                const lowRough = rough.toLowerCase();
+                const introduced = (text.match(/[\w-]+\.(html|md|py|ps1|js|json|css|txt)\b/gi) || []).filter(f => !lowRough.includes(f.toLowerCase()));
+                if (introduced.length) rejected = 'named files you didn\'t: ' + [...new Set(introduced)].slice(0, 3).join(', ');
+                else if (text.length > Math.max(240, rough.length * 3)) rejected = 'ballooned ' + Math.round(text.length / Math.max(1, rough.length)) + 'x';
+                if (rejected) text = rough;
+            }
+            return { enhanced: text, idx, hits, verdict, topics, rules, ollamaFailed, rejected };
         }
 
         async function enhance() {
