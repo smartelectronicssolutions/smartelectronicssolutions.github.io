@@ -729,9 +729,14 @@
             border-radius: 8px; font-size: 0.8rem; font-family: var(--font-mono); background: var(--bg); }
         .dc-fleet .fp .d { width: 8px; height: 8px; border-radius: 50%; background: #f87171; flex-shrink: 0; }
         .dc-fleet .fp.up .d { background: #4ade80; }
-        #dc-autos .au { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 0.82rem; }
-        #dc-autos .au b { min-width: 220px; font-weight: 600; }
-        #dc-autos .au span { color: var(--muted); }
+        .dc-autos-wrap { margin: 16px 0 8px; }
+        .dc-autos-wrap summary { cursor: pointer; font-size: 0.62rem; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); user-select: none; }
+        .dc-autos-wrap summary .dc-size { text-transform: none; letter-spacing: 0; font-family: var(--font-mono); font-size: 0.66rem; opacity: .7; }
+        #dc-autos { overflow-x: auto; margin-top: 8px; }
+        .dc-tbl { border-collapse: collapse; width: 100%; font-size: 0.78rem; }
+        .dc-tbl th { text-align: left; font-weight: 500; color: var(--muted); font-size: 0.64rem; text-transform: uppercase; letter-spacing: 1px; padding: 4px 8px 6px 0; border-bottom: 1px solid var(--border); white-space: nowrap; }
+        .dc-tbl td { padding: 6px 8px 6px 0; border-bottom: 1px solid var(--border); vertical-align: top; color: var(--muted); }
+        .dc-tbl td:first-child { color: var(--text); font-weight: 600; white-space: nowrap; }
     </style>
     <div id="dc-console">
         <!-- ONE top row (sticky by construction: the body scrolls, not the console): brand · tabs · target dropdown · ⚙ options · status · wake · close -->
@@ -816,8 +821,10 @@
                         <span class="dc-status" id="dc-kh-status" style="margin:0"></span>
                     </div>
                 </div>
-                <h4 style="font-size:0.62rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin:16px 0 8px">Standing automations (outside the Routines tab)</h4>
-                <div class="dc-log" id="dc-autos"></div>
+                <details class="dc-autos-wrap" id="dc-autos-wrap">
+                    <summary><span id="dc-autos-title">Standing automations</span> <span class="dc-size">(outside Routines, tap to expand)</span></summary>
+                    <div id="dc-autos"></div>
+                </details>
                 <div class="dc-rt" style="margin-top:16px">
                     <label class="dc-chk" style="font-size:0.9rem"><input type="checkbox" id="dc-pg-enabled" class="dc-switch"> Telegram pings enabled (DM to you)</label>
                     <div class="meta" style="margin-top:6px" id="dc-pg-bot">Droplet DMs you on Telegram on job/routine completion.</div>
@@ -1107,11 +1114,13 @@
                 <div style="font-size:0.66rem;color:var(--muted);margin-top:7px">${lastAct ? 'last active ' + agoStr(lastAct) + ' &middot; ' : ''}"tokens" = the work Claude generated</div>`;
             $('#usage-age').textContent = u.updatedAt ? 'updated ' + agoStr(u.updatedAt) : '';
         }
+        // standing automations registry (console/automations) as one compact table: what / where / when / goes to / survives
         function renderAutos(a) {
-            $('#dc-autos').innerHTML = Object.keys(a).sort().map(k => {
-                const v = a[k] || {};
-                return `<div class="au"><b>${esc(v.label || k)}</b><span>${esc(v.where || '')}</span><span>${esc(v.schedule || '')}</span><span>→ ${esc(v.channel || '')}</span></div>`;
-            }).join('') || '<span style="color:var(--muted);font-size:0.82rem">Registry empty.</span>';
+            const keys = Object.keys(a || {}).sort();
+            const t = $('#dc-autos-title'); if (t) t.textContent = `Standing automations (${keys.length})`;
+            $('#dc-autos').innerHTML = keys.length ? `<table class="dc-tbl"><thead><tr><th>what</th><th>where</th><th>when</th><th>goes to</th><th>comes back after</th></tr></thead><tbody>` +
+                keys.map(k => { const v = a[k] || {}; return `<tr><td>${esc(v.label || k)}</td><td>${esc(v.where || '')}</td><td>${esc(v.schedule || '')}</td><td>${esc(v.channel || '')}</td><td>${esc(v.boot || '')}</td></tr>`; }).join('') +
+                `</tbody></table>` : '<span style="color:var(--muted);font-size:0.82rem">Registry empty.</span>';
         }
 
         function saveKh() {
