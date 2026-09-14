@@ -633,6 +633,29 @@
         .dc-quick { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 2px 0; }
         .dc-quick button { background: none; border: 1px dashed var(--border); border-radius: 10px; color: var(--muted); font-size: 0.74rem; padding: 3px 10px; cursor: pointer; font-family: var(--font-mono); }
         .dc-quick button:hover { color: #c084fc; border-color: #c084fc; border-style: solid; }
+        /* collapsible strips: tap the title to fold the chips away (state remembered per device; phones start folded) */
+        .dc-ideas .dc-ideas-lbl, .dc-quick .dc-ideas-lbl { cursor: pointer; user-select: none; display: inline-flex; align-items: center; gap: 4px; }
+        .dc-ideas-lbl .car { display: inline-block; font-size: 0.7rem; transition: transform .15s; }
+        .collapsed .dc-ideas-lbl .car { transform: rotate(-90deg); }
+        .dc-ideas.collapsed > :not(.dc-ideas-lbl), .dc-quick.collapsed > :not(.dc-ideas-lbl) { display: none; }
+        .dc-ideas.collapsed { padding-bottom: 6px; }
+        @media (max-width: 640px) {
+            .dc-bar { padding: 8px 12px; gap: 8px; }
+            .dc-bar .dc-brand { font-size: 0.9rem; }
+            .dc-tabs { padding: 4px 10px 0; }
+            .dc-tab { padding: 6px 10px; font-size: 0.8rem; }
+            .dc-body { padding: 6px 8px 6px; }
+            .dc-chat-head { font-size: 0.72rem; padding-bottom: 6px; }
+            .dc-chat-head .dc-chat-title { display: none; }
+            .dc-chat-log { padding: 8px 2px; gap: 9px; }
+            .dc-bub { max-width: 92%; font-size: 0.86rem; padding: 8px 11px; }
+            .dc-bub.me { font-size: 0.8rem; }
+            .dc-ideas { padding: 6px 2px 6px; gap: 6px; }
+            .dc-idea { font-size: 0.78rem; padding: 4px 9px; }
+            .dc-quick { padding-top: 6px; }
+            .dc-chat-controls { gap: 6px; padding-top: 6px; }
+            .dc-chat-input textarea { font-size: 16px; }   /* 16px stops iOS from zooming the page on focus */
+        }
         .dc-bub { max-width: 84%; padding: 9px 13px; border-radius: 14px; font-size: 0.9rem; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; }
         .dc-bub .who { display: block; font-size: 0.58rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.6; margin-bottom: 3px; }
         .dc-bub.me { align-self: flex-end; background: #2b6a55; color: #eafff6; border-bottom-right-radius: 4px; font-family: var(--font-mono); font-size: 0.84rem; }
@@ -697,7 +720,7 @@
             <div class="dc-panel active" id="dc-chat-panel">
                 <div class="dc-chat">
                     <div class="dc-chat-head">
-                        <span>Conversation — persists in the record</span>
+                        <span class="dc-chat-title">Conversation — persists in the record</span>
                         <span class="dc-sp"></span>
                         <button class="dc-btn ghost" id="dc-chat-export" title="Download this thread as markdown">Export .md</button>
                         <button class="dc-btn ghost" id="dc-chat-clear" title="Start a fresh thread (the old one stays in the record)">New thread</button>
@@ -822,6 +845,17 @@
         // --- Droplet chat: a running thread over the same job->tmux relay the workbench uses ---
         // dterm: "recent ideas" strip from the tickler (your open todos) — click a chip to drop it into the message box
         function attr(s) { return esc(s).replace(/"/g, '&quot;'); }
+        // collapsible strip title: phones start folded (chat space), desktops open; a tap flips it and the choice sticks per device
+        function stripLabel(box, key, text, count) {
+            let saved = null; try { saved = localStorage.getItem(key); } catch (_) {}
+            const collapsed = saved === null ? matchMedia('(max-width: 640px)').matches : saved !== '1';
+            box.classList.toggle('collapsed', collapsed);
+            return `<span class="dc-ideas-lbl" role="button" tabindex="0" title="tap to fold / unfold">${text}${count ? ' (' + count + ')' : ''}<span class="car">▾</span></span>`;
+        }
+        function wireStripToggle(box, key) {
+            const lbl = box.querySelector('.dc-ideas-lbl'); if (!lbl) return;
+            lbl.onclick = () => { const c = !box.classList.contains('collapsed'); box.classList.toggle('collapsed', c); try { localStorage.setItem(key, c ? '0' : '1'); } catch (_) {} };
+        }
         function renderIdeas(obj) {
             const box = $('#dc-ideas'); if (!box) return;
             const items = Object.entries(obj || {})
@@ -831,7 +865,7 @@
             if (!items.length) { box.hidden = true; box.innerHTML = ''; return; }
             box.hidden = false;
             // chip = readable text (full text on hover title) + hover actions: ▶ ask (send now) · + insert · ✓ done (tickler)
-            box.innerHTML = '<span class="dc-ideas-lbl">💡 recent ideas</span>' + items.map(i =>
+            box.innerHTML = stripLabel(box, 'dc_ideas_open', '💡 recent ideas', items.length) + items.map(i =>
                 `<span class="dc-idea" data-k="${attr(i.k)}" data-t="${attr(i.text)}" title="${attr(i.text)}">` +
                 `<span class="t" tabindex="0">${esc(i.text.length > 64 ? i.text.slice(0, 64) + '…' : i.text)}</span>` +
                 `<span class="acts"><button class="ask" title="send this to Droplet now">▶ ask</button>` +
@@ -847,13 +881,15 @@
                     try { await update(ref(database, `${DC.uid}/todos/${k}`), { done: true, doneAt: Date.now() }); $('#dc-chat-status').textContent = '✓ done: ' + t.slice(0, 40); }
                     catch (err) { $('#dc-chat-status').textContent = '⚠ could not mark done: ' + (err.message || err); } };
             });
+            wireStripToggle(box, 'dc_ideas_open');
         }
         // quick suggestions - one-tap prompts above the input (click = fill the box, shift+click = send as-is)
         const QUICK = ['Everything working here?', "What's open right now?", 'Show me the tickler file', 'What did we do last session?', 'Run the health check', 'Save the session'];
         function renderQuick() {
             const box = $('#dc-quick'); if (!box) return;
-            box.innerHTML = '<span class="dc-ideas-lbl">⚡ quick</span>' + QUICK.map(q => `<button data-t="${attr(q)}" title="click = fill · shift+click = send now">${esc(q)}</button>`).join('');
+            box.innerHTML = stripLabel(box, 'dc_quick_open', '⚡ quick', 0) + QUICK.map(q => `<button data-t="${attr(q)}" title="click = fill · shift+click = send now">${esc(q)}</button>`).join('');
             box.querySelectorAll('button').forEach(b => b.onclick = e => { const inp = $('#dc-chat-in'); if (!inp) return; inp.value = b.dataset.t; if (e.shiftKey) sendChat(); else inp.focus(); });
+            wireStripToggle(box, 'dc_quick_open');
         }
         renderQuick();
         DC.chatTurns = {};
