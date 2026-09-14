@@ -808,21 +808,32 @@
             box.querySelectorAll('.dc-idea').forEach(b => b.onclick = () => { const inp = $('#dc-chat-in'); if (inp) { inp.value = (inp.value ? inp.value + ' ' : '') + b.dataset.t; inp.focus(); } });
         }
         DC.chatTurns = {};
+        // ENHANCE-RENDER: when ✨ enhance is on, show a clean conversational reply (no code fences / inline code).
+        function cleanReply(s) {
+            s = String(s || '');
+            s = s.replace(/```[\s\S]*?```/g, '');
+            s = s.replace(/`([^`]+)`/g, '$1');
+            s = s.replace(/\n{3,}/g, '\n\n').trim();
+            return s || '(that reply was all code/commands - turn off enhance to see it raw)';
+        }
         function renderChat(obj) {
             DC.chatTurns = obj;
             const log = $('#dc-chat-log');
             const keys = Object.keys(obj);
             if (!keys.length) { log.innerHTML = '<div style="color:var(--muted);font-size:0.85rem;text-align:center;margin-top:20px">No turns yet. Say something to Droplet.</div>'; return; }
-            const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
+            const clean = $('#dc-chat-enhance') && $('#dc-chat-enhance').checked;
             log.innerHTML = keys.map(k => {
                 const t = obj[k]; const me = t.s === 'L';
                 const who = me ? 'You' : (t.who || 'Droplet');
                 const time = t.ts ? new Date(t.ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
                 const pend = (!me && t.pending) ? ' pending' : '';
-                return `<div class="dc-bub ${me ? 'me' : 'drop'}${pend}"><span class="who">${who}</span>${esc(t.text || '')}<div class="ts">${time}</div></div>`;
+                const body = (!me && clean && !t.pending) ? cleanReply(t.text || '') : (t.text || '');
+                return `<div class="dc-bub ${me ? 'me' : 'drop'}${pend}"><span class="who">${who}</span>${esc(body)}<div class="ts">${time}</div></div>`;
             }).join('');
-            if (atBottom) log.scrollTop = log.scrollHeight;
+            log.scrollTop = log.scrollHeight;   // ALWAYS show the latest (was gated on atBottom -> new msgs got stranded)
         }
+        // re-render when the enhance toggle flips, so the clean/raw view updates live
+        document.getElementById('dc-chat-enhance') && document.getElementById('dc-chat-enhance').addEventListener('change', () => renderChat(DC.chatTurns || {}));
 
         // unified send: target (Droplet / CompMan / Command) + optional inline enhance + ping.
         // This is the chat doing everything the Workbench + terminal do, from one box.
