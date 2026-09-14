@@ -580,6 +580,9 @@
         .dc-pill .d { width: 7px; height: 7px; border-radius: 50%; background: #888; }
         .dc-pill.on .d { background: #4ea; box-shadow: 0 0 0 3px rgba(70,238,170,.15); }
         .dc-pill.off .d { background: #e77; }
+        .dc-pill.busy .d { background: #fc6; animation: dcPulse 1s ease-in-out infinite; }
+        .dc-pill.clk { cursor: pointer; } .dc-pill.clk:hover { border-color: var(--text); color: var(--text); }
+        @keyframes dcPulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
         #dc-x { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 6px;
             padding: 5px 11px; cursor: pointer; font-size: 0.9rem; }
         #dc-x:hover { color: var(--text); border-color: var(--accent); }
@@ -1147,8 +1150,18 @@
             const dOn = m.daemonBeat && (Date.now() - m.daemonBeat < 60000);
             const dp = $('#dc-daemon'); dp.className = 'dc-pill ' + (dOn ? 'on' : 'off');
             dp.lastChild.textContent = dOn ? 'daemon online' : 'daemon offline';
-            const drp = $('#dc-droplet'); drp.className = 'dc-pill ' + (m.dropletUp ? 'on' : 'off');
-            drp.lastChild.textContent = m.dropletUp ? 'up' : 'down';
+            // daemon 0.14 publishes dropletState (up / starting / dead / down); older daemons only dropletUp.
+            // Not green = tap the pill to wake (same wake job as the button). 2026-09-14.
+            let st = m.dropletState || (m.dropletUp ? 'up' : 'down');
+            if (DC.waking && st !== 'up' && st !== 'starting') st = 'waking';
+            DC.dropletState = st;
+            const drp = $('#dc-droplet');
+            drp.className = 'dc-pill ' + (st === 'up' ? 'on' : (st === 'starting' || st === 'waking') ? 'busy clk' : 'off clk');
+            drp.lastChild.textContent = ({ up: 'up', starting: 'starting…', waking: 'waking…',
+                dead: 'dead · tap to wake', down: 'down · tap to wake' })[st] || st;
+            drp.title = st === 'up' ? "Droplet's terminal session on se is live"
+                : (st === 'starting' || st === 'waking') ? 'session launching - claude not drawn yet (tap to re-wake if it sticks)'
+                : 'tap to relaunch the Droplet session on se';
             // kdaemon (a user's own portable daemon): Droplet runs per message (claude -p), no wake; enhance runs
             // on THEIR daemon and is greyed out until it detects ollama on their PC.
             DC.kdaemon = m.daemonKind === 'kdaemon';
@@ -1376,13 +1389,23 @@
             else { document.body.classList.remove('dc-open'); document.body.style.top = ''; window.scrollTo(0, dcScrollY); }
         }
         $('#dc-x').onclick = () => { $('#dc-console').classList.remove('open'); lockZoom(false); lockPage(false); };
-        $('#dc-wake').onclick = async () => {
-            if (!DC.base) return;
+        async function dcWake() {
+            if (!DC.base || DC.kdaemon || DC.waking) return;
+            DC.waking = true;
             const b = $('#dc-wake'); b.textContent = 'waking…'; b.disabled = true;
+            const drp = $('#dc-droplet'); drp.className = 'dc-pill busy clk'; drp.lastChild.textContent = 'waking…';
             const j = push(ref(database, `${DC.base}/jobs`));
             await set(j, { kind: 'wake', status: 'queued', createdAt: Date.now(), ping: false });
-            onValue(j, s => { const v = s.val(); if (v && (v.status === 'done' || v.status === 'error')) { b.textContent = '▲ wake Droplet'; b.disabled = false; } });
-        };
+            const stop = onValue(j, s => {
+                const v = s.val();
+                if (!v || (v.status !== 'done' && v.status !== 'error')) return;
+                stop(); DC.waking = false; b.textContent = '▲ wake Droplet'; b.disabled = false;
+                const msg = v.reply || v.error || '';
+                const cs = $('#dc-chat-status'); if (cs && msg) { cs.textContent = msg; setTimeout(() => { if (cs.textContent === msg) cs.textContent = ''; }, 8000); }
+            });
+        }
+        $('#dc-wake').onclick = dcWake;
+        $('#dc-droplet').onclick = () => { if (DC.dropletState && DC.dropletState !== 'up') dcWake(); };
         // Workbench tab retired 2026-09-11 — its enhance lives inline in the Chat now (computeEnhance).
         $('#dc-rt-add').onclick = addRoutine;
         $('#dc-rt-type').onchange = e => { const iv = e.target.value === 'interval'; $('#dc-rt-every').style.display = iv ? '' : 'none'; $('#dc-rt-time').style.display = iv ? 'none' : ''; };
