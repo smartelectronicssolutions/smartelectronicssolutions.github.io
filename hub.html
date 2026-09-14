@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Control Hub</title>
     <link rel="stylesheet" href="assets/css/master.css">
     <link rel="icon" href="assets/img/favicon.ico">
@@ -1279,6 +1279,21 @@
         // phones: lock page zoom while the console is open (viewport meta swap + iOS gesture guards), restore on close
         const VP = document.querySelector('meta[name="viewport"]'); const VP0 = VP ? VP.getAttribute('content') : null;
         function lockZoom(on) { if (VP) VP.setAttribute('content', on ? 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no' : (VP0 || 'width=device-width, initial-scale=1.0')); }
+        // rotation: iOS can leave the page zoomed after a landscape round-trip (reads as "the font got bigger").
+        // Re-asserting the viewport meta after the turn snaps the scale back to 1 (a changed string is what makes iOS
+        // re-evaluate it, so toggle through a variant). The status line reports scale/font before -> after when they differ.
+        let ROT = null;
+        function rotSnap() { const b = document.querySelector('.dc-bub'); return { s: window.visualViewport ? window.visualViewport.scale : 1, w: window.innerWidth, f: b ? getComputedStyle(b).fontSize : '-' }; }
+        window.addEventListener('orientationchange', () => {
+            ROT = rotSnap();
+            setTimeout(() => {
+                if (!$('#dc-console').classList.contains('open')) return;
+                const vp = 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no';
+                if (VP) { VP.setAttribute('content', vp + ', minimum-scale=1'); requestAnimationFrame(() => VP.setAttribute('content', vp)); }
+                const a = rotSnap(), st = $('#dc-chat-status');
+                if (st && ROT && (a.s !== ROT.s || a.f !== ROT.f)) st.textContent = 'rotate ' + ROT.w + '->' + a.w + 'px: scale ' + ROT.s.toFixed(2) + '->' + a.s.toFixed(2) + ' - font ' + ROT.f + '->' + a.f;
+            }, 350);
+        });
         ['gesturestart', 'gesturechange'].forEach(ev => $('#dc-console').addEventListener(ev, e => e.preventDefault(), { passive: false }));
         $('#dc-console').addEventListener('touchmove', e => { if (e.scale && e.scale !== 1) e.preventDefault(); }, { passive: false });
         $('#dc-x').onclick = () => { $('#dc-console').classList.remove('open'); lockZoom(false); };
