@@ -556,6 +556,11 @@
         .dc-bar .dc-tab { padding: 5px 10px; font-size: 0.82rem; border-radius: 0; }
         .dc-bar .dc-in { width: auto; flex: 0 0 auto; max-width: 11em; padding: 3px 6px; font-size: 0.76rem; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; font-family: var(--font-mono); }   /* master.css makes selects 100% wide - that wrapped the whole bar */
         .dc-account { font-family: var(--font-mono); font-size: 0.74rem; color: var(--muted); margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+        /* scroll lock: while the console is open the page behind must not scroll (phone: a swipe on the log was
+           scrolling the hub underneath first, then the messages). body goes fixed; the log contains its own overscroll. */
+        body.dc-open { position: fixed; inset: 0; width: 100%; overflow: hidden; }
+        #dc-console, .dc-body, .dc-chat-log { overscroll-behavior: contain; }
+        .dc-chat-log { -webkit-overflow-scrolling: touch; }
         /* account-aware hub: a signed-in non-owner (a guest like K) sees only their own cards; the homelab/ops cards are the owner's */
         html.hub-guest .owner-only { display: none !important; }
         #dc-console.guest #dc-rt-panel > :not(.dc-account), #dc-console.guest #dc-fl-panel { display: none; }
@@ -1345,7 +1350,13 @@
         });
         ['gesturestart', 'gesturechange'].forEach(ev => $('#dc-console').addEventListener(ev, e => e.preventDefault(), { passive: false }));
         $('#dc-console').addEventListener('touchmove', e => { if (e.scale && e.scale !== 1) e.preventDefault(); }, { passive: false });
-        $('#dc-x').onclick = () => { $('#dc-console').classList.remove('open'); lockZoom(false); };
+        // page scroll lock while open (remember where the hub was, put it back on close)
+        let dcScrollY = 0;
+        function lockPage(on) {
+            if (on) { dcScrollY = window.scrollY || 0; document.body.classList.add('dc-open'); document.body.style.top = (-dcScrollY) + 'px'; }
+            else { document.body.classList.remove('dc-open'); document.body.style.top = ''; window.scrollTo(0, dcScrollY); }
+        }
+        $('#dc-x').onclick = () => { $('#dc-console').classList.remove('open'); lockZoom(false); lockPage(false); };
         $('#dc-wake').onclick = async () => {
             if (!DC.base) return;
             const b = $('#dc-wake'); b.textContent = 'waking…'; b.disabled = true;
@@ -1407,7 +1418,7 @@
                 else if (j.status === 'error' || j.status === 'failed') { $('#dc-chat-status').textContent = '⚠ ' + (j.error || 'archive failed'); unwatch(); }
             });
         };
-        window.openDropletConsole = () => { $('#dc-console').classList.add('open'); lockZoom(true); };
+        window.openDropletConsole = () => { $('#dc-console').classList.add('open'); lockZoom(true); lockPage(true); };
     </script>
 
     <div id="footer-placeholder"></div>
