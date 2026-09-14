@@ -556,6 +556,9 @@
         .dc-bar .dc-tab { padding: 5px 10px; font-size: 0.82rem; border-radius: 0; }
         .dc-bar .dc-in { width: auto; flex: 0 0 auto; max-width: 11em; padding: 3px 6px; font-size: 0.76rem; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; font-family: var(--font-mono); }   /* master.css makes selects 100% wide - that wrapped the whole bar */
         .dc-account { font-family: var(--font-mono); font-size: 0.74rem; color: var(--muted); margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+        /* account-aware hub: a signed-in non-owner (a guest like K) sees only their own cards; the homelab/ops cards are the owner's */
+        html.hub-guest .owner-only { display: none !important; }
+        #dc-console.guest #dc-rt-panel > :not(.dc-account), #dc-console.guest #dc-fl-panel { display: none; }
         #dc-console.kd #dc-rt-panel > :not(.dc-account), #dc-console.kd #dc-fl-panel { display: none; }   /* portable daemon: no routines/fleet/pings to show */
         .dc-menu { position: relative; }
         .dc-gear { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 6px; padding: 3px 8px; cursor: pointer; font-size: 0.85rem; }
@@ -844,8 +847,29 @@
         ];
         const SLABEL = { add:'add info', think:'think more', recon:'recon first', risk:'risk' };
 
+        // ACCOUNT-AWARE HUB (L, 2026-09-14): whoever is signed in sees only their own relevant info. The owner's
+        // homelab/ops cards (services, drives, Wazuh, MC, usage, commands, tickets, inventory, network, creds, stats,
+        // Telaid work, Goings-On, Microsoft) hide for anyone else; per-account cards (To-Dos, Notes, Topics) stay.
+        const HUB_OWNER_UID = '7cIh8rrhVNOjjj5CBDgb3IlqzEh2';
+        const OWNER_CARDS = ['Microsoft / OneDrive', 'Upcoming Work', 'Goings-On', 'Services', 'AI Services', 'Claude Usage', 'Quick Commands',
+                             'MC Server', 'Open Service Tickets', 'Inventory', 'Network', 'Credentials', 'Wazuh Agents', 'Server Drives', 'Site Statistics'];
+        function applyGuest(isGuest) {
+            document.documentElement.classList.toggle('hub-guest', isGuest);
+            document.querySelectorAll('.hcard').forEach(card => {
+                const h = card.querySelector('h3'); const title = h ? h.childNodes[0].textContent.trim() : '';
+                if (OWNER_CARDS.some(n => title.startsWith(n))) card.classList.add('owner-only');
+            });
+            document.querySelectorAll('.hub-section').forEach(sec => {
+                const cards = sec.querySelectorAll('.hcard'); if (cards.length && Array.from(cards).every(c => c.classList.contains('owner-only'))) sec.classList.add('owner-only');
+            });
+            const dcc = $('#dc-console'); if (dcc) dcc.classList.toggle('guest', isGuest);
+            const sel = $('#dc-chat-target');
+            if (sel && isGuest) Array.from(sel.options).forEach(o => { if (o.value !== 'droplet') o.remove(); });   // guests: only their own Droplet
+        }
+        window.__hubGuest = applyGuest;   // test hook
         onUserReady(u => {
             if (!u) return;   /* signed out: auth.js fires with null; the console section needs a uid */
+            applyGuest(u.uid !== HUB_OWNER_UID);
             DC.uid = u.uid; DC.base = `${u.uid}/console`;
             const acc = $('#dc-account'); if (acc) acc.textContent = 'signed in as ' + (u.email || '(no email)') + ' · uid ' + u.uid.slice(0, 6) + '…';
             onValue(ref(database, `${DC.base}/memoryIndex`), s => { DC.memory = s.val() || []; });
@@ -1764,7 +1788,8 @@ MOOD TAG: End every reply with [MOOD:X] where X is one of: happy sleepy excited 
             document.getElementById('hub-gate').style.display    = 'none';
             document.getElementById('hub-content').style.display = 'block';
 
-            const data = snap.exists() ? snap.val() : DEFAULTS;
+            // DEFAULTS is the owner's homelab map (hosts, commands, service users); a guest with no hub node gets an empty hub, not mine
+            const data = snap.exists() ? snap.val() : (user.uid === '7cIh8rrhVNOjjj5CBDgb3IlqzEh2' ? DEFAULTS : {});
             renderAll(data);
             window.__hubData = data;
             document.getElementById('yuki-toggle').classList.add('visible');
