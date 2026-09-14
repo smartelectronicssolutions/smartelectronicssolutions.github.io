@@ -65,9 +65,35 @@ export function renderArticleContent(article) {
       html += `<p>${escapeHtml(section.summary)}</p>`;
     }
 
-    (section.content || []).forEach((item) => {
-      if (item.type === "text" && item.value) {
-        html += `<p>${escapeHtml(item.value)}</p>`;
+    // Imported docs (e.g. a markdown file turned into a journal) store section.content
+    // as a plain string instead of an array of blocks. Render it as a pre-wrapped
+    // paragraph so those articles don't crash the whole view.
+    var content = section.content;
+    if (typeof content === "string") {
+      if (content.trim()) html += `<p style="white-space:pre-wrap">${escapeHtml(content)}</p>`;
+      content = [];
+    }
+    (content || []).forEach((item) => {
+      // Bare-string items (some tool-authored articles) render as a paragraph.
+      if (typeof item === "string") {
+        if (item.trim()) html += `<p>${escapeHtml(item)}</p>`;
+        return;
+      }
+      // Some tool-authored items omit `type`; infer it from the keys present so
+      // the correct branch below still fires (otherwise the item renders blank).
+      if (!item.type) {
+        item.type = item.items ? "list"
+          : (item.rows || item.headers) ? "table"
+          : (item.code != null) ? "code"
+          : item.src ? "image"
+          : (item.href || item.url) ? "link"
+          : (item.value != null || item.text != null) ? "text"
+          : item.type;
+      }
+      // Accept legacy `text` key as well as the canonical `value`.
+      var textVal = item.value != null ? item.value : item.text;
+      if (item.type === "text" && textVal) {
+        html += `<p>${escapeHtml(textVal)}</p>`;
       }
 
       if (item.type === "image" && item.src) {
@@ -107,29 +133,30 @@ export function renderArticleContent(article) {
       }
 
       if (item.type === "code") {
+        var codeVal = item.value != null ? item.value : item.code;
         html += `
           <div class="code-block">
-            <pre><code>${escapeHtml(item.value)}</code></pre>
+            <pre><code>${escapeHtml(codeVal)}</code></pre>
           </div>
         `;
       }
 
       if (item.type === "link") {
-        const linkHref = safeUrl(item.href);
+        const linkHref = safeUrl(item.href || item.url);
         html += `
           <p>
             <a href="${escapeHtml(linkHref)}" target="_blank" rel="noopener noreferrer" class="article-link">
-              ${escapeHtml(item.label || item.href)}
+              ${escapeHtml(item.label || item.text || item.href || item.url)}
             </a>
           </p>
         `;
       }
 
       if (item.type === "link_button") {
-        const btnHref = safeUrl(item.href);
+        const btnHref = safeUrl(item.href || item.url);
         html += `
           <a href="${escapeHtml(btnHref)}" target="_blank" rel="noopener noreferrer" class="article-link-btn">
-            ${escapeHtml(item.label || "Open Link")}
+            ${escapeHtml(item.label || item.text || "Open Link")}
           </a>
         `;
       }
