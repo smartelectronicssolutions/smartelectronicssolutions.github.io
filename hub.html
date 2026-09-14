@@ -546,6 +546,7 @@
     <style>
         #dc-console { position: fixed; inset: 0; z-index: 2000; background: var(--bg);
             display: none; flex-direction: column;
+            touch-action: pan-y;   /* phones: no pinch/double-tap zoom inside the console (JS locks the viewport too) */
             /* the hub's stylesheet never defined --font-mono, so every var(--font-mono) here fell back to the UI font */
             --font-mono: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, Menlo, monospace; }
         #dc-console.open { display: flex; }
@@ -978,6 +979,7 @@
                 DC.lastJob = jref.key;
                 $('#dc-chat-status').textContent = (note ? note + ' · ' : '') + 'sent → ' + who + '…';
                 send.disabled = false;
+                ta.focus();   // keep the keyboard up on the phone after tapping ▲
                 // the bubble is filled by reconcilePending (turns listener); this only drives the status line for the newest send
                 const unwatch = onValue(jref, s => {
                     const j = s.val(); if (!j) return;
@@ -1216,7 +1218,12 @@
         }
 
         // wiring
-        $('#dc-x').onclick = () => $('#dc-console').classList.remove('open');
+        // phones: lock page zoom while the console is open (viewport meta swap + iOS gesture guards), restore on close
+        const VP = document.querySelector('meta[name="viewport"]'); const VP0 = VP ? VP.getAttribute('content') : null;
+        function lockZoom(on) { if (VP) VP.setAttribute('content', on ? 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no' : (VP0 || 'width=device-width, initial-scale=1.0')); }
+        ['gesturestart', 'gesturechange'].forEach(ev => $('#dc-console').addEventListener(ev, e => e.preventDefault(), { passive: false }));
+        $('#dc-console').addEventListener('touchmove', e => { if (e.scale && e.scale !== 1) e.preventDefault(); }, { passive: false });
+        $('#dc-x').onclick = () => { $('#dc-console').classList.remove('open'); lockZoom(false); };
         $('#dc-wake').onclick = async () => {
             if (!DC.base) return;
             const b = $('#dc-wake'); b.textContent = 'waking…'; b.disabled = true;
@@ -1241,6 +1248,21 @@
         $('#dc-kh-agenda').onchange = saveKh;
         $('#dc-chat-send').onclick = sendChat;
         $('#dc-chat-in').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } });
+        // remember the chat controls per device (enhance toggle, ping, target) - restored before the first render
+        const PERSIST = { 'dc-chat-enhance': 'dc_enh_on', 'dc-chat-ping': 'dc_ping_on', 'dc-chat-target': 'dc_target' };
+        for (const [id, key] of Object.entries(PERSIST)) {
+            const el = document.getElementById(id); if (!el) continue;
+            let v = null; try { v = localStorage.getItem(key); } catch (_) {}
+            if (v !== null) { if (el.type === 'checkbox') el.checked = v === '1'; else el.value = v; }
+            el.addEventListener('change', () => { try { localStorage.setItem(key, el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value); } catch (_) {} });
+        }
+        // phones: a tap on the log (not on a link/button/expander, and not a text selection) puts the cursor in the box
+        $('#dc-chat-log').addEventListener('click', e => {
+            if (e.target.closest('a,button,details,summary,input,select,textarea')) return;
+            if (window.getSelection && String(window.getSelection()).length) return;
+            const inp = $('#dc-chat-in'); if (inp) inp.focus();
+        });
+        const psGlyph = document.querySelector('.dc-chat-input .ps'); if (psGlyph) psGlyph.onclick = () => $('#dc-chat-in').focus();
         $('#dc-chat-export').onclick = () => {
             const keys = Object.keys(DC.chatTurns || {});
             if (!keys.length) return;
@@ -1266,7 +1288,7 @@
                 else if (j.status === 'error' || j.status === 'failed') { $('#dc-chat-status').textContent = '⚠ ' + (j.error || 'archive failed'); unwatch(); }
             });
         };
-        window.openDropletConsole = () => $('#dc-console').classList.add('open');
+        window.openDropletConsole = () => { $('#dc-console').classList.add('open'); lockZoom(true); };
     </script>
 
     <div id="footer-placeholder"></div>
