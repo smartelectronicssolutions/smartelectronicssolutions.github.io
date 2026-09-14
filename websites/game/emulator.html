@@ -296,12 +296,19 @@
     }
 
     /* ── LAUNCH (shared by file-picker + RomM library) ── */
-    let CLOUD_BATTERY=null, autoSaveInterval=null, launchSeq=0, CLOUD_CONTROLS=null;
+    let CLOUD_BATTERY=null, autoSaveInterval=null, launchSeq=0, CLOUD_CONTROLS=null, STICK_DPAD_SNAP=null;
     // gamepad/controls persist per Firebase user at {uid}/emu/controls
     // controls must be an object with all 4 player maps (0-3) as objects; anything else would crash EmulatorJS setupKeys
     function validControls(c){ if(!c||typeof c!=="object"||Array.isArray(c)) return null; for(let p=0;p<4;p++){ if(!c[p]||typeof c[p]!=="object"||Array.isArray(c[p])) return null; } return c; }
     // store as a JSON STRING so Firebase can't array-ify the integer-keyed control map (that dropped players 1-3 and broke the engine)
-    function saveControls(){ try { const c=window.EJS_emulator && window.EJS_emulator.controls; if(!validControls(c)) return; const j=JSON.stringify(c); if(j===JSON.stringify(CLOUD_CONTROLS)) return; CLOUD_CONTROLS=JSON.parse(j); set(ref(database, DATABASE_BASE_PATH+"/emu/controls"), {j}).catch(()=>{}); } catch(_){} }
+    // Stick-as-d-pad: on consoles with no native analog stick, bind the LEFT STICK to the D-PAD so the
+    // thumbstick moves the character in games that only ever supported the d-pad (Crash, Legacy of Kain,
+    // all GBA/SNES/Genesis). Analog consoles (N64) keep the stick as the real analog stick. Applied fresh
+    // each launch and stripped before saving (STICK_DPAD_SNAP) so it never pollutes the saved map or N64.
+    const ANALOG_CORES = new Set(["n64","psp"]);
+    const STICK_DPAD_MAP = {4:"LEFT_STICK_Y:-1", 5:"LEFT_STICK_Y:+1", 6:"LEFT_STICK_X:-1", 7:"LEFT_STICK_X:+1"};
+    function applyStickAsDpad(){ STICK_DPAD_SNAP=null; try { const c=window.EJS_emulator && window.EJS_emulator.controls; if(!c||!c[0]||ANALOG_CORES.has(window.EJS_core)) return; STICK_DPAD_SNAP={}; for(const id in STICK_DPAD_MAP){ if(!c[0][id]) c[0][id]={value:"",value2:""}; STICK_DPAD_SNAP[id]=c[0][id].value2; c[0][id].value2=STICK_DPAD_MAP[id]; } } catch(_){} }
+    function saveControls(){ try { const live=window.EJS_emulator && window.EJS_emulator.controls; if(!validControls(live)) return; const c=JSON.parse(JSON.stringify(live)); if(STICK_DPAD_SNAP && c[0]){ for(const id in STICK_DPAD_SNAP){ if(c[0][id]) c[0][id].value2=STICK_DPAD_SNAP[id]; } } const j=JSON.stringify(c); if(j===JSON.stringify(CLOUD_CONTROLS)) return; CLOUD_CONTROLS=JSON.parse(j); set(ref(database, DATABASE_BASE_PATH+"/emu/controls"), {j}).catch(()=>{}); } catch(_){} }
     // file extension -> EmulatorJS core (core names must match the engine EXACTLY: 'gb' not 'gbc', 'segaMD' not 'genesis')
     const extMap = {gba:'gba',gbc:'gb',gb:'gb',smc:'snes',sfc:'snes',z64:'n64',n64:'n64',v64:'n64',nds:'nds',bin:'psx',iso:'psx',cue:'psx',nes:'nes',md:'segaMD',smd:'segaMD',gen:'segaMD',pbp:'psp',chd:'psx',gg:'segaGG',sms:'segaMS',zip:'gba'};
     // RomM platform slug -> EmulatorJS core. Valid cores: gb, gba, nes, snes, n64, nds, segaMS, segaMD, segaGG, psx, psp (NO 'gbc'/'genesis' — those black-screen)
@@ -320,7 +327,7 @@
         psp:'psp','playstation-portable':'psp'
     };  // dc (Dreamcast) not supported by EmulatorJS
     // Systems hidden from the library (unsupported or too heavy on a phone / need a BIOS)
-    const HIDDEN_SLUGS = new Set(["dc","n64","nds","psp","psx","ps1","playstation","ps","nintendo-64","nintendo-ds","ds","playstation-portable"]);
+    const HIDDEN_SLUGS = new Set(["dc","nds","psp","nintendo-ds","ds","playstation-portable"]);   // n64+psx un-hidden 2026-09-11 (Ocarina/Majora + Crash/Legacy of Kain w/ stick-as-dpad); pcsx HLE BIOS covers most PS1, a few titles need a real BIOS
     const isShown = s => { s=(s||"").toLowerCase(); return !!coreBySlug[s] && !HIDDEN_SLUGS.has(s); };
 
     async function launchGame(fileOrBlob, fileName, core) {
@@ -362,6 +369,7 @@
             if(seq!==launchSeq) return;
             if(!gm) { setStatus("Core ready timeout — saves may not work.","err"); startAutoSave(); return; }
             patchQuickState(gm);
+            applyStickAsDpad();   // left stick -> d-pad on non-analog consoles (Crash/Legacy of Kain/GBA/SNES); N64 keeps analog
             const sPath=getStatePath();
             if(sPath) { try { const bytes=await dbLoad(sPath); if(seq!==launchSeq) return; const ok=await applyState(bytes); setStatus(ok?`Slot ${currentSlot} restored.`:"State load failed.",ok?"ok":"err"); } catch { setStatus("No save found — starting fresh.",""); } }
             else { setStatus("Running.","ok"); }
