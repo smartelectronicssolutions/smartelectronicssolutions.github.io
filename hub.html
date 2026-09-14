@@ -704,7 +704,9 @@
         .dc-chat-controls .dc-in { padding: 4px 8px; font-size: 0.76rem; }
         .dc-chat-input { display: flex; gap: 8px; padding-top: 8px; align-items: stretch; }
         .dc-chat-input .ps { font-family: var(--font-mono); color: #c084fc; align-self: center; font-size: 1.05rem; padding-left: 2px; user-select: none; }
-        .dc-chat-input textarea { flex: 1; resize: none; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; font-family: var(--font-mono); font-size: 0.88rem; line-height: 1.5; }
+        /* usage fill: a light left-to-right translucent gradient across the input, width = today's output tokens vs the 30-day peak day (--usg, set by renderUsage) */
+        .dc-chat-input textarea { flex: 1; resize: none; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; font-family: var(--font-mono); font-size: 0.88rem; line-height: 1.5;
+            background-color: var(--bg); background-image: linear-gradient(90deg, rgba(192,132,252,0.18), rgba(192,132,252,0.05)); background-repeat: no-repeat; background-size: var(--usg, 0%) 100%; transition: background-size .7s ease; }
         .dc-chat-input textarea:focus { outline: none; border-color: #c084fc; }
         .dc-chat-input .dc-btn.push { align-self: stretch; padding: 0 18px; font-size: 1.1rem; }
         .dc-rt { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px; }
@@ -1103,7 +1105,15 @@
         }
         function agoStr(ms){ if(!ms) return ''; let s=Math.max(0,Math.round((Date.now()-ms)/1000)); if(s<60) return s+'s ago'; let m=Math.round(s/60); if(m<60) return m+'m ago'; let h=Math.round(m/60); if(h<24) return h+'h ago'; return Math.round(h/24)+'d ago'; }
         function renderUsage(u) {
+            // usage fill on the chat input: today's output vs the 30-day peak day, 0-100%
+            const inp = $('#dc-chat-in');
+            if (inp) {
+                const pct = Math.max(0, Math.min(100, Math.round(100 * (((u || {}).today || {}).out || 0) / ((u || {}).peakDayOut || 1))));
+                inp.style.setProperty('--usg', pct + '%');
+                inp.title = `today ${fmtTok(((u || {}).today || {}).out || 0)} tokens — ${pct}% of your busiest day`;
+            }
             const box = $('#usage-body');
+            if (!box) return;   // owner-only card is hidden for guests; the input fill above still runs
             if (!u || !u.today) { box.innerHTML = '<span style="color:var(--muted);font-size:0.82rem">No usage data yet.</span>'; return; }
             const row = (label, c) => `<div style="display:flex;justify-content:space-between;font-size:0.92rem;padding:4px 0;border-bottom:1px solid var(--border)"><span style="color:var(--muted)">${label}</span><span><b>${fmtTok((c || {}).out || 0)}</b> tokens</span></div>`;
             const lastAct = u.lastActivity ? Date.parse(u.lastActivity) : 0;
