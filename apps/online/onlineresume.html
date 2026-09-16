@@ -542,6 +542,16 @@
         // reads/writes the signed-in owner's private path. BASE_PATH is set
         // from auth state below, defaulting to public (read-only view).
         let BASE_PATH = "public/resumes";
+        const PUBLIC_PATH = "public/resumes";
+        // 2026-09-16: the signed-in editor lists BOTH the owner's private resumes and the public ones.
+        // The six originals live under public/resumes (one carries a QR share link, so they must stay
+        // public); a signed-in user saw an empty list because only ${uid}/resumes was read.
+        // Selector values: "<id>" = private (BASE_PATH), "pub:<id>" = public. Each saves back where it lives;
+        // new / cloned / imported resumes go to BASE_PATH (private when signed in).
+        function pathOf(val) {
+            const v = String(val || "");
+            return v.startsWith("pub:") ? `${PUBLIC_PATH}/${v.slice(4)}` : `${BASE_PATH}/${v}`;
+        }
         let authReady = false;
         let currentUser = null;
 
@@ -576,16 +586,31 @@
 
             selector.innerHTML = "";
 
-            if (!snapshot.exists()) return;
+            const mine = snapshot.exists() ? snapshot.val() : {};
+            let pub = {};
+            if (currentUser && BASE_PATH !== PUBLIC_PATH) {
+                const pubSnap = await get(ref(database, PUBLIC_PATH));
+                pub = pubSnap.exists() ? pubSnap.val() : {};
+            }
 
-            const resumes = snapshot.val();
+            if (!Object.keys(mine).length && !Object.keys(pub).length) return;
 
-            Object.keys(resumes).forEach(key => {
+            Object.keys(mine).forEach(key => {
 
                 const option = document.createElement("option");
 
                 option.value = key;
                 option.textContent = key;
+
+                selector.appendChild(option);
+            });
+
+            Object.keys(pub).forEach(key => {
+
+                const option = document.createElement("option");
+
+                option.value = "pub:" + key;
+                option.textContent = key + " (public)";
 
                 selector.appendChild(option);
             });
@@ -616,7 +641,7 @@
 
             currentResumeId = id;
 
-            const snapshot = await get(ref(database, `${BASE_PATH}/${id}`));
+            const snapshot = await get(ref(database, pathOf(id)));
 
             if (!snapshot.exists()) {
                 loadEmptyResumeTemplate();
@@ -834,7 +859,7 @@
 
             try {
                 await set(
-                    ref(database, `${BASE_PATH}/${currentResumeId}`),
+                    ref(database, pathOf(currentResumeId)),
                     resume
                 );
             } catch (err) {
@@ -974,7 +999,7 @@
             const newId = cloneName.toLowerCase().replace(/\s+/g, "_");
 
             const snapshot = await get(
-                ref(database, `${BASE_PATH}/${currentResumeId}`)
+                ref(database, pathOf(currentResumeId))
             );
 
             if (!snapshot.exists()) return;
@@ -1001,7 +1026,7 @@
 
             try {
                 await remove(
-                    ref(database, `${BASE_PATH}/${currentResumeId}`)
+                    ref(database, pathOf(currentResumeId))
                 );
             } catch (err) {
                 console.error("Error deleting resume:", err);
@@ -1017,7 +1042,7 @@
         async function exportResumeJson() {
 
             const snapshot = await get(
-                ref(database, `${BASE_PATH}/${currentResumeId}`)
+                ref(database, pathOf(currentResumeId))
             );
 
             if (!snapshot.exists()) return;
