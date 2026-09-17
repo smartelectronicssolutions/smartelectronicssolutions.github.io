@@ -231,6 +231,7 @@
                 Microsoft: <span id="ms-status">not signed in</span>
             </span>
             <span class="spacer"></span>
+            <button id="hub-dev-toggle" title="show / hide the developer cards (Firebase Token, Credentials)">dev</button>
             <div id="hub-clock"></div>
         </div>
 
@@ -564,6 +565,10 @@
         /* account-aware hub: a signed-in non-owner (a guest like K) sees only their own cards; the homelab/ops cards are the owner's */
         html.hub-guest .owner-only { display: none !important; }
         #dc-console.guest #dc-rt-panel > :not(.dc-account), #dc-console.guest #dc-fl-panel { display: none; }
+        #dc-console.guest #dc-cmd-lbl, #dc-console.guest #dc-pg-lbl { display: none; }
+        html.hub-nodev .dev-only { display: none !important; }
+        #hub-dev-toggle { background: none; border: 1px solid var(--border); border-radius: 6px; color: var(--muted); font-size: 0.7rem; padding: 2px 8px; cursor: pointer; }
+        #hub-dev-toggle.on { color: var(--accent); border-color: var(--accent); }
         #dc-console.kd #dc-rt-panel > :not(.dc-account), #dc-console.kd #dc-fl-panel { display: none; }   /* portable daemon: no routines/fleet/pings to show */
         .dc-menu { position: relative; }
         .dc-gear { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 6px; padding: 3px 8px; cursor: pointer; font-size: 0.85rem; }
@@ -734,10 +739,6 @@
             border-radius: 8px; font-size: 0.8rem; font-family: var(--font-mono); background: var(--bg); }
         .dc-fleet .fp .d { width: 8px; height: 8px; border-radius: 50%; background: #f87171; flex-shrink: 0; }
         .dc-fleet .fp.up .d { background: #4ade80; }
-        .dc-autos-wrap { margin: 16px 0 8px; }
-        .dc-autos-wrap summary { cursor: pointer; font-size: 0.62rem; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); user-select: none; }
-        .dc-autos-wrap summary .dc-size { text-transform: none; letter-spacing: 0; font-family: var(--font-mono); font-size: 0.66rem; opacity: .7; }
-        #dc-autos { overflow-x: auto; margin-top: 8px; }
         .dc-tbl { border-collapse: collapse; width: 100%; font-size: 0.78rem; }
         .dc-tbl th { text-align: left; font-weight: 500; color: var(--muted); font-size: 0.64rem; text-transform: uppercase; letter-spacing: 1px; padding: 4px 8px 6px 0; border-bottom: 1px solid var(--border); white-space: nowrap; }
         .dc-tbl td { padding: 6px 8px 6px 0; border-bottom: 1px solid var(--border); vertical-align: top; color: var(--muted); }
@@ -748,17 +749,18 @@
         <div class="dc-bar">
             <span class="dc-brand">💧<span class="dc-brand-t"> Droplet Console</span></span>
             <button class="dc-tab active" data-tab="ch">Chat</button>
-            <button class="dc-tab" data-tab="sys" title="account · daemon · routines · fleet · pings">Sys</button>
+            <button class="dc-tab" data-tab="sys" title="account · daemon · routines · fleet">Sys</button>
             <select id="dc-chat-target" class="dc-in" title="where your message goes">
                 <option value="droplet" selected>💧 Droplet</option>
                 <option value="compman">🤖 CompMan</option>
-                <option value="command">⌘ Command</option>
             </select>
             <span class="dc-menu">
                 <button id="dc-gear" class="dc-gear" title="chat options">⚙</button>
                 <div id="dc-gear-pop" class="dc-pop" hidden>
                     <label class="dc-chk" title="polish the message with the enhancer (ollama + rules + memory recall) before it goes; also renders replies clean"><input type="checkbox" id="dc-chat-enhance"> ✨ enhance</label>
                     <label class="dc-chk" title="Telegram DM you when the reply lands"><input type="checkbox" id="dc-chat-ping"> ping on reply</label>
+                    <label class="dc-chk" id="dc-pg-lbl" title="master switch: Telegram DMs from the console on job / routine completion (sent from the bot the daemon reports in meta)"><input type="checkbox" id="dc-pg-enabled" class="dc-switch"> 📣 Telegram pings</label>
+                    <label class="dc-chk" id="dc-cmd-lbl" title="show the ⌘ Command target: runs PowerShell on se as homelab. Every send asks for your 6-digit YubiKey code and the daemon checks it (one use per code). Off on every load."><input type="checkbox" id="dc-cmd-on"> ⌘ Command target (YubiKey)</label>
                     <label class="dc-chk" title="newest messages at the top, input right under the strips"><input type="checkbox" id="dc-newest"> ⬆ newest first</label>
                     <label class="dc-chk" title="auto-archive the thread (summary to memory) once it passes this many thousand characters; 0 = never">auto-archive at <input type="number" id="dc-auto-arch" min="0" max="500" step="5">k</label>
                     <span class="dc-size" id="dc-thread-size" title="size of the live thread"></span>
@@ -789,53 +791,15 @@
             <div class="dc-panel" id="dc-rt-panel">
                 <div class="dc-account"><span id="dc-account">signed in as …</span><span id="dc-account-daemon"></span></div>
                 <div id="dc-rtlist"></div>
-                <div class="dc-rt" style="border-style:dashed">
-                    <h4 style="font-size:0.62rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin-bottom:10px">New routine</h4>
-                    <div class="dc-row">
-                        <input class="dc-in" id="dc-rt-name" placeholder="name" style="flex:1;min-width:160px">
-                        <select class="dc-in" id="dc-rt-type">
-                            <option value="daily">daily</option><option value="weekly">weekly</option>
-                            <option value="interval">every N min</option>
-                        </select>
-                        <input class="dc-in" id="dc-rt-time" type="time" value="08:00">
-                        <input class="dc-in" id="dc-rt-every" type="number" placeholder="min" value="60" style="width:80px;display:none">
-                    </div>
-                    <div class="dc-row">
-                        <select class="dc-in" id="dc-rt-steptype">
-                            <option value="command">command</option><option value="prompt">prompt→Droplet</option>
-                            <option value="ask_bot">ask CompMan</option><option value="check_url">check URL</option>
-                        </select>
-                        <input class="dc-in" id="dc-rt-stepval" placeholder="command / prompt / url" style="flex:1;min-width:200px">
-                    </div>
-                    <div class="dc-row">
-                        <label class="dc-chk"><input type="checkbox" id="dc-rt-pingdone" checked> ping on done</label>
-                        <label class="dc-chk"><input type="checkbox" id="dc-rt-pingerr" checked> ping on error</label>
-                        <button class="dc-btn" id="dc-rt-add">+ Add routine</button>
-                    </div>
-                </div>
+                <!-- 2026-09-16 (L, audit pick A): the New-routine form is gone - routines are system jobs and every one so far
+                     was added through Droplet; the personal schedule lives in kh. -->
+                <div class="meta" id="dc-rt-links" style="margin:6px 0 14px;line-height:1.6">System routines are Droplet's to add or change - ask in chat ("add a routine that…"). Your own schedule and reminders live in <a href="websites/kh/index.html" target="_blank" rel="noopener">kh →</a> · everything else that runs on its own (and what comes back after a reboot): <a href="apps/online/onlinejournal.html?id=1789616113873" target="_blank" rel="noopener">standing automations →</a></div>
             </div>
             <!-- FLEET (also holds Pings, folded in) -->
             <div class="dc-panel" id="dc-fl-panel">
                 <h4 style="font-size:0.62rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin:0 0 8px">Bots &amp; services <span id="dc-fl-age" style="text-transform:none;letter-spacing:0;margin-left:8px"></span></h4>
                 <div id="dc-fleet" class="dc-fleet"></div>
-                <div class="dc-rt" style="margin-top:16px">
-                    <label class="dc-chk" style="font-size:0.9rem"><input type="checkbox" id="dc-kh-enabled" class="dc-switch"> kh schedule reminders (⏰ timed pings + 📅 morning agenda)</label>
-                    <div class="dc-row" style="margin-top:8px">
-                        <label class="dc-chk">agenda at</label>
-                        <input type="time" class="dc-in" id="dc-kh-agenda" value="07:15">
-                        <span class="dc-status" id="dc-kh-status" style="margin:0"></span>
-                    </div>
-                </div>
-                <details class="dc-autos-wrap" id="dc-autos-wrap">
-                    <summary><span id="dc-autos-title">Standing automations</span> <span class="dc-size">(outside Routines, tap to expand)</span></summary>
-                    <div id="dc-autos"></div>
-                </details>
-                <div class="dc-rt" style="margin-top:16px">
-                    <label class="dc-chk" style="font-size:0.9rem"><input type="checkbox" id="dc-pg-enabled" class="dc-switch"> Telegram pings enabled (DM to you)</label>
-                    <div class="meta" style="margin-top:6px" id="dc-pg-bot">Droplet DMs you on Telegram on job/routine completion.</div>
-                </div>
-                <h4 style="font-size:0.62rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin:14px 0 8px">Recent pings</h4>
-                <div class="dc-log" id="dc-pglog"></div>
+                <div class="meta" id="dc-fl-note" style="margin-top:8px">Telegram pings and the ⌘ Command target are in the ⚙ menu. Reminder settings moved to kh.</div>
             </div>
         </div>
     </div>
@@ -884,6 +848,25 @@
             if (sel && isGuest) Array.from(sel.options).forEach(o => { if (o.value !== 'droplet') o.remove(); });   // guests: only their own Droplet
         }
         window.__hubGuest = applyGuest;   // test hook
+        // DEV CARDS (L, 2026-09-16, pick E): Firebase Token + Credentials are tools, not the front page. Hidden unless the
+        // "dev" button in the auth bar is on (remembered per browser in localStorage hub_dev).
+        const DEV_CARDS = ['Firebase Token', 'Credentials'];
+        function devOn() { try { return localStorage.getItem('hub_dev') === '1'; } catch (_) { return false; } }
+        function applyDev() {
+            document.querySelectorAll('.hcard').forEach(card => {
+                const h = card.querySelector('h3'); const title = h ? h.childNodes[0].textContent.trim() : '';
+                if (DEV_CARDS.some(nm => title.startsWith(nm))) card.classList.add('dev-only');
+            });
+            document.querySelectorAll('.hub-section').forEach(sec => {
+                const cards = sec.querySelectorAll('.hcard'); if (cards.length && Array.from(cards).every(c => c.classList.contains('dev-only'))) sec.classList.add('dev-only');
+            });
+            const on = devOn();
+            document.documentElement.classList.toggle('hub-nodev', !on);
+            const b = $('#hub-dev-toggle'); if (b) { b.classList.toggle('on', on); b.textContent = on ? 'dev ✓' : 'dev'; }
+        }
+        applyDev();
+        { const b = $('#hub-dev-toggle'); if (b) b.onclick = () => { try { localStorage.setItem('hub_dev', devOn() ? '0' : '1'); } catch (_) {} applyDev(); }; }
+        window.__hubDev = applyDev;   // test hook
         onUserReady(u => {
             if (!u) return;   /* signed out: auth.js fires with null; the console section needs a uid */
             applyGuest(u.uid !== HUB_OWNER_UID);
@@ -893,15 +876,8 @@
             onValue(ref(database, `${DC.base}/meta`), s => renderMeta(s.val() || {}));
             onValue(ref(database, `${DC.base}/routines`), s => renderRoutines(s.val() || {}));
             onValue(ref(database, `${DC.base}/pings/settings`), s => { $('#dc-pg-enabled').checked = (s.val() || {}).enabled !== false; });
-            onValue(query(ref(database, `${DC.base}/pings/log`), limitToLast(20)), s => renderPingLog(s.val() || {}));
             onValue(ref(database, `${DC.base}/fleet`), s => renderFleet(s.val() || {}));
-            onValue(ref(database, `${DC.base}/automations`), s => renderAutos(s.val() || {}));
             onValue(ref(database, `${DC.base}/usage`), s => renderUsage(s.val() || {}));
-            onValue(ref(database, `${DC.base}/khReminders`), s => {
-                const c = s.val() || {};
-                $('#dc-kh-enabled').checked = c.enabled !== false;
-                if (document.activeElement !== $('#dc-kh-agenda')) $('#dc-kh-agenda').value = c.agendaTime || '07:15';
-            });
             onValue(ref(database, `${DC.base}/settings/autoArchiveChars`), s => { DC.autoArchiveChars = Number(s.val() || 0); const b = $('#dc-auto-arch'); if (b && document.activeElement !== b) b.value = Math.round(DC.autoArchiveChars / 1000); updateThreadSize(DC.chatTurns || {}); });
             onValue(query(ref(database, `${DC.base}/chat/turns`), limitToLast(120)), s => renderChat(s.val() || {}));
             onValue(query(ref(database, `${DC.uid}/todos`), limitToLast(80)), s => renderIdeas(s.val() || {}));
@@ -1046,6 +1022,12 @@
             const enhOn = !!($('#dc-chat-enhance') && $('#dc-chat-enhance').checked) && target !== 'command';
             const wantPing = !!($('#dc-chat-ping') && $('#dc-chat-ping').checked);
             const who = CHAT_WHO[target] || 'Droplet';
+            // ⌘ Command (2026-09-16, pick D): every run needs a live YubiKey code; the daemon verifies it, one use per code
+            let ykCode = '';
+            if (target === 'command') {
+                ykCode = String(window.prompt('YubiKey code to run this on se (Yubico Authenticator → "Droplet", 6 digits):') || '').replace(/[^0-9]/g, '');
+                if (ykCode.length !== 6) { $('#dc-chat-status').textContent = '⌘ cancelled - no YubiKey code, nothing was sent'; return; }
+            }
             // disabled only while enhancing + queueing; once the bubble is "…thinking" you can send the next one.
             // Each send owns its own pending bubble + job, so concurrent replies never overwrite each other.
             const send = $('#dc-chat-send'); send.disabled = true;
@@ -1069,7 +1051,7 @@
                 const pendRef = push(ref(database, turns));
                 await set(pendRef, { s: 'D', who, text: '…thinking', ts: Date.now(), pending: true, jobId: jref.key });   // jobId => reconcilePending fills it even after a reload
                 const job = target === 'command'
-                    ? { kind: 'command', command: raw, chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing }
+                    ? { kind: 'command', command: raw, code: ykCode, chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing }
                     : { kind: 'prompt', target, rough: raw, enhanced: prompt, chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing,
                         enhance: !!(enhOn && DC.kdaemon), lturn: lref.key };   // kdaemon: enhance server-side + which turn to annotate
                 await set(jref, job);
@@ -1127,25 +1109,6 @@
                 <div style="font-size:0.66rem;color:var(--muted);margin-top:7px">${lastAct ? 'last active ' + agoStr(lastAct) + ' &middot; ' : ''}"tokens" = the work Claude generated</div>`;
             $('#usage-age').textContent = u.updatedAt ? 'updated ' + agoStr(u.updatedAt) : '';
         }
-        // standing automations registry (console/automations) as one compact table: what / where / when / goes to / survives
-        function renderAutos(a) {
-            const keys = Object.keys(a || {}).sort();
-            const t = $('#dc-autos-title'); if (t) t.textContent = `Standing automations (${keys.length})`;
-            $('#dc-autos').innerHTML = keys.length ? `<table class="dc-tbl"><thead><tr><th>what</th><th>where</th><th>when</th><th>goes to</th><th>comes back after</th></tr></thead><tbody>` +
-                keys.map(k => { const v = a[k] || {}; return `<tr><td>${esc(v.label || k)}</td><td>${esc(v.where || '')}</td><td>${esc(v.schedule || '')}</td><td>${esc(v.channel || '')}</td><td>${esc(v.boot || '')}</td></tr>`; }).join('') +
-                `</tbody></table>` : '<span style="color:var(--muted);font-size:0.82rem">Registry empty.</span>';
-        }
-
-        function saveKh() {
-            if (!DC.base) return;
-            set(ref(database, `${DC.base}/khReminders`), {
-                enabled: $('#dc-kh-enabled').checked,
-                agendaTime: $('#dc-kh-agenda').value || '07:15'
-            });
-            $('#dc-kh-status').textContent = 'saved';
-            setTimeout(() => $('#dc-kh-status').textContent = '', 1500);
-        }
-
         function renderMeta(m) {
             const dOn = m.daemonBeat && (Date.now() - m.daemonBeat < 60000);
             const dp = $('#dc-daemon'); dp.className = 'dc-pill ' + (dOn ? 'on' : 'off');
@@ -1344,23 +1307,6 @@
             list.querySelectorAll('[data-del]').forEach(b => b.onclick = () =>
                 remove(ref(database, `${DC.base}/routines/${b.dataset.del}`)));
         }
-        async function addRoutine() {
-            const name = $('#dc-rt-name').value.trim(); if (!name || !DC.base) return;
-            const type = $('#dc-rt-type').value;
-            const sched = { type };
-            if (type === 'interval') sched.everyMin = parseInt($('#dc-rt-every').value) || 60;
-            else sched.time = $('#dc-rt-time').value;
-            const step = { type: $('#dc-rt-steptype').value, value: $('#dc-rt-stepval').value.trim() };
-            if (step.type === 'ask_bot') step.bot = 'compman';
-            await push(ref(database, `${DC.base}/routines`), { name, enabled: true, schedule: sched,
-                steps: [step], pings: { onDone: $('#dc-rt-pingdone').checked, onError: $('#dc-rt-pingerr').checked }, nextRun: 0 });
-            $('#dc-rt-name').value = ''; $('#dc-rt-stepval').value = '';
-        }
-        function renderPingLog(obj) {
-            const rows = Object.values(obj).sort((a, b) => b.at - a.at);
-            $('#dc-pglog').innerHTML = rows.map(p => `<div>${new Date(p.at).toLocaleString()} — ${esc(p.text.slice(0, 120))}</div>`).join('') || '<div>No pings yet.</div>';
-        }
-
         // wiring
         // phones: lock page zoom while the console is open (viewport meta swap + iOS gesture guards), restore on close
         const VP = document.querySelector('meta[name="viewport"]'); const VP0 = VP ? VP.getAttribute('content') : null;
@@ -1407,8 +1353,6 @@
         $('#dc-wake').onclick = dcWake;
         $('#dc-droplet').onclick = () => { if (DC.dropletState && DC.dropletState !== 'up') dcWake(); };
         // Workbench tab retired 2026-09-11 — its enhance lives inline in the Chat now (computeEnhance).
-        $('#dc-rt-add').onclick = addRoutine;
-        $('#dc-rt-type').onchange = e => { const iv = e.target.value === 'interval'; $('#dc-rt-every').style.display = iv ? '' : 'none'; $('#dc-rt-time').style.display = iv ? 'none' : ''; };
         $('#dc-pg-enabled').onchange = e => set(ref(database, `${DC.base}/pings/settings`), { channel: 'telegram_dm', enabled: e.target.checked });
         document.querySelectorAll('.dc-tab').forEach(t => t.onclick = () => {
             document.querySelectorAll('.dc-tab').forEach(x => x.classList.remove('active'));
@@ -1420,8 +1364,6 @@
             $('#dc-rt-panel').classList.toggle('active', t.dataset.tab === 'sys');
             $('#dc-fl-panel').classList.toggle('active', t.dataset.tab === 'sys');
         });
-        $('#dc-kh-enabled').onchange = saveKh;
-        $('#dc-kh-agenda').onchange = saveKh;
         $('#dc-chat-send').onclick = sendChat;
         $('#dc-chat-in').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } });
         // remember the chat controls per device (enhance toggle, ping, target) - restored before the first render
@@ -1432,6 +1374,16 @@
             if (v !== null) { if (el.type === 'checkbox') el.checked = v === '1'; else el.value = v; }
             el.addEventListener('change', () => { try { localStorage.setItem(key, el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value); } catch (_) {} });
         }
+        // ⌘ Command target lives behind the ⚙ toggle: off on every load, never offered to guests
+        const cmdBox = $('#dc-cmd-on'), tsel = $('#dc-chat-target');
+        if (cmdBox && tsel) cmdBox.addEventListener('change', () => {
+            const have = Array.from(tsel.options).find(o => o.value === 'command');
+            if (cmdBox.checked && !have && !document.documentElement.classList.contains('hub-guest')) {
+                const o = document.createElement('option'); o.value = 'command'; o.textContent = '⌘ Command'; tsel.appendChild(o); tsel.value = 'command';
+            }
+            if (!cmdBox.checked && have) { have.remove(); if (tsel.value !== 'compman') tsel.value = 'droplet'; }
+            tsel.dispatchEvent(new Event('change'));
+        });
         // phones: a tap on the log (not on a link/button/expander, and not a text selection) puts the cursor in the box
         $('#dc-chat-log').addEventListener('click', e => {
             if (e.target.closest('a,button,details,summary,input,select,textarea')) return;
