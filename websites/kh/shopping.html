@@ -14,23 +14,32 @@
   <header class="kh-nav"></header>
 
   <div class="container">
+    <!-- LIST = this trip's check-off list · STAPLES = the repeating master list that "Start a grocery run" copies in -->
+    <div class="views">
+      <button data-view="list" class="active">🛒 List</button>
+      <button data-view="staples">⭐ Staples</button>
+      <span class="spacer"></span>
+      <button id="start-run" class="run" title="Copy every staple onto the list (skips ones already waiting there)">Start a grocery run</button>
+    </div>
+
     <form class="add-form" id="add-form">
       <input type="text" id="item-name" placeholder="Add an item (eggs, milk, bread...)" required>
       <input type="text" id="item-qty" placeholder="Qty (opt)">
-      <button type="submit">Add</button>
+      <input type="text" id="item-store" list="store-list" placeholder="Store (opt)" autocomplete="off">
+      <datalist id="store-list"></datalist>
+      <button type="submit" id="add-btn">Add</button>
     </form>
 
-    <div class="filters">
+    <div class="filters" id="filters">
       <button data-filter="pending" class="active">Pending</button>
       <button data-filter="checked">Bought</button>
       <button data-filter="all">All</button>
       <span class="spacer"></span>
       <button class="danger" id="clear-checked">Clear bought</button>
     </div>
+    <div class="run-status" id="run-status" hidden></div>
 
-    <ul class="item-list" id="item-list">
-      <li class="empty">Loading…</li>
-    </ul>
+    <div id="groups"><ul class="item-list"><li class="empty">Loading…</li></ul></div>
   </div>
 
   <script>window.LINKS_ASIDE_HREF = '../../apps/online/onlinelinks.html';</script>
@@ -40,34 +49,55 @@
 
     await window.khHeaderReady;
 
+    const STORE_ORDER = ['Costco', 'Aldi', 'Stop & Shop'];   // shown first, in this order; anything else follows A-Z; "Other" is last
+    const OTHER = 'Other';
     let basePath = 'public';
+    let view = 'list';              // 'list' | 'staples'
     let currentFilter = 'pending';
     let currentItems = {};
+    let staples = {};
+    let unsubs = [];
+    const storeOf = v => (v && String(v.store || '').trim()) || OTHER;
+    const norm = s => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
     onAuthStateChanged(auth, (user) => {
       basePath = user ? user.uid : 'public';
       subscribe();
     });
 
-    let unsubscribePath = null;
     function subscribe() {
-      const r = ref(database, `${basePath}/household/shopping`);
-      onValue(r, snap => {
-        currentItems = snap.val() || {};
-        render();
-      });
+      unsubs.forEach(u => { try { u(); } catch (_) {} }); unsubs = [];   // drop the old account's listeners before attaching new ones
+      unsubs.push(onValue(ref(database, `${basePath}/household/shopping`), snap => { currentItems = snap.val() || {}; render(); }));
+      unsubs.push(onValue(ref(database, `${basePath}/household/staples`), snap => { staples = snap.val() || {}; render(); }));
     }
+
+    function allStores() {
+      const seen = new Set([...Object.values(currentItems), ...Object.values(staples)].map(storeOf));
+      const extra = [...seen].filter(s => !STORE_ORDER.includes(s) && s !== OTHER).sort((a, b) => a.localeCompare(b));
+      return [...STORE_ORDER, ...extra, OTHER];
+    }
+    // typed store -> the existing spelling when there is one ("aldi" -> "Aldi"), so groups never split on case
+    function canonStore(raw) { const t = String(raw || '').trim(); if (!t) return ''; return allStores().find(s => norm(s) === norm(t)) || t; }
 
     document.getElementById('add-form').addEventListener('submit', (e) => {
       e.preventDefault();
       const name = document.getElementById('item-name').value.trim();
       const qty = document.getElementById('item-qty').value.trim();
+      const store = canonStore(document.getElementById('item-store').value);
       if (!name) return;
-      const r = ref(database, `${basePath}/household/shopping`);
-      push(r, { name, qty, checked: false, addedAt: Date.now() });
+      if (view === 'staples') push(ref(database, `${basePath}/household/staples`), { name, qty, store, createdAt: Date.now() });
+      else push(ref(database, `${basePath}/household/shopping`), { name, qty, store, checked: false, addedAt: Date.now() });
       document.getElementById('item-name').value = '';
       document.getElementById('item-qty').value = '';
-      document.getElementById('item-name').focus();
+      document.getElementById('item-name').focus();        // the store stays filled in: adding several things for one store is the common case
+    });
+
+    document.querySelectorAll('.views button[data-view]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        view = btn.dataset.view;
+        document.querySelectorAll('.views button[data-view]').forEach(b => b.classList.toggle('active', b === btn));
+        render();
+      });
     });
 
     document.querySelectorAll('.filters button[data-filter]').forEach(btn => {
@@ -81,52 +111,86 @@
     document.getElementById('clear-checked').addEventListener('click', () => {
       if (!confirm('Remove all bought items?')) return;
       const updates = {};
-      Object.entries(currentItems).forEach(([id, item]) => {
-        if (item.checked) updates[id] = null;
+      Object.entries(currentItems).forEach(([id, item]) => { if (item.checked) updates[id] = null; });
+      if (Object.keys(updates).length) update(ref(database, `${basePath}/household/shopping`), updates);
+    });
+
+    // START A GROCERY RUN: copy every staple onto the list. A staple already waiting there (same name + store, unchecked) is skipped.
+    document.getElementById('start-run').addEventListener('click', async () => {
+      const waiting = new Set(Object.values(currentItems).filter(v => !v.checked).map(v => norm(v.name) + '|' + norm(storeOf(v))));
+      const updates = {}; let added = 0, skipped = 0; const now = Date.now();
+      Object.values(staples).forEach((s, i) => {
+        const key = norm(s.name) + '|' + norm(storeOf(s));
+        if (waiting.has(key)) { skipped++; return; }
+        waiting.add(key);
+        updates[push(ref(database, `${basePath}/household/shopping`)).key] = { name: s.name, qty: s.qty || '', store: s.store || '', checked: false, staple: true, addedAt: now + i };
+        added++;
       });
-      if (Object.keys(updates).length) {
-        update(ref(database, `${basePath}/household/shopping`), updates);
+      const st = document.getElementById('run-status');
+      if (!Object.keys(staples).length) st.textContent = 'No staples yet. Open ⭐ Staples and add the things you buy every run.';
+      else {
+        if (added) await update(ref(database, `${basePath}/household/shopping`), updates);
+        st.textContent = `Grocery run started: ${added} staple${added === 1 ? '' : 's'} added` + (skipped ? `, ${skipped} already on the list` : '') + '.';
       }
+      st.hidden = false; clearTimeout(st._t); st._t = setTimeout(() => { st.hidden = true; }, 6000);
+      if (view !== 'list') document.querySelector('.views button[data-view="list"]').click();
     });
 
     function render() {
-      const list = document.getElementById('item-list');
-      const entries = Object.entries(currentItems)
-        .filter(([_, v]) => currentFilter === 'all' || (currentFilter === 'pending' ? !v.checked : v.checked))
-        .sort((a, b) => (b[1].addedAt || 0) - (a[1].addedAt || 0));
+      const isList = view === 'list';
+      document.getElementById('filters').hidden = !isList;
+      document.getElementById('add-btn').textContent = isList ? 'Add' : 'Add staple';
+      document.getElementById('item-name').placeholder = isList ? 'Add an item (eggs, milk, bread...)' : 'Add a staple you buy every run';
+      document.getElementById('store-list').innerHTML = allStores().filter(s => s !== OTHER).map(s => `<option value="${escapeHtml(s)}">`).join('');
 
+      const source = isList ? currentItems : staples;
+      const entries = Object.entries(source).filter(([_, v]) => !isList || currentFilter === 'all' || (currentFilter === 'pending' ? !v.checked : v.checked));
+      const host = document.getElementById('groups');
       if (!entries.length) {
-        list.innerHTML = `<li class="empty">${currentFilter === 'pending' ? 'Nothing to buy. 🎉' : currentFilter === 'checked' ? 'No bought items yet.' : 'List is empty.'}</li>`;
+        const msg = !isList ? 'No staples yet. Add the things you buy every run, with their store.'
+          : currentFilter === 'pending' ? 'Nothing to buy. 🎉' : currentFilter === 'checked' ? 'No bought items yet.' : 'List is empty.';
+        host.innerHTML = `<ul class="item-list"><li class="empty">${msg}</li></ul>`;
         return;
       }
 
-      list.innerHTML = '';
-      entries.forEach(([id, item]) => {
-        const li = document.createElement('li');
-        if (item.checked) li.classList.add('checked');
-        li.innerHTML = `
-          <input type="checkbox" ${item.checked ? 'checked' : ''} data-id="${id}">
-          <span class="name">${escapeHtml(item.name)}</span>
-          <span class="qty">${escapeHtml(item.qty || '')}</span>
-          <button class="del" data-id="${id}" title="Delete">✕</button>
-        `;
-        list.appendChild(li);
+      const stores = allStores();
+      const byStore = {};
+      entries.forEach(e => { (byStore[storeOf(e[1])] = byStore[storeOf(e[1])] || []).push(e); });
+      host.innerHTML = '';
+      stores.filter(s => byStore[s]).forEach(store => {
+        const rows = byStore[store].sort((a, b) => (Number(!!a[1].checked) - Number(!!b[1].checked)) || String(a[1].name).localeCompare(String(b[1].name)));
+        const left = rows.filter(r => !r[1].checked).length;
+        const h = document.createElement('div'); h.className = 'store-head';
+        h.innerHTML = `<span class="s">${escapeHtml(store)}</span><span class="c">${isList ? `${left} to get` + (rows.length - left ? ` · ${rows.length - left} bought` : '') : `${rows.length} staple${rows.length === 1 ? '' : 's'}`}</span>`;
+        host.appendChild(h);
+        const ul = document.createElement('ul'); ul.className = 'item-list';
+        rows.forEach(([id, item]) => {
+          const li = document.createElement('li');
+          if (item.checked) li.classList.add('checked');
+          const opts = stores.map(s => `<option value="${escapeHtml(s)}"${s === store ? ' selected' : ''}>${escapeHtml(s)}</option>`).join('');
+          li.innerHTML = (isList ? `<input type="checkbox" ${item.checked ? 'checked' : ''} data-id="${id}">` : `<span class="star">⭐</span>`) + `
+            <span class="name">${escapeHtml(item.name)}${isList && item.staple ? ' <span class="tag" title="came from your staples">⭐</span>' : ''}</span>
+            <span class="qty">${escapeHtml(item.qty || '')}</span>
+            <select class="mv" data-id="${id}" title="Move to another store">${opts}</select>
+            <button class="del" data-id="${id}" title="Delete">✕</button>`;
+          ul.appendChild(li);
+        });
+        host.appendChild(ul);
       });
 
-      list.querySelectorAll('input[type=checkbox]').forEach(cb => {
+      const node = isList ? 'shopping' : 'staples';
+      host.querySelectorAll('input[type=checkbox]').forEach(cb => {
         cb.addEventListener('change', () => {
-          const id = cb.dataset.id;
-          update(ref(database, `${basePath}/household/shopping/${id}`), {
-            checked: cb.checked,
-            checkedAt: cb.checked ? Date.now() : null,
-          });
+          update(ref(database, `${basePath}/household/shopping/${cb.dataset.id}`), { checked: cb.checked, checkedAt: cb.checked ? Date.now() : null });
         });
       });
-
-      list.querySelectorAll('button.del').forEach(btn => {
+      host.querySelectorAll('select.mv').forEach(sel => {
+        sel.addEventListener('change', () => update(ref(database, `${basePath}/household/${node}/${sel.dataset.id}`), { store: sel.value === OTHER ? '' : sel.value }));
+      });
+      host.querySelectorAll('button.del').forEach(btn => {
         btn.addEventListener('click', () => {
-          if (confirm('Remove this item?')) {
-            remove(ref(database, `${basePath}/household/shopping/${btn.dataset.id}`));
+          if (confirm(isList ? 'Remove this item?' : 'Remove this staple? It will stop being added to future grocery runs.')) {
+            remove(ref(database, `${basePath}/household/${node}/${btn.dataset.id}`));
           }
         });
       });
