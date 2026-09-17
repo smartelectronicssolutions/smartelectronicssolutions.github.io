@@ -663,6 +663,14 @@
         .dc-topic.on { color: #c084fc; border-color: #c084fc; background: rgba(192,132,252,0.10); font-weight: 600; }
         .dc-topic .n { opacity: 0.65; margin-left: 4px; font-weight: 400; }
         .dc-topic .x { margin-left: 6px; opacity: 0.7; }
+        @keyframes dcSlideL { from { transform: translateX(28px); opacity: 0.35; } to { transform: none; opacity: 1; } }
+        @keyframes dcSlideR { from { transform: translateX(-28px); opacity: 0.35; } to { transform: none; opacity: 1; } }
+        .dc-chat-log.slide-l { animation: dcSlideL 0.18s ease-out; } .dc-chat-log.slide-r { animation: dcSlideR 0.18s ease-out; }
+        .dc-chat-log { touch-action: pan-y; }
+        .dc-chat { position: relative; }
+        .dc-topic-toast { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 5; pointer-events: none; background: rgba(15,23,42,0.92); color: #c084fc; border: 1px solid #c084fc; border-radius: 12px; padding: 8px 16px; font-size: 0.95rem; font-weight: 600; opacity: 0; transition: opacity 0.18s; white-space: nowrap; }
+        .dc-topic-toast.show { opacity: 1; }
+        .dc-topic-toast small { display: block; text-align: center; font-weight: 400; font-size: 0.68rem; opacity: 0.75; margin-top: 2px; }
         .dc-topic-in { flex: 0 0 auto; width: 130px; font-size: 16px; padding: 2px 8px; border-radius: 999px; border: 1px solid #c084fc; background: transparent; color: var(--text); }
         .dc-ideas-lbl { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-right: 2px; }
         .dc-idea { display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem; line-height: 1.35; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 5px 11px; color: inherit; max-width: 100%; }
@@ -688,6 +696,9 @@
         html, body { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
         /* phone rules apply in landscape too (a phone on its side is ~390 px tall, so max-height catches it) */
         @media (max-width: 640px), (max-height: 480px) {
+            .dc-topics { display: none; }               /* phone: no strip - swipe the chat, or tap the pill in the bar */
+            .dc-topics.open { display: flex; }
+            .dc-bar .dc-tab[data-tab="ch"] { max-width: 26vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }   /* it shows the topic name on a phone */
             .dc-bar { padding: 5px 8px; gap: 4px 6px; }
             .dc-bar .dc-brand-t { display: none; }      /* just the 💧 on a phone */
             .dc-bar .dc-tab { padding: 5px 8px; font-size: 0.78rem; }
@@ -787,6 +798,7 @@
             <div class="dc-panel active" id="dc-chat-panel">
                 <div class="dc-chat">
                     <div id="dc-topics" class="dc-topics"></div>
+                    <div id="dc-topic-toast" class="dc-topic-toast"></div>
                     <div id="dc-ideas" class="dc-ideas" hidden></div>
                     <div class="dc-chat-log" id="dc-chat-log"><div style="color:var(--muted);font-size:0.85rem;text-align:center;margin-top:20px">No turns yet. Say something to Droplet.</div></div>
                     <div class="dc-chat-input">
@@ -971,9 +983,10 @@
         DC.bubbleSig = {};
         // ---- TOPIC TABS: one thread; each turn may carry `topic`; the strip filters the view. All = everything. ----
         DC.topicList = {};
+        DC.isPhone = () => { try { return window.matchMedia('(max-width: 640px), (max-height: 480px)').matches; } catch (_) { return false; } };
         try { DC.topic = localStorage.getItem('dc_topic') || ''; } catch (_) { DC.topic = ''; }
         const topicKey = n => String(n || '').replace(/[.#$\[\]\/]/g, '_');
-        function setTopic(n) { DC.topic = n || ''; try { localStorage.setItem('dc_topic', DC.topic); } catch (_) {} DC.bubbleSig = {}; const l = $('#dc-chat-log'); if (l) l.innerHTML = ''; renderChat(DC.chatTurns || {}); }
+        function setTopic(n) { const bar0 = $('#dc-topics'); if (bar0) bar0.classList.remove('open'); DC.topic = n || ''; try { localStorage.setItem('dc_topic', DC.topic); } catch (_) {} DC.bubbleSig = {}; const l = $('#dc-chat-log'); if (l) l.innerHTML = ''; renderChat(DC.chatTurns || {}); }
         function renderTopics() {
             const bar = $('#dc-topics'); if (!bar) return;
             if (bar.querySelector('.dc-topic-in')) return;   // a name is being typed - do not rebuild under the keyboard
@@ -981,6 +994,10 @@
             for (const t of turns) if (t && t.topic) counts[t.topic] = (counts[t.topic] || 0) + 1;
             const names = Array.from(new Set([...Object.values(DC.topicList || {}).map(v => v && v.name).filter(Boolean), ...Object.keys(counts)]));
             if (DC.topic && !names.includes(DC.topic)) names.push(DC.topic);
+            DC.topicOrder = ['', ...names];   // swipe order = chip order
+            const phone = DC.isPhone();
+            const ct = document.querySelector('.dc-tab[data-tab="ch"]'); if (ct) { ct.textContent = (phone && DC.topic) ? '# ' + DC.topic : 'Chat'; ct.title = phone ? 'swipe the chat left/right to change topic - tap here to pick or add one' : ''; }
+            const tin = $('#dc-chat-in'); if (tin) { if (!DC.basePlaceholder) DC.basePlaceholder = tin.placeholder; tin.placeholder = (DC.topic ? '# ' + DC.topic + ' · ' : '') + (phone ? 'type here…' : DC.basePlaceholder); }
             bar.innerHTML = '';
             const chip = (label, name, n) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'dc-topic' + (DC.topic === name ? ' on' : '');
                 b.innerHTML = esc(label) + `<span class="n">${n}</span>`; b.onclick = () => setTopic(name); return b; };
@@ -995,7 +1012,31 @@
                     if (ok && nm && DC.base) { try { await update(ref(database, `${DC.base}/chat/topics/${topicKey(nm)}`), { name: nm, createdAt: Date.now() }); } catch (_) {} setTopic(nm); } else renderTopics(); };
                 inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); done(true); } else if (e.key === 'Escape') done(false); }; inp.onblur = () => done(!!inp.value.trim()); };
             bar.appendChild(add);
+            const on = bar.querySelector('.dc-topic.on');   // keep the active chip visible in the scrolling strip
+            if (on) { const l = on.offsetLeft - 8, r = on.offsetLeft + on.offsetWidth + 8; if (l < bar.scrollLeft) bar.scrollLeft = l; else if (r > bar.scrollLeft + bar.clientWidth) bar.scrollLeft = r - bar.clientWidth; }
         }
+        // SWIPE (mobile): left = next tab, right = previous tab. Horizontal, quick and clearly not a scroll - otherwise ignored.
+        function stepTopic(dir) {
+            const order = DC.topicOrder || ['']; if (order.length < 2) return;
+            const i = Math.max(0, order.indexOf(DC.topic || '')); const j = i + dir; if (j < 0 || j >= order.length) return;   // stop at the ends, no wrap
+            setTopic(order[j]);
+            const toast = $('#dc-topic-toast'); if (toast) { toast.innerHTML = esc(order[j] ? '# ' + order[j] : 'All') + `<small>${j + 1} / ${order.length}</small>`; toast.classList.add('show'); clearTimeout(DC.toastT); DC.toastT = setTimeout(() => toast.classList.remove('show'), 900); }
+            const log = $('#dc-chat-log'); if (log) { log.classList.remove('slide-l', 'slide-r'); void log.offsetWidth; log.classList.add(dir > 0 ? 'slide-l' : 'slide-r'); }
+        }
+        (function wireTopicSwipe() {
+            const log = document.getElementById('dc-chat-log'); if (!log) return;
+            let sx = 0, sy = 0, st = 0, ok = false;
+            log.addEventListener('touchstart', e => { if (e.touches.length !== 1) { ok = false; return; } const t = e.touches[0]; sx = t.clientX; sy = t.clientY; st = Date.now();
+                ok = !(e.target.closest && e.target.closest('details.enh, pre, code, a, button, input, textarea')) && !String(window.getSelection && window.getSelection() || ''); }, { passive: true });
+            log.addEventListener('touchend', e => { if (!ok) return; ok = false; const t = e.changedTouches[0]; const dx = t.clientX - sx, dy = t.clientY - sy;
+                if (Date.now() - st > 700 || Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 2) return; stepTopic(dx < 0 ? 1 : -1); }, { passive: true });
+            log.addEventListener('touchcancel', () => { ok = false; }, { passive: true });
+        })();
+        window.__dcStepTopic = stepTopic;   // test hook
+        // phone: the Chat tab is the topic label. Tapping it while Chat is already showing opens/closes the strip (pick or add a topic).
+        (function wireChatTabToggle() { const ct = document.querySelector('.dc-tab[data-tab="ch"]'); if (!ct) return; let was = false;
+            ct.addEventListener('pointerdown', () => { was = ct.classList.contains('active'); });
+            ct.addEventListener('click', () => { if (was && DC.isPhone()) { const b = $('#dc-topics'); if (b) b.classList.toggle('open'); } }); })();
         function renderChat(obj) {
             DC.chatTurns = obj;
             renderTopics();
