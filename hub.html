@@ -706,6 +706,8 @@
         /* rotation: iOS Safari inflates text when the layout width changes (its "text size adjustment") unless told not to */
         html, body { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
         /* phone rules apply in landscape too (a phone on its side is ~390 px tall, so max-height catches it) */
+        /* touch screens only: the close X lives in the swipe label (a narrow desktop window keeps its X - no swipe there) */
+        @media (max-width: 640px) and (pointer: coarse), (max-height: 480px) and (pointer: coarse) { .dc-bar #dc-x { display: none; } }
         @media (max-width: 640px), (max-height: 480px) {
             .dc-topics { display: none; }               /* phone: no strip - swipe the chat, or tap the pill in the bar */
             .dc-topics.open { display: flex; }
@@ -714,7 +716,6 @@
             .dc-bar .dc-brand-t { display: none; }      /* just the 💧 on a phone */
             .dc-bar .dc-tab { padding: 5px 8px; font-size: 0.78rem; }
             .dc-bar #dc-daemon { display: none; }        /* droplet pill is the one that matters */
-            .dc-bar #dc-x { display: none; }             /* phone: close lives in the swipe label, so the bar stays ONE row */
             .dc-bar #dc-droplet { font-size: 0; padding: 5px; gap: 0; }   /* just the status dot */
             .dc-bar #dc-droplet .d { margin: 0; }
             .dc-pop { left: auto; right: -60px; min-width: 220px; }
@@ -1074,18 +1075,21 @@
             log.addEventListener('touchcancel', () => { ok = false; }, { passive: true });
         })();
         window.__dcStepTopic = stepTopic;   // test hook
-        // JUMP TO TOP OF THE BUBBLE YOU ARE READING: shown only while that bubble's top edge is scrolled out of view.
+        // CLIMB BUTTON: visible whenever the log is scrolled down. Each click goes to the top of the nearest message above the
+        // current view (first the one you are reading, then the one before it, and so on) until the top of the log, then it hides.
         (function wireToTop() {
             const log = document.getElementById('dc-chat-log'), btn = document.getElementById('dc-totop'); if (!log || !btn) return;
-            let cur = null, raf = 0;
-            const check = () => { raf = 0; const lr = log.getBoundingClientRect(); cur = null;
-                if (lr.height > 0) for (const el of log.children) { if (!el.dataset || !el.dataset.k) continue; const r = el.getBoundingClientRect();
-                    if (r.top < lr.top - 24 && r.bottom > lr.top + 90) { cur = el; break; } }   // we are inside this bubble and its top is cut off
-                if (cur) { btn.style.right = Math.max(10, window.innerWidth - lr.right + 12) + 'px'; btn.style.bottom = Math.max(10, window.innerHeight - lr.bottom + 12) + 'px'; }
-                btn.classList.toggle('show', !!cur); };
+            let raf = 0;
+            const check = () => { raf = 0; const lr = log.getBoundingClientRect(); const show = lr.height > 0 && log.scrollTop > 40;
+                if (show) { btn.style.right = Math.max(10, window.innerWidth - lr.right + 12) + 'px'; btn.style.bottom = Math.max(10, window.innerHeight - lr.bottom + 12) + 'px'; }
+                btn.classList.toggle('show', show); };
             const queue = () => { if (!raf) raf = requestAnimationFrame(check); };
             log.addEventListener('scroll', queue, { passive: true }); window.addEventListener('resize', queue, { passive: true });
-            btn.addEventListener('click', () => { if (!cur) return; log.scrollTo({ top: Math.max(0, cur.offsetTop - log.offsetTop - 6), behavior: 'smooth' }); });
+            btn.addEventListener('click', () => {
+                const lrTop = log.getBoundingClientRect().top; let target = null;
+                for (const el of log.children) { if (!el.dataset || !el.dataset.k) continue; if (el.getBoundingClientRect().top < lrTop - 8) target = el; else break; }   // nearest message whose top is above the view
+                log.scrollTo({ top: target ? Math.max(0, target.offsetTop - log.offsetTop - 6) : 0, behavior: 'smooth' });
+            });
             window.__dcToTopCheck = check;   // test hook
         })();
         // phone: the Chat tab is the topic label. Tapping it while Chat is already showing opens/closes the strip (pick or add a topic).
@@ -1472,6 +1476,7 @@
             else { document.body.classList.remove('dc-open'); document.body.style.top = ''; window.scrollTo(0, dcScrollY); }
         }
         $('#dc-x').onclick = () => { $('#dc-console').classList.remove('open'); lockZoom(false); lockPage(false); };
+        document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('#dc-console').classList.contains('open') && !(e.target.closest && e.target.closest('.dc-topic-new, .dc-topic-in'))) $('#dc-x').click(); });   // keyboard close (Escape inside the new-topic box only closes the box)
         async function dcWake() {
             if (!DC.base || DC.kdaemon || DC.waking) return;
             DC.waking = true;
