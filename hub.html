@@ -679,6 +679,8 @@
         .dc-topic-new button { border: 1px solid #c084fc; background: rgba(192,132,252,0.15); color: #c084fc; border-radius: 8px; padding: 0 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
         .dc-topic-new button.x { border-color: var(--border); background: transparent; color: var(--muted); }
         .dc-topic-new .h { color: var(--muted); font-size: 0.7rem; margin-top: 8px; }
+        .dc-topic-toast .cx { display: block; margin: 8px auto 0; pointer-events: none; border: 1px solid var(--border); background: transparent; color: var(--muted); border-radius: 8px; padding: 5px 12px; font-size: 0.74rem; font-weight: 500; cursor: pointer; font-family: inherit; }
+        .dc-topic-toast.show .cx { pointer-events: auto; }
         .dc-topic-toast small { display: block; text-align: center; font-weight: 400; font-size: 0.68rem; opacity: 0.75; margin-top: 2px; }
         .dc-topic-in { flex: 0 0 auto; width: 130px; font-size: 16px; padding: 2px 8px; border-radius: 999px; border: 1px solid #c084fc; background: transparent; color: var(--text); }
         .dc-ideas-lbl { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-right: 2px; }
@@ -712,6 +714,9 @@
             .dc-bar .dc-brand-t { display: none; }      /* just the 💧 on a phone */
             .dc-bar .dc-tab { padding: 5px 8px; font-size: 0.78rem; }
             .dc-bar #dc-daemon { display: none; }        /* droplet pill is the one that matters */
+            .dc-bar #dc-x { display: none; }             /* phone: close lives in the swipe label, so the bar stays ONE row */
+            .dc-bar #dc-droplet { font-size: 0; padding: 5px; gap: 0; }   /* just the status dot */
+            .dc-bar #dc-droplet .d { margin: 0; }
             .dc-pop { left: auto; right: -60px; min-width: 220px; }
             .dc-body { padding: 6px 8px 6px; }
             .dc-chat-head { font-size: 0.72rem; padding-bottom: 6px; }
@@ -1026,13 +1031,20 @@
             if (on) { const l = on.offsetLeft - 8, r = on.offsetLeft + on.offsetWidth + 8; if (l < bar.scrollLeft) bar.scrollLeft = l; else if (r > bar.scrollLeft + bar.clientWidth) bar.scrollLeft = r - bar.clientWidth; }
         }
         // SWIPE (mobile): left = next tab, right = previous tab. Horizontal, quick and clearly not a scroll - otherwise ignored.
+        // the label that flashes after a swipe: topic name, position, and the console's close X (the bar has no X on a phone)
+        function showTopicLabel(order, j) {
+            const toast = $('#dc-topic-toast'); if (!toast) return;
+            toast.innerHTML = esc(order[j] ? '# ' + order[j] : 'All') + `<small>${j + 1} / ${order.length}</small><button type="button" class="cx">✕ close console</button>`;
+            toast.querySelector('.cx').onclick = () => { toast.classList.remove('show'); const x = document.getElementById('dc-x'); if (x) x.click(); };
+            toast.classList.add('show'); clearTimeout(DC.toastT); DC.toastT = setTimeout(() => toast.classList.remove('show'), 1800);
+        }
         function stepTopic(dir) {
-            const order = DC.topicOrder || ['']; if (order.length < 2) return;
+            const order = DC.topicOrder || [''];
             const i = Math.max(0, order.indexOf(DC.topic || '')); const j = i + dir;
             if (j >= order.length) { newTopicBox(); return; }   // one more swipe LEFT past the last tab = make a new topic
-            if (j < 0) return;                                  // nothing before All
+            if (j < 0) { showTopicLabel(order, i); return; }    // nothing before All - still show the label (it carries the close X)
             setTopic(order[j]);
-            const toast = $('#dc-topic-toast'); if (toast) { toast.innerHTML = esc(order[j] ? '# ' + order[j] : 'All') + `<small>${j + 1} / ${order.length}</small>`; toast.classList.add('show'); clearTimeout(DC.toastT); DC.toastT = setTimeout(() => toast.classList.remove('show'), 900); }
+            showTopicLabel(order, j);
             const log = $('#dc-chat-log'); if (log) { log.classList.remove('slide-l', 'slide-r'); void log.offsetWidth; log.classList.add(dir > 0 ? 'slide-l' : 'slide-r'); }
         }
         // floating "new topic" box: opened by swiping left past the last tab. Floats over the log, so it costs no rows.
