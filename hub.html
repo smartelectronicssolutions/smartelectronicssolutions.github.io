@@ -670,6 +670,8 @@
         .dc-chat { position: relative; }
         .dc-topic-toast { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 5; pointer-events: none; background: rgba(15,23,42,0.92); color: #c084fc; border: 1px solid #c084fc; border-radius: 12px; padding: 8px 16px; font-size: 0.95rem; font-weight: 600; opacity: 0; transition: opacity 0.18s; white-space: nowrap; }
         .dc-topic-toast.show { opacity: 1; }
+        .dc-totop { position: fixed; z-index: 7; width: 38px; height: 38px; border-radius: 50%; border: 1px solid #c084fc; background: rgba(15,23,42,0.92); color: #c084fc; font-size: 1.05rem; line-height: 1; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,0.4); display: none; align-items: center; justify-content: center; padding: 0; }
+        .dc-totop.show { display: flex; }
         .dc-topic-new { position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%); z-index: 6; width: min(86%, 320px); background: rgba(15,23,42,0.97); border: 1px solid #c084fc; border-radius: 14px; padding: 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.45); }
         .dc-topic-new .t { color: #c084fc; font-weight: 600; font-size: 0.9rem; margin-bottom: 8px; }
         .dc-topic-new .r { display: flex; gap: 6px; }
@@ -806,6 +808,7 @@
                 <div class="dc-chat">
                     <div id="dc-topics" class="dc-topics"></div>
                     <div id="dc-topic-toast" class="dc-topic-toast"></div>
+                    <button type="button" id="dc-totop" class="dc-totop" title="jump to the top of this message" aria-label="jump to the top of this message">⤒</button>
                     <div id="dc-ideas" class="dc-ideas" hidden></div>
                     <div class="dc-chat-log" id="dc-chat-log"><div style="color:var(--muted);font-size:0.85rem;text-align:center;margin-top:20px">No turns yet. Say something to Droplet.</div></div>
                     <div class="dc-chat-input">
@@ -1059,6 +1062,20 @@
             log.addEventListener('touchcancel', () => { ok = false; }, { passive: true });
         })();
         window.__dcStepTopic = stepTopic;   // test hook
+        // JUMP TO TOP OF THE BUBBLE YOU ARE READING: shown only while that bubble's top edge is scrolled out of view.
+        (function wireToTop() {
+            const log = document.getElementById('dc-chat-log'), btn = document.getElementById('dc-totop'); if (!log || !btn) return;
+            let cur = null, raf = 0;
+            const check = () => { raf = 0; const lr = log.getBoundingClientRect(); cur = null;
+                if (lr.height > 0) for (const el of log.children) { if (!el.dataset || !el.dataset.k) continue; const r = el.getBoundingClientRect();
+                    if (r.top < lr.top - 24 && r.bottom > lr.top + 90) { cur = el; break; } }   // we are inside this bubble and its top is cut off
+                if (cur) { btn.style.right = Math.max(10, window.innerWidth - lr.right + 12) + 'px'; btn.style.bottom = Math.max(10, window.innerHeight - lr.bottom + 12) + 'px'; }
+                btn.classList.toggle('show', !!cur); };
+            const queue = () => { if (!raf) raf = requestAnimationFrame(check); };
+            log.addEventListener('scroll', queue, { passive: true }); window.addEventListener('resize', queue, { passive: true });
+            btn.addEventListener('click', () => { if (!cur) return; log.scrollTo({ top: Math.max(0, cur.offsetTop - log.offsetTop - 6), behavior: 'smooth' }); });
+            window.__dcToTopCheck = check;   // test hook
+        })();
         // phone: the Chat tab is the topic label. Tapping it while Chat is already showing opens/closes the strip (pick or add a topic).
         (function wireChatTabToggle() { const ct = document.querySelector('.dc-tab[data-tab="ch"]'); if (!ct) return; let was = false;
             ct.addEventListener('pointerdown', () => { was = ct.classList.contains('active'); });
