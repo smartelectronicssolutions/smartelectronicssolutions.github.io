@@ -655,6 +655,15 @@
         .dc-chat-log { flex: 1; overflow: auto; padding: 14px 4px; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
         /* recent ideas (tickler) - readable chips; hover (or tap-focus) reveals ask / insert / done */
         .dc-ideas { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 4px 10px; border-bottom: 1px solid var(--border); }
+        /* topic tabs (2026-09-17): one thread, a chip per topic filters the view; All = everything */
+        .dc-topics { display: flex; gap: 6px; align-items: center; overflow-x: auto; padding: 6px 2px; border-bottom: 1px solid var(--border); scrollbar-width: none; flex: 0 0 auto; }
+        .dc-topics::-webkit-scrollbar { display: none; }
+        .dc-chat.newest-first .dc-topics { order: 0; }
+        .dc-topic { flex: 0 0 auto; border: 1px solid var(--border); background: transparent; color: var(--muted); border-radius: 999px; padding: 3px 10px; font-size: 0.74rem; cursor: pointer; white-space: nowrap; font-family: inherit; }
+        .dc-topic.on { color: #c084fc; border-color: #c084fc; background: rgba(192,132,252,0.10); font-weight: 600; }
+        .dc-topic .n { opacity: 0.65; margin-left: 4px; font-weight: 400; }
+        .dc-topic .x { margin-left: 6px; opacity: 0.7; }
+        .dc-topic-in { flex: 0 0 auto; width: 130px; font-size: 16px; padding: 2px 8px; border-radius: 999px; border: 1px solid #c084fc; background: transparent; color: var(--text); }
         .dc-ideas-lbl { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-right: 2px; }
         .dc-idea { display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem; line-height: 1.35; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 5px 11px; color: inherit; max-width: 100%; }
         .dc-idea .t { cursor: pointer; }
@@ -777,6 +786,7 @@
             <!-- CHAT: the unified surface — talk to Droplet; options live in the ⚙ menu up top -->
             <div class="dc-panel active" id="dc-chat-panel">
                 <div class="dc-chat">
+                    <div id="dc-topics" class="dc-topics"></div>
                     <div id="dc-ideas" class="dc-ideas" hidden></div>
                     <div class="dc-chat-log" id="dc-chat-log"><div style="color:var(--muted);font-size:0.85rem;text-align:center;margin-top:20px">No turns yet. Say something to Droplet.</div></div>
                     <div class="dc-chat-input">
@@ -880,6 +890,7 @@
             onValue(ref(database, `${DC.base}/usage`), s => renderUsage(s.val() || {}));
             onValue(ref(database, `${DC.base}/settings/autoArchiveChars`), s => { DC.autoArchiveChars = Number(s.val() || 0); const b = $('#dc-auto-arch'); if (b && document.activeElement !== b) b.value = Math.round(DC.autoArchiveChars / 1000); updateThreadSize(DC.chatTurns || {}); });
             onValue(query(ref(database, `${DC.base}/chat/turns`), limitToLast(120)), s => renderChat(s.val() || {}));
+            onValue(ref(database, `${DC.base}/chat/topics`), s => { DC.topicList = s.val() || {}; renderTopics(); });
             onValue(query(ref(database, `${DC.uid}/todos`), limitToLast(80)), s => renderIdeas(s.val() || {}));
         });
 
@@ -952,18 +963,47 @@
             const changed = me && t.enhanced && t.enhanced !== t.text;
             const tag = me && t.enhanced ? (t.enhNote ? ' · ✨ rejected: ' + esc(t.enhNote) : (changed ? ' · ✨ enhanced' : ' · ✨ unchanged')) : '';
             const enh = changed ? `<details class="enh"><summary>✨ see what was sent</summary><div>${esc(t.enhanced)}</div></details>` : '';
-            return { cls: `dc-bub ${me ? 'me' : 'drop'}${pend}`, html: `<span class="who">${who}${tag}</span>${esc(body)}${enh}<div class="ts">${time}</div>` };
+            const tp = (!DC.topic && t.topic) ? ' · # ' + esc(t.topic) : '';   // All view: show which topic a turn belongs to
+            return { cls: `dc-bub ${me ? 'me' : 'drop'}${pend}`, html: `<span class="who">${who}${tag}${tp}</span>${esc(body)}${enh}<div class="ts">${time}</div>` };
         }
         // PERF: keyed incremental render - only turns whose content changed are re-built; the rest of the DOM is
         // untouched (the old version rebuilt all 120 bubbles as one innerHTML on every change, which stuttered on the phone).
         DC.bubbleSig = {};
+        // ---- TOPIC TABS: one thread; each turn may carry `topic`; the strip filters the view. All = everything. ----
+        DC.topicList = {};
+        try { DC.topic = localStorage.getItem('dc_topic') || ''; } catch (_) { DC.topic = ''; }
+        const topicKey = n => String(n || '').replace(/[.#$\[\]\/]/g, '_');
+        function setTopic(n) { DC.topic = n || ''; try { localStorage.setItem('dc_topic', DC.topic); } catch (_) {} DC.bubbleSig = {}; const l = $('#dc-chat-log'); if (l) l.innerHTML = ''; renderChat(DC.chatTurns || {}); }
+        function renderTopics() {
+            const bar = $('#dc-topics'); if (!bar) return;
+            if (bar.querySelector('.dc-topic-in')) return;   // a name is being typed - do not rebuild under the keyboard
+            const turns = Object.values(DC.chatTurns || {}); const counts = {};
+            for (const t of turns) if (t && t.topic) counts[t.topic] = (counts[t.topic] || 0) + 1;
+            const names = Array.from(new Set([...Object.values(DC.topicList || {}).map(v => v && v.name).filter(Boolean), ...Object.keys(counts)]));
+            if (DC.topic && !names.includes(DC.topic)) names.push(DC.topic);
+            bar.innerHTML = '';
+            const chip = (label, name, n) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'dc-topic' + (DC.topic === name ? ' on' : '');
+                b.innerHTML = esc(label) + `<span class="n">${n}</span>`; b.onclick = () => setTopic(name); return b; };
+            bar.appendChild(chip('All', '', turns.length));
+            for (const nm of names) { const c = chip('# ' + nm, nm, counts[nm] || 0);
+                if (DC.topic === nm && !(counts[nm] > 0)) { const x = document.createElement('span'); x.className = 'x'; x.textContent = '✕'; x.title = 'remove this empty topic';
+                    x.onclick = async e => { e.stopPropagation(); try { await set(ref(database, `${DC.base}/chat/topics/${topicKey(nm)}`), null); } catch (_) {} setTopic(''); }; c.appendChild(x); }
+                bar.appendChild(c); }
+            const add = document.createElement('button'); add.type = 'button'; add.className = 'dc-topic'; add.textContent = '+ topic'; add.title = 'new topic tab - same chat, just a label to keep ideas apart';
+            add.onclick = () => { const inp = document.createElement('input'); inp.className = 'dc-topic-in'; inp.placeholder = 'topic name'; inp.maxLength = 24; add.replaceWith(inp); inp.focus();
+                let fin = false; const done = async ok => { if (fin) return; fin = true; const nm = inp.value.trim().replace(/\s+/g, ' '); inp.remove();
+                    if (ok && nm && DC.base) { try { await update(ref(database, `${DC.base}/chat/topics/${topicKey(nm)}`), { name: nm, createdAt: Date.now() }); } catch (_) {} setTopic(nm); } else renderTopics(); };
+                inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); done(true); } else if (e.key === 'Escape') done(false); }; inp.onblur = () => done(!!inp.value.trim()); };
+            bar.appendChild(add);
+        }
         function renderChat(obj) {
             DC.chatTurns = obj;
+            renderTopics();
             const log = $('#dc-chat-log');
-            const keys = Object.keys(obj);
+            const keys = Object.keys(obj).filter(k => !DC.topic || (obj[k] && obj[k].topic === DC.topic));
             const nf = newestFirst();
             $('.dc-chat') && $('.dc-chat').classList.toggle('newest-first', nf);
-            if (!keys.length) { log.innerHTML = '<div style="color:var(--muted);font-size:0.85rem;text-align:center;margin-top:20px">No turns yet. Say something to Droplet.</div>'; DC.bubbleSig = {}; updateThreadSize(obj); return; }
+            if (!keys.length) { log.innerHTML = '<div style="color:var(--muted);font-size:0.85rem;text-align:center;margin-top:20px">' + (DC.topic ? 'Nothing under # ' + esc(DC.topic) + ' yet. What you send now lands here and in All.' : 'No turns yet. Say something to Droplet.') + '</div>'; DC.bubbleSig = {}; updateThreadSize(obj); reconcilePending(obj); return; }
             const clean = !!($('#dc-chat-enhance') && $('#dc-chat-enhance').checked);
             const order = nf ? keys.slice().reverse() : keys;
             if (log.firstElementChild && !log.firstElementChild.dataset.k) log.innerHTML = '';   // drop the placeholder
@@ -1004,8 +1044,8 @@
                 const jr = ref(database, `${DC.base}/jobs/${t.jobId}`), tr = ref(database, `${DC.base}/chat/turns/${k}`);
                 const unwatch = onValue(jr, async s => {
                     const j = s.val(); if (!j) return;
-                    if (j.status === 'done') { await set(tr, { s: 'D', who: t.who || 'Droplet', text: j.reply || '(done, no captured reply)', ts: Date.now(), jobId: t.jobId }); unwatch(); delete DC.pendWatch[k]; }
-                    else if (j.status === 'error' || j.status === 'failed') { await set(tr, { s: 'D', who: t.who || 'Droplet', text: '⚠ ' + (j.error || j.reply || 'failed'), ts: Date.now(), jobId: t.jobId }); unwatch(); delete DC.pendWatch[k]; }
+                    if (j.status === 'done') { await set(tr, { s: 'D', who: t.who || 'Droplet', text: j.reply || '(done, no captured reply)', ts: Date.now(), jobId: t.jobId, ...(t.topic ? { topic: t.topic } : {}) }); unwatch(); delete DC.pendWatch[k]; }
+                    else if (j.status === 'error' || j.status === 'failed') { await set(tr, { s: 'D', who: t.who || 'Droplet', text: '⚠ ' + (j.error || j.reply || 'failed'), ts: Date.now(), jobId: t.jobId, ...(t.topic ? { topic: t.topic } : {}) }); unwatch(); delete DC.pendWatch[k]; }
                 });
             }
         }
@@ -1034,7 +1074,8 @@
             const turns = `${DC.base}/chat/turns`;
             try {
                 const lref = push(ref(database, turns));
-                await set(lref, { s: 'L', text: raw, ts: Date.now(), target });
+                const tpc = DC.topic ? { topic: DC.topic } : {};   // active topic tab tags this exchange; All = untagged
+                await set(lref, { s: 'L', text: raw, ts: Date.now(), target, ...tpc });
                 ta.value = '';
                 let prompt = raw, note = '';
                 if (enhOn && DC.kdaemon) {
@@ -1049,11 +1090,11 @@
                 }
                 const jref = push(ref(database, `${DC.base}/jobs`));
                 const pendRef = push(ref(database, turns));
-                await set(pendRef, { s: 'D', who, text: '…thinking', ts: Date.now(), pending: true, jobId: jref.key });   // jobId => reconcilePending fills it even after a reload
+                await set(pendRef, { s: 'D', who, text: '…thinking', ts: Date.now(), pending: true, jobId: jref.key, ...tpc });   // jobId => reconcilePending fills it even after a reload
                 const job = target === 'command'
                     ? { kind: 'command', command: raw, code: ykCode, chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing }
                     : { kind: 'prompt', target, rough: raw, enhanced: prompt, chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing,
-                        enhance: !!(enhOn && DC.kdaemon), lturn: lref.key };   // kdaemon: enhance server-side + which turn to annotate
+                        enhance: !!(enhOn && DC.kdaemon), lturn: lref.key, ...tpc };   // kdaemon: enhance server-side + which turn to annotate
                 await set(jref, job);
                 DC.lastJob = jref.key;
                 $('#dc-chat-status').textContent = (note ? note + ' · ' : '') + 'sent → ' + who + '…';
