@@ -128,6 +128,19 @@
       <ul id="today-list" style="list-style:none;margin:0;padding:0;"></ul>
     </section>
 
+    <!-- 2026-09-16 (L, console audit pick C): the Telegram reminder switches moved here from the Droplet Console.
+         The console daemon on se reads {uid}/console/khReminders {enabled, agenda, agendaTime}. -->
+    <section class="card" id="reminders-card" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 18px;margin-bottom:16px;">
+      <h3 style="margin:0 0 8px;font-size:.9rem;">⏰ Telegram reminders</h3>
+      <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;font-size:var(--sm);">
+        <label style="display:flex;gap:6px;align-items:center;cursor:pointer;"><input type="checkbox" id="rem-enabled"> timed pings before scheduled items</label>
+        <label style="display:flex;gap:6px;align-items:center;cursor:pointer;"><input type="checkbox" id="rem-agenda"> morning agenda at</label>
+        <input type="time" id="rem-agenda-time" value="07:15" style="font:inherit;">
+        <span id="rem-status" style="color:var(--muted);"></span>
+      </div>
+      <p style="margin:8px 0 0;color:var(--muted);font-size:var(--sm);">Sent by the console daemon on se from CompMan's bot. This is the only switch for them.</p>
+    </section>
+
     <div id="anchors-container"></div>
 
   </div>
@@ -207,13 +220,41 @@
     let currentView = 'all';
     let currentYear = new Date().getFullYear();
 
+    // Telegram reminder settings (the console daemon reads {uid}/console/khReminders {enabled, agenda, agendaTime})
+    let remUnsub = null;
+    function wireReminders(uid) {
+      const card = document.getElementById('reminders-card'); if (!card) return;
+      card.style.display = '';
+      const en = document.getElementById('rem-enabled'), ag = document.getElementById('rem-agenda'),
+            at = document.getElementById('rem-agenda-time'), st = document.getElementById('rem-status');
+      const r = ref(database, `${uid}/console/khReminders`);
+      if (remUnsub) remUnsub();
+      remUnsub = onValue(r, s => {
+        const c = s.val() || {};
+        en.checked = c.enabled !== false;
+        ag.checked = c.agenda === true;
+        if (document.activeElement !== at) at.value = c.agendaTime || '07:15';
+      });
+      const save = () => {
+        update(r, { enabled: en.checked, agenda: ag.checked, agendaTime: at.value || '07:15' });
+        st.textContent = 'saved'; setTimeout(() => st.textContent = '', 1500);
+      };
+      en.onchange = save; ag.onchange = save; at.onchange = save;
+    }
+    function unwireReminders() {
+      const card = document.getElementById('reminders-card'); if (card) card.style.display = 'none';
+      if (remUnsub) { remUnsub(); remUnsub = null; }
+    }
+
     onAuthStateChanged(auth, user => {
       basePath = user ? user.uid : null;
       if (user) {
         authGate.style.display = 'none';
         subscribe();
+        wireReminders(user.uid);
       } else {
         authGate.style.display = 'block';
+        unwireReminders();
         if (unsubscribe) unsubscribe();
         if (wfUnsubscribe) wfUnsubscribe();
         allTodos = {};
