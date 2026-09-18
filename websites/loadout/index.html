@@ -780,7 +780,7 @@ function yukiBubble(who,text,cls){const box=$("yukiMsgs");if(!box)return null;co
 async function yukiModel(){try{let m=(await get(ref(db,BASE+"/bot/model"))).val();if(!m)m=(await get(ref(db,"public/bot/model"))).val();return m||"dolphin3";}catch(e){return "dolphin3";}}
 // ===== Character editor (LimeZu modular parts, composited live in-browser, Firebase-saved) =====
 const CE_CATS=[{k:"body",label:"Skin",none:false},{k:"hair",label:"Hair",none:true},{k:"eyes",label:"Eyes",none:false},{k:"outfit",label:"Outfit",none:true},{k:"acc",label:"Extra",none:true}];
-let CE_MAN=null,ceSel={body:0,eyes:0,hair:0,outfit:0,acc:-1},ceTab="body",ceCache={};
+let CE_MAN=null,ceSel={body:3,eyes:1,hair:2,outfit:0,acc:1},ceTab="body",ceCache={};   // default look = L's saved character (2026-09-18); an account's own save still overrides
 function ceLoadStrip(k,i){return new Promise(res=>{if(i<0)return res(null);const key=k+i;if(ceCache[key])return res(ceCache[key]);const im=new Image();im.onload=()=>{ceCache[key]=im;res(im);};im.onerror=()=>res(null);im.src="chars/"+k+"/"+k+i+".png";});}
 async function ceComposite(){const s=document.createElement("canvas");s.width=768;s.height=64;const c=s.getContext("2d");c.imageSmoothingEnabled=false;for(const cat of CE_CATS){const im=await ceLoadStrip(cat.k,ceSel[cat.k]);if(im)c.drawImage(im,0,0);}return s;}
 async function ceApply(){const strip=await ceComposite();const sc=document.createElement("canvas");sc.width=768;sc.height=320;const g=sc.getContext("2d");g.imageSmoothingEnabled=false;g.drawImage(strip,0,128);charCanvas=sc;}
@@ -794,7 +794,7 @@ async function ceGrid(){const g=$("ceGrid");if(!g)return;g.innerHTML="";const ca
 async function openCharEditor(){if(!CE_MAN){try{CE_MAN=await (await fetch("chars/manifest.json")).json();}catch(e){CE_MAN={};}}ceTab="body";ceTabs();await ceGrid();await cePreview();$("charEditor").classList.add("open");}
 function closeCharEditor(){$("charEditor").classList.remove("open");}
 async function ceSaveChar(){await ceApply();try{await set(ref(db,BASE+"/loadout/char"),ceSel);}catch(e){}closeCharEditor();}
-async function ceLoadSaved(){try{const v=(await get(ref(db,BASE+"/loadout/char"))).val();if(v){for(const k in ceSel)if(v[k]!=null)ceSel[k]=v[k];await ceApply();}}catch(e){}}
+async function ceLoadSaved(){try{const v=(await get(ref(db,BASE+"/loadout/char"))).val();if(v){for(const k in ceSel)if(v[k]!=null)ceSel[k]=v[k];}}catch(e){}try{await ceApply();}catch(e){}}   // no save = the default look is still composited, not the bare sprite
 (function(){const c=$("ceClose");if(c)c.onclick=closeCharEditor;const s=$("ceSave");if(s)s.onclick=ceSaveChar;const d=$("dressBtn");if(d)d.onclick=openCharEditor;const r=$("ceRandom");if(r)r.onclick=async()=>{for(const cat of CE_CATS){const opts=(CE_MAN&&CE_MAN[cat.k])||[];if(!opts.length)continue;ceSel[cat.k]=(cat.none&&Math.random()<0.25)?-1:Math.floor(Math.random()*opts.length);}await ceGrid();await cePreview();};})();
 ceLoadSaved();
 // ---- Yuki live game-editor (Tier 1: Firebase data only) ----
