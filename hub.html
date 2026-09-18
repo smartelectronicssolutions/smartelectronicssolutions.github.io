@@ -673,7 +673,9 @@
         .dc-totop { position: fixed; z-index: 7; width: 38px; height: 38px; border-radius: 50%; border: 1px solid #c084fc; background: rgba(15,23,42,0.92); color: #c084fc; font-size: 1.05rem; line-height: 1; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,0.4); display: none; align-items: center; justify-content: center; padding: 0; }
         .dc-totop.show { display: flex; }
         .dc-topic-new { position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%); z-index: 6; width: min(86%, 320px); background: rgba(15,23,42,0.97); border: 1px solid #c084fc; border-radius: 14px; padding: 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.45); }
-        .dc-topic-new .t { color: #c084fc; font-weight: 600; font-size: 0.9rem; margin-bottom: 8px; }
+        .dc-topic-new .t { color: #c084fc; font-weight: 600; font-size: 0.9rem; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; }
+        .dc-topic-new .t .cx { display: none; border: 1px solid var(--border); background: transparent; color: var(--muted); border-radius: 8px; padding: 3px 9px; font-size: 0.72rem; font-weight: 500; cursor: pointer; font-family: inherit; }
+        .dc-topic-close { display: none; }
         .dc-topic-new .r { display: flex; gap: 6px; }
         .dc-topic-new input { flex: 1; min-width: 0; font-size: 16px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--text); }
         .dc-topic-new button { border: 1px solid #c084fc; background: rgba(192,132,252,0.15); color: #c084fc; border-radius: 8px; padding: 0 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
@@ -718,6 +720,7 @@
             .dc-bar #dc-daemon { display: none; }        /* droplet pill is the one that matters */
             .dc-bar #dc-droplet { font-size: 0; padding: 5px; gap: 0; }   /* just the status dot */
             .dc-bar #dc-droplet .d { margin: 0; }
+            .dc-topic-new .t .cx, .dc-topic-close { display: inline-block; }   /* phone: close lives in these floating pieces */
             .dc-pop { left: auto; right: -60px; min-width: 220px; }
             .dc-body { padding: 6px 8px 6px; }
             .dc-chat-head { font-size: 0.72rem; padding-bottom: 6px; }
@@ -732,6 +735,10 @@
             .dc-chat-input textarea { font-size: 16px; }   /* 16px stops iOS from zooming the page on focus */
         }
         .dc-bub { max-width: 84%; padding: 9px 13px; border-radius: 14px; font-size: 0.9rem; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; }
+        .dc-bub .dc-edit { float: right; margin: -2px -4px 0 8px; border: 0; background: transparent; color: inherit; opacity: 0.55; cursor: pointer; font-size: 0.85rem; line-height: 1; padding: 2px 4px; }
+        .dc-bub .dc-edit:hover { opacity: 1; }
+        .dc-chat-input.editing textarea { border-color: #d9a441; }
+        .dc-chat-input.editing .dc-btn.push { background: #d9a441; }
         .dc-bub .who { display: block; font-size: 0.58rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.6; margin-bottom: 3px; }
         .dc-bub.me { align-self: flex-end; background: #2b6a55; color: #eafff6; border-bottom-right-radius: 4px; font-family: var(--font-mono); font-size: 0.84rem; }
         .dc-bub.drop { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); color: var(--text); border-bottom-left-radius: 4px; }
@@ -989,10 +996,11 @@
             const body = (!me && clean && !t.pending) ? cleanReply(t.text || '') : (t.text || '');
             // enhance visibility: your bubble shows what the enhancer actually sent (collapsed), or "unchanged"
             const changed = me && t.enhanced && t.enhanced !== t.text;
-            const tag = me && t.enhanced ? (t.enhNote ? ' · ✨ rejected: ' + esc(t.enhNote) : (changed ? ' · ✨ enhanced' : ' · ✨ unchanged')) : '';
+            const tag = (me && t.enhanced ? (t.enhNote ? ' · ✨ rejected: ' + esc(t.enhNote) : (changed ? ' · ✨ enhanced' : ' · ✨ unchanged')) : '') + (me && t.edited ? ' · ✎ edited' : '');
+            const editBtn = (me && t.__last) ? '<button type="button" class="dc-edit" title="edit this message and send it again">✎</button>' : '';
             const enh = changed ? `<details class="enh"><summary>✨ see what was sent</summary><div>${esc(t.enhanced)}</div></details>` : '';
             const tp = (!DC.topic && t.topic) ? ' · # ' + esc(t.topic) : '';   // All view: show which topic a turn belongs to
-            return { cls: `dc-bub ${me ? 'me' : 'drop'}${pend}`, html: `<span class="who">${who}${tag}${tp}</span>${esc(body)}${enh}<div class="ts">${time}</div>` };
+            return { cls: `dc-bub ${me ? 'me' : 'drop'}${pend}`, html: `${editBtn}<span class="who">${who}${tag}${tp}</span>${esc(body)}${enh}<div class="ts">${time}</div>` };
         }
         // PERF: keyed incremental render - only turns whose content changed are re-built; the rest of the DOM is
         // untouched (the old version rebuilt all 120 bubbles as one innerHTML on every change, which stuttered on the phone).
@@ -1028,6 +1036,8 @@
                     if (ok && nm && DC.base) { try { await update(ref(database, `${DC.base}/chat/topics/${topicKey(nm)}`), { name: nm, createdAt: Date.now() }); } catch (_) {} setTopic(nm); } else renderTopics(); };
                 inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); done(true); } else if (e.key === 'Escape') done(false); }; inp.onblur = () => done(!!inp.value.trim()); };
             bar.appendChild(add);
+            const cl = document.createElement('button'); cl.type = 'button'; cl.className = 'dc-topic dc-topic-close'; cl.textContent = '✕ close'; cl.title = 'close the console';
+            cl.onclick = () => { bar.classList.remove('open'); const x = document.getElementById('dc-x'); if (x) x.click(); }; bar.appendChild(cl);
             const on = bar.querySelector('.dc-topic.on');   // keep the active chip visible in the scrolling strip
             if (on) { const l = on.offsetLeft - 8, r = on.offsetLeft + on.offsetWidth + 8; if (l < bar.scrollLeft) bar.scrollLeft = l; else if (r > bar.scrollLeft + bar.clientWidth) bar.scrollLeft = r - bar.clientWidth; }
         }
@@ -1035,7 +1045,7 @@
         // the label that flashes after a swipe: topic name, position, and the console's close X (the bar has no X on a phone)
         function showTopicLabel(order, j) {
             const toast = $('#dc-topic-toast'); if (!toast) return;
-            toast.innerHTML = esc(order[j] ? '# ' + order[j] : 'All') + `<small>${j + 1} / ${order.length}</small><button type="button" class="cx">✕ close console</button>`;
+            toast.innerHTML = esc(order[j] ? '# ' + order[j] : 'All') + `<small>${j + 1} / ${order.length}</small><button type="button" class="cx">✕ close</button>`;
             toast.querySelector('.cx').onclick = () => { toast.classList.remove('show'); const x = document.getElementById('dc-x'); if (x) x.click(); };
             toast.classList.add('show'); clearTimeout(DC.toastT); DC.toastT = setTimeout(() => toast.classList.remove('show'), 1800);
         }
@@ -1052,12 +1062,13 @@
         function newTopicBox() {
             const host = $('.dc-chat'); if (!host || host.querySelector('.dc-topic-new')) return;
             const box = document.createElement('div'); box.className = 'dc-topic-new';
-            box.innerHTML = '<div class="t">+ New topic</div><div class="r"><input type="text" maxlength="24" placeholder="topic name" enterkeyhint="done"><button type="button" class="ok">Create</button><button type="button" class="x">✕</button></div><div class="h">Same chat, just a label. Swipe right to go back.</div>';
+            box.innerHTML = '<div class="t">+ New topic <button type="button" class="cx" title="close the console">✕ close</button></div><div class="r"><input type="text" maxlength="24" placeholder="topic name" enterkeyhint="done"><button type="button" class="ok">Create</button><button type="button" class="x">✕</button></div><div class="h">Same chat, just a label. Swipe right to go back.</div>';
             host.appendChild(box); const inp = box.querySelector('input'); inp.focus();
             const close = () => box.remove();
             const make = async () => { const nm = inp.value.trim().replace(/\s+/g, ' '); if (!nm) { inp.focus(); return; } close();
                 if (DC.base) { try { await update(ref(database, `${DC.base}/chat/topics/${topicKey(nm)}`), { name: nm, createdAt: Date.now() }); } catch (_) {} } setTopic(nm); };
             box.querySelector('.ok').onclick = make; box.querySelector('.x').onclick = close;
+            box.querySelector('.cx').onclick = () => { close(); const x = document.getElementById('dc-x'); if (x) x.click(); };
             inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); make(); } else if (e.key === 'Escape') close(); };
             let bx = 0; box.addEventListener('touchstart', e => { bx = e.touches[0].clientX; }, { passive: true });
             box.addEventListener('touchend', e => { if (e.changedTouches[0].clientX - bx > 70) close(); }, { passive: true });   // swipe right on the box = never mind
@@ -1074,6 +1085,17 @@
                 stepTopic(dx < 0 ? 1 : -1); }, { passive: true });
             log.addEventListener('touchcancel', () => { ok = false; }, { passive: true });
         })();
+        // EDIT YOUR LAST MESSAGE: ✎ loads it into the box; ▲ becomes ↻; sending replaces the text and re-sends it flagged `edited`.
+        function setEditMode(key) {
+            DC.editKey = key || ''; const ta = $('#dc-chat-in'), wrap = $('.dc-chat-input'), send = $('#dc-chat-send'), st = $('#dc-chat-status');
+            if (wrap) wrap.classList.toggle('editing', !!key); if (send) send.textContent = key ? '↻' : '▲';
+            if (key) { const t = (DC.chatTurns || {})[key]; if (ta) { ta.value = (t && t.text) || ''; ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } if (st) st.textContent = '✎ editing your last message · Esc to cancel'; }
+            else if (st && st.textContent.startsWith('✎ editing')) st.textContent = '';
+        }
+        document.getElementById('dc-chat-log') && document.getElementById('dc-chat-log').addEventListener('click', e => {
+            const b = e.target.closest && e.target.closest('.dc-edit'); if (!b) return; const el = b.closest('[data-k]'); if (el) setEditMode(el.dataset.k); });
+        document.getElementById('dc-chat-in') && document.getElementById('dc-chat-in').addEventListener('keydown', e => { if (e.key === 'Escape' && DC.editKey) { e.stopPropagation(); e.target.value = ''; setEditMode(''); } });
+        window.__dcSetEditMode = setEditMode;   // test hook
         window.__dcStepTopic = stepTopic;   // test hook
         // CLIMB BUTTON: visible whenever the log is scrolled down. Each click goes to the top of the nearest message above the
         // current view (first the one you are reading, then the one before it, and so on) until the top of the log, then it hides.
@@ -1101,6 +1123,8 @@
             renderTopics();
             const log = $('#dc-chat-log');
             const keys = Object.keys(obj).filter(k => !DC.topic || (obj[k] && obj[k].topic === DC.topic));
+            DC.lastLKey = keys.slice().reverse().find(k => obj[k] && obj[k].s === 'L') || '';
+            for (const k of keys) if (obj[k] && obj[k].s === 'L') obj[k].__last = (k === DC.lastLKey);
             const nf = newestFirst();
             $('.dc-chat') && $('.dc-chat').classList.toggle('newest-first', nf);
             if (!keys.length) { log.innerHTML = '<div style="color:var(--muted);font-size:0.85rem;text-align:center;margin-top:20px">' + (DC.topic ? 'Nothing under # ' + esc(DC.topic) + ' yet. What you send now lands here and in All.' : 'No turns yet. Say something to Droplet.') + '</div>'; DC.bubbleSig = {}; updateThreadSize(obj); reconcilePending(obj); return; }
@@ -1173,9 +1197,12 @@
             const send = $('#dc-chat-send'); send.disabled = true;
             const turns = `${DC.base}/chat/turns`;
             try {
-                const lref = push(ref(database, turns));
-                const tpc = DC.topic ? { topic: DC.topic } : {};   // active topic tab tags this exchange; All = untagged
-                await set(lref, { s: 'L', text: raw, ts: Date.now(), target, ...tpc });
+                const editKey = DC.editKey || ''; const editTurn = editKey ? (DC.chatTurns || {})[editKey] : null;
+                const tpc = editTurn ? (editTurn.topic ? { topic: editTurn.topic } : {}) : (DC.topic ? { topic: DC.topic } : {});   // an edit keeps its turn's topic; else the active tab
+                const lref = editTurn ? ref(database, `${turns}/${editKey}`) : push(ref(database, turns));
+                if (editTurn) await update(lref, { text: raw, edited: true, editedAt: Date.now(), enhanced: null, enhNote: null });
+                else await set(lref, { s: 'L', text: raw, ts: Date.now(), target, ...tpc });
+                if (editTurn) setEditMode('');
                 ta.value = '';
                 let prompt = raw, note = '';
                 if (enhOn && DC.kdaemon) {
@@ -1194,7 +1221,7 @@
                 const job = target === 'command'
                     ? { kind: 'command', command: raw, code: ykCode, chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing }
                     : { kind: 'prompt', target, rough: raw, enhanced: prompt, chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing,
-                        enhance: !!(enhOn && DC.kdaemon), lturn: lref.key, ...tpc };   // kdaemon: enhance server-side + which turn to annotate
+                        enhance: !!(enhOn && DC.kdaemon), lturn: lref.key, ...tpc, ...(editTurn ? { edited: true } : {}) };   // kdaemon: enhance server-side + which turn to annotate
                 await set(jref, job);
                 DC.lastJob = jref.key;
                 $('#dc-chat-status').textContent = (note ? note + ' · ' : '') + 'sent → ' + who + '…';
