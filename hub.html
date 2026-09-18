@@ -670,8 +670,9 @@
         .dc-chat { position: relative; }
         .dc-topic-toast { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 5; pointer-events: none; background: rgba(15,23,42,0.92); color: #c084fc; border: 1px solid #c084fc; border-radius: 12px; padding: 8px 16px; font-size: 0.95rem; font-weight: 600; opacity: 0; transition: opacity 0.18s; white-space: nowrap; }
         .dc-topic-toast.show { opacity: 1; }
-        .dc-totop { position: fixed; z-index: 7; width: 38px; height: 38px; border-radius: 50%; border: 1px solid #c084fc; background: rgba(15,23,42,0.92); color: #c084fc; font-size: 1.05rem; line-height: 1; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,0.4); display: none; align-items: center; justify-content: center; padding: 0; }
-        .dc-totop.show { display: flex; }
+        .dc-nav { position: fixed; z-index: 7; display: flex; flex-direction: column; gap: 6px; }
+        .dc-nav button { width: 38px; height: 38px; border-radius: 50%; border: 1px solid #c084fc; background: rgba(15,23,42,0.92); color: #c084fc; font-size: 1.05rem; line-height: 1; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,0.4); display: none; align-items: center; justify-content: center; padding: 0; }
+        .dc-nav button.show { display: flex; }
         .dc-topic-new { position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%); z-index: 6; width: min(86%, 320px); background: rgba(15,23,42,0.97); border: 1px solid #c084fc; border-radius: 14px; padding: 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.45); }
         .dc-topic-new .t { color: #c084fc; font-weight: 600; font-size: 0.9rem; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; }
         .dc-topic-new .t .cx { display: none; border: 1px solid var(--border); background: transparent; color: var(--muted); border-radius: 8px; padding: 3px 9px; font-size: 0.72rem; font-weight: 500; cursor: pointer; font-family: inherit; }
@@ -821,7 +822,7 @@
                 <div class="dc-chat">
                     <div id="dc-topics" class="dc-topics"></div>
                     <div id="dc-topic-toast" class="dc-topic-toast"></div>
-                    <button type="button" id="dc-totop" class="dc-totop" title="jump to the top of this message" aria-label="jump to the top of this message">⤒</button>
+                    <div id="dc-nav" class="dc-nav"><button type="button" id="dc-totop" title="previous message" aria-label="previous message">⤒</button><button type="button" id="dc-todown" title="next message" aria-label="next message">⤓</button></div>
                     <div id="dc-ideas" class="dc-ideas" hidden></div>
                     <div class="dc-chat-log" id="dc-chat-log"><div style="color:var(--muted);font-size:0.85rem;text-align:center;margin-top:20px">No turns yet. Say something to Droplet.</div></div>
                     <div class="dc-chat-input">
@@ -1097,21 +1098,24 @@
         document.getElementById('dc-chat-in') && document.getElementById('dc-chat-in').addEventListener('keydown', e => { if (e.key === 'Escape' && DC.editKey) { e.stopPropagation(); e.target.value = ''; setEditMode(''); } });
         window.__dcSetEditMode = setEditMode;   // test hook
         window.__dcStepTopic = stepTopic;   // test hook
-        // CLIMB BUTTON: visible whenever the log is scrolled down. Each click goes to the top of the nearest message above the
-        // current view (first the one you are reading, then the one before it, and so on) until the top of the log, then it hides.
-        (function wireToTop() {
-            const log = document.getElementById('dc-chat-log'), btn = document.getElementById('dc-totop'); if (!log || !btn) return;
+        // MESSAGE ARROWS: ⤒ = top of the nearest message above the view (then the one before, up to the top of the log);
+        // ⤓ = top of the next message below the view (then the next, down to the bottom). Each shows only when it can move.
+        (function wireNav() {
+            const log = document.getElementById('dc-chat-log'), nav = document.getElementById('dc-nav'), up = document.getElementById('dc-totop'), down = document.getElementById('dc-todown'); if (!log || !nav) return;
             let raf = 0;
-            const check = () => { raf = 0; const lr = log.getBoundingClientRect(); const show = lr.height > 0 && log.scrollTop > 40;
-                if (show) { btn.style.right = Math.max(10, window.innerWidth - lr.right + 12) + 'px'; btn.style.bottom = Math.max(10, window.innerHeight - lr.bottom + 12) + 'px'; }
-                btn.classList.toggle('show', show); };
+            const check = () => { raf = 0; const lr = log.getBoundingClientRect(); const ok = lr.height > 0;
+                const canUp = ok && log.scrollTop > 40, canDown = ok && log.scrollTop + log.clientHeight < log.scrollHeight - 40;
+                if (canUp || canDown) { nav.style.right = Math.max(10, window.innerWidth - lr.right + 12) + 'px'; nav.style.bottom = Math.max(10, window.innerHeight - lr.bottom + 12) + 'px'; }
+                up.classList.toggle('show', canUp); down.classList.toggle('show', canDown); };
             const queue = () => { if (!raf) raf = requestAnimationFrame(check); };
             log.addEventListener('scroll', queue, { passive: true }); window.addEventListener('resize', queue, { passive: true });
-            btn.addEventListener('click', () => {
-                const lrTop = log.getBoundingClientRect().top; let target = null;
-                for (const el of log.children) { if (!el.dataset || !el.dataset.k) continue; if (el.getBoundingClientRect().top < lrTop - 8) target = el; else break; }   // nearest message whose top is above the view
-                log.scrollTo({ top: target ? Math.max(0, target.offsetTop - log.offsetTop - 6) : 0, behavior: 'smooth' });
-            });
+            const bubbles = () => Array.from(log.children).filter(el => el.dataset && el.dataset.k);
+            const goto = el => log.scrollTo({ top: el ? Math.max(0, el.offsetTop - log.offsetTop - 6) : 0, behavior: 'smooth' });
+            up.addEventListener('click', () => { const lrTop = log.getBoundingClientRect().top; let target = null;
+                for (const el of bubbles()) { if (el.getBoundingClientRect().top < lrTop - 8) target = el; else break; } goto(target); });
+            down.addEventListener('click', () => { const lrTop = log.getBoundingClientRect().top;
+                const target = bubbles().find(el => el.getBoundingClientRect().top > lrTop + 8);
+                if (target) goto(target); else log.scrollTo({ top: log.scrollHeight, behavior: 'smooth' }); });
             window.__dcToTopCheck = check;   // test hook
         })();
         // phone: the Chat tab is the topic label. Tapping it while Chat is already showing opens/closes the strip (pick or add a topic).
