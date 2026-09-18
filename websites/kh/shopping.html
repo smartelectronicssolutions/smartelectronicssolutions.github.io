@@ -38,6 +38,12 @@
       <button class="danger" id="clear-checked">Clear bought</button>
     </div>
     <div class="run-status" id="run-status" hidden></div>
+    <!-- grocery-run PICKER: every-run staples pre-checked, as-needed (long-lasting) ones unchecked -->
+    <div class="run-pick" id="run-pick" hidden>
+      <div class="rp-head"><strong>Start a grocery run</strong><span class="spacer"></span><button type="button" id="rp-all">all</button><button type="button" id="rp-none">none</button></div>
+      <div id="rp-list"></div>
+      <div class="rp-foot"><span id="rp-count"></span><span class="spacer"></span><button type="button" id="rp-cancel">Cancel</button><button type="button" id="rp-go" class="run">Add to list</button></div>
+    </div>
 
     <div id="groups"><ul class="item-list"><li class="empty">Loading…</li></ul></div>
   </div>
@@ -115,24 +121,41 @@
       if (Object.keys(updates).length) update(ref(database, `${basePath}/household/shopping`), updates);
     });
 
-    // START A GROCERY RUN: copy every staple onto the list. A staple already waiting there (same name + store, unchecked) is skipped.
-    document.getElementById('start-run').addEventListener('click', async () => {
+    // START A GROCERY RUN = a picker. Staples are STOCK LEVELS (what the house always keeps): the ones bought every run come
+    // pre-checked, the long-lasting ones (cadence 'asneeded') unchecked. Add copies the checked ones; anything already waiting is skipped.
+    const pick = document.getElementById('run-pick'), pickList = document.getElementById('rp-list');
+    function openPicker() {
+      if (!Object.keys(staples).length) { const st = document.getElementById('run-status'); st.textContent = 'No staples yet. Open ⭐ Staples and add the things the house always keeps.'; st.hidden = false; setTimeout(() => { st.hidden = true; }, 6000); return; }
       const waiting = new Set(Object.values(currentItems).filter(v => !v.checked).map(v => norm(v.name) + '|' + norm(storeOf(v))));
-      const updates = {}; let added = 0, skipped = 0; const now = Date.now();
-      Object.values(staples).forEach((s, i) => {
-        const key = norm(s.name) + '|' + norm(storeOf(s));
-        if (waiting.has(key)) { skipped++; return; }
-        waiting.add(key);
-        updates[push(ref(database, `${basePath}/household/shopping`)).key] = { name: s.name, qty: s.qty || '', store: s.store || '', checked: false, staple: true, addedAt: now + i };
-        added++;
+      const byStore = {}; Object.entries(staples).forEach(([id, s]) => { (byStore[storeOf(s)] = byStore[storeOf(s)] || []).push([id, s]); });
+      pickList.innerHTML = '';
+      allStores().filter(st => byStore[st]).forEach(store => {
+        const h = document.createElement('div'); h.className = 'store-head'; h.innerHTML = `<span class="s">${escapeHtml(store)}</span>`; pickList.appendChild(h);
+        byStore[store].sort((a, b) => String(a[1].name).localeCompare(String(b[1].name))).forEach(([id, s]) => {
+          const on = waiting.has(norm(s.name) + '|' + norm(storeOf(s)));
+          const row = document.createElement('label'); row.className = 'rp-row' + (on ? ' waiting' : '');
+          row.innerHTML = `<input type="checkbox" data-id="${id}" ${on ? 'disabled' : ((s.cadence || 'run') === 'run' ? 'checked' : '')}>`
+            + `<span class="name">${escapeHtml(s.name)}${s.keep ? ` <span class="keep">keep ${escapeHtml(s.keep)}</span>` : ''}</span>`
+            + `<span class="qty">${on ? 'on the list' : escapeHtml(s.qty || '')}</span>`;
+          pickList.appendChild(row);
+        });
       });
-      const st = document.getElementById('run-status');
-      if (!Object.keys(staples).length) st.textContent = 'No staples yet. Open ⭐ Staples and add the things you buy every run.';
-      else {
-        if (added) await update(ref(database, `${basePath}/household/shopping`), updates);
-        st.textContent = `Grocery run started: ${added} staple${added === 1 ? '' : 's'} added` + (skipped ? `, ${skipped} already on the list` : '') + '.';
-      }
-      st.hidden = false; clearTimeout(st._t); st._t = setTimeout(() => { st.hidden = true; }, 6000);
+      pick.hidden = false; updatePickCount();
+      pickList.querySelectorAll('input').forEach(cb => cb.addEventListener('change', updatePickCount));
+    }
+    function updatePickCount() { const n = pickList.querySelectorAll('input:checked:not(:disabled)').length; document.getElementById('rp-count').textContent = `${n} to add`; document.getElementById('rp-go').disabled = !n; }
+    document.getElementById('start-run').addEventListener('click', () => { pick.hidden ? openPicker() : (pick.hidden = true); });
+    document.getElementById('rp-cancel').addEventListener('click', () => { pick.hidden = true; });
+    document.getElementById('rp-all').addEventListener('click', () => { pickList.querySelectorAll('input:not(:disabled)').forEach(cb => cb.checked = true); updatePickCount(); });
+    document.getElementById('rp-none').addEventListener('click', () => { pickList.querySelectorAll('input:not(:disabled)').forEach(cb => cb.checked = false); updatePickCount(); });
+    document.getElementById('rp-go').addEventListener('click', async () => {
+      const ids = [...pickList.querySelectorAll('input:checked:not(:disabled)')].map(cb => cb.dataset.id);
+      const updates = {}; const now = Date.now();
+      ids.forEach((id, i) => { const s = staples[id]; if (!s) return;
+        updates[push(ref(database, `${basePath}/household/shopping`)).key] = { name: s.name, qty: s.qty || '', store: s.store || '', checked: false, staple: true, addedAt: now + i }; });
+      if (Object.keys(updates).length) await update(ref(database, `${basePath}/household/shopping`), updates);
+      pick.hidden = true;
+      const st = document.getElementById('run-status'); st.textContent = `Grocery run started: ${ids.length} staple${ids.length === 1 ? '' : 's'} added to the list.`; st.hidden = false; clearTimeout(st._t); st._t = setTimeout(() => { st.hidden = true; }, 6000);
       if (view !== 'list') document.querySelector('.views button[data-view="list"]').click();
     });
 
@@ -169,7 +192,7 @@
           if (item.checked) li.classList.add('checked');
           const opts = stores.map(s => `<option value="${escapeHtml(s)}"${s === store ? ' selected' : ''}>${escapeHtml(s)}</option>`).join('');
           li.innerHTML = (isList ? `<input type="checkbox" ${item.checked ? 'checked' : ''} data-id="${id}">` : `<span class="star">⭐</span>`) + `
-            <span class="name">${escapeHtml(item.name)}${isList && item.staple ? ' <span class="tag" title="came from your staples">⭐</span>' : ''}</span>
+            <span class="name">${escapeHtml(item.name)}${isList && item.staple ? ' <span class="tag" title="came from your staples">⭐</span>' : ''}${!isList && item.keep ? ` <span class="keep" title="what the house always keeps">keep ${escapeHtml(item.keep)}</span>` : ''}${!isList ? ` <button type="button" class="cad ${(item.cadence || 'run') === 'run' ? 'run' : 'need'}" data-id="${id}" title="every run = bought each trip; as needed = lasts a long time, only when low">${(item.cadence || 'run') === 'run' ? 'every run' : 'as needed'}</button>` : ''}</span>
             <span class="qty">${escapeHtml(item.qty || '')}</span>
             <select class="mv" data-id="${id}" title="Move to another store">${opts}</select>
             <button class="del" data-id="${id}" title="Delete">✕</button>`;
@@ -183,6 +206,9 @@
         cb.addEventListener('change', () => {
           update(ref(database, `${basePath}/household/shopping/${cb.dataset.id}`), { checked: cb.checked, checkedAt: cb.checked ? Date.now() : null });
         });
+      });
+      host.querySelectorAll('button.cad').forEach(b => {
+        b.addEventListener('click', () => { const cur = (staples[b.dataset.id] || {}).cadence || 'run'; update(ref(database, `${basePath}/household/staples/${b.dataset.id}`), { cadence: cur === 'run' ? 'asneeded' : 'run' }); });
       });
       host.querySelectorAll('select.mv').forEach(sel => {
         sel.addEventListener('change', () => update(ref(database, `${basePath}/household/${node}/${sel.dataset.id}`), { store: sel.value === OTHER ? '' : sel.value }));
