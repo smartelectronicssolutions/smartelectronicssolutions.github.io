@@ -674,6 +674,12 @@
         .dc-nav button { width: 38px; height: 38px; border-radius: 50%; border: 1px solid #c084fc; background: rgba(15,23,42,0.92); color: #c084fc; font-size: 1.05rem; line-height: 1; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,0.4); display: none; align-items: center; justify-content: center; padding: 0; }
         .dc-nav button.show { display: flex; }
         .dc-topic-new { position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%); z-index: 6; width: min(86%, 320px); background: rgba(15,23,42,0.97); border: 1px solid #c084fc; border-radius: 14px; padding: 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.45); }
+        .dc-del { position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%); z-index: 6; width: min(86%, 320px); background: rgba(15,23,42,0.97); border: 1px solid #d9a441; border-radius: 14px; padding: 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.45); }
+        .dc-del .t { color: #d9a441; font-weight: 600; font-size: 0.9rem; margin-bottom: 6px; }
+        .dc-del .q { color: var(--muted); font-size: 0.78rem; margin-bottom: 10px; max-height: 3.6em; overflow: hidden; }
+        .dc-del .r { display: flex; gap: 8px; justify-content: flex-end; }
+        .dc-del button { border: 1px solid var(--border); background: transparent; color: var(--text); border-radius: 8px; padding: 6px 14px; cursor: pointer; font-family: inherit; }
+        .dc-del button.go { border-color: #d9a441; background: rgba(217,164,65,0.15); color: #d9a441; font-weight: 600; }
         .dc-topic-new .t { color: #c084fc; font-weight: 600; font-size: 0.9rem; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; }
         .dc-topic-close { display: none; }
         .dc-topic-new .r { display: flex; gap: 6px; }
@@ -1107,6 +1113,37 @@
             setEditMode(el.dataset.k); });
         document.getElementById('dc-chat-in') && document.getElementById('dc-chat-in').addEventListener('keydown', e => { if (e.key === 'Escape' && DC.editKey) { e.stopPropagation(); e.target.value = ''; setEditMode(''); } });
         window.__dcSetEditMode = setEditMode;   // test hook
+        // DELETE A MESSAGE: triple-tap any bubble, confirm. The turn is removed and the job's copy of the text is blanked.
+        async function deleteTurn(k) {
+            const t = (DC.topic === FAV_TAB ? (DC.favs || {}) : (DC.chatTurns || {}))[k]; if (!t || !DC.base) return;
+            const gone = '[deleted by L]';
+            try {
+                if (DC.topic === FAV_TAB) { await set(ref(database, `${DC.base}/chat/favorites/${k}`), null); $('#dc-chat-status').textContent = 'removed from favorites'; return; }   // ★ view: drop the favorite only
+                if (t.jobId) await update(ref(database, `${DC.base}/jobs/${t.jobId}`), t.s === 'L' ? { rough: gone, enhanced: gone } : { reply: gone });
+                await set(ref(database, `${DC.base}/chat/turns/${k}`), null);
+                if ((DC.favs || {})[k]) await set(ref(database, `${DC.base}/chat/favorites/${k}`), null);   // a deleted reply leaves favorites too
+                $('#dc-chat-status').textContent = 'message deleted';
+            } catch (e) { $('#dc-chat-status').textContent = '⚠ could not delete: ' + (e.message || e); }
+        }
+        function confirmDelete(k) {
+            const host = $('.dc-chat'); if (!host || host.querySelector('.dc-del')) return;
+            const t = (DC.topic === FAV_TAB ? (DC.favs || {}) : (DC.chatTurns || {}))[k] || {};
+            if (DC.editKey) { const ta0 = $('#dc-chat-in'); if (ta0) ta0.value = ''; } setEditMode('');   // a triple-tap on the newest message had started an edit: drop it
+            const box = document.createElement('div'); box.className = 'dc-del';
+            box.innerHTML = `<div class="t">Delete this message?</div><div class="q">${esc(String(t.text || '').slice(0, 140))}</div><div class="r"><button type="button" class="keep">Keep</button><button type="button" class="go">Delete</button></div>`;
+            host.appendChild(box);
+            box.querySelector('.keep').onclick = () => box.remove();
+            box.querySelector('.go').onclick = async () => { box.remove(); await deleteTurn(k); };
+        }
+        (function wireTripleTap() {
+            const log = document.getElementById('dc-chat-log'); if (!log) return; let lastK = '', lastT = 0, n = 0;
+            log.addEventListener('click', e => {
+                const el = e.target.closest && e.target.closest('[data-k]'); if (!el) { n = 0; return; }
+                const now = Date.now(); n = (el.dataset.k === lastK && now - lastT < 700) ? n + 1 : 1; lastK = el.dataset.k; lastT = now;
+                if (n >= 3) { n = 0; confirmDelete(el.dataset.k); }
+            });
+        })();
+        window.__dcConfirmDelete = confirmDelete;   // test hook
         document.getElementById('dc-chat-log') && document.getElementById('dc-chat-log').addEventListener('click', async e => {
             const b = e.target.closest && e.target.closest('.dc-fav'); if (!b) return; e.stopPropagation();
             const el = b.closest('[data-k]'); const k = el && el.dataset.k; if (!k || !DC.base) return;
@@ -1251,6 +1288,7 @@
                     : { kind: 'prompt', target, rough: raw, enhanced: prompt, chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing,
                         enhance: !!(enhOn && DC.kdaemon), lturn: lref.key, ...tpc, ...(editTurn ? { edited: true } : {}) };   // kdaemon: enhance server-side + which turn to annotate
                 await set(jref, job);
+                try { await update(lref, { jobId: jref.key }); } catch (_) {}   // lets a later delete blank the job text as well
                 DC.lastJob = jref.key;
                 $('#dc-chat-status').textContent = (note ? note + ' · ' : '') + 'sent → ' + who + '…';
                 send.disabled = false;
