@@ -736,6 +736,10 @@
         }
         .dc-bub { max-width: 84%; padding: 9px 13px; border-radius: 14px; font-size: 0.9rem; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; }
         .dc-bub.me:has(.dc-edit) { cursor: pointer; }
+        .dc-bub .dc-fav { float: right; margin: -2px -4px 0 8px; border: 0; background: transparent; color: inherit; opacity: 0.35; cursor: pointer; font-size: 0.95rem; line-height: 1; padding: 2px 4px; }
+        .dc-bub .dc-fav.on { opacity: 1; color: #d9a441; }
+        .dc-bub .dc-fav:hover { opacity: 1; }
+        .dc-topic.fav { color: #d9a441; } .dc-topic.fav.on { border-color: #d9a441; background: rgba(217,164,65,0.12); }
         .dc-bub .dc-edit { float: right; margin: -2px -4px 0 8px; border: 0; background: transparent; color: inherit; opacity: 0.55; cursor: pointer; font-size: 0.85rem; line-height: 1; padding: 2px 4px; }
         .dc-bub .dc-edit:hover { opacity: 1; }
         .dc-chat-input.editing textarea { border-color: #d9a441; }
@@ -927,6 +931,7 @@
             onValue(ref(database, `${DC.base}/settings/autoArchiveChars`), s => { DC.autoArchiveChars = Number(s.val() || 0); const b = $('#dc-auto-arch'); if (b && document.activeElement !== b) b.value = Math.round(DC.autoArchiveChars / 1000); updateThreadSize(DC.chatTurns || {}); });
             onValue(query(ref(database, `${DC.base}/chat/turns`), limitToLast(120)), s => renderChat(s.val() || {}));
             onValue(ref(database, `${DC.base}/chat/topics`), s => { DC.topicList = s.val() || {}; renderTopics(); });
+            onValue(ref(database, `${DC.base}/chat/favorites`), s => { DC.favs = s.val() || {}; DC.bubbleSig = {}; renderChat(DC.chatTurns || {}); });
             onValue(query(ref(database, `${DC.uid}/todos`), limitToLast(80)), s => renderIdeas(s.val() || {}));
         });
 
@@ -999,9 +1004,10 @@
             const changed = me && t.enhanced && t.enhanced !== t.text;
             const tag = (me && t.enhanced ? (t.enhNote ? ' · ✨ rejected: ' + esc(t.enhNote) : (changed ? ' · ✨ enhanced' : ' · ✨ unchanged')) : '') + (me && t.edited ? ' · ✎ edited' : '');
             const editBtn = (me && t.__last) ? '<button type="button" class="dc-edit" title="edit this message and send it again">✎</button>' : '';
+            const favBtn = (!me && !t.pending && t.__k) ? `<button type="button" class="dc-fav${(DC.favs || {})[t.__k] ? ' on' : ''}" title="favorite this reply">${'\u2605'}</button>` : '';
             const enh = changed ? `<details class="enh"><summary>✨ see what was sent</summary><div>${esc(t.enhanced)}</div></details>` : '';
             const tp = (!DC.topic && t.topic) ? ' · # ' + esc(t.topic) : '';   // All view: show which topic a turn belongs to
-            return { cls: `dc-bub ${me ? 'me' : 'drop'}${pend}`, html: `${editBtn}<span class="who">${who}${tag}${tp}</span>${esc(body)}${enh}<div class="ts">${time}</div>` };
+            return { cls: `dc-bub ${me ? 'me' : 'drop'}${pend}`, html: `${editBtn}${favBtn}<span class="who">${who}${tag}${tp}</span>${esc(body)}${enh}<div class="ts">${time}</div>` };
         }
         // PERF: keyed incremental render - only turns whose content changed are re-built; the rest of the DOM is
         // untouched (the old version rebuilt all 120 bubbles as one innerHTML on every change, which stuttered on the phone).
@@ -1018,11 +1024,11 @@
             const turns = Object.values(DC.chatTurns || {}); const counts = {};
             for (const t of turns) if (t && t.topic) counts[t.topic] = (counts[t.topic] || 0) + 1;
             const names = Array.from(new Set([...Object.values(DC.topicList || {}).map(v => v && v.name).filter(Boolean), ...Object.keys(counts)]));
-            if (DC.topic && !names.includes(DC.topic)) names.push(DC.topic);
-            DC.topicOrder = ['', ...names];   // swipe order = chip order
+            if (DC.topic && DC.topic !== FAV_TAB && !names.includes(DC.topic)) names.push(DC.topic);   // (the ★ view is not a topic)
+            DC.topicOrder = ['', ...names, FAV_TAB];   // swipe order = chip order; ★ favorites is the last stop
             const phone = DC.isPhone();
-            const ct = document.querySelector('.dc-tab[data-tab="ch"]'); if (ct) { ct.textContent = (phone && DC.topic) ? '# ' + DC.topic : 'Chat'; ct.title = phone ? 'swipe the chat left/right to change topic - tap here to pick or add one' : ''; }
-            const tin = $('#dc-chat-in'); if (tin) { if (!DC.basePlaceholder) DC.basePlaceholder = tin.placeholder; tin.placeholder = (DC.topic ? '# ' + DC.topic + ' · ' : '') + (phone ? 'type here…' : DC.basePlaceholder); }
+            const ct = document.querySelector('.dc-tab[data-tab="ch"]'); if (ct) { ct.textContent = (phone && DC.topic) ? (DC.topic === FAV_TAB ? FAV_TAB + ' Favorites' : '# ' + DC.topic) : 'Chat'; ct.title = phone ? 'swipe the chat left/right to change topic - tap here to pick or add one' : ''; }
+            const tin = $('#dc-chat-in'); if (tin) { if (!DC.basePlaceholder) DC.basePlaceholder = tin.placeholder; tin.placeholder = (DC.topic === FAV_TAB ? 'sends to All · ' : DC.topic ? '# ' + DC.topic + ' · ' : '') + (phone ? 'type here…' : DC.basePlaceholder); }
             bar.innerHTML = '';
             const chip = (label, name, n) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'dc-topic' + (DC.topic === name ? ' on' : '');
                 b.innerHTML = esc(label) + `<span class="n">${n}</span>`; b.onclick = () => setTopic(name); return b; };
@@ -1031,6 +1037,8 @@
                 if (DC.topic === nm && !(counts[nm] > 0)) { const x = document.createElement('span'); x.className = 'x'; x.textContent = '✕'; x.title = 'remove this empty topic';
                     x.onclick = async e => { e.stopPropagation(); try { await set(ref(database, `${DC.base}/chat/topics/${topicKey(nm)}`), null); } catch (_) {} setTopic(''); }; c.appendChild(x); }
                 bar.appendChild(c); }
+            const nf = Object.keys(DC.favs || {}).length; const fc = document.createElement('button'); fc.type = 'button'; fc.className = 'dc-topic fav' + (DC.topic === FAV_TAB ? ' on' : '');
+            fc.innerHTML = FAV_TAB + `<span class="n">${nf}</span>`; fc.title = 'favorites - replies you starred, kept even after New thread'; fc.onclick = () => setTopic(FAV_TAB); bar.appendChild(fc);
             const add = document.createElement('button'); add.type = 'button'; add.className = 'dc-topic'; add.textContent = '+ topic'; add.title = 'new topic tab - same chat, just a label to keep ideas apart';
             add.onclick = () => { const inp = document.createElement('input'); inp.className = 'dc-topic-in'; inp.placeholder = 'topic name'; inp.maxLength = 24; add.replaceWith(inp); inp.focus();
                 let fin = false; const done = async ok => { if (fin) return; fin = true; const nm = inp.value.trim().replace(/\s+/g, ' '); inp.remove();
@@ -1046,7 +1054,7 @@
         // the label that flashes after a swipe: topic name, position, and the console's close X (the bar has no X on a phone)
         function showTopicLabel(order, j) {
             const toast = $('#dc-topic-toast'); if (!toast) return;
-            toast.innerHTML = esc(order[j] ? '# ' + order[j] : 'All') + `<small>${j + 1} / ${order.length}</small><button type="button" class="cx">✕ close</button>`;
+            toast.innerHTML = esc(order[j] === FAV_TAB ? FAV_TAB + ' Favorites' : order[j] ? '# ' + order[j] : 'All') + `<small>${j + 1} / ${order.length}</small><button type="button" class="cx">✕ close</button>`;
             toast.querySelector('.cx').onclick = () => { toast.classList.remove('show'); const x = document.getElementById('dc-x'); if (x) x.click(); };
             toast.classList.add('show'); clearTimeout(DC.toastT); DC.toastT = setTimeout(() => toast.classList.remove('show'), 1800);
         }
@@ -1099,6 +1107,14 @@
             setEditMode(el.dataset.k); });
         document.getElementById('dc-chat-in') && document.getElementById('dc-chat-in').addEventListener('keydown', e => { if (e.key === 'Escape' && DC.editKey) { e.stopPropagation(); e.target.value = ''; setEditMode(''); } });
         window.__dcSetEditMode = setEditMode;   // test hook
+        document.getElementById('dc-chat-log') && document.getElementById('dc-chat-log').addEventListener('click', async e => {
+            const b = e.target.closest && e.target.closest('.dc-fav'); if (!b) return; e.stopPropagation();
+            const el = b.closest('[data-k]'); const k = el && el.dataset.k; if (!k || !DC.base) return;
+            const src = (DC.topic === FAV_TAB ? (DC.favs || {}) : (DC.chatTurns || {}))[k]; if (!src) return;
+            const on = !!(DC.favs || {})[k];
+            try { await set(ref(database, `${DC.base}/chat/favorites/${k}`), on ? null : { s: 'D', who: src.who || 'Droplet', text: src.text || '', ts: src.ts || Date.now(), ...(src.topic ? { topic: src.topic } : {}), savedAt: Date.now() }); }
+            catch (err) { $('#dc-chat-status').textContent = '⚠ could not save favorite: ' + (err.message || err); }
+        }, true);   // capture: runs before the edit/triple-tap handlers
         window.__dcStepTopic = stepTopic;   // test hook
         // MESSAGE ARROWS: ⤒ = top of the nearest message above the view (then the one before, up to the top of the log);
         // ⤓ = top of the next message below the view (then the next, down to the bottom). Each shows only when it can move.
@@ -1124,16 +1140,20 @@
         (function wireChatTabToggle() { const ct = document.querySelector('.dc-tab[data-tab="ch"]'); if (!ct) return; let was = false;
             ct.addEventListener('pointerdown', () => { was = ct.classList.contains('active'); });
             ct.addEventListener('click', () => { if (was && DC.isPhone()) { const b = $('#dc-topics'); if (b) b.classList.toggle('open'); } }); })();
+        const FAV_TAB = '\u2605';
         function renderChat(obj) {
             DC.chatTurns = obj;
             renderTopics();
             const log = $('#dc-chat-log');
-            const keys = Object.keys(obj).filter(k => !DC.topic || (obj[k] && obj[k].topic === DC.topic));
+            const favView = DC.topic === FAV_TAB;
+            if (favView) { const f = DC.favs || {}; obj = Object.fromEntries(Object.keys(f).sort((a, b) => (f[a].ts || 0) - (f[b].ts || 0)).map(k => [k, f[k]])); }   // ★ view: the saved favorites, oldest first
+            for (const k of Object.keys(obj)) if (obj[k]) obj[k].__k = k;
+            const keys = Object.keys(obj).filter(k => favView || !DC.topic || (obj[k] && obj[k].topic === DC.topic));
             DC.lastLKey = keys.slice().reverse().find(k => obj[k] && obj[k].s === 'L') || '';
             for (const k of keys) if (obj[k] && obj[k].s === 'L') obj[k].__last = (k === DC.lastLKey);
             const nf = newestFirst();
             $('.dc-chat') && $('.dc-chat').classList.toggle('newest-first', nf);
-            if (!keys.length) { log.innerHTML = '<div style="color:var(--muted);font-size:0.85rem;text-align:center;margin-top:20px">' + (DC.topic ? 'Nothing under # ' + esc(DC.topic) + ' yet. What you send now lands here and in All.' : 'No turns yet. Say something to Droplet.') + '</div>'; DC.bubbleSig = {}; updateThreadSize(obj); reconcilePending(obj); return; }
+            if (!keys.length) { log.innerHTML = '<div style="color:var(--muted);font-size:0.85rem;text-align:center;margin-top:20px">' + (favView ? 'No favorites yet. Tap the star on a reply to keep it here.' : DC.topic ? 'Nothing under # ' + esc(DC.topic) + ' yet. What you send now lands here and in All.' : 'No turns yet. Say something to Droplet.') + '</div>'; DC.bubbleSig = {}; updateThreadSize(obj); reconcilePending(obj); return; }
             const clean = !!($('#dc-chat-enhance') && $('#dc-chat-enhance').checked);
             const order = nf ? keys.slice().reverse() : keys;
             if (log.firstElementChild && !log.firstElementChild.dataset.k) log.innerHTML = '';   // drop the placeholder
@@ -1206,7 +1226,7 @@
                 const editKey = DC.editKey || ''; const editTurn = editKey ? (DC.chatTurns || {})[editKey] : null;
                 if (editTurn && raw === String(editTurn.text || '').trim()) {   // edit with no change: nothing to resend
                     ta.value = ''; setEditMode(''); send.disabled = false; return; }
-                const tpc = editTurn ? (editTurn.topic ? { topic: editTurn.topic } : {}) : (DC.topic ? { topic: DC.topic } : {});   // an edit keeps its turn's topic; else the active tab
+                const tpc = editTurn ? (editTurn.topic ? { topic: editTurn.topic } : {}) : ((DC.topic && DC.topic !== FAV_TAB) ? { topic: DC.topic } : {});   // an edit keeps its turn's topic; else the active tab (★ view sends untagged)
                 const lref = editTurn ? ref(database, `${turns}/${editKey}`) : push(ref(database, turns));
                 if (editTurn) await update(lref, { text: raw, edited: true, editedAt: Date.now(), enhanced: null, enhNote: null });
                 else await set(lref, { s: 'L', text: raw, ts: Date.now(), target, ...tpc });
