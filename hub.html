@@ -736,6 +736,7 @@
             .dc-chat-input textarea { font-size: 16px; }   /* 16px stops iOS from zooming the page on focus */
         }
         .dc-bub { max-width: 84%; padding: 9px 13px; border-radius: 14px; font-size: 0.9rem; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; }
+        .dc-bub.me:has(.dc-edit) { cursor: pointer; }
         .dc-bub .dc-edit { float: right; margin: -2px -4px 0 8px; border: 0; background: transparent; color: inherit; opacity: 0.55; cursor: pointer; font-size: 0.85rem; line-height: 1; padding: 2px 4px; }
         .dc-bub .dc-edit:hover { opacity: 1; }
         .dc-chat-input.editing textarea { border-color: #d9a441; }
@@ -1094,7 +1095,10 @@
             else if (st && st.textContent.startsWith('✎ editing')) st.textContent = '';
         }
         document.getElementById('dc-chat-log') && document.getElementById('dc-chat-log').addEventListener('click', e => {
-            const b = e.target.closest && e.target.closest('.dc-edit'); if (!b) return; const el = b.closest('[data-k]'); if (el) setEditMode(el.dataset.k); });
+            const el = e.target.closest && e.target.closest('[data-k]'); if (!el || !el.querySelector('.dc-edit')) return;   // only the newest of your messages is editable
+            if (e.target.closest('a, details, summary')) return;                                                      // links and the enhance fold keep their own click
+            try { if (String(window.getSelection && window.getSelection() || '').trim()) return; } catch (_) {}          // selecting text is not a tap
+            setEditMode(el.dataset.k); });
         document.getElementById('dc-chat-in') && document.getElementById('dc-chat-in').addEventListener('keydown', e => { if (e.key === 'Escape' && DC.editKey) { e.stopPropagation(); e.target.value = ''; setEditMode(''); } });
         window.__dcSetEditMode = setEditMode;   // test hook
         window.__dcStepTopic = stepTopic;   // test hook
@@ -1203,7 +1207,7 @@
             try {
                 const editKey = DC.editKey || ''; const editTurn = editKey ? (DC.chatTurns || {})[editKey] : null;
                 if (editTurn && raw === String(editTurn.text || '').trim()) {   // edit with no change: nothing to resend
-                    ta.value = ''; setEditMode(''); $('#dc-chat-status').textContent = 'no change - nothing sent'; send.disabled = false; return; }
+                    ta.value = ''; setEditMode(''); send.disabled = false; return; }
                 const tpc = editTurn ? (editTurn.topic ? { topic: editTurn.topic } : {}) : (DC.topic ? { topic: DC.topic } : {});   // an edit keeps its turn's topic; else the active tab
                 const lref = editTurn ? ref(database, `${turns}/${editKey}`) : push(ref(database, turns));
                 if (editTurn) await update(lref, { text: raw, edited: true, editedAt: Date.now(), enhanced: null, enhNote: null });
