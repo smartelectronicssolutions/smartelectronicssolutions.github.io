@@ -178,6 +178,7 @@
   .shopm{font-family:var(--mono);font-size:.58rem;color:var(--muted)}
   .buyb{margin-top:auto;font-family:var(--mono);font-size:.66rem;color:var(--bg);background:var(--amber);border:0;border-radius:6px;padding:6px;cursor:pointer;font-weight:700}
   .buyb:disabled{opacity:.4;cursor:default}
+  .buyb.sell{margin-top:0;background:transparent;color:var(--amber);border:1px solid var(--amber)}
   #jobsBody{overflow:auto;max-height:62vh;padding:10px 14px 16px;display:flex;flex-direction:column;gap:9px}
   .jobcard{background:var(--slot);border:1px solid var(--edge);border-radius:10px;padding:11px 12px}
   .jhead{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
@@ -512,11 +513,18 @@ function ledgerAdd(amt,name){const id="tx"+Date.now().toString(36)+Math.floor(Ma
 function itemPrice(it){return parseFloat(String(it.price||"").replace(/[^0-9.]/g,""))||0;}
 function buyItem(it){const price=itemPrice(it);
   if(price>BAL){$("shopMsg").textContent="Not enough money — need $"+price.toFixed(0)+", you have $"+BAL.toFixed(0);return;}
-  ledgerAdd(-price,"Bought "+it.name);
+  if(price>0)ledgerAdd(-price,"Bought "+it.name);   // no price = free to take (2026-09-18)
   const path=it.cat+"/"+it.comp+"/"+it.name;const upd={};upd[path+"/quantity"]=(it.qty||0)+1;
   if(!it.loc||it.loc==="shop"||!byLoc[it.loc])upd[path+"/location"]=it.loc||"shelf";
   update(ref(db,BASE+"/inventory"),upd).catch(()=>{});
-  $("shopMsg").textContent="Bought "+it.name+" for $"+price.toFixed(0)+" ✓";}
+  $("shopMsg").textContent=price>0?"Bought "+it.name+" for $"+money(price)+" ✓":"Took "+it.name+" (no price set - free) ✓";}
+// SELL (2026-09-18): half the shop price back into the game wallet, quantity -1. Only priced items you own.
+function money(p){return p>=1||p===0?p.toFixed(0):p.toFixed(2);}   // $25 / $0.25
+function sellPrice(it){return Math.round(itemPrice(it)*50)/100;}
+function sellItem(it){const q=it.qty||0,amt=sellPrice(it);if(q<1){$("shopMsg").textContent="You don't own a "+it.name;return;}
+  if(amt>0)ledgerAdd(amt,"Sold "+it.name);
+  update(ref(db,BASE+"/inventory"),{[it.cat+"/"+it.comp+"/"+it.name+"/quantity"]:q-1}).catch(()=>{});
+  $("shopMsg").textContent="Sold "+it.name+" for $"+money(amt)+" ✓";}
 
 // ---- room furniture (DB-backed) ----
 let roomDecor={};        // {room:{id:{k,x,y,s?,z?}}}
@@ -1304,10 +1312,12 @@ $("shop").addEventListener("click",e=>{if(e.target===$("shop"))$("shop").classLi
 function renderShop(){$("shopBal").textContent=BAL.toFixed(0);const body=$("shopBody");body.innerHTML="";
   const items=ITEMS.slice().sort((a,b)=>itemPrice(a)-itemPrice(b));
   for(const it of items){const price=itemPrice(it);const c=document.createElement("div");c.className="shopit";
-    c.innerHTML=`<div class="shopimg">${it.img?`<img src="${esc(it.img)}" onerror="this.replaceWith('📦')">`:"📦"}</div><div class="shopn">${esc(it.name)}</div><div class="shopm">owned ${it.qty||0} · $${price.toFixed(0)}</div>`;
-    const b=document.createElement("button");b.className="buyb";b.textContent=price>0?("Buy $"+price.toFixed(0)):"— no price";b.disabled=price<=0||price>BAL;b.onclick=()=>buyItem(it);
+    c.innerHTML=`<div class="shopimg">${it.img?`<img src="${esc(it.img)}" onerror="this.replaceWith('📦')">`:"📦"}</div><div class="shopn">${esc(it.name)}</div><div class="shopm">owned ${it.qty||0} · $${money(price)}</div>`;
+    const b=document.createElement("button");b.className="buyb";b.textContent=price>0?("Buy $"+money(price)):"Take · free";b.disabled=price>BAL;b.onclick=()=>buyItem(it);
     c.ondblclick=()=>{if(BASE!=="public")openItemEdit(it);};c.style.cursor="pointer";
-    c.appendChild(b);body.appendChild(c);}}
+    c.appendChild(b);
+    if((it.qty||0)>0&&price>0){const sb=document.createElement("button");sb.className="buyb sell";sb.textContent="Sell $"+money(sellPrice(it));sb.title="sell one back at half price";sb.onclick=()=>sellItem(it);c.appendChild(sb);}
+    body.appendChild(c);}}
 
 // ===== service-call job loop (Seth's dispatch) =====
 let FUEL=100, MILES=0, JOBS={};
