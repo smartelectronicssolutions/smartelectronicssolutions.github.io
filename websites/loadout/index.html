@@ -485,6 +485,10 @@ function isSolid(k){return !isFlat(k) && (CAT[k]?CAT[k].h:48)>=40;}
 
 // ---- live inventory ----
 let ITEMS=[],byLoc={};
+// IMAGE RELAY (2026-09-19): Firebase Storage pictures are served via api.luissolutions.us/img/<object>?token=<t> (mc-api
+// fetches + Cloudflare caches). The iPad blocks firebasestorage.googleapis.com; everything else loads either way.
+const RELAY="https://api.luissolutions.us/img/";
+function viaRelay(u){const m=/^https:\/\/firebasestorage\.googleapis\.com\/v0\/b\/persinfo-df93f\.appspot\.com\/o\/([^?]+)\?(?:.*&)?token=([^&]+)/.exec(String(u||""));return m?RELAY+m[1]+"?token="+m[2]:u;}
 function rebuild(){byLoc={};for(const it of ITEMS){if((it.qty||0)<1)continue;(byLoc[it.loc]=byLoc[it.loc]||[]).push(it);}   // only qty>=1 shows in containers
   $("bagN").textContent=(byLoc.bag||[]).length;if($("overlay").classList.contains("open"))renderPanel();
   if($("storage").classList.contains("open")){renderArea();$("storBag").textContent=(byLoc.bag||[]).length;}
@@ -494,7 +498,7 @@ onValue(ref(db,BASE+"/inventory"),snap=>{const tree=snap.val()||{};const arr=[];
   for(const cat in tree)for(const comp in tree[cat])for(const name in tree[cat][comp]){const v=tree[cat][comp][name]||{};
     const known=roomToLoc(v.room);const loc=v.location||known||(v.room?cslug(v.room):defaultLoc(comp));
     if(v.room&&!ZONEMETA[loc]&&!CLABEL[loc])CLABEL[loc]=v.room;
-    arr.push({cat,comp,name,room:v.room||"",img:v.img||v.imageUrl||"",loc,price:v.price||v.actualPrice||"",qty:+v.quantity||0});}   // 'img' = onlineinventory canonical field; imageUrl = legacy fallback
+    arr.push({cat,comp,name,room:v.room||"",img:viaRelay(v.img||v.imageUrl||""),loc,price:v.price||v.actualPrice||"",qty:+v.quantity||0});}   // 'img' = onlineinventory canonical field; imageUrl = legacy fallback
   ITEMS=arr;$("loading").style.display="none";rebuild();});
 function moveItem(it,newLoc){const base=`${it.cat}/${it.comp}/${it.name}`;it.loc=newLoc;const upd={[base+"/location"]:newLoc};
   if(newLoc!=="bag"){const lbl=locMeta(newLoc).label;it.room=lbl;upd[base+"/room"]=lbl;}   // sync the inventory-app 'room' field so the move shows there too
