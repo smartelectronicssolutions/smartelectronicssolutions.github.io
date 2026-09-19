@@ -642,7 +642,7 @@
         .dc-nav { position: fixed; z-index: 7; display: flex; flex-direction: column; gap: 6px; }
         .dc-nav button { width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--dc-purple); background: var(--dc-panel); color: var(--dc-purple); font-size: 1.05rem; line-height: 1; cursor: pointer; box-shadow: 0 4px 14px var(--dc-shadow); display: none; align-items: center; justify-content: center; padding: 0; }
         .dc-nav button.show { display: flex; }
-        .dc-topic-new { position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%); z-index: 6; width: min(86%, 320px); background: var(--dc-panel); border: 1px solid var(--dc-purple); border-radius: 14px; padding: 14px; box-shadow: 0 10px 30px var(--dc-shadow); }
+        .dc-topic-new { position: fixed; left: 50%; top: 96px; transform: translate(-50%, 0); z-index: 2100;   /* fixed to the visual viewport; JS keeps it under the bar when the keyboard is up (2026-09-19) */ width: min(86%, 320px); background: var(--dc-panel); border: 1px solid var(--dc-purple); border-radius: 14px; padding: 14px; box-shadow: 0 10px 30px var(--dc-shadow); }
         .dc-del { position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%); z-index: 6; width: min(86%, 320px); background: var(--dc-panel); border: 1px solid var(--dc-amber); border-radius: 14px; padding: 14px; box-shadow: 0 10px 30px var(--dc-shadow); }
         .dc-del .t { color: var(--dc-amber); font-weight: 600; font-size: 0.9rem; margin-bottom: 6px; }
         .dc-del .q { color: var(--muted); font-size: 0.78rem; margin-bottom: 10px; max-height: 3.6em; overflow: hidden; }
@@ -704,7 +704,7 @@
             .dc-idea { font-size: 0.78rem; padding: 4px 9px; }
             .dc-chat-input textarea { font-size: 16px; }   /* 16px stops iOS from zooming the page on focus */
         }
-        .dc-bub { max-width: 84%; padding: 9px 13px; border-radius: 14px; font-size: 0.9rem; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; }
+        .dc-bub { max-width: 84%; min-width: 9em; padding: 9px 13px; border-radius: 14px; font-size: 0.9rem; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; }   /* min-width: a one-word reply keeps its header on one line */
         .dc-bub.me:has(.dc-edit) { cursor: pointer; }
         .dc-bub .dc-fav { float: right; margin: -8px -10px 0 8px; border: 0; background: transparent; color: inherit; opacity: 0.35; cursor: pointer; font-size: 1.05rem; line-height: 1; padding: 0; min-width: 36px; min-height: 36px; display: flex; align-items: center; justify-content: center; position: relative; z-index: 1; border-radius: 50%; }   /* 36px touch target (2026-09-18) */
         .dc-bub .dc-fav.on { opacity: 1; color: var(--dc-amber); }
@@ -1030,8 +1030,13 @@
             const host = $('.dc-chat'); if (!host || host.querySelector('.dc-topic-new')) return;
             const box = document.createElement('div'); box.className = 'dc-topic-new';
             box.innerHTML = '<div class="t">+ New topic</div><div class="r"><input type="text" maxlength="24" placeholder="topic name" enterkeyhint="done"><button type="button" class="ok">Create</button><button type="button" class="x">✕</button></div>';
-            host.appendChild(box); const inp = box.querySelector('input'); inp.focus();
-            const close = () => box.remove();
+            host.appendChild(box); const inp = box.querySelector('input');
+            // keep the box just under the visible top edge, keyboard or not (iOS shrinks/scrolls the visual viewport)
+            const vv = window.visualViewport;
+            const place = () => { const top = (vv ? vv.offsetTop : 0) + Math.max(64, Math.min(120, (vv ? vv.height : innerHeight) * 0.18)); box.style.top = top + 'px'; box.style.left = ((vv ? vv.offsetLeft + vv.width / 2 : innerWidth / 2)) + 'px'; };
+            place(); if (vv) { vv.addEventListener('resize', place); vv.addEventListener('scroll', place); }
+            inp.focus(); setTimeout(place, 350);   // after the keyboard animation
+            const close = () => { box.remove(); if (vv) { vv.removeEventListener('resize', place); vv.removeEventListener('scroll', place); } };
             const make = async () => { const nm = inp.value.trim().replace(/\s+/g, ' '); if (!nm) { inp.focus(); return; } close();
                 if (DC.base) { try { await update(ref(database, `${DC.base}/chat/topics/${topicKey(nm)}`), { name: nm, createdAt: Date.now() }); } catch (_) {} } setTopic(nm); };
             box.querySelector('.ok').onclick = make; box.querySelector('.x').onclick = close;
