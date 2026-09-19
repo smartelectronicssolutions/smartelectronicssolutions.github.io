@@ -650,6 +650,8 @@
         .dc-del button.play { border-color: var(--dc-purple); color: var(--dc-purple); background: color-mix(in srgb, var(--dc-purple) 12%, transparent); margin-right: auto; }
         .dc-del button { border: 1px solid var(--border); background: transparent; color: var(--text); border-radius: 8px; padding: 6px 14px; cursor: pointer; font-family: inherit; }
         .dc-del button.go { border-color: var(--dc-amber); background: color-mix(in srgb, var(--dc-amber) 15%, transparent); color: var(--dc-amber); font-weight: 600; }
+        .dc-del .r button { transition: opacity 0.15s; }
+        .dc-del.arming .r button { opacity: 0.4; pointer-events: none; }   /* inert until the opening tap burst is spent */
         .dc-topic-new .t { color: var(--dc-purple); font-weight: 600; font-size: 0.9rem; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; }
         .dc-topic-close { display: none; }
         .dc-topic-new .r { display: flex; gap: 6px; }
@@ -1117,19 +1119,36 @@
             const playing = DC.speakingKey === k;
             box.innerHTML = `<div class="t">Message</div><div class="q">${esc(String(t.text || '').slice(0, 140))}</div><div class="r"><button type="button" class="play" title="read it aloud with this device's voice - nothing is saved">${playing ? '■ Stop' : '▶ Play'}</button><button type="button" class="keep">Close</button><button type="button" class="go">Delete</button></div>`;
             host.appendChild(box);
-            box.querySelector('.keep').onclick = () => box.remove();
-            // a tap anywhere outside the box closes it (2026-09-18); registered on the next tick so the opening tap doesn't count
-            setTimeout(() => { const off = e => { if (!box.isConnected) { document.removeEventListener('pointerdown', off, true); return; } if (!box.contains(e.target)) { box.remove(); document.removeEventListener('pointerdown', off, true);
-                // a closing tap on empty space / chrome does nothing else; a closing tap ON A MESSAGE keeps counting, so a fresh
-                // triple-tap on another (or the same) message swaps the box instead of dying on its first tap (L, 2026-09-18)
-                if (!(e.target.closest && e.target.closest('[data-k]'))) { const eat = ev => { ev.stopPropagation(); ev.preventDefault(); }; document.addEventListener('click', eat, true); setTimeout(() => document.removeEventListener('click', eat, true), 400); } } };
-                document.addEventListener('pointerdown', off, true); }, 0);
+            // ARMING (2026-09-19, second pass): the box opens right under a finger that is often still tapping. The first fix only
+            // ignored taps OUTSIDE the box for 550 ms - a 4th tap landing on Close (or Delete!) still fired at once, and a slow
+            // 5th tap past 550 ms still dismissed it. Now nothing reacts until the burst is spent: 600 ms after opening AND 450 ms
+            // after the last stray tap. Until then the buttons are inert (.arming) and stray taps neither close the box nor start an edit.
+            let quietUntil = Date.now() + 600;
+            const quiet = () => Date.now() < quietUntil;
+            box.classList.add('arming');
+            const arm = () => { if (!box.isConnected) return; const left = quietUntil - Date.now(); if (left > 0) { setTimeout(arm, left + 15); return; } box.classList.remove('arming'); };
+            setTimeout(arm, 615);
+            const cleanup = () => { document.removeEventListener('pointerdown', onDown, true); document.removeEventListener('click', onClick, true); };
+            const close = () => { box.remove(); cleanup(); };
+            const onDown = e => {
+                if (!box.isConnected) { cleanup(); return; }
+                if (quiet()) { quietUntil = Math.max(quietUntil, Date.now() + 450); return; }   // still inside the opening burst: push the window out, ignore the tap
+                if (box.contains(e.target)) return;                    // taps inside the box do their own thing
+                close();
+                // a closing tap on a message keeps counting (a fresh triple swaps the box); on empty space it does nothing else
+                if (!(e.target.closest && e.target.closest('[data-k]'))) { const eat = ev => { ev.stopPropagation(); ev.preventDefault(); }; document.addEventListener('click', eat, true); setTimeout(() => document.removeEventListener('click', eat, true), 400); }
+            };
+            const onClick = e => { if (!box.isConnected) { cleanup(); return; } if (quiet()) { e.stopPropagation(); e.preventDefault(); } };   // burst clicks: no button, no edit, no new count
+            document.addEventListener('pointerdown', onDown, true);
+            document.addEventListener('click', onClick, true);
+            box.querySelector('.keep').onclick = () => { if (!quiet()) close(); };
             const pb = box.querySelector('.play');
             pb.onclick = () => {
+                if (quiet()) return;
                 if (DC.speakingKey === k) { stopSpeak(); pb.textContent = '▶ Play'; return; }
                 if (speakText(t.text, k, () => { pb.textContent = '▶ Play'; })) pb.textContent = '■ Stop';
             };
-            box.querySelector('.go').onclick = async () => { box.remove(); await deleteTurn(k); };
+            box.querySelector('.go').onclick = async () => { if (quiet()) return; close(); await deleteTurn(k); };
         }
         (function wireTripleTap() {
             const log = document.getElementById('dc-chat-log'); if (!log) return; let lastK = '', lastT = 0, n = 0;
