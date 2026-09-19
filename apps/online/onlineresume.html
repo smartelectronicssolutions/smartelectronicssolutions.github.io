@@ -254,6 +254,32 @@
         .pdf-export #qrLinkInput { display: none !important; }
         .pdf-export #qrPdfLabel { display: none !important; }
 
+        /* ── FORMAT: sunderwood (2026-09-18) — same fields, the look of the sample résumé. Classic = everything above. ── */
+        body[data-format="sunderwood"] .container { font-family: Calibri, 'Segoe UI', Arial, sans-serif; font-size: 11pt; line-height: 1.35; }
+        body[data-format="sunderwood"] .resume-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; border-bottom: 2px solid #2d606e; padding-bottom: 10px; margin-bottom: 14px; }
+        body[data-format="sunderwood"] .resume-header-main { flex: 1; text-align: left; }
+        body[data-format="sunderwood"] #name { text-align: left; color: #2d606e; font-family: inherit; font-size: 26px; letter-spacing: 0; margin: 0; }
+        body[data-format="sunderwood"] #name::before { content: "Resume"; display: block; font-size: 14px; font-weight: 700; margin-bottom: 2px; }
+        body[data-format="sunderwood"] #title { text-align: left; color: #808080; font-weight: 400; font-size: 13px; margin: 2px 0 0; }
+        body[data-format="sunderwood"] .contact-info { border: 0; text-align: right; font-weight: 700; font-size: 10.5px; white-space: pre-line; padding: 0; margin: 0; min-width: 170px; }
+        body[data-format="sunderwood"] .contact-info a { color: #2e75b6; }
+        body[data-format="sunderwood"] h2 { border: 0; text-transform: none; letter-spacing: 0; color: #2d606e; font-size: 18px; margin: 18px 0 4px; padding: 0; }
+        body[data-format="sunderwood"] .section-title-row h2 { margin: 18px 0 0; }
+        body[data-format="sunderwood"] .job h3 { font-size: 1em; margin: 0 0 1px; }
+        body[data-format="sunderwood"] .job p { color: #808080; font-style: normal; margin: 0 0 4px; }
+        body[data-format="sunderwood"] .job p em { font-style: normal; }
+        body[data-format="sunderwood"] .job .narrative { color: inherit; text-indent: 0.5in; margin: 2px 0 10px; }
+        body[data-format="sunderwood"].view-mode .job:has(.narrative:not(:empty)) ul,
+        body[data-format="sunderwood"] .pdf-export .job:has(.narrative:not(:empty)) ul { display: none; }   /* the narrative replaces the bullets */
+        body:not([data-format="sunderwood"]).view-mode .narrative,
+        body:not([data-format="sunderwood"]) .pdf-export .narrative { display: none; }                       /* classic keeps its bullets */
+        body[data-format="sunderwood"] #coreCompetencies, body[data-format="sunderwood"] #areasOfExpertise { display: block; margin-left: 0; padding-left: 0; }
+        body[data-format="sunderwood"] #coreCompetencies li, body[data-format="sunderwood"] #areasOfExpertise li { display: inline; margin: 0; }
+        body[data-format="sunderwood"] #coreCompetencies li + li::before, body[data-format="sunderwood"] #areasOfExpertise li + li::before { content: ", "; }
+        body[data-format="sunderwood"] #certifications { list-style: none; margin-left: 0; padding-left: 0; }
+        body[data-format="sunderwood"] .pdf-export h1 { font-size: 22px !important; }
+        body[data-format="sunderwood"] .pdf-export h2 { text-transform: none !important; letter-spacing: 0 !important; border: 0 !important; color: #2d606e !important; font-size: 14px !important; margin: 12px 0 3px !important; }
+        body[data-format="sunderwood"] .pdf-export .job .narrative { font-size: 10.5px !important; line-height: 1.35 !important; }
         .view-mode [contenteditable] {
             cursor: default;
             outline: none;
@@ -444,6 +470,10 @@
     <div class="toolbar" id="editorToolbar">
 
         <select id="resumeSelector"></select>
+        <select id="formatSelector" title="layout of this résumé (saved with it)">
+            <option value="classic">Classic layout</option>
+            <option value="sunderwood">Sunderwood layout</option>
+        </select>
 
         <button class="btn" id="saveResumeBtn">Save Resume</button>
 
@@ -639,7 +669,37 @@
             selector.value = currentResumeId;
         }
 
+        // FORMAT (2026-09-18): saved per résumé as `format`; body[data-format] drives the CSS. Default classic.
+        const FORMATS = { classic: 1, sunderwood: 1 };
+        function applyFormat(f) {
+            f = FORMATS[f] ? f : "classic";
+            document.body.dataset.format = f;
+            const sel = document.getElementById("formatSelector");
+            if (sel && sel.value !== f) sel.value = f;
+            renderList("certifications", getList("certifications"));   // bold-name split only in sunderwood
+            if (document.getElementById("contact-info").textContent.trim()) renderContact(parseContactInfo());
+        }
+        document.getElementById("formatSelector")?.addEventListener("change", e => applyFormat(e.target.value));
+        // sunderwood shows the contact block stacked; the editable text stays one line with '|' (parseContactInfo reads both)
+        function certHtml(text) {
+            const m = /^(.*?)(\s[–—-]\s.*)$/.exec(text || "");
+            const esc = t => t.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+            return m ? `<b>${esc(m[1])}</b>${esc(m[2])}` : esc(text || "");
+        }
+
+        function renderContact(c) {
+            const ci = document.getElementById("contact-info");
+            ci.textContent = "";
+            const sw = document.body.dataset.format === "sunderwood";
+            ci.appendChild(document.createTextNode(sw ? `${c.location || ""}\n${c.phone || ""}\n` : `${c.location || ""} | ${c.phone || ""} | `));
+            const ciMail = document.createElement("a");
+            ciMail.href = "mailto:" + (c.email || "");
+            ciMail.textContent = c.email || "";
+            ci.appendChild(ciMail);
+        }
+
         function loadEmptyResumeTemplate() {
+            applyFormat("classic");
 
             document.getElementById("name").textContent = "Name";
             document.getElementById("contact-info").textContent = "Location | Phone | Email";
@@ -673,18 +733,11 @@
 
             const data = snapshot.val();
 
+            applyFormat(data.format);
+
             document.getElementById("name").textContent = data.name || "";
 
-            const ci = document.getElementById("contact-info");
-            ci.textContent = "";
-            const ciLocation = data.contactInfo?.location || "";
-            const ciPhone = data.contactInfo?.phone || "";
-            const ciEmail = data.contactInfo?.email || "";
-            ci.appendChild(document.createTextNode(`${ciLocation} | ${ciPhone} | `));
-            const ciMail = document.createElement("a");
-            ciMail.href = "mailto:" + ciEmail;
-            ciMail.textContent = ciEmail;
-            ci.appendChild(ciMail);
+            renderContact(data.contactInfo || {});
 
             document.getElementById("title").textContent = data.title || "";
 
@@ -726,7 +779,8 @@
                 const li = document.createElement("li");
                 li.setAttribute("contenteditable", "true");
                 li.setAttribute("data-placeholder", "Add item...");
-                li.textContent = item || "";
+                if (id === "certifications" && document.body.dataset.format === "sunderwood") li.innerHTML = certHtml(item || "");
+                else li.textContent = item || "";
                 container.appendChild(li);
             });
         }
@@ -797,6 +851,13 @@
                 });
                 div.appendChild(ul);
 
+                const nar = document.createElement("p");
+                nar.className = "narrative";
+                nar.setAttribute("contenteditable", "true");
+                nar.setAttribute("data-placeholder", "Narrative paragraph (optional - the Sunderwood layout shows it instead of the bullets)");
+                nar.textContent = job.narrative || "";
+                div.appendChild(nar);
+
                 container.appendChild(div);
             });
         }
@@ -859,6 +920,8 @@
 
                 summary: document.getElementById("summary").textContent.trim(),
 
+                format: document.body.dataset.format || "classic",
+
                 qrLink: document.getElementById("qrLinkInput").value.trim(),
 
                 qrInPdf: document.getElementById("qrInPdf").checked,
@@ -902,7 +965,7 @@
 
             const text = document.getElementById("contact-info").textContent;
 
-            const parts = text.split("|");
+            const parts = text.split(/\||\n/);
 
             return {
                 location: parts[0]?.trim() || "",
@@ -947,14 +1010,17 @@
                     job.querySelector("h3")?.textContent.trim() || "",
 
                 dates:
-                    job.querySelector("p")?.textContent.trim() || "",
+                    job.querySelector("p:not(.narrative)")?.textContent.trim() || "",
+
+                narrative:
+                    job.querySelector("p.narrative")?.textContent.trim() || "",
 
                 responsibilities:
                     Array.from(job.querySelectorAll("li"))
                         .map(li => li.textContent.trim())
                         .filter(Boolean)
             }))
-                .filter(job => job.title || job.dates || job.responsibilities.length);
+                .filter(job => job.title || job.dates || job.narrative || job.responsibilities.length);
         }
 
         function getEducation() {
@@ -1184,6 +1250,7 @@
                     <ul>
                         <li contenteditable="true" data-placeholder="Add responsibility..."></li>
                     </ul>
+                    <p class="narrative" contenteditable="true" data-placeholder="Narrative paragraph (optional - the Sunderwood layout shows it instead of the bullets)"></p>
                 `;
                 return job;
             }
@@ -1399,7 +1466,7 @@
                 return;
             }
 
-            if (target.matches("#workExperience .job p[contenteditable='true']")) {
+            if (target.matches("#workExperience .job p[contenteditable='true']:not(.narrative)")) {
 
                 event.preventDefault();
 
