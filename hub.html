@@ -650,6 +650,11 @@
         .dc-del button.play { border-color: var(--dc-purple); color: var(--dc-purple); background: color-mix(in srgb, var(--dc-purple) 12%, transparent); margin-right: auto; }
         .dc-del button { border: 1px solid var(--border); background: transparent; color: var(--text); border-radius: 8px; padding: 6px 14px; cursor: pointer; font-family: inherit; }
         .dc-del button.go { border-color: var(--dc-amber); background: color-mix(in srgb, var(--dc-amber) 15%, transparent); color: var(--dc-amber); font-weight: 600; }
+        .dc-del .t .tg { color: var(--dc-purple); font-weight: 400; font-size: 0.78rem; margin-left: 6px; }
+        .dc-del button.tag { border-color: var(--dc-purple); color: var(--dc-purple); }
+        .dc-del .tagrow { display: flex; gap: 6px; margin-top: 10px; }
+        .dc-del .tagrow input { flex: 1; min-width: 0; font-size: 16px; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--text); font-family: inherit; }   /* 16px: no iOS zoom */
+        .dc-del .tagrow button.sv { border-color: var(--dc-purple); color: var(--dc-purple); font-weight: 600; }
         .dc-del .r button { transition: opacity 0.15s; }
         .dc-del.arming .r button { opacity: 0.4; pointer-events: none; }   /* inert until the opening tap burst is spent */
         .dc-topic-new .t { color: var(--dc-purple); font-weight: 600; font-size: 0.9rem; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; }
@@ -1117,7 +1122,7 @@
             if (DC.editKey) { const ta0 = $('#dc-chat-in'); if (ta0) ta0.value = ''; } setEditMode('');   // a triple-tap on the newest message had started an edit: drop it
             const box = document.createElement('div'); box.className = 'dc-del';
             const playing = DC.speakingKey === k;
-            box.innerHTML = `<div class="t">Message</div><div class="q">${esc(String(t.text || '').slice(0, 140))}</div><div class="r"><button type="button" class="play" title="read it aloud with this device's voice - nothing is saved">${playing ? '■ Stop' : '▶ Play'}</button><button type="button" class="keep">Close</button><button type="button" class="go">Delete</button></div>`;
+            box.innerHTML = `<div class="t">Message${t.topic ? ' <span class="tg"># ' + esc(t.topic) + '</span>' : ''}</div><div class="q">${esc(String(t.text || '').slice(0, 140))}</div><div class="r"><button type="button" class="play" title="read it aloud with this device's voice - nothing is saved">${playing ? '■ Stop' : '▶ Play'}</button><button type="button" class="tag" title="move this message (and its reply) to another topic tab, or untag it"># Tag</button><button type="button" class="keep">Close</button><button type="button" class="go">Delete</button></div>`;
             host.appendChild(box);
             // ARMING (2026-09-19, second pass): the box opens right under a finger that is often still tapping. The first fix only
             // ignored taps OUTSIDE the box for 550 ms - a 4th tap landing on Close (or Delete!) still fired at once, and a slow
@@ -1149,7 +1154,36 @@
                 if (speakText(t.text, k, () => { pb.textContent = '▶ Play'; })) pb.textContent = '■ Stop';
             };
             box.querySelector('.go').onclick = async () => { if (quiet()) return; close(); await deleteTurn(k); };
+            // # TAG (2026-09-19, L: "add edit tag name in the triple click menu"): retag this message - and the other half of its
+            // exchange (same jobId) - into another topic tab; empty = no tag (it shows under All only). A new name creates the tab.
+            box.querySelector('.tag').onclick = () => {
+                if (quiet() || box.querySelector('.tagrow')) return;
+                const names = (DC.topicOrder || []).filter(n => n && n !== FAV_TAB);
+                const row = document.createElement('div'); row.className = 'tagrow';
+                row.innerHTML = `<input type="text" maxlength="40" placeholder="topic (empty = no tag)" list="dc-tag-list" value="${esc(t.topic || '')}"><datalist id="dc-tag-list">${names.map(n => `<option value="${esc(n)}"></option>`).join('')}</datalist><button type="button" class="sv">Save</button>`;
+                box.appendChild(row);
+                const inp = row.querySelector('input'); inp.focus(); inp.select();
+                const save = async () => { const nm = inp.value.trim().replace(/\s+/g, ' ').slice(0, 40); close(); await retagTurn(k, nm); };
+                row.querySelector('.sv').onclick = save;
+                inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); save(); } if (e.key === 'Escape') { e.stopPropagation(); row.remove(); } });
+            };
         }
+        async function retagTurn(k, name) {
+            if (!DC.base) return; const fav = DC.topic === FAV_TAB;
+            const src = (fav ? (DC.favs || {}) : (DC.chatTurns || {}))[k] || (DC.chatTurns || {})[k]; if (!src) return;
+            if ((src.topic || '') === name) { $('#dc-chat-status').textContent = 'tag unchanged'; return; }
+            // the exchange travels together: your message and the reply share a jobId
+            const keys = [k]; if (src.jobId) for (const [kk, tt] of Object.entries(DC.chatTurns || {})) if (kk !== k && tt && tt.jobId === src.jobId) keys.push(kk);
+            try {
+                if (name && !Object.values(DC.topicList || {}).some(v => v && v.name === name)) await update(ref(database, `${DC.base}/chat/topics/${topicKey(name)}`), { name, createdAt: Date.now() });
+                for (const kk of keys) {
+                    if ((DC.chatTurns || {})[kk]) await update(ref(database, `${DC.base}/chat/turns/${kk}`), { topic: name || null });
+                    if ((DC.favs || {})[kk]) await update(ref(database, `${DC.base}/chat/favorites/${kk}`), { topic: name || null });
+                }
+                $('#dc-chat-status').textContent = (name ? 'moved to # ' + name : 'tag removed') + (keys.length > 1 ? ' (message + reply)' : '');
+            } catch (e) { $('#dc-chat-status').textContent = '⚠ could not retag: ' + (e.message || e); }
+        }
+        window.__dcRetag = retagTurn;   // test hook
         (function wireTripleTap() {
             const log = document.getElementById('dc-chat-log'); if (!log) return; let lastK = '', lastT = 0, n = 0;
             log.addEventListener('click', e => {
