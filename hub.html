@@ -616,6 +616,8 @@
         .dc-btn.push { background: var(--dc-green); border-color: var(--dc-green); color: var(--dc-on-green); }
         .dc-chk { font-size: 0.78rem; color: var(--muted); display: inline-flex; gap: 5px; align-items: center; cursor: pointer; }
         .dc-status { font-family: monospace; font-size: 0.72rem; color: var(--muted); min-height: 15px; margin-bottom: 8px; }
+        .dc-status.dc-guest-note { color: var(--dc-amber); min-height: 0; margin: 2px 2px 6px; line-height: 1.35; }
+        .dc-status.dc-guest-note[hidden] { display: none; }
         /* dterm: fills the console body edge to edge (was 72vh capped at 640px) */
         .dc-chat { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
         /* newest-first: input moves up under the ideas strip, log runs newest -> oldest below it (phone-friendly) */
@@ -798,6 +800,7 @@
                         <button class="dc-btn push" id="dc-chat-send">▲</button>
                     </div>
                     <div class="dc-status" id="dc-chat-status" style="margin:6px 2px 0"></div>
+                    <div class="dc-status dc-guest-note" id="dc-guest-note" hidden></div>   <!-- guest on the Local target: says plainly what they are talking to (2026-09-19) -->
                 </div>
             </div>
             <!-- SYSTEM tab = account line + ROUTINES panel + FLEET panel (both toggled together) -->
@@ -857,7 +860,12 @@
             });
             const dcc = $('#dc-console'); if (dcc) dcc.classList.toggle('guest', isGuest);
             const sel = $('#dc-chat-target');
-            if (sel && isGuest) Array.from(sel.options).forEach(o => { if (o.value !== 'droplet') o.remove(); });   // guests: only their own Droplet
+            // guests: their own Droplet + the 🦙 Local assistant. (2026-09-19, L: "anyone who's joined the Louverse can participate" -
+            // before this a friend with NO daemon only had the Droplet target, so every message became a job nobody would ever pick up.)
+            // CompMan, ⌘ Command and anything else stay owner-only.
+            if (sel && isGuest) Array.from(sel.options).forEach(o => { if (o.value !== 'droplet' && o.value !== 'local') o.remove(); });
+            DC.guest = !!isGuest;
+            syncTarget();
         }
         window.__hubGuest = applyGuest;   // test hook
         // DEV CARDS (L, 2026-09-16, pick E): Firebase Token + Credentials are tools, not the front page. Hidden unless the
@@ -1239,7 +1247,7 @@
             for (const k of keys) if (obj[k] && obj[k].s === 'L') obj[k].__last = (k === DC.lastLKey);
             const nf = newestFirst();
             $('.dc-chat') && $('.dc-chat').classList.toggle('newest-first', nf);
-            if (!keys.length) { log.innerHTML = '<div style="color:var(--muted);font-size:0.85rem;text-align:center;margin-top:20px">' + (favView ? 'No favorites yet. Tap the star on a reply to keep it here.' : DC.topic ? 'Nothing under # ' + esc(DC.topic) + ' yet. What you send now lands here and in All.' : 'No turns yet. Say something to Droplet.') + '</div>'; DC.bubbleSig = {}; updateThreadSize(obj); reconcilePending(obj); return; }
+            if (!keys.length) { log.innerHTML = '<div style="color:var(--muted);font-size:0.85rem;text-align:center;margin-top:20px">' + (favView ? 'No favorites yet. Tap the star on a reply to keep it here.' : DC.topic ? 'Nothing under # ' + esc(DC.topic) + ' yet. What you send now lands here and in All.' : (DC.guest && ($('#dc-chat-target') || {}).value === 'local') ? 'No turns yet. Say something - the Local assistant answers here.' : 'No turns yet. Say something to Droplet.') + '</div>'; DC.bubbleSig = {}; updateThreadSize(obj); reconcilePending(obj); return; }
             const clean = !!($('#dc-chat-enhance') && $('#dc-chat-enhance').checked);
             const order = nf ? keys.slice().reverse() : keys;
             if (log.firstElementChild && !log.firstElementChild.dataset.k) log.innerHTML = '';   // drop the placeholder
@@ -1299,6 +1307,30 @@
         const LOCAL_SYS = "You are Local, the fallback assistant inside Luis's Droplet Console, running on the Ollama server in his homelab (model " + MODEL + ") for when Droplet (Claude) is unavailable. "
             + "You have no tools, no file or device access, and no memory beyond this conversation. Answer directly and briefly in plain text (no headers, no tables). "
             + "If asked for something only Droplet can do - run commands, change files, read his records or apps - say so in one line instead of pretending. /no_think";
+        // a GUEST is not Luis and has no Droplet behind this box: same model, neutral wording, no talk of "his records" (2026-09-19)
+        const LOCAL_SYS_GUEST = "You are Local, a general-purpose assistant hosted on Luis's homelab server (model " + MODEL + "). The person you are talking to is a friend of Luis using his platform, not Luis. "
+            + "You have no tools, no file or device access, no internet, and no memory beyond this conversation. You cannot see anyone's records, accounts or apps. "
+            + "Answer plainly and briefly in plain text (no headers, no tables). If asked to do something that needs tools or data you do not have, say so in one line instead of pretending. /no_think";
+        // GUEST LOCAL CHAT (2026-09-19): one place decides which target is selected and what the guest is told.
+        //  - a target that is not offered here (a stale localStorage pick, an option applyGuest removed) falls back to Droplet;
+        //  - a guest with NO live daemon heartbeat is moved Droplet -> Local (a dead Droplet target = messages nobody picks up), and moved
+        //    back when a heartbeat appears - unless they picked a target themselves on this page, which is then left alone;
+        //  - while a guest sits on Local, an amber line says exactly what that is. Owner view: nothing here changes.
+        function syncTarget() {
+            const GUEST_LOCAL_NOTE = "Local assistant on Luis's server - a plain chatbot: no tools, no memory beyond this tab. Your own AI shows up here when you run a daemon.";   // inside the function: it is hoisted and may run before a module-level const exists
+            const tsel = $('#dc-chat-target'); if (!tsel) return;
+            const has = v => Array.from(tsel.options).some(o => o.value === v && !o.hidden);
+            if (!has(tsel.value)) tsel.value = has('droplet') ? 'droplet' : ((Array.from(tsel.options).find(o => !o.hidden) || {}).value || 'droplet');
+            if (DC.guest && !DC.userPickedTarget && has('local')) {
+                if (!DC.daemonOn && tsel.value === 'droplet') { tsel.value = 'local'; DC.autoLocal = true; }
+                else if (DC.daemonOn && DC.autoLocal && tsel.value === 'local') { tsel.value = 'droplet'; DC.autoLocal = false; }
+            }
+            const onLocal = !!DC.guest && tsel.value === 'local';
+            const note = $('#dc-guest-note'); if (note) { note.hidden = !onLocal; note.textContent = onLocal ? GUEST_LOCAL_NOTE : ''; }
+            const wk = $('#dc-wake'); if (wk && DC.guest && !DC.daemonOn) wk.style.display = 'none';   // nothing of theirs to wake
+        }
+        window.__dcSyncTarget = syncTarget; window.__dcRenderMeta = m => renderMeta(m); window.__dcState = () => ({ guest: !!DC.guest, daemonOn: !!DC.daemonOn, autoLocal: !!DC.autoLocal, userPicked: !!DC.userPickedTarget, base: DC.base });
+        window.__dcUserPick = v => { const t = $('#dc-chat-target'); if (t) t.value = v; DC.userPickedTarget = true; DC.autoLocal = false; syncTarget(); };   // test hooks (a real pick = a trusted change event, which a script cannot fake)
         async function localReply(prompt, tpc, turns) {
             const pendRef = push(ref(database, turns));
             await set(pendRef, { s: 'D', who: 'Local', text: '…thinking (local)', ts: Date.now(), pending: true, local: true, ...tpc });
@@ -1311,7 +1343,7 @@
             try {
                 const ctl = new AbortController(); const tmr = setTimeout(() => ctl.abort(), 180000);
                 const res = await fetch(OLLAMA, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctl.signal,
-                    body: JSON.stringify({ model: MODEL, stream: false, messages: [{ role: 'system', content: LOCAL_SYS }, ...hist, { role: 'user', content: prompt }] }) });
+                    body: JSON.stringify({ model: MODEL, stream: false, messages: [{ role: 'system', content: DC.guest ? LOCAL_SYS_GUEST : LOCAL_SYS }, ...hist, { role: 'user', content: prompt }] }) });
                 clearTimeout(tmr);
                 const data = await res.json();
                 reply = String((data.message && data.message.content) || data.error || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim() || '(empty reply)';
@@ -1423,6 +1455,7 @@
         }
         function renderMeta(m) {
             const dOn = m.daemonBeat && (Date.now() - m.daemonBeat < 60000);
+            DC.lastMeta = m; DC.daemonOn = !!dOn;   // syncTarget() (guest fallback to 🦙 Local) reads this; a 30 s timer re-checks a heartbeat that stopped
             const dp = $('#dc-daemon'); dp.className = 'dc-pill ' + (dOn ? 'on' : 'off');
             dp.lastChild.textContent = dOn ? 'daemon online' : 'daemon offline';
             // daemon 0.14 publishes dropletState (up / starting / dead / down); older daemons only dropletUp.
@@ -1443,10 +1476,13 @@
             DC.ollamaUp = !!(m.ollama && m.ollama.up);
             const ad = $('#dc-account-daemon'); if (ad) ad.textContent = ' · daemon: ' + (m.daemonKind === 'kdaemon' ? 'kdaemon' + (m.host ? ' on ' + m.host : '') : 'se console daemon') + ' (' + (dOn ? 'online' : 'offline') + (m.version ? ', ' + m.version : '') + ')' + (DC.kdaemon ? ' · ollama ' + (DC.ollamaUp ? 'detected' : 'not detected') : '');
             if (DC.kdaemon) { drp.className = 'dc-pill ' + (dOn ? 'on' : 'off'); drp.lastChild.textContent = 'per msg'; $('#dc-wake').style.display = 'none'; }
+            else $('#dc-wake').style.display = 'inline-flex';  // always available (dropletUp can be true with a dead claude inside). 2026-09-19: this else had drifted onto the loOpt line below and only ran when that option was missing
             // a kdaemon runs only its owner's Droplet: the CompMan target is L's fleet, so hide it there (a kdaemon would route it to Droplet anyway)
             const cmOpt = document.querySelector('#dc-chat-target option[value="compman"]'); if (cmOpt) { cmOpt.hidden = !!DC.kdaemon; if (DC.kdaemon && $('#dc-chat-target').value === 'compman') $('#dc-chat-target').value = 'droplet'; }
-            const loOpt = document.querySelector('#dc-chat-target option[value="local"]'); if (loOpt) { loOpt.hidden = !!DC.kdaemon; if (DC.kdaemon && $('#dc-chat-target').value === 'local') $('#dc-chat-target').value = 'droplet'; }
-            else $('#dc-wake').style.display = 'inline-flex';  // always available (dropletUp can be true with a dead claude inside)
+            // 🦙 Local used to be hidden for every kdaemon user. 2026-09-19 (L: anyone in the Louverse can participate): it stays offered -
+            // it is the only thing that answers while their PC / daemon is off, and the same "Claude is out" fallback L has. syncTarget() picks.
+            const loOpt = document.querySelector('#dc-chat-target option[value="local"]'); if (loOpt) loOpt.hidden = false;
+            syncTarget();
             $('#dc-console').classList.toggle('kd', DC.kdaemon);   // kdaemon has no routines engine / fleet / pings: System tab shows only the account line
             // pings text names the bot the daemon actually sends from (daemon publishes meta.tgBot from getMe), never a hardcoded handle
             const pb = $('#dc-pg-bot'); if (pb) pb.textContent = m.tgBot && m.tgBot.username ? `Droplet DMs you on Telegram from @${m.tgBot.username} ("${m.tgBot.name || ''}") on job/routine completion.` : 'Droplet DMs you on Telegram on job/routine completion.';
@@ -1600,7 +1636,7 @@
         $('#dc-x').onclick = () => { $('#dc-console').classList.remove('open'); lockZoom(false); lockPage(false); };
         document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('#dc-console').classList.contains('open') && !(e.target.closest && e.target.closest('.dc-topic-new, .dc-topic-in'))) $('#dc-x').click(); });   // keyboard close (Escape inside the new-topic box only closes the box)
         async function dcWake() {
-            if (!DC.base || DC.kdaemon || DC.waking) return;
+            if (!DC.base || DC.kdaemon || DC.waking || (DC.guest && !DC.daemonOn)) return;   // a guest with no daemon has nothing to wake - the job would sit forever
             DC.waking = true;
             const b = $('#dc-wake'); b.textContent = 'waking…'; b.disabled = true;
             const drp = $('#dc-droplet'); drp.className = 'dc-pill busy clk'; drp.lastChild.textContent = 'waking…';
@@ -1639,6 +1675,12 @@
             if (v !== null) { if (el.type === 'checkbox') el.checked = v === '1'; else el.value = v; }
             el.addEventListener('change', () => { try { localStorage.setItem(key, el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value); } catch (_) {} });
         }
+        // 2026-09-19: a restored target that this page does not offer (e.g. 'command', or 'compman' on a friend's login) used to leave
+        // the title select blank; syncTarget() puts it back on Droplet. A target the person picks BY HAND is respected for the rest of
+        // the page's life (no auto Droplet <-> Local flipping under their finger); the 30 s timer catches a daemon heartbeat that stopped.
+        syncTarget();
+        { const ts = $('#dc-chat-target'); if (ts) ts.addEventListener('change', e => { if (e.isTrusted) { DC.userPickedTarget = true; DC.autoLocal = false; } syncTarget(); }); }
+        setInterval(() => { if (DC.lastMeta) { const on = !!(DC.lastMeta.daemonBeat && (Date.now() - DC.lastMeta.daemonBeat < 60000)); if (on !== DC.daemonOn) renderMeta(DC.lastMeta); } }, 30000);
         // the title dropdown: full names on desktop, short on a phone (the bar is one row there)
         const TARGET_NAMES = { droplet: ['💧 Droplet Console', '💧 Droplet'], compman: ['🤖 CompMan Console', '🤖 CompMan'], command: ['⌘ Command Console', '⌘ Command'], local: ['🦙 Local Console', '🦙 Local'] };
         function targetLabel(v) { const n = TARGET_NAMES[v] || [v, v]; return DC.isPhone() ? n[1] : n[0]; }
