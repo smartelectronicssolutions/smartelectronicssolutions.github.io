@@ -687,7 +687,8 @@
         .dc-del { position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%); z-index: 6; width: min(86%, 320px); background: var(--dc-panel); border: 1px solid var(--dc-amber); border-radius: 14px; padding: 14px; box-shadow: 0 10px 30px var(--dc-shadow); }
         .dc-del .t { color: var(--dc-amber); font-weight: 600; font-size: 0.9rem; margin-bottom: 6px; }
         .dc-del .q { color: var(--muted); font-size: 0.78rem; margin-bottom: 10px; max-height: 3.6em; overflow: hidden; }
-        .dc-del .r { display: flex; gap: 8px; justify-content: flex-end; }
+        .dc-del .r { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+        .dc-del button.play { border-color: var(--dc-purple); color: var(--dc-purple); background: color-mix(in srgb, var(--dc-purple) 12%, transparent); margin-right: auto; }
         .dc-del button { border: 1px solid var(--border); background: transparent; color: var(--text); border-radius: 8px; padding: 6px 14px; cursor: pointer; font-family: inherit; }
         .dc-del button.go { border-color: var(--dc-amber); background: color-mix(in srgb, var(--dc-amber) 15%, transparent); color: var(--dc-amber); font-weight: 600; }
         .dc-topic-new .t { color: var(--dc-purple); font-weight: 600; font-size: 0.9rem; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; }
@@ -1139,14 +1140,40 @@
                 $('#dc-chat-status').textContent = 'message deleted';
             } catch (e) { $('#dc-chat-status').textContent = '⚠ could not delete: ' + (e.message || e); }
         }
+        // ▶ PLAY (2026-09-18): read a message aloud with the device's own voice. Ephemeral - nothing generated or stored.
+        DC.speakQ = []; DC.speakingKey = '';
+        function speakText(text, key, onDone) {
+            if (!('speechSynthesis' in window)) { $('#dc-chat-status').textContent = 'this browser has no speech engine'; return false; }
+            stopSpeak();
+            let t = cleanReply(String(text || '')).replace(/^#+\s*/gm, '').replace(/[*_`>]+/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/https?:\/\/\S+/g, 'link').replace(/\s+/g, ' ').trim();
+            if (!t) return false;
+            const chunks = t.match(/[^.!?]+[.!?]+[\s"')\]]*|[^.!?]+$/g) || [t];   // sentence chunks: iOS drops long utterances
+            const voices = speechSynthesis.getVoices() || [];
+            const voice = voices.find(v => /Samantha|Aria|Jenny|Google US English|Zira|Karen/i.test(v.name) && /^en/i.test(v.lang)) || voices.find(v => /^en[-_]US/i.test(v.lang)) || voices.find(v => /^en/i.test(v.lang)) || null;
+            DC.speakingKey = key; let left = chunks.length;
+            for (const c of chunks) {
+                const u = new SpeechSynthesisUtterance(c.trim()); if (voice) u.voice = voice; u.rate = 1.0; u.pitch = 1.0;
+                u.onend = u.onerror = ev => { if (ev && ev.type === 'error' && ev.error && ev.error !== 'interrupted' && ev.error !== 'canceled') $('#dc-chat-status').textContent = 'speech: ' + ev.error + (ev.error === 'not-allowed' ? ' (the browser wants a real tap first)' : ''); if (--left <= 0 && DC.speakingKey === key) { DC.speakingKey = ''; onDone && onDone(); } };
+                speechSynthesis.speak(u);
+            }
+            return true;
+        }
+        function stopSpeak() { try { speechSynthesis.cancel(); } catch (_) {} DC.speakingKey = ''; }
+        try { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices(); } catch (_) {}
         function confirmDelete(k) {
             const host = $('.dc-chat'); if (!host || host.querySelector('.dc-del')) return;
             const t = (DC.topic === FAV_TAB ? (DC.favs || {}) : (DC.chatTurns || {}))[k] || {};
             if (DC.editKey) { const ta0 = $('#dc-chat-in'); if (ta0) ta0.value = ''; } setEditMode('');   // a triple-tap on the newest message had started an edit: drop it
             const box = document.createElement('div'); box.className = 'dc-del';
-            box.innerHTML = `<div class="t">Delete this message?</div><div class="q">${esc(String(t.text || '').slice(0, 140))}</div><div class="r"><button type="button" class="keep">Keep</button><button type="button" class="go">Delete</button></div>`;
+            const playing = DC.speakingKey === k;
+            box.innerHTML = `<div class="t">Message</div><div class="q">${esc(String(t.text || '').slice(0, 140))}</div><div class="r"><button type="button" class="play" title="read it aloud with this device's voice - nothing is saved">${playing ? '■ Stop' : '▶ Play'}</button><button type="button" class="keep">Close</button><button type="button" class="go">Delete</button></div>`;
             host.appendChild(box);
             box.querySelector('.keep').onclick = () => box.remove();
+            const pb = box.querySelector('.play');
+            pb.onclick = () => {
+                if (DC.speakingKey === k) { stopSpeak(); pb.textContent = '▶ Play'; return; }
+                if (speakText(t.text, k, () => { pb.textContent = '▶ Play'; })) pb.textContent = '■ Stop';
+            };
             box.querySelector('.go').onclick = async () => { box.remove(); await deleteTurn(k); };
         }
         (function wireTripleTap() {
@@ -1485,7 +1512,6 @@
                 const multiAsk = /\n|;|\band\b|\balso\b|\bthen\b|[.?!]\s+\S/.test(rough.trim());
                 const isList = l => /^\s*(?:[-*\u2022]|\d+[.)])\s/.test(l);
                 if (!multiAsk && kept.length > 1 && kept.every(isList)) kept = [kept[0]];
-                if (kept.length === 1 && lines.length === 1 && isList(kept[0])) text = unnum(kept[0]);   // one sentence never wears a bullet
                 if (kept.length !== lines.length) {
                     let n = 0;
                     text = kept.length === 1 ? unnum(kept[0]) : kept.map(l => /^\s*\d+[.)]\s/.test(l) ? l.replace(/^\s*\d+[.)]\s*/, (++n) + '. ') : l).join('\n');
