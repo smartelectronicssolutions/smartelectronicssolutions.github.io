@@ -7,6 +7,8 @@
     <title>Text Playback App</title>
     <link rel="stylesheet" href="../assets/css/online.css">
     <style>
+        .chap-nav { padding: 4px 9px; }
+        .chap-nav[hidden] { display: none; }
         main {
             font-family: 'Verdana', sans-serif;
             text-align: center;
@@ -95,6 +97,7 @@
             <select id="savedTexts">
                 <option value="">Select a saved text</option>
             </select>
+            <button id="chapPrev" class="chap-nav" hidden title="previous chapter">◀</button><button id="chapNext" class="chap-nav" hidden title="next chapter">▶</button>
             <button id="deleteTextButton" disabled>Delete Text</button>
             <button id="pdfButton" disabled>Download PDF</button>
             <button id="polishButton" disabled title="Fix typos, spacing & punctuation only — never rewords. Saves a separate polished copy; your original stays untouched.">✨ Polish</button>
@@ -141,7 +144,7 @@
     <script src="../assets/js/links-aside.js" defer></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
     <script type="module">
-        import { getDatabase, ref, set, push, onValue, remove, auth, onAuthStateChanged } from '../assets/js/firebase-init.js';
+        import { getDatabase, ref, set, push, onValue, remove, get, auth, onAuthStateChanged } from '../assets/js/firebase-init.js';
 
         const database = getDatabase();
         // Dual read (house pattern): public/texts is always listed; the signed-in user's {uid}/texts is listed
@@ -150,7 +153,9 @@
         let UIDBASE = null;
         const scopes = { public: {}, mine: {} };   // raw rows per scope
         let docs = {};                              // 'scope:key' -> {text, title?, createdAt?, source?}
-        let unsubPublic = null, unsubMine = null;
+        let unsubPublic = null, unsubMine = null, unsubBooks = null;
+        let books = {};                             // {uid}/books index: slug -> {title, author, chapters:{nn:{title,chars}}}
+        const chapPrev = document.getElementById('chapPrev'), chapNext = document.getElementById('chapNext');
 
         function escHtml(s) {
             return String(s ?? '').replace(/[&<>"']/g, c => ({
@@ -227,6 +232,7 @@
             const i = String(sel || '').indexOf(':');
             if (i < 0) return null;
             const scope = sel.slice(0, i), key = sel.slice(i + 1);
+            if (scope === 'book') return null;   // chapters are read-only
             const base = scope === 'mine' ? UIDBASE : 'public';
             return base && key ? `${base}/texts/${key}` : null;
         }
@@ -252,20 +258,64 @@
                 }
                 savedTexts.appendChild(group);
             }
+            // BOOKS (2026-09-18): one group per book, chapters in order; bodies load on pick
+            for (const slug of Object.keys(books).sort((a, b) => String(books[a].title).localeCompare(String(books[b].title)))) {
+                const bk = books[slug]; const chs = bk.chapters || {}; const nns = Object.keys(chs).sort();
+                if (!nns.length) continue;
+                const group = document.createElement('optgroup'); group.label = '📖 ' + (bk.title || slug) + (bk.author ? ' — ' + bk.author : '');
+                for (const nn of nns) {
+                    const sel = `book:${slug}:${nn}`;
+                    docs[sel] = docs[sel] && docs[sel].text ? docs[sel] : { title: `${bk.title} — ${nn} ${chs[nn].title || ''}`.trim(), text: '', lazy: true, book: slug, nn, chars: chs[nn].chars || 0, source: 'book' };
+                    const option = document.createElement('option'); option.value = sel; option.textContent = `${parseInt(nn, 10)}. ${chs[nn].title || 'Part ' + parseInt(nn, 10)}`;
+                    group.appendChild(option);
+                }
+                savedTexts.appendChild(group);
+            }
             // restore the remembered selection; a legacy bare key maps to whichever scope holds it
             const saved = (JSON.parse(localStorage.getItem('textPlaybackSettings') || '{}') || {}).selectedText;
             if (saved) {
                 const sel = docs[saved] ? saved : (docs['mine:' + saved] ? 'mine:' + saved : (docs['public:' + saved] ? 'public:' + saved : ''));
                 savedTexts.value = sel;
                 if (sel && !textInput.value.trim()) {
+                    if (docs[sel].lazy) loadSelected(); else {
                     textInput.value = docs[sel].text || '';
                     titleInput.value = docs[sel].title || '';
                     fullText.textContent = textInput.value;
+                    }
                 }
             }
-            deleteTextButton.disabled = !savedTexts.value;
+            deleteTextButton.disabled = !savedTexts.value || !pathOf(savedTexts.value);
+            updateChapNav();
             showDocMeta(savedTexts.value);
         }
+        // a book chapter body is fetched the first time it is picked (and kept for the session)
+        async function loadSelected() {
+            const sel = savedTexts.value, d = docs[sel]; if (!d) return;
+            if (d.lazy && UIDBASE) {
+                display.textContent = 'loading chapter…';
+                try { const snap = await get(ref(database, `${UIDBASE}/bookText/${d.book}/${d.nn}`)); const v = snap.val() || {}; d.text = v.text || ''; d.lazy = false; }
+                catch (e) { display.textContent = 'could not load: ' + (e.message || e); return; }
+                if (savedTexts.value !== sel) return;   // he moved on while it loaded
+            }
+            textInput.value = d.text || ''; titleInput.value = d.title || '';
+            words = []; currentIndex = 0; display.textContent = 'Text will appear here'; fullText.textContent = textInput.value;
+            saveSettings(); showDocMeta(sel);
+        }
+        function updateChapNav() {
+            const sel = savedTexts.value || '', isBook = sel.startsWith('book:');
+            chapPrev.hidden = chapNext.hidden = !isBook;
+            if (!isBook) return;
+            const opt = savedTexts.selectedOptions[0]; const sib = opt ? opt.parentElement.children : [];
+            const i = Array.prototype.indexOf.call(sib, opt);
+            chapPrev.disabled = i <= 0; chapNext.disabled = i < 0 || i >= sib.length - 1;
+        }
+        function stepChapter(dir) {
+            const opt = savedTexts.selectedOptions[0]; if (!opt) return;
+            const next = dir > 0 ? opt.nextElementSibling : opt.previousElementSibling; if (!next) return;
+            savedTexts.value = next.value; savedTexts.dispatchEvent(new Event('change'));
+        }
+        chapPrev.addEventListener('click', () => stepChapter(-1)); chapNext.addEventListener('click', () => stepChapter(1));
+        window.__otTest = { setBooks(i) { books = i; renderList(); }, setBase(b) { UIDBASE = b; renderList(); } };   // test hook (no auth needed)
 
         function fetchSavedTexts() {
             if (!unsubPublic) {
@@ -275,8 +325,10 @@
                 });
             }
             if (unsubMine) { unsubMine(); unsubMine = null; }
-            scopes.mine = {};
+            if (unsubBooks) { unsubBooks(); unsubBooks = null; }
+            scopes.mine = {}; books = {};
             if (UIDBASE) {
+                unsubBooks = onValue(ref(database, `${UIDBASE}/books`), (snapshot) => { books = snapshot.val() || {}; renderList(); });
                 unsubMine = onValue(ref(database, `${UIDBASE}/texts`), (snapshot) => {
                     scopes.mine = snapshot.val() || {};
                     renderList();
@@ -386,6 +438,8 @@
 
         savedTexts.addEventListener('change', () => {
             const d = docs[savedTexts.value];
+            updateChapNav();
+            if (d && d.lazy) { polishToggle.checked = false; deleteTextButton.disabled = true; loadSelected(); return; }
             if (d) {
                 textInput.value = d.text || '';
                 titleInput.value = d.title || '';
@@ -398,7 +452,7 @@
                 saveSettings();
             }
 
-            deleteTextButton.disabled = !savedTexts.value;
+            deleteTextButton.disabled = !savedTexts.value || !pathOf(savedTexts.value);
             polishToggle.checked = false;
             showDocMeta(savedTexts.value);
         });
@@ -474,7 +528,8 @@
             pdfButton.disabled = !d;
             if (!d) { docMeta.textContent = ''; return; }
             const parts = [];
-            if (d.source) parts.push('from ' + (d.source === 'compman' ? 'CompMan' : d.source));
+            if (d.source === 'book') parts.push('📖 ' + ((books[d.book] || {}).title || 'book') + ' · chapter ' + parseInt(d.nn, 10) + ' of ' + Object.keys((books[d.book] || {}).chapters || {}).length);
+            else if (d.source) parts.push('from ' + (d.source === 'compman' ? 'CompMan' : d.source));
             if (d.createdAt) parts.push(new Date(d.createdAt).toLocaleDateString());
             parts.push(String(d.text || '').trim().split(/\s+/).filter(Boolean).length + ' words');
             if (d.polished) parts.push(polishToggle.checked ? '✨ viewing polished' : '✨ polished available');
