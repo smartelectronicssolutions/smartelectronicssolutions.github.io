@@ -941,7 +941,7 @@
             onValue(ref(database, `${DC.base}/settings/autoArchiveChars`), s => { DC.autoArchiveChars = Number(s.val() || 0); const b = $('#dc-auto-arch'); if (b && document.activeElement !== b) b.value = Math.round(DC.autoArchiveChars / 1000); updateThreadSize(DC.chatTurns || {}); });
             onValue(query(ref(database, `${DC.base}/chat/turns`), limitToLast(120)), s => renderChat(s.val() || {}));
             onValue(ref(database, `${DC.base}/chat/topics`), s => { DC.topicList = s.val() || {}; renderTopics(); });
-            onValue(ref(database, `${DC.base}/chat/favorites`), s => { DC.favs = s.val() || {}; DC.bubbleSig = {}; renderChat(DC.chatTurns || {}); });
+            onValue(ref(database, `${DC.base}/chat/favorites`), s => { DC.favs = s.val() || {}; renderChat(DC.chatTurns || {}); });
             onValue(query(ref(database, `${DC.uid}/todos`), limitToLast(80)), s => renderIdeas(s.val() || {}));
         });
 
@@ -1214,7 +1214,10 @@
                 if (el !== want) log.insertBefore(el, want);
                 prev = el;
             }
-            log.scrollTop = nf ? 0 : log.scrollHeight;   // newest is always in view, whichever end it lives at
+            // snap to the newest end only when the visible turns or the tab changed - a star toggle, an edit or a
+            // reply landing in an existing bubble keeps your scroll position (2026-09-18)
+            const rsig = DC.topic + '|' + nf + '|' + order.join(',');
+            if (DC.renderSig !== rsig) { log.scrollTop = nf ? 0 : log.scrollHeight; DC.renderSig = rsig; }
             updateThreadSize(obj);
             reconcilePending(obj);
         }
@@ -1458,6 +1461,7 @@
                 + "Do NOT: add context, background, workflows, components, tools, file names, constraints, or deliverables he did not mention. Do not guess what he is 'really' asking. Do not answer. A short question comes back as one polished question, nothing more. "
                 + "HARD RULE: no new nouns. Every file, app, service, tool or component in your output must appear in his rough text (glossary expansion of an abbreviation he typed is the only exception). "
                 + "Golden test: someone reading only your output must learn nothing Luis did not type. "
+                + "The conventions and glossary below are instructions to you, never content: never mention a glossary, a convention, a record or an entry in your output, and never reframe his question around them. "
                 + "Output ONLY the enhanced prompt: no preamble, no explanation, no quotes. Plain markdown. /no_think\n\n"
                 + "Honor these conventions:\n" + rules.map(r => '- ' + r.label).join('\n')
                 + (ctxHits.length ? "\n\nGlossary (titles of records his words touched; use ONLY to expand an abbreviation he typed, never otherwise):\n" + ctxHits.slice(0, 6).map(h => '- ' + h.title).join('\n')
@@ -1479,6 +1483,7 @@
                 const multiAsk = /\n|;|\band\b|\balso\b|\bthen\b|[.?!]\s+\S/.test(rough.trim());
                 const isList = l => /^\s*(?:[-*\u2022]|\d+[.)])\s/.test(l);
                 if (!multiAsk && kept.length > 1 && kept.every(isList)) kept = [kept[0]];
+                if (kept.length === 1 && lines.length === 1 && isList(kept[0])) text = unnum(kept[0]);   // one sentence never wears a bullet
                 if (kept.length !== lines.length) {
                     let n = 0;
                     text = kept.length === 1 ? unnum(kept[0]) : kept.map(l => /^\s*\d+[.)]\s/.test(l) ? l.replace(/^\s*\d+[.)]\s*/, (++n) + '. ') : l).join('\n');
