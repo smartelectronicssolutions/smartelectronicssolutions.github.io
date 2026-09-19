@@ -778,6 +778,7 @@
                     <label class="dc-chk" title="Telegram DM you when the reply lands"><input type="checkbox" id="dc-chat-ping"> ping on reply</label>
                     <label class="dc-chk" id="dc-pg-lbl" title="master switch: Telegram DMs from the console on job / routine completion (sent from the bot the daemon reports in meta)"><input type="checkbox" id="dc-pg-enabled" class="dc-switch"> 📣 Telegram pings</label>
                     <label class="dc-chk" id="dc-cmd-lbl" title="show the ⌘ Command target: runs PowerShell on se as homelab. Every send asks for your 6-digit YubiKey code and the daemon checks it (one use per code). Off on every load."><input type="checkbox" id="dc-cmd-on"> ⌘ Command target (YubiKey)</label>
+                    <label class="dc-chk" id="dc-model-lbl" title="switch the model of Droplet's running session. Sends /model to its terminal on its own line and posts back whatever the terminal says - including 'not found'. Use it when replies come back as 'you have reached your limit'.">🧠 model<select id="dc-model" style="margin-left:6px;font:inherit;max-width:120px"><option value="">switch to…</option><option value="opus">Opus</option><option value="sonnet">Sonnet</option><option value="haiku">Haiku</option><option value="fable">Fable</option><option value="default">default</option></select></label>
                     <label class="dc-chk" title="newest messages at the top, input right under the strips"><input type="checkbox" id="dc-newest"> ⬆ newest first</label>
                     <label class="dc-chk" title="auto-archive the thread (summary to memory) once it passes this many thousand characters; 0 = never">auto-archive at <input type="number" id="dc-auto-arch" min="0" max="500" step="5">k</label>
                     <span class="dc-size" id="dc-thread-size" title="size of the live thread"></span>
@@ -1364,7 +1365,7 @@
             const ta = $('#dc-chat-in'); const raw = ta.value.trim();
             if (!raw || !DC.base) return;
             const target = ($('#dc-chat-target') && $('#dc-chat-target').value) || 'droplet';
-            const enhOn = !!($('#dc-chat-enhance') && $('#dc-chat-enhance').checked) && target !== 'command';
+            const enhOn = !!($('#dc-chat-enhance') && $('#dc-chat-enhance').checked) && target !== 'command' && !raw.startsWith('/');   // a slash command is for the TUI - enhancing it into prose would destroy it
             const wantPing = !!($('#dc-chat-ping') && $('#dc-chat-ping').checked);
             const who = CHAT_WHO[target] || 'Droplet';
             // ⌘ Command (2026-09-16, pick D): every run needs a live YubiKey code; the daemon verifies it, one use per code
@@ -1688,6 +1689,17 @@
         // the title select blank; syncTarget() puts it back on Droplet. A target the person picks BY HAND is respected for the rest of
         // the page's life (no auto Droplet <-> Local flipping under their finger); the 30 s timer catches a daemon heartbeat that stopped.
         syncTarget();
+        { const ms = $('#dc-model'); if (ms) ms.addEventListener('change', e => {
+            // MODEL SWITCH (2026-09-19): send "/model <name>" as an ordinary message. The daemon's slash path
+            // sends it bare (the console preamble would otherwise become the model NAME - that is how L's own
+            // "/model opus" errored) and reads the pane back, so the terminal's answer lands in the chat.
+            if (!e.isTrusted) return; const v = ms.value; ms.value = '';
+            if (!v) return;
+            if (($('#dc-chat-target') || {}).value !== 'droplet') { $('#dc-chat-status').textContent = '\u26a0 model switch only applies to Droplet\u2019s session'; return; }
+            const ta = $('#dc-chat-in'); if (!ta) return;
+            const held = ta.value; ta.value = '/model ' + v;
+            sendChat().then(() => { if (held) ta.value = held; });
+        }); }
         { const ts = $('#dc-chat-target'); if (ts) ts.addEventListener('change', e => { if (e.isTrusted) { DC.userPickedTarget = true; DC.autoLocal = false; } syncTarget(); }); }
         setInterval(() => { if (DC.lastMeta) { const on = !!(DC.lastMeta.daemonBeat && (Date.now() - DC.lastMeta.daemonBeat < 60000)); if (on !== DC.daemonOn) renderMeta(DC.lastMeta); } }, 30000);
         // the title dropdown: full names on desktop, short on a phone (the bar is one row there)
