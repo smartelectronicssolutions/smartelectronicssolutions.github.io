@@ -1456,16 +1456,11 @@
             const ctxHits = verdict.tier === 'strong' ? [] : (derivedHits.length ? derivedHits : hits);
             // 2026-09-14: the earlier "fuller" prompt + memory hooks made the enhancer INVENT workflows/components/constraints
             // around a one-line question. Now: same ask said clearly, no new nouns, glossary = titles only, and a guard below.
-            const sys = "You enhance Luis's rough prompt to Droplet (his AI collaborator running his homelab) into a clearer, complete version of THE SAME ask. "
-                + "Do: fix grammar; expand an abbreviation only if it literally appears in his text (S3, N1, dterm, se, kh, WD = the vault) using the glossary; split a run-on that truly holds several asks into a short numbered list, but ONE ask stays one sentence (never a one-item or repeated list); make each ask explicit (what + where + what he expects back) using only what his words say or directly imply. "
-                + "Do NOT: add context, background, workflows, components, tools, file names, constraints, or deliverables he did not mention. Do not guess what he is 'really' asking. Do not answer. A short question comes back as one polished question, nothing more. "
-                + "HARD RULE: no new nouns. Every file, app, service, tool or component in your output must appear in his rough text (glossary expansion of an abbreviation he typed is the only exception). "
-                + "Golden test: someone reading only your output must learn nothing Luis did not type. "
-                + "The conventions and glossary below are instructions to you, never content: never mention a glossary, a convention, a record or an entry in your output, and never reframe his question around them. "
-                + "Output ONLY the enhanced prompt: no preamble, no explanation, no quotes. Plain markdown. /no_think\n\n"
-                + "Honor these conventions:\n" + rules.map(r => '- ' + r.label).join('\n')
-                + (ctxHits.length ? "\n\nGlossary (titles of records his words touched; use ONLY to expand an abbreviation he typed, never otherwise):\n" + ctxHits.slice(0, 6).map(h => '- ' + h.title).join('\n')
-                    : "\n\n(No glossary matches — expand nothing, add nothing.)");
+            // 2026-09-18 (L): 'just proper sentence structure and spelling' - the enhancer is a proofreader now, nothing more.
+            const sys = "You are a proofreader for Luis's chat messages to Droplet. Return his message with spelling, punctuation, capitalization and sentence structure corrected. "
+                + "Keep his words, his order, his meaning and his length; keep his tone and his shorthand (S3, N1, dterm, se, kh, comp, fav) exactly as typed. "
+                + "Do NOT: expand abbreviations, add or remove information, add questions, split into lists, merge or reorder sentences, or explain anything. If it is already fine, return it unchanged. "
+                + "Output ONLY the corrected message: no preamble, no quotes, no notes. /no_think";
             let text = rough, ollamaFailed = false;
             try {
                 const res = await fetch(OLLAMA, { method:'POST', headers:{'Content-Type':'application/json'},
@@ -1495,7 +1490,8 @@
                 const lowRough = rough.toLowerCase();
                 const introduced = (text.match(/[\w-]+\.(html|md|py|ps1|js|json|css|txt)\b/gi) || []).filter(f => !lowRough.includes(f.toLowerCase()));
                 if (introduced.length) rejected = 'named files you didn\'t: ' + [...new Set(introduced)].slice(0, 3).join(', ');
-                else if (text.length > Math.max(240, rough.length * 3)) rejected = 'ballooned ' + Math.round(text.length / Math.max(1, rough.length)) + 'x';
+                else if ((text.match(/\?/g) || []).length > (rough.match(/\?/g) || []).length) rejected = 'added a question you didn\'t ask';   // 2026-09-18: it grew a 'how can I prevent...?'
+                else if (text.length > Math.max(rough.length + 40, rough.length * 1.6)) rejected = 'grew ' + Math.round(100 * text.length / Math.max(1, rough.length) - 100) + '%';   // a proofread never balloons
                 if (rejected) text = rough;
             }
             return { enhanced: text, idx, hits, verdict, topics, rules, ollamaFailed, rejected };
