@@ -816,6 +816,7 @@
             <select id="dc-chat-target" class="dc-brand" title="where your message goes - the console is named after it">
                 <option value="droplet" selected>💧 Droplet Console</option>
                 <option value="compman">🤖 CompMan Console</option>
+                <option value="local">🦙 Local Console</option>
             </select>
             <button class="dc-tab active" data-tab="ch">Chat</button>
             <button class="dc-tab" data-tab="sys" title="account · daemon · routines · fleet">Sys</button>
@@ -1285,7 +1286,32 @@
 
         // unified send: target (Droplet / CompMan / Command) + optional inline enhance + ping.
         // This is the chat doing everything the Workbench + terminal do, from one box.
-        const CHAT_WHO = { droplet: 'Droplet', compman: 'CompMan', command: 'se' };
+        const CHAT_WHO = { droplet: 'Droplet', compman: 'CompMan', command: 'se', local: 'Local' };
+        // 🦙 LOCAL (2026-09-18): the fallback when Droplet is down. Page -> se Ollama (same proxy as the enhancer) with the last
+        // turns of this tab as history; the answer is written into the thread as a 'Local' bubble. No tools, no memory beyond the tab.
+        const LOCAL_SYS = "You are Local, the fallback assistant inside Luis's Droplet Console, running on the Ollama server in his homelab (model " + MODEL + ") for when Droplet (Claude) is unavailable. "
+            + "You have no tools, no file or device access, and no memory beyond this conversation. Answer directly and briefly in plain text (no headers, no tables). "
+            + "If asked for something only Droplet can do - run commands, change files, read his records or apps - say so in one line instead of pretending. /no_think";
+        async function localReply(prompt, tpc, turns) {
+            const pendRef = push(ref(database, turns));
+            await set(pendRef, { s: 'D', who: 'Local', text: '…thinking (local)', ts: Date.now(), pending: true, local: true, ...tpc });
+            $('#dc-chat-status').textContent = '🦙 local: ' + MODEL + '…';
+            const topic = tpc.topic || '';
+            const hist = Object.entries(DC.chatTurns || {}).filter(([k, t]) => t && !t.pending && t.text && (t.topic || '') === topic).sort((a, b) => (a[1].ts || 0) - (b[1].ts || 0)).slice(-12)
+                .map(([k, t]) => ({ role: t.s === 'L' ? 'user' : 'assistant', content: String(t.enhanced || t.text).slice(0, 4000) }));
+            if (hist.length && hist[hist.length - 1].role === 'user') hist.pop();   // the turn we just wrote - re-added below as the prompt
+            let reply = '';
+            try {
+                const ctl = new AbortController(); const tmr = setTimeout(() => ctl.abort(), 180000);
+                const res = await fetch(OLLAMA, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctl.signal,
+                    body: JSON.stringify({ model: MODEL, stream: false, messages: [{ role: 'system', content: LOCAL_SYS }, ...hist, { role: 'user', content: prompt }] }) });
+                clearTimeout(tmr);
+                const data = await res.json();
+                reply = String((data.message && data.message.content) || data.error || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim() || '(empty reply)';
+            } catch (e) { reply = '⚠ Local (ollama) failed: ' + (e.name === 'AbortError' ? 'timed out after 3 min' : (e.message || e)); }
+            await update(pendRef, { text: reply, pending: null, ts: Date.now() });
+            $('#dc-chat-status').textContent = '';
+        }
         async function sendChat() {
             const ta = $('#dc-chat-in'); const raw = ta.value.trim();
             if (!raw || !DC.base) return;
@@ -1324,6 +1350,7 @@
                         + (r.verdict.tier === 'strong' || r.verdict.tier === 'filed' ? ' · ⚠ recall ' + r.verdict.tier : '');
                     await update(lref, { enhanced: prompt, enhNote: r.rejected || '' });   // your bubble shows "✨ see what was sent" / "✨ rejected"
                 }
+                if (target === 'local') { await localReply(prompt, tpc, turns); send.disabled = false; ta.focus(); return; }   // 🦙 no job, no daemon
                 const jref = push(ref(database, `${DC.base}/jobs`));
                 const pendRef = push(ref(database, turns));
                 await set(pendRef, { s: 'D', who, text: '…thinking', ts: Date.now(), pending: true, jobId: jref.key, ...tpc });   // jobId => reconcilePending fills it even after a reload
@@ -1411,6 +1438,7 @@
             if (DC.kdaemon) { drp.className = 'dc-pill ' + (dOn ? 'on' : 'off'); drp.lastChild.textContent = 'per msg'; $('#dc-wake').style.display = 'none'; }
             // a kdaemon runs only its owner's Droplet: the CompMan target is L's fleet, so hide it there (a kdaemon would route it to Droplet anyway)
             const cmOpt = document.querySelector('#dc-chat-target option[value="compman"]'); if (cmOpt) { cmOpt.hidden = !!DC.kdaemon; if (DC.kdaemon && $('#dc-chat-target').value === 'compman') $('#dc-chat-target').value = 'droplet'; }
+            const loOpt = document.querySelector('#dc-chat-target option[value="local"]'); if (loOpt) { loOpt.hidden = !!DC.kdaemon; if (DC.kdaemon && $('#dc-chat-target').value === 'local') $('#dc-chat-target').value = 'droplet'; }
             else $('#dc-wake').style.display = 'inline-flex';  // always available (dropletUp can be true with a dead claude inside)
             $('#dc-console').classList.toggle('kd', DC.kdaemon);   // kdaemon has no routines engine / fleet / pings: System tab shows only the account line
             // pings text names the bot the daemon actually sends from (daemon publishes meta.tgBot from getMe), never a hardcoded handle
@@ -1669,7 +1697,7 @@
             el.addEventListener('change', () => { try { localStorage.setItem(key, el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value); } catch (_) {} });
         }
         // the title dropdown: full names on desktop, short on a phone (the bar is one row there)
-        const TARGET_NAMES = { droplet: ['💧 Droplet Console', '💧 Droplet'], compman: ['🤖 CompMan Console', '🤖 CompMan'], command: ['⌘ Command Console', '⌘ Command'] };
+        const TARGET_NAMES = { droplet: ['💧 Droplet Console', '💧 Droplet'], compman: ['🤖 CompMan Console', '🤖 CompMan'], command: ['⌘ Command Console', '⌘ Command'], local: ['🦙 Local Console', '🦙 Local'] };
         function targetLabel(v) { const n = TARGET_NAMES[v] || [v, v]; return DC.isPhone() ? n[1] : n[0]; }
         function relabelTargets() { const t = $('#dc-chat-target'); if (t) Array.from(t.options).forEach(o => { o.textContent = targetLabel(o.value); }); }
         relabelTargets(); matchMedia('(max-width: 640px)').addEventListener('change', relabelTargets);
