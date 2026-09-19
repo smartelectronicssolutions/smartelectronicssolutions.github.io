@@ -21,11 +21,14 @@ export async function fileToJpegMaxWidth(file, maxW = 2048, quality = 0.9) {
         return { blob: file, contentType: file?.type || "application/octet-stream", didResize: false };
     }
     const bmp = await createImageBitmap(file);
-    if (bmp.width <= maxW) {
+    // 2026-09-18: only JPEG/PNG/GIF pass through untouched. WebP/HEIC/AVIF are re-encoded even when small - an older
+    // iPad Safari cannot draw WebP, and the file lands under a .jpg name anyway.
+    const passthrough = /^image\/(jpeg|png|gif)$/.test(file.type || "");
+    if (bmp.width <= maxW && passthrough) {
         bmp.close?.();
         return { blob: file, contentType: file.type || "image/*", didResize: false };
     }
-    const scale = maxW / bmp.width;
+    const scale = Math.min(1, maxW / bmp.width);
     const w = Math.round(bmp.width * scale);
     const h = Math.round(bmp.height * scale);
     const canvas = document.createElement("canvas");

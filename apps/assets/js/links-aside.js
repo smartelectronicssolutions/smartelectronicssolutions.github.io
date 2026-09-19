@@ -22,7 +22,7 @@
   if (header) {
     const themeToggle = document.getElementById("theme-toggle");
     if (themeToggle) {
-      header.insertBefore(btn, themeToggle);
+      (themeToggle.parentNode || header).insertBefore(btn, themeToggle);   // the toggle is not always a direct child of <header> (budget page threw NotFoundError)
     } else {
       header.appendChild(btn);
     }
