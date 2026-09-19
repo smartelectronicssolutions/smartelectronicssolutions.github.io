@@ -399,7 +399,10 @@ loadCatImages();
 onValue(ref(db,"public/loadout/catalog"),snap=>{const v=snap.val();if(v){CAT={...A.decor,...v};loadCatImages();if(paletteOpen)buildPalette();}});
 const $=id=>document.getElementById(id);
 // broken/dead image URL -> collapse to the item's name text instead of a broken-image icon
-window.imgFail=function(el){const d=document.createElement("div");d.style.cssText="position:absolute;inset:3px;padding:2px;font-size:.5rem;line-height:1.12;word-break:break-word;overflow:hidden;display:flex;align-items:center;justify-content:center;text-align:center";d.textContent=el.alt||"?";el.replaceWith(d);};
+// image-failure telemetry (2026-09-18): which pictures fail on which device -> {BASE}/loadout/imgfail
+let _imgFails=0;window.imgReport=function(el){try{if(_imgFails++>=40)return;const u=new URL(el.currentSrc||el.src||"",location.href);
+  set(ref(db,(typeof BASE==="string"?BASE:"public")+"/loadout/imgfail/"+Date.now()+"_"+_imgFails),{name:el.alt||"",host:u.host,path:u.pathname.slice(0,160),ua:navigator.userAgent.slice(0,140),w:innerWidth,ts:Date.now()}).catch(()=>{});}catch(_){}};
+window.imgFail=function(el){imgReport(el);const d=document.createElement("div");d.style.cssText="position:absolute;inset:3px;padding:2px;font-size:.5rem;line-height:1.12;word-break:break-word;overflow:hidden;display:flex;align-items:center;justify-content:center;text-align:center";d.textContent=el.alt||"?";el.replaceWith(d);};
 // ---- account login: your inventory + journals + progress; world stays shared ----
 function acctModal(v){$("acctModal").style.display=v?"flex":"none";}
 onAuthStateChanged(auth,u=>{ const want=u?u.uid:"public";
@@ -1212,7 +1215,7 @@ function openAllStorage(){const body=$("allBody");body.innerHTML="";
   const seen=new Set(),order=[];const add=k=>{if(k&&k!=="bag"&&!seen.has(k)){seen.add(k);order.push(k);}};
   for(const k in PLACES)add(k);if(typeof VZONES!=="undefined")VZONES.forEach(z=>add(z.loc));Object.keys(byLoc).forEach(add);for(const k in CONTAINERS)add(k);
   const card=it=>{const d=document.createElement("div");d.className="it";
-    d.innerHTML=(it.img?`<img src="${esc(it.img)}" alt="${esc(it.name)}" onerror="this.style.display='none'">`:`<div class="empty" style="position:absolute;inset:3px;font-size:.5rem;line-height:1.12;display:flex;align-items:center;justify-content:center;text-align:center;word-break:break-word;overflow:hidden">${esc(it.name)}</div>`)+((it.qty||0)>1?`<span class="qn">${it.qty}</span>`:"");
+    d.innerHTML=(it.img?`<img src="${esc(it.img)}" alt="${esc(it.name)}" onerror="imgReport(this);this.style.display='none'">`:`<div class="empty" style="position:absolute;inset:3px;font-size:.5rem;line-height:1.12;display:flex;align-items:center;justify-content:center;text-align:center;word-break:break-word;overflow:hidden">${esc(it.name)}</div>`)+((it.qty||0)>1?`<span class="qn">${it.qty}</span>`:"");
     d.title=it.name;d.addEventListener("click",()=>{$("allstor").classList.remove("open");openPanelFor(it.loc==="bag"?null:it.loc);});return d;};
   const sec=(loc,items)=>{const m=locMeta(loc);const s=document.createElement("div");s.className="allsec";
     const h=document.createElement("div");h.className="allhead";h.innerHTML=`<span>${m.icon||"📦"} ${esc(m.label)}</span><b>${items.length}</b>`;s.appendChild(h);
@@ -1312,7 +1315,7 @@ $("shop").addEventListener("click",e=>{if(e.target===$("shop"))$("shop").classLi
 function renderShop(){$("shopBal").textContent=BAL.toFixed(0);const body=$("shopBody");body.innerHTML="";
   const items=ITEMS.slice().sort((a,b)=>itemPrice(a)-itemPrice(b));
   for(const it of items){const price=itemPrice(it);const c=document.createElement("div");c.className="shopit";
-    c.innerHTML=`<div class="shopimg">${it.img?`<img src="${esc(it.img)}" onerror="this.replaceWith('📦')">`:"📦"}</div><div class="shopn">${esc(it.name)}</div><div class="shopm">owned ${it.qty||0} · $${money(price)}</div>`;
+    c.innerHTML=`<div class="shopimg">${it.img?`<img src="${esc(it.img)}" onerror="imgReport(this);this.replaceWith('📦')">`:"📦"}</div><div class="shopn">${esc(it.name)}</div><div class="shopm">owned ${it.qty||0} · $${money(price)}</div>`;
     const b=document.createElement("button");b.className="buyb";b.textContent=price>0?("Buy $"+money(price)):"Take · free";b.disabled=price>BAL;b.onclick=()=>buyItem(it);
     c.ondblclick=()=>{if(BASE!=="public")openItemEdit(it);};c.style.cursor="pointer";
     c.appendChild(b);
