@@ -1311,6 +1311,36 @@
         await loadScript("https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/pdfmake.min.js");
         await loadScript("https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/vfs_fonts.js");
 
+        // IMAGES (2026-09-20): pdfmake can only embed a data URI - it will not fetch a URL.
+        // So every image is resolved up front, before the document definition exists.
+        // Journal images sit on firebasestorage.googleapis.com with Access-Control-Allow-Origin: *,
+        // so fetch() works from the page. One failure must not lose the whole export, so each
+        // is caught on its own and falls back to the old text placeholder.
+        var imgCache = {};
+        var imgWanted = [];
+        (a.sections || []).forEach(function (sec) {
+          (sec.content || []).forEach(function (it) {
+            if (it && it.type === "image" && it.src && imgWanted.indexOf(it.src) === -1) imgWanted.push(it.src);
+          });
+        });
+        if (imgWanted.length) {
+          btn.textContent = "Fetching images\u2026";
+          await Promise.all(imgWanted.map(function (src) {
+            return fetch(src, { mode: "cors" })
+              .then(function (r) { if (!r.ok) throw new Error(r.status); return r.blob(); })
+              .then(function (blob) {
+                return new Promise(function (res, rej) {
+                  var fr = new FileReader();
+                  fr.onload = function () { imgCache[src] = fr.result; res(); };
+                  fr.onerror = rej;
+                  fr.readAsDataURL(blob);
+                });
+              })
+              .catch(function (e) { console.warn("PDF image skipped:", src, e); });
+          }));
+          btn.textContent = "Generating\u2026";
+        }
+
         var body = [];
 
         body.push({ text: a.title || "", style: "title" });
@@ -1334,8 +1364,16 @@
               body.push({ text: item.value, margin: [0, 0, 0, 6] });
             } else if (item.type === "list" && item.items && item.items.length) {
               body.push({ ul: item.items, margin: [0, 0, 0, 8] });
-            } else if (item.type === "image" && item.caption) {
-              body.push({ text: "[ Image: " + item.caption + " ]", italics: true, color: "#888888", fontSize: 10, margin: [0, 2, 0, 8] });
+            } else if (item.type === "image") {
+              // fit (not width) so a tall image is bounded on BOTH axes and cannot
+              // push itself off the page; aspect ratio is preserved either way.
+              if (item.src && imgCache[item.src]) {
+                body.push({ image: imgCache[item.src], fit: [500, 620], margin: [0, 4, 0, item.caption ? 2 : 10] });
+                if (item.caption) body.push({ text: item.caption, italics: true, color: "#666666", fontSize: 9, margin: [0, 0, 0, 10] });
+              } else if (item.caption) {
+                // fetch failed, or the item has no src at all - keep the old placeholder
+                body.push({ text: "[ Image: " + item.caption + " ]", italics: true, color: "#888888", fontSize: 10, margin: [0, 2, 0, 8] });
+              }
             }
           });
         });

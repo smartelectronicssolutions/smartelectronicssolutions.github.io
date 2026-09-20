@@ -1269,12 +1269,31 @@ function renderPick(show){const el=$("storPick");const a=AREAS[curArea]||{};el.i
   if(show)el.classList.add("on");}
 function setBackdrop(b){update(ref(db,"public/loadout/areas/"+curArea),{bg:b.k,nw:b.nw,nh:b.nh}).catch(()=>{});
   const a=AREAS[curArea];if(a){a.bg=b.k;a.nw=b.nw;a.nh=b.nh;}$("storBg").src=A[b.k]||A.closet;requestAnimationFrame(renderArea);renderPick(true);}
-function addContainer(){const name=(prompt("New container name (e.g. Drawer, Bin, Shelf):")||"").trim();if(!name)return;const key="c_"+name.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"").slice(0,20)+"_"+Date.now().toString(36).slice(-5);set(ref(db,BASE+"/loadout/containers/"+key),{name:name.slice(0,40)}).catch(()=>{});set(ref(db,BASE+"/loadout/cplace/"+key),{area:curArea,x:24,y:24}).catch(()=>{});}
+function addContainer(){const name=(prompt("New container name (e.g. Drawer, Bin, Shelf):")||"").trim();if(!name)return;const key="c_"+name.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"").slice(0,20)+"_"+Date.now().toString(36).slice(-5);set(ref(db,BASE+"/loadout/containers/"+key),{name:name.slice(0,40)}).catch(()=>{});/* TRAY BY DEFAULT (2026-09-20, L): this used to file the new container into curArea - whatever area happened to be open - so one made while looking in the van went straight into the van and never showed up at the bottom. It starts loose in the tray and stays there until dragged. No x/y: the tray arranges its own chips. */set(ref(db,BASE+"/loadout/cplace/"+key),{area:"tray"}).catch(()=>{});}
 $("pDel").addEventListener("click",()=>{if(!openPlace||String(openPlace).indexOf("c_")!==0)return;if((byLoc[openPlace]||[]).length){alert("Move its items out first.");return;}remove(ref(db,BASE+"/loadout/containers/"+openPlace)).catch(()=>{});remove(ref(db,BASE+"/loadout/cplace/"+openPlace)).catch(()=>{});$("overlay").classList.remove("open");});
 (function(){const pn=$("pName");if(!pn)return;
   pn.addEventListener("blur",()=>{const loc=pn.dataset.loc;if(!loc)return;const v=pn.textContent.trim().replace(/\s+/g," ").slice(0,40);if(v&&v!==locMeta(loc).label){set(ref(db,BASE+"/loadout/containers/"+loc),{name:v}).catch(()=>{});}else if(!v){if(String(loc).indexOf("c_")!==0)remove(ref(db,BASE+"/loadout/containers/"+loc)).catch(()=>{});pn.textContent=locMeta(loc).label;}});
   pn.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();pn.blur();}else if(e.key==="Escape"){e.preventDefault();const loc=pn.dataset.loc;if(loc)pn.textContent=locMeta(loc).label;pn.blur();}});
 })();
+// CAPACITY: a SPACE holds many containers, an ITEM holds one (2026-09-20, L chose "swap").
+// Derived, never stored - no new field on the node, which was L's constraint. Areas born from a
+// decor item are id'd "d_<room>_<id>"; the cabinet flow stamps those bg:"cabinet" because a cabinet
+// is explicitly "a thing you arrange containers inside". Any other item-storage is a single slot.
+// Every existing area is unaffected: van/closet/user areas aren't d_*, and today's cabinets are.
+function areaCap(id){const a=AREAS[id]||{};return (String(id).indexOf("d_")===0&&a.bg!=="cabinet")?1:Infinity;}
+// ONE way for a container to change hands, so the capacity rule cannot be bypassed by whichever
+// drag path the user happened to take (there were four, each writing cplace directly).
+function placeContainer(loc,area,x,y){
+  if(!area||area==="tray"){set(ref(db,BASE+"/loadout/cplace/"+loc),{area:"tray"}).catch(()=>{});return;}
+  if(areaCap(area)===1){
+    // SWAP, not refuse. A refused drag is a dead end with nothing on screen saying why; a swap is
+    // always undoable because the container it displaces lands in the tray, visible, ready to re-place.
+    for(const other of containerLocs())
+      if(other!==loc&&areaOf(other)===area)set(ref(db,BASE+"/loadout/cplace/"+other),{area:"tray"}).catch(()=>{});
+  }
+  const p={area:area};if(x!=null)p.x=x;if(y!=null)p.y=y;
+  set(ref(db,BASE+"/loadout/cplace/"+loc),p).catch(()=>{});
+}
 function renderTray(){const tray=$("storTray");tray.innerHTML="";
   const un=containerLocs().filter(loc=>areaOf(loc)===null);
   if(!un.length){tray.innerHTML="<span style='font-family:var(--mono);font-size:.55rem;color:var(--dim)'>All containers placed.</span>";return;}
@@ -1290,23 +1309,23 @@ function makeContainerDrag(el,loc,scene,img,a){let drag=false,moved,sx,sy,ox,oy;
     el.style.left=(ox+dx)+"px";el.style.top=(oy+dy)+"px";hiChip(e.clientX,e.clientY);$("storTray").classList.toggle("drop",inRect($("storTray"),e.clientX,e.clientY));});
   el.addEventListener("pointerup",e=>{if(!drag)return;drag=false;el.classList.remove("dragging");clearChipHi();$("storTray").classList.remove("drop");
     if(!moved){openPanelFor(loc);return;}
-    if(inRect($("storTray"),e.clientX,e.clientY)){set(ref(db,BASE+"/loadout/cplace/"+loc),{area:"tray"}).catch(()=>{});return;}   // drop on tray = un-place
+    if(inRect($("storTray"),e.clientX,e.clientY)){placeContainer(loc,"tray");return;}   // drop on tray = un-place
     const chip=chipAt(e.clientX,e.clientY);
-    if(chip&&chip!==curArea){set(ref(db,BASE+"/loadout/cplace/"+loc),{area:chip,x:24,y:24}).catch(()=>{});return;}
+    if(chip&&chip!==curArea){placeContainer(loc,chip,24,24);return;}
     const sw=(img.clientWidth||a.nw)/(a.nw||320),sh=(img.clientHeight||a.nh)/(a.nh||288);
     const nx=Math.max(0,Math.round(parseFloat(el.style.left)/sw)),ny=Math.max(0,Math.round(parseFloat(el.style.top)/sh));
-    set(ref(db,BASE+"/loadout/cplace/"+loc),{area:curArea,x:nx,y:ny}).catch(()=>{});});}
+    placeContainer(loc,curArea,nx,ny);});}
 // drag a tray (unplaced) container into the scene = place it in this area, or onto an area tab
 function makeTrayDrag(el,loc){let drag=false;
   el.addEventListener("pointerdown",e=>{drag=true;try{el.setPointerCapture(e.pointerId);}catch(_){}el.classList.add("dragging");});
   el.addEventListener("pointermove",e=>{if(!drag)return;hiChip(e.clientX,e.clientY);const sc=$("storScene");sc.classList.toggle("drop",inRect(sc,e.clientX,e.clientY));});
   el.addEventListener("pointerup",e=>{if(!drag)return;drag=false;el.classList.remove("dragging");clearChipHi();$("storScene").classList.remove("drop");
     const chip=chipAt(e.clientX,e.clientY);
-    if(chip){set(ref(db,BASE+"/loadout/cplace/"+loc),{area:chip,x:24,y:24}).catch(()=>{});return;}
+    if(chip){placeContainer(loc,chip,24,24);return;}
     const sc=$("storScene");if(inRect(sc,e.clientX,e.clientY)){const pr=sc.getBoundingClientRect(),a=areaCfg(curArea),img=$("storBg");
       const sw=(img.clientWidth||a.nw)/(a.nw||320),sh=(img.clientHeight||a.nh)/(a.nh||288);
       const nx=Math.max(0,Math.round((e.clientX-pr.left)/sw)),ny=Math.max(0,Math.round((e.clientY-pr.top)/sh));
-      set(ref(db,BASE+"/loadout/cplace/"+loc),{area:curArea,x:nx,y:ny}).catch(()=>{});}});}
+      placeContainer(loc,curArea,nx,ny);}});}
 function inRect(el,x,y){const r=el.getBoundingClientRect();return x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom;}
 function chipAt(x,y){for(const c of $("storAreas").querySelectorAll(".achip[data-area]"))if(inRect(c,x,y))return c.dataset.area;return null;}
 function hiChip(x,y){clearChipHi();for(const c of $("storAreas").querySelectorAll(".achip[data-area]"))if(inRect(c,x,y))c.classList.add("drop");}

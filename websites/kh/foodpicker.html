@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en" class="theme-kamehouse">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kame House — Food Picker</title>
+  <link rel="stylesheet" href="../../assets/css/master.css">
+  <link rel="stylesheet" href="assets/css/kh.css">
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/img/icons/favicon-32x32.png">
+  <link rel="manifest" href="site.webmanifest">
+  <script src="assets/js/html.js" defer></script>
+  <script type="module" src="assets/js/kh-auth.js" defer></script>
+  <style>
+    /* Food Picker (2026-09-20). A decision surface, not a report: the only question it answers
+       is "what can I do right now", and it answers it by taking options AWAY. */
+    .fp-head { display:flex; gap:14px; flex-wrap:wrap; align-items:stretch; margin-bottom:14px; }
+    .fp-stat { flex:1 1 150px; background:var(--surface); border:1px solid var(--border);
+      border-radius:var(--radius); padding:12px 14px; }
+    .fp-stat b { display:block; font-size:1.5rem; line-height:1.2; }
+    .fp-stat span { color:var(--muted); font-size:var(--sm); }
+    .fp-bar { height:8px; border-radius:6px; background:var(--surface2,#0f1a26); overflow:hidden; margin-top:8px; }
+    .fp-bar i { display:block; height:100%; background:var(--primary); transition:width .35s; }
+    .fp-bar.over i { background:#b4452f; }
+
+    .fp-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(168px,1fr)); gap:10px; }
+    .fp-opt { position:relative; text-align:left; background:var(--surface); border:1px solid var(--border);
+      border-radius:var(--radius); padding:12px; cursor:pointer; font:inherit; color:var(--text);
+      transition:border-color .15s, transform .08s; }
+    .fp-opt:hover:not(.off) { border-color:var(--primary); }
+    .fp-opt:active:not(.off) { transform:scale(.985); }
+    .fp-opt .nm { font-weight:600; display:block; margin-bottom:3px; }
+    .fp-opt .cost { color:var(--muted); font-size:var(--sm); }
+    .fp-opt .why { display:block; margin-top:7px; font-size:.72rem; color:var(--muted); }
+    /* greyed OUT - the whole point of the app */
+    .fp-opt.off { opacity:.34; cursor:not-allowed; filter:grayscale(1); }
+    .fp-opt.off .why { color:#b4452f; opacity:1; filter:none; }
+    .fp-opt .dots { position:absolute; top:10px; right:10px; font-size:.7rem; letter-spacing:1px; color:var(--muted); }
+    .fp-sec { margin:18px 0 8px; font-size:.7rem; text-transform:uppercase; letter-spacing:1.5px; color:var(--muted); }
+    .fp-note { color:var(--muted); font-size:var(--sm); line-height:1.5; }
+    .fp-cfg { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .fp-cfg input { width:6em; background:var(--bg); color:var(--text); border:1px solid var(--border);
+      border-radius:6px; padding:5px 8px; font:inherit; }
+  </style>
+</head>
+<body class="todo">
+  <header class="kh-nav"></header>
+
+  <div class="wrap" style="width: stretch;">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+      <h1 style="margin:0;font-size:1.3rem;">🍽 Food Picker</h1>
+      <span class="fp-note" id="fp-week"></span>
+    </div>
+
+    <div class="fp-head">
+      <div class="fp-stat">
+        <span>Left this week</span>
+        <b id="fp-left">—</b>
+        <div class="fp-bar" id="fp-bar"><i style="width:0"></i></div>
+      </div>
+      <div class="fp-stat">
+        <span>Spent so far</span>
+        <b id="fp-spent">—</b>
+        <span id="fp-spent-n"></span>
+      </div>
+      <div class="fp-stat">
+        <span>Left per day</span>
+        <b id="fp-perday">—</b>
+        <span id="fp-days"></span>
+      </div>
+    </div>
+
+    <div class="fp-sec">What's open to you</div>
+    <div class="fp-grid" id="fp-open"></div>
+
+    <div class="fp-sec">Closed for this week</div>
+    <div class="fp-grid" id="fp-closed"></div>
+
+    <div class="fp-sec">Settings</div>
+    <div class="fp-cfg fp-note">
+      Weekly food budget $<input type="number" id="fp-budget" min="0" step="10" inputmode="numeric">
+      <span id="fp-saved" style="opacity:.75;"></span>
+    </div>
+    <p class="fp-note" style="margin-top:12px;">
+      Counts every <b>dining, coffee, fast-food, bar and grocery</b> charge in your ledger since
+      Monday — read live, so it updates itself as charges land. Typical costs and weekly caps
+      come from your own 33 months of spending, not from guesses. An option greys out when
+      you've hit its cap for the week, or when what it usually costs no longer fits what's left.
+    </p>
+    <p class="fp-note" id="fp-status" style="margin-top:6px;"></p>
+  </div>
+
+  <script type="module">
+    import { auth, onAuthStateChanged, database, ref, onValue, set }
+      from '../../assets/js/firebase-init.js';
+
+    // Seeded from the 2026-09-20 food analysis: 871 transactions, 33 months of real spend.
+    // avg = what a visit ACTUALLY costs him. cap = visits per week before it greys out, set
+    // from his own rate (Dunkin ran ~1.2/week over the period, so 3 is generous not punitive).
+    const PLACES = [
+      { b: 'Dunkin',       avg: 6.97,  cap: 3, kind: 'coffee' },
+      { b: 'Burger King',  avg: 11.81, cap: 1, kind: 'fast'   },
+      { b: "McDonald's",   avg: 12.01, cap: 1, kind: 'fast'   },
+      { b: "Wendy's",      avg: 13.39, cap: 2, kind: 'fast'   },
+      { b: "Arby's",       avg: 13.83, cap: 1, kind: 'fast'   },
+      { b: 'Royal Pizza',  avg: 22.95, cap: 1, kind: 'sit'    },
+      { b: 'Tasty',        avg: 24.77, cap: 1, kind: 'sit'    },
+      { b: "Domino's",     avg: 27.39, cap: 1, kind: 'sit'    },
+      { b: 'IHOP',         avg: 27.89, cap: 1, kind: 'sit'    },
+      { b: 'Pho Saigon',   avg: 34.75, cap: 1, kind: 'sit'    },
+      { b: 'Costco',       avg: 68.05, cap: 1, kind: 'shop'   },
+      { b: 'Stop & Shop',  avg: 18.77, cap: 1, kind: 'shop'   },
+      { b: 'Big Y',        avg: 7.55,  cap: 2, kind: 'shop'   },
+    ];
+    const FOOD_TAGS = ['🍽', '☕', '🍔', '🍺', '🛒'];
+    const DEFAULT_BUDGET = 120;
+
+    const $ = s => document.querySelector(s);
+    const usd = v => '$' + (Math.round(v * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const normTag = t => String(t == null ? '' : t).trim().replace(/️/g, '');
+
+    // week runs Monday -> Sunday, because a food budget is a week of meals, not a calendar artefact
+    function weekStart(d = new Date()) {
+      const x = new Date(d); x.setHours(0, 0, 0, 0);
+      x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
+      return x;
+    }
+    function txDate(t) {
+      const v = t && t.date;
+      if (typeof v === 'number' && v) return new Date(v);
+      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v || ''));
+      return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null;
+    }
+    function brandOf(name) {
+      const u = String(name || '').toUpperCase();
+      for (const p of PLACES) {
+        const key = p.b.toUpperCase().replace(/[^A-Z]/g, '');
+        if (u.replace(/[^A-Z]/g, '').includes(key.slice(0, 6))) return p.b;
+      }
+      return null;
+    }
+
+    let UID = null, BUDGET = DEFAULT_BUDGET, SPENT = 0, VISITS = {}, TXN = 0;
+
+    onAuthStateChanged(auth, user => {
+      if (!user) { $('#fp-status').textContent = 'Sign in to see your week.'; return; }
+      UID = user.uid;
+      onValue(ref(database, `${UID}/household/foodPlan/weeklyBudget`), s => {
+        const v = Number(s.val());
+        BUDGET = v > 0 ? v : DEFAULT_BUDGET;
+        // never refill the box while he is typing in it - this listener fires on our own
+        // write, and without the guard it would stamp the stored value over his keystrokes.
+        const box = $('#fp-budget');
+        if (box && document.activeElement !== box) box.value = BUDGET;
+        render();
+      });
+      onValue(ref(database, `${UID}/ledgerTx`), s => { readSpend(s.val() || {}); render(); });
+    });
+
+    function readSpend(ledger) {
+      const from = weekStart().getTime();
+      SPENT = 0; VISITS = {}; TXN = 0;
+      for (const yr of Object.keys(ledger)) {
+        const txs = ledger[yr];
+        if (!txs || typeof txs !== 'object') continue;
+        for (const k of Object.keys(txs)) {
+          const t = txs[k];
+          if (!t || typeof t !== 'object') continue;
+          const tags = (t.tags || []).map(normTag);
+          if (!tags.some(x => FOOD_TAGS.includes(x))) continue;
+          const d = txDate(t);
+          if (!d || d.getTime() < from) continue;
+          SPENT += Number(t.amt) || 0;
+          TXN++;
+          const b = brandOf(t.name);
+          if (b) VISITS[b] = (VISITS[b] || 0) + 1;
+        }
+      }
+    }
+
+    function render() {
+      const left = BUDGET - SPENT;
+      const ws = weekStart();
+      const daysLeft = Math.max(1, 7 - Math.floor((Date.now() - ws.getTime()) / 86400000));
+      $('#fp-week').textContent = 'week of ' + ws.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      $('#fp-left').textContent = usd(left);
+      $('#fp-left').style.color = left < 0 ? '#b4452f' : '';
+      $('#fp-spent').textContent = usd(SPENT);
+      $('#fp-spent-n').textContent = TXN + (TXN === 1 ? ' transaction' : ' transactions') + ' · budget ' + usd(BUDGET);
+      $('#fp-perday').textContent = usd(Math.max(0, left) / daysLeft);
+      $('#fp-days').textContent = daysLeft + (daysLeft === 1 ? ' day left' : ' days left');
+      const pct = Math.min(100, Math.max(0, 100 * SPENT / (BUDGET || 1)));
+      $('#fp-bar').classList.toggle('over', SPENT > BUDGET);
+      $('#fp-bar').firstElementChild.style.width = pct + '%';
+
+      const open = [], shut = [];
+      for (const p of PLACES) {
+        const used = VISITS[p.b] || 0;
+        let why = '';
+        if (used >= p.cap) why = `already ${used}× this week (cap ${p.cap})`;
+        else if (p.avg > left) why = `typically ${usd(p.avg)} — only ${usd(Math.max(0, left))} left`;
+        (why ? shut : open).push({ p, used, why });
+      }
+      // cheapest first among what's open: the app should make the good choice the easy one
+      open.sort((a, b) => a.p.avg - b.p.avg);
+      shut.sort((a, b) => a.p.avg - b.p.avg);
+      $('#fp-open').innerHTML = open.map(card).join('') ||
+        '<p class="fp-note">Nothing fits what\'s left this week. That is the app working, not breaking.</p>';
+      $('#fp-closed').innerHTML = shut.map(card).join('') || '<p class="fp-note">Nothing closed off yet.</p>';
+    }
+
+    function card(o) {
+      const dots = '●'.repeat(o.used) + '○'.repeat(Math.max(0, o.p.cap - o.used));
+      return `<button type="button" class="fp-opt${o.why ? ' off' : ''}" ${o.why ? 'disabled' : ''}>
+        <span class="dots">${dots}</span>
+        <span class="nm">${o.p.b}</span>
+        <span class="cost">~${usd(o.p.avg)} a visit</span>
+        <span class="why">${o.why || (o.p.cap - o.used) + ' left this week'}</span>
+      </button>`;
+    }
+
+    // AUTO-SAVE (2026-09-20, L: "can it update without my pressing save"). Same shape as
+    // onlinenotes: type, stop, it persists. The cards re-render on every keystroke so options
+    // grey and un-grey as the number moves - waiting for a button to see that was backwards.
+    let budgetTimer = null;
+    const budgetBox = $('#fp-budget');
+    if (budgetBox) budgetBox.addEventListener('input', () => {
+      const v = Number(budgetBox.value);
+      if (v > 0) { BUDGET = v; render(); }          // feedback immediately
+      $('#fp-saved').textContent = '…';
+      clearTimeout(budgetTimer);
+      budgetTimer = setTimeout(async () => {        // persistence once he stops
+        if (!UID || !(v > 0)) { $('#fp-saved').textContent = ''; return; }
+        try {
+          await set(ref(database, `${UID}/household/foodPlan/weeklyBudget`), v);
+          $('#fp-saved').textContent = 'saved';
+          setTimeout(() => { if ($('#fp-saved').textContent === 'saved') $('#fp-saved').textContent = ''; }, 1400);
+        } catch (_) { $('#fp-saved').textContent = 'not saved - check your connection'; }
+      }, 600);
+    });
+  </script>
+</body>
+</html>

@@ -242,6 +242,65 @@
         .dc-snapfull { position: fixed; inset: 0; background: #000c; z-index: 999; display: flex;
             align-items: center; justify-content: center; cursor: zoom-out; }
         .dc-snapfull img { max-width: 96vw; max-height: 94vh; border-radius: 8px; }
+        /* THEME (2026-09-20, L): per-device look. Accent overrides the global var so every
+           existing var(--accent) follows. Background sits UNDER the surface colour so a dark
+           image can never make text unreadable. Text size scales the log, not the chrome. */
+        #dc-chat-log { position: relative; }
+        /* STATIC BACKGROUND (2026-09-20, L: "I just scroll away from it when I scroll").
+           This was an absolutely-positioned ::before inside the SCROLLING container, so
+           inset:0 sized it to the whole conversation and it scrolled off with the content.
+           A real background on the element is painted against its border box and stays put.
+           Opacity is done with a veil layer because an element background has none of its
+           own; the veil is color-mix'd from --surface2 so it follows the theme and behaves
+           in light mode. */
+        .dc-chat.dc-bg {
+            background-image:
+                linear-gradient(color-mix(in srgb, var(--surface2) var(--dc-veil, 70%), transparent),
+                                color-mix(in srgb, var(--surface2) var(--dc-veil, 70%), transparent)),
+                var(--dc-bg-img);
+            background-size: cover;
+            background-position: center center;
+            background-repeat: no-repeat;
+            background-attachment: scroll;   /* pinned to the box, NOT to the content */
+        }
+        /* GLASS (2026-09-20, L: "can the chat box be somewhat transparent to see background
+           image"). Only with an image set - .dc-bg - so the default look never changes.
+           The blur, not the opacity, is what keeps text readable: it flattens whatever is
+           behind into a smooth field, so a busy photo cannot fight the words. color-mix keeps
+           the theme tokens in charge, and a browser without it falls back to today's solid. */
+        .dc-chat.dc-bg .dc-bub.drop {
+            background: color-mix(in srgb, var(--surface) var(--dc-bub-op, 70%), transparent);
+            -webkit-backdrop-filter: blur(7px); backdrop-filter: blur(7px);
+        }
+                /* the message box, same glass as the bubbles. background-COLOR only: the usage
+           gradient lives on background-image and has to survive - it is the fill showing
+           today's output tokens against the 30-day peak. */
+        .dc-chat.dc-bg .dc-chat-input textarea {
+            background-color: color-mix(in srgb, var(--bg) var(--dc-bub-op, 70%), transparent);
+            -webkit-backdrop-filter: blur(7px); backdrop-filter: blur(7px);
+        }
+        .dc-chat.dc-bg .dc-chat-input textarea:focus {
+            background-color: color-mix(in srgb, var(--bg) 84%, transparent);
+        }
+        .dc-chat.dc-bg .dc-bub.me {
+            background: color-mix(in srgb, var(--dc-me-bg) var(--dc-bub-op, 70%), transparent);
+            -webkit-backdrop-filter: blur(7px); backdrop-filter: blur(7px);
+        }
+        .dc-pop .dc-theme-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+        .dc-pop input[type=color] { width: 26px; height: 22px; padding: 0; border: 1px solid var(--border);
+            border-radius: 5px; background: none; cursor: pointer; }
+        .dc-pop input[type=url] { flex: 1; min-width: 90px; background: var(--bg); color: var(--text);
+            border: 1px solid var(--border); border-radius: 6px; padding: 2px 5px;
+            font-size: 0.68rem; font-family: var(--font-mono); }
+        /* UNREAD (2026-09-20, L): a reply that landed while you were in another tab.
+           Distinct from .thinking, which means a reply is still on its way. */
+        .dc-topic.unread { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+        .dc-topic.unread .n { background: var(--accent); color: var(--bg); }
+        .dc-topic.unread::after {
+            content: ""; display: inline-block; width: 6px; height: 6px; margin-left: 5px;
+            border-radius: 50%; background: var(--accent); vertical-align: middle;
+        }
+        .dc-topic.thinking.unread::after { display: none; }   /* in-flight is the louder fact */
     </style>
 </head>
 <body>
@@ -582,7 +641,9 @@
     <!-- ═══ Droplet Console (Yuki upgrade) ═══ -->
     <style>
         /* ── console tokens (2026-09-18 theme pass): dark defaults + light override; the purple is L's ── */
-        #dc-console { --dc-purple: #c084fc; --dc-amber: #d9a441; --dc-green: #4ea884; --dc-red: #e0687a; --dc-violet: #9a6fe0;
+        #dc-console {
+            --dc-r-sm: 6px; --dc-r-md: 8px; --dc-r-lg: 14px; --dc-r-pill: 999px;
+            --dc-purple: #c084fc; --dc-amber: #d9a441; --dc-green: #4ea884; --dc-red: #e0687a; --dc-violet: #9a6fe0;
             --dc-on-purple: #1a0d28; --dc-on-green: #04231a; --dc-panel: rgba(15,23,42,0.96); --dc-me-bg: #2b6a55; --dc-me-fg: #eafff6;
             --dc-inset: rgba(0,0,0,0.22); --dc-shadow: rgba(0,0,0,0.4); }
         /* 2026-09-19: I darkened these for contrast and L said it looked bad - reverted to the palette
@@ -600,12 +661,12 @@
         #dc-console.open { display: flex; }
         .dc-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; padding: 6px 12px;
             border-bottom: 1px solid var(--border); background: var(--surface); }
-        .dc-bar .dc-brand { font-weight: 600; color: var(--dc-purple); display: flex; align-items: center; gap: 4px; font-size: 0.95rem; margin-right: 4px; }
-        .dc-bar select.dc-brand { display: inline-block; width: auto; flex: 0 0 auto; max-width: 15em; background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 2px 4px; cursor: pointer; font-family: inherit; }
+        .dc-bar .dc-brand { font-weight: 600; color: var(--dc-purple); display: flex; align-items: center; gap: 4px; font-size: calc(0.95rem * var(--dc-fs, 1)); margin-right: 4px; }
+        .dc-bar select.dc-brand { display: inline-block; width: auto; flex: 0 0 auto; max-width: 15em; background: transparent; border: 1px solid transparent; border-radius: var(--dc-r-sm); padding: 2px 4px; cursor: pointer; font-family: inherit; }
         .dc-bar select.dc-brand:hover, .dc-bar select.dc-brand:focus { border-color: color-mix(in srgb, var(--dc-purple) 45%, transparent); outline: none; }
         .dc-bar select.dc-brand option { color: var(--text); background: var(--surface); font-weight: 500; }
-        .dc-bar .dc-tab { padding: 5px 10px; font-size: 0.82rem; border-radius: 0; }
-        .dc-account { font-family: var(--font-mono); font-size: 0.74rem; color: var(--muted); margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+        .dc-bar .dc-tab { padding: 5px 10px; font-size: calc(0.82rem * var(--dc-fs, 1)); border-radius: 0; }
+        .dc-account { font-family: var(--font-mono); font-size: calc(0.74rem * var(--dc-fs, 1)); color: var(--muted); margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
         /* scroll lock: while the console is open the page behind must not scroll (phone: a swipe on the log was
            scrolling the hub underneath first, then the messages). body goes fixed; the log contains its own overscroll. */
         body.dc-open { position: fixed; inset: 0; width: 100%; overflow: hidden; }
@@ -617,16 +678,16 @@
         #dc-console.guest #dc-cmd-lbl, #dc-console.guest #dc-pg-lbl { display: none; }
         #dc-console.kd #dc-rt-panel > :not(.dc-account), #dc-console.kd #dc-fl-panel { display: none; }   /* portable daemon: no routines/fleet/pings to show */
         .dc-menu { position: relative; }
-        .dc-gear { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 6px; padding: 3px 8px; cursor: pointer; font-size: 0.85rem; }
+        .dc-gear { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: var(--dc-r-sm); padding: 3px 8px; cursor: pointer; font-size: calc(0.85rem * var(--dc-fs, 1)); }
         .dc-gear:hover, .dc-gear.open { color: var(--dc-purple); border-color: var(--dc-purple); }
-        .dc-pop { position: absolute; top: calc(100% + 6px); left: 0; z-index: 5; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
-            display: flex; flex-direction: column; gap: 9px; min-width: 230px; box-shadow: 0 8px 24px var(--dc-shadow); font-size: 0.78rem; }
+        .dc-pop { position: absolute; top: calc(100% + 6px); left: 0; z-index: 5; background: var(--surface); border: 1px solid var(--border); border-radius: var(--dc-r-md); padding: 10px 12px;
+            display: flex; flex-direction: column; gap: 9px; min-width: 230px; box-shadow: 0 8px 24px var(--dc-shadow); font-size: calc(0.78rem * var(--dc-fs, 1)); }
         .dc-pop[hidden] { display: none; }   /* author display:flex would otherwise beat the UA [hidden] rule */
-        .dc-pop .dc-btn.sm { padding: 4px 9px; font-size: 0.74rem; align-self: flex-start; }
-        .dc-pop .dc-size { font-family: var(--font-mono); font-size: 0.66rem; opacity: .7; }
-        .dc-pop input[type=number] { width: 3.6em; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 2px 5px; font-size: 0.72rem; font-family: var(--font-mono); }
+        .dc-pop .dc-btn.sm { padding: 4px 9px; font-size: calc(0.74rem * var(--dc-fs, 1)); align-self: flex-start; }
+        .dc-pop .dc-size { font-family: var(--font-mono); font-size: calc(0.66rem * var(--dc-fs, 1)); opacity: .7; }
+        .dc-pop input[type=number] { width: 3.6em; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: var(--dc-r-sm); padding: 2px 5px; font-size: calc(0.72rem * var(--dc-fs, 1)); font-family: var(--font-mono); }
         .dc-bar .dc-sp { flex: 1; }
-        .dc-pill { font-family: monospace; font-size: 0.68rem; padding: 3px 9px; border-radius: 20px;
+        .dc-pill { font-family: monospace; font-size: calc(0.68rem * var(--dc-fs, 1)); padding: 3px 9px; border-radius: var(--dc-r-lg);
             border: 1px solid var(--border); color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
         .dc-pill .d { width: 7px; height: 7px; border-radius: 50%; background: #888; }
         .dc-pill.on .d { background: #4ea; box-shadow: 0 0 0 3px rgba(70,238,170,.15); }
@@ -634,11 +695,11 @@
         .dc-pill.busy .d { background: #fc6; animation: dcPulse 1s ease-in-out infinite; }
         .dc-pill.clk { cursor: pointer; } .dc-pill.clk:hover { border-color: var(--text); color: var(--text); }
         @keyframes dcPulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
-        #dc-x { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 6px;
-            padding: 5px 11px; cursor: pointer; font-size: 0.9rem; }
+        #dc-x { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: var(--dc-r-sm);
+            padding: 5px 11px; cursor: pointer; font-size: calc(0.9rem * var(--dc-fs, 1)); }
         #dc-x:hover { color: var(--text); border-color: var(--accent); }
         .dc-tab { background: none; border: none; border-bottom: 2px solid transparent; color: var(--muted);
-            padding: 8px 16px; cursor: pointer; font-size: 0.85rem; }
+            padding: 8px 16px; cursor: pointer; font-size: calc(0.85rem * var(--dc-fs, 1)); }
         .dc-tab.active { color: var(--dc-purple); border-bottom-color: var(--dc-purple); }
         .dc-body { flex: 1; overflow: auto; padding: 12px 18px 10px; display: flex; flex-direction: column; min-height: 0; }
         /* panels: only the CHAT panel flexes to fill the body; the System panels take their natural height and the body
@@ -646,13 +707,13 @@
         .dc-panel { display: none; } .dc-panel.active { display: block; flex: none; }
         #dc-chat-panel.active { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }   /* dterm: chat owns the whole body */
         #dc-fl-panel.active { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
-        .dc-btn { padding: 8px 16px; border-radius: 6px; border: 1px solid var(--dc-purple); background: var(--dc-purple); color: var(--dc-on-purple);
-            font-weight: 600; cursor: pointer; font-size: 0.85rem; }
+        .dc-btn { padding: 8px 16px; border-radius: var(--dc-r-sm); border: 1px solid var(--dc-purple); background: var(--dc-purple); color: var(--dc-on-purple);
+            font-weight: 600; cursor: pointer; font-size: calc(0.85rem * var(--dc-fs, 1)); }
         .dc-btn:hover { filter: brightness(1.08); } .dc-btn:disabled { opacity: .5; cursor: default; }
         .dc-btn.ghost { background: transparent; color: var(--muted); border-color: var(--border); font-weight: 500; }
         .dc-btn.push { background: var(--dc-green); border-color: var(--dc-green); color: var(--dc-on-green); }
-        .dc-chk { font-size: 0.78rem; color: var(--muted); display: inline-flex; gap: 5px; align-items: center; cursor: pointer; }
-        .dc-status { font-family: monospace; font-size: 0.72rem; color: var(--muted); min-height: 15px; margin-bottom: 8px; }
+        .dc-chk { font-size: calc(0.78rem * var(--dc-fs, 1)); color: var(--muted); display: inline-flex; gap: 5px; align-items: center; cursor: pointer; }
+        .dc-status { font-family: monospace; font-size: calc(0.72rem * var(--dc-fs, 1)); color: var(--muted); min-height: 15px; margin-bottom: 8px; }
         .dc-status.dc-guest-note { color: var(--dc-amber); min-height: 0; margin: 2px 2px 6px; line-height: 1.35; }
         .dc-status.dc-guest-note[hidden] { display: none; }
         /* dterm: fills the console body edge to edge (was 72vh capped at 640px) */
@@ -667,7 +728,7 @@
         .dc-topics { display: flex; gap: 6px; align-items: center; overflow-x: auto; padding: 6px 2px; border-bottom: 1px solid var(--border); scrollbar-width: none; flex: 0 0 auto; }
         .dc-topics::-webkit-scrollbar { display: none; }
         .dc-chat.newest-first .dc-topics { order: 0; }
-        .dc-topic { flex: 0 0 auto; border: 1px solid var(--border); background: transparent; color: var(--muted); border-radius: 999px; padding: 3px 10px; font-size: 0.74rem; cursor: pointer; white-space: nowrap; font-family: inherit; }
+        .dc-topic { flex: 0 0 auto; border: 1px solid var(--border); background: transparent; color: var(--muted); border-radius: var(--dc-r-pill); padding: 3px 10px; font-size: calc(0.74rem * var(--dc-fs, 1)); cursor: pointer; white-space: nowrap; font-family: inherit; }
         .dc-topic.on { color: var(--dc-purple); border-color: var(--dc-purple); background: color-mix(in srgb, var(--dc-purple) 10%, transparent); font-weight: 600; }
         .dc-topic .n { opacity: 0.65; margin-left: 4px; font-weight: 400; }
         .dc-topic .x { margin-left: 6px; opacity: 0.7; }
@@ -676,52 +737,52 @@
         .dc-chat-log.slide-l { animation: dcSlideL 0.18s ease-out; } .dc-chat-log.slide-r { animation: dcSlideR 0.18s ease-out; }
         .dc-chat-log { touch-action: pan-y; }
         .dc-chat { position: relative; }
-        .dc-topic-toast { position: fixed; left: 50%; top: 96px; transform: translate(-50%, 0); z-index: 2100;   /* fixed to the visual viewport (keyboard-safe, 2026-09-19) */ pointer-events: none; background: var(--dc-panel); color: var(--dc-purple); border: 1px solid var(--dc-purple); border-radius: 12px; padding: 8px 16px; font-size: 0.95rem; font-weight: 600; opacity: 0; transition: opacity 0.18s; white-space: nowrap; }
+        .dc-topic-toast { position: fixed; left: 50%; top: 96px; transform: translate(-50%, 0); z-index: 2100;   /* fixed to the visual viewport (keyboard-safe, 2026-09-19) */ pointer-events: none; background: var(--dc-panel); color: var(--dc-purple); border: 1px solid var(--dc-purple); border-radius: var(--dc-r-lg); padding: 8px 16px; font-size: calc(0.95rem * var(--dc-fs, 1)); font-weight: 600; opacity: 0; transition: opacity 0.18s; white-space: nowrap; }
         .dc-topic-toast.show { opacity: 1; }
         .dc-nav { position: fixed; z-index: 7; display: flex; flex-direction: column; gap: 6px; }
-        .dc-nav button { width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--dc-purple); background: var(--dc-panel); color: var(--dc-purple); font-size: 1.05rem; line-height: 1; cursor: pointer; box-shadow: 0 4px 14px var(--dc-shadow); display: none; align-items: center; justify-content: center; padding: 0; }
+        .dc-nav button { width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--dc-purple); background: var(--dc-panel); color: var(--dc-purple); font-size: calc(1.05rem * var(--dc-fs, 1)); line-height: 1; cursor: pointer; box-shadow: 0 4px 14px var(--dc-shadow); display: none; align-items: center; justify-content: center; padding: 0; }
         .dc-nav button.show { display: flex; }
-        .dc-topic-new { position: fixed; left: 50%; top: 96px; transform: translate(-50%, 0); z-index: 2100;   /* fixed to the visual viewport; JS keeps it under the bar when the keyboard is up (2026-09-19) */ width: min(86%, 320px); background: var(--dc-panel); border: 1px solid var(--dc-purple); border-radius: 14px; padding: 14px; box-shadow: 0 10px 30px var(--dc-shadow); }
-        .dc-del { position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%); z-index: 6; width: min(86%, 320px); background: var(--dc-panel); border: 1px solid var(--dc-amber); border-radius: 14px; padding: 14px; box-shadow: 0 10px 30px var(--dc-shadow); }
-        .dc-del .t { color: var(--dc-amber); font-weight: 600; font-size: 0.9rem; margin-bottom: 6px; }
-        .dc-del .q { color: var(--muted); font-size: 0.78rem; margin-bottom: 10px; max-height: 3.6em; overflow: hidden; }
+        .dc-topic-new { position: fixed; left: 50%; top: 96px; transform: translate(-50%, 0); z-index: 2100;   /* fixed to the visual viewport; JS keeps it under the bar when the keyboard is up (2026-09-19) */ width: min(86%, 320px); background: var(--dc-panel); border: 1px solid var(--dc-purple); border-radius: var(--dc-r-lg); padding: 14px; box-shadow: 0 10px 30px var(--dc-shadow); }
+        .dc-del { position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%); z-index: 6; width: min(86%, 320px); background: var(--dc-panel); border: 1px solid var(--dc-amber); border-radius: var(--dc-r-lg); padding: 14px; box-shadow: 0 10px 30px var(--dc-shadow); }
+        .dc-del .t { color: var(--dc-amber); font-weight: 600; font-size: calc(0.9rem * var(--dc-fs, 1)); margin-bottom: 6px; }
+        .dc-del .q { color: var(--muted); font-size: calc(0.78rem * var(--dc-fs, 1)); margin-bottom: 10px; max-height: 3.6em; overflow: hidden; }
         .dc-del .r { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
         .dc-del button.play { border-color: var(--dc-purple); color: var(--dc-purple); background: color-mix(in srgb, var(--dc-purple) 12%, transparent); margin-right: auto; }
-        .dc-del button { border: 1px solid var(--border); background: transparent; color: var(--text); border-radius: 8px; padding: 6px 14px; cursor: pointer; font-family: inherit; }
+        .dc-del button { border: 1px solid var(--border); background: transparent; color: var(--text); border-radius: var(--dc-r-md); padding: 6px 14px; cursor: pointer; font-family: inherit; }
         .dc-del button.go { border-color: var(--dc-amber); background: color-mix(in srgb, var(--dc-amber) 15%, transparent); color: var(--dc-amber); font-weight: 600; }
-        .dc-del .t .tg { color: var(--dc-purple); font-weight: 400; font-size: 0.78rem; margin-left: 6px; }
+        .dc-del .t .tg { color: var(--dc-purple); font-weight: 400; font-size: calc(0.78rem * var(--dc-fs, 1)); margin-left: 6px; }
         .dc-del button.tag { border-color: var(--dc-purple); color: var(--dc-purple); }
         .dc-del .tagrow { display: flex; gap: 6px; margin-top: 10px; }
-        .dc-del .tagrow input { flex: 1; min-width: 0; font-size: 16px; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--text); font-family: inherit; }   /* 16px: no iOS zoom */
+        .dc-del .tagrow input { flex: 1; min-width: 0; font-size: calc(16px * var(--dc-fs, 1)); padding: 7px 10px; border-radius: var(--dc-r-md); border: 1px solid var(--border); background: transparent; color: var(--text); font-family: inherit; }   /* 16px: no iOS zoom */
         .dc-del .tagrow button.sv { border-color: var(--dc-purple); color: var(--dc-purple); font-weight: 600; }
         .dc-del .r button { transition: opacity 0.15s; }
         .dc-del.arming .r button { opacity: 0.4; pointer-events: none; }   /* inert until the opening tap burst is spent */
-        .dc-topic-new .t { color: var(--dc-purple); font-weight: 600; font-size: 0.9rem; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; }
+        .dc-topic-new .t { color: var(--dc-purple); font-weight: 600; font-size: calc(0.9rem * var(--dc-fs, 1)); margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; }
         .dc-topic-close { display: none; }
         .dc-topic-new .r { display: flex; gap: 6px; }
-        .dc-topic-new input { flex: 1; min-width: 0; font-size: 16px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--text); }
-        .dc-topic-new button { border: 1px solid var(--dc-purple); background: color-mix(in srgb, var(--dc-purple) 15%, transparent); color: var(--dc-purple); border-radius: 8px; padding: 0 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
+        .dc-topic-new input { flex: 1; min-width: 0; font-size: calc(16px * var(--dc-fs, 1)); padding: 8px 10px; border-radius: var(--dc-r-md); border: 1px solid var(--border); background: transparent; color: var(--text); }
+        .dc-topic-new button { border: 1px solid var(--dc-purple); background: color-mix(in srgb, var(--dc-purple) 15%, transparent); color: var(--dc-purple); border-radius: var(--dc-r-md); padding: 0 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
         .dc-topic-new button.x { border-color: var(--border); background: transparent; color: var(--muted); }
-        .dc-topic-new .h { color: var(--muted); font-size: 0.7rem; margin-top: 8px; }
-        .dc-topic-toast .cx { display: block; margin: 8px auto 0; pointer-events: none; border: 1px solid var(--border); background: transparent; color: var(--muted); border-radius: 8px; padding: 5px 12px; font-size: 0.74rem; font-weight: 500; cursor: pointer; font-family: inherit; }
+        .dc-topic-new .h { color: var(--muted); font-size: calc(0.7rem * var(--dc-fs, 1)); margin-top: 8px; }
+        .dc-topic-toast .cx { display: block; margin: 8px auto 0; pointer-events: none; border: 1px solid var(--border); background: transparent; color: var(--muted); border-radius: var(--dc-r-md); padding: 5px 12px; font-size: calc(0.74rem * var(--dc-fs, 1)); font-weight: 500; cursor: pointer; font-family: inherit; }
         .dc-topic-toast.show .cx { pointer-events: auto; }
-        .dc-topic-toast small { display: block; text-align: center; font-weight: 400; font-size: 0.68rem; opacity: 0.75; margin-top: 2px; }
-        .dc-topic-in { flex: 0 0 auto; width: 130px; font-size: 16px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--dc-purple); background: transparent; color: var(--text); }
-        .dc-ideas-lbl { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-right: 2px; }
-        .dc-idea { display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem; line-height: 1.35; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 5px 11px; color: inherit; max-width: 100%; }
+        .dc-topic-toast small { display: block; text-align: center; font-weight: 400; font-size: calc(0.68rem * var(--dc-fs, 1)); opacity: 0.75; margin-top: 2px; }
+        .dc-topic-in { flex: 0 0 auto; width: 130px; font-size: calc(16px * var(--dc-fs, 1)); padding: 2px 8px; border-radius: var(--dc-r-pill); border: 1px solid var(--dc-purple); background: transparent; color: var(--text); }
+        .dc-ideas-lbl { font-size: calc(0.66rem * var(--dc-fs, 1)); text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-right: 2px; }
+        .dc-idea { display: inline-flex; align-items: center; gap: 6px; font-size: calc(0.82rem * var(--dc-fs, 1)); line-height: 1.35; background: var(--surface); border: 1px solid var(--border); border-radius: var(--dc-r-lg); padding: 5px 11px; color: inherit; max-width: 100%; }
         .dc-idea .t { cursor: pointer; }
         .dc-idea:hover { border-color: color-mix(in srgb, var(--dc-purple) 45%, transparent); }
         .dc-idea.open { border-color: var(--dc-purple); }
         .dc-idea.open .t { color: var(--dc-purple); }
         .dc-idea .acts { display: none; gap: 3px; margin-left: 2px; }
         .dc-idea.open .acts { display: inline-flex; }
-        .dc-idea .acts button { background: none; border: 1px solid var(--border); border-radius: 8px; color: var(--muted); font-size: 0.68rem; padding: 1px 7px; cursor: pointer; font-family: var(--font-mono); }
+        .dc-idea .acts button { background: none; border: 1px solid var(--border); border-radius: var(--dc-r-md); color: var(--muted); font-size: calc(0.68rem * var(--dc-fs, 1)); padding: 1px 7px; cursor: pointer; font-family: var(--font-mono); }
         .dc-idea .acts button:hover { color: var(--dc-purple); border-color: var(--dc-purple); }
         .dc-idea .acts button.done:hover { color: var(--dc-green); border-color: var(--dc-green); }
         /* quick suggestions - one-tap prompts above the input */
         /* collapsible strips: tap the title to fold the chips away (state remembered per device; phones start folded) */
         .dc-ideas .dc-ideas-lbl{ cursor: pointer; user-select: none; display: inline-flex; align-items: center; gap: 4px; }
-        .dc-ideas-lbl .car { display: inline-block; font-size: 0.7rem; transition: transform .15s; }
+        .dc-ideas-lbl .car { display: inline-block; font-size: calc(0.7rem * var(--dc-fs, 1)); transition: transform .15s; }
         .collapsed .dc-ideas-lbl .car { transform: rotate(-90deg); }
         .dc-ideas.collapsed > :not(.dc-ideas-lbl){ display: none; }
         .dc-ideas.collapsed { padding-bottom: 6px; }
@@ -735,8 +796,8 @@
             .dc-topics.open { display: flex; }
             .dc-bar .dc-tab[data-tab="ch"] { max-width: 26vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }   /* it shows the topic name on a phone */
             .dc-bar { padding: 5px 8px; gap: 4px 6px; }
-            .dc-bar select.dc-brand { max-width: 7.5em; font-size: 0.88rem; }      /* phone: short labels (set by JS) */
-            .dc-bar .dc-tab { padding: 5px 8px; font-size: 0.78rem; }
+            .dc-bar select.dc-brand { max-width: 7.5em; font-size: calc(0.88rem * var(--dc-fs, 1)); }      /* phone: short labels (set by JS) */
+            .dc-bar .dc-tab { padding: 5px 8px; font-size: calc(0.78rem * var(--dc-fs, 1)); }
             .dc-bar #dc-daemon { display: none; }        /* droplet pill is the one that matters */
             .dc-bar #dc-droplet { font-size: 0; padding: 5px; gap: 0; }   /* just the status dot */
             .dc-bar #dc-droplet .d { margin: 0; }
@@ -744,19 +805,19 @@
             .dc-pop { left: auto; right: -60px; min-width: 220px; }
             .dc-body { padding: 6px 8px 6px; }
             .dc-chat-log { padding: 8px 2px; gap: 9px; }
-            .dc-bub { max-width: 92%; font-size: 0.86rem; padding: 8px 11px; }
-            .dc-bub.me { font-size: 0.8rem; }
+            .dc-bub { max-width: 92%; font-size: calc(0.86rem * var(--dc-fs, 1)); padding: 8px 11px; }
+            .dc-bub.me { font-size: calc(0.8rem * var(--dc-fs, 1)); }
             .dc-ideas { padding: 6px 2px 6px; gap: 6px; }
-            .dc-idea { font-size: 0.78rem; padding: 4px 9px; }
-            .dc-chat-input textarea { font-size: 16px; }   /* 16px stops iOS from zooming the page on focus */
+            .dc-idea { font-size: calc(0.78rem * var(--dc-fs, 1)); padding: 4px 9px; }
+            .dc-chat-input textarea { font-size: calc(16px * var(--dc-fs, 1)); }   /* 16px stops iOS from zooming the page on focus */
         }
-        .dc-bub { max-width: 84%; min-width: 9em; padding: 9px 13px; border-radius: 14px; font-size: 0.9rem; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; }   /* min-width: a one-word reply keeps its header on one line */
+        .dc-bub { max-width: 84%; min-width: 9em; padding: 9px 13px; border-radius: var(--dc-r-lg); font-size: calc(0.9rem * var(--dc-fs, 1)); line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; }   /* min-width: a one-word reply keeps its header on one line */
         .dc-bub.me:has(.dc-edit) { cursor: pointer; }
-        .dc-bub .dc-fav { float: right; margin: -8px -10px 0 8px; border: 0; background: transparent; color: inherit; opacity: 0.35; cursor: pointer; font-size: 1.05rem; line-height: 1; padding: 0; min-width: 36px; min-height: 36px; display: flex; align-items: center; justify-content: center; position: relative; z-index: 1; border-radius: 50%; }   /* 36px touch target (2026-09-18) */
+        .dc-bub .dc-fav { float: right; margin: -8px -10px 0 8px; border: 0; background: transparent; color: inherit; opacity: 0.35; cursor: pointer; font-size: calc(1.05rem * var(--dc-fs, 1)); line-height: 1; padding: 0; min-width: 36px; min-height: 36px; display: flex; align-items: center; justify-content: center; position: relative; z-index: 1; border-radius: 50%; }   /* 36px touch target (2026-09-18) */
         .dc-bub .dc-fav.on { opacity: 1; color: var(--dc-amber); }
         .dc-bub .dc-fav:hover { opacity: 1; }
         .dc-topic.fav { color: var(--dc-amber); } .dc-topic.fav.on { border-color: var(--dc-amber); background: color-mix(in srgb, var(--dc-amber) 12%, transparent); }
-        .dc-bub .dc-edit { float: right; margin: -2px -4px 0 8px; border: 0; background: transparent; color: inherit; opacity: 0.55; cursor: pointer; font-size: 0.85rem; line-height: 1; padding: 2px 4px; }
+        .dc-bub .dc-edit { float: right; margin: -2px -4px 0 8px; border: 0; background: transparent; color: inherit; opacity: 0.55; cursor: pointer; font-size: calc(0.85rem * var(--dc-fs, 1)); line-height: 1; padding: 2px 4px; }
         .dc-bub .dc-edit:hover { opacity: 1; }
         .dc-chat-input.editing textarea { border-color: var(--dc-amber); }
         .dc-chat-input.editing .dc-btn.push { background: var(--dc-amber); }
@@ -766,41 +827,93 @@
         @keyframes dcThink { 0%,100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--dc-purple) 60%, transparent); opacity: 1; } 50% { box-shadow: 0 0 0 7px transparent; opacity: .7; } }
         @media (prefers-reduced-motion: reduce) { .dc-chat-input .dc-btn.push.thinking { animation: none; } }
         /* the same light on a topic tab: that tab has a reply still coming (2026-09-19). */
-        .dc-topic.thinking { color: var(--dc-purple); border-color: var(--dc-purple); animation: dcThink 1.4s ease-in-out infinite; }
+        .dc-topic.thinking { color: var(--dc-amber); border-color: var(--dc-amber); animation: dcThink 1.4s ease-in-out infinite; }
         /* light mode: a faint purple fill + weight, so the waiting tab reads by shape as well as hue */
-        html.light .dc-topic.thinking { background: color-mix(in srgb, var(--dc-purple) 14%, transparent); font-weight: 600; }
+        html.light .dc-topic.thinking { background: color-mix(in srgb, var(--dc-amber) 14%, transparent); font-weight: 600; }
         @media (prefers-reduced-motion: reduce) { .dc-topic.thinking { animation: none; } }
-        .dc-bub .who { display: block; font-size: 0.58rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.6; margin-bottom: 3px; }
-        .dc-bub.me { align-self: flex-end; background: var(--dc-me-bg); color: var(--dc-me-fg); border-bottom-right-radius: 4px; font-family: var(--font-mono); font-size: 0.84rem; }
+        /* THREE STATES, THREE LOOKS (2026-09-20, L: "the current tab should be a different colour
+           than loading or finished"). They used to differ by hue alone - and two of them SHARED it:
+           .on and .thinking were both --dc-purple outlines, identical but for the pulse, and nearly
+           identical in light mode. Now: current = FILLED purple, loading = AMBER outline + pulse,
+           finished = ACCENT outline + dot. Fill is a difference in shape, not hue, so the current
+           tab still reads with the animation off, in any theme, without relying on colour vision.
+           Declared here, after .thinking, and specificity (0,3,1) to tie html.light .dc-topic.thinking
+           and win on source order - otherwise a tab that is BOTH current and waiting keeps the old
+           rule's background and paints var(--bg) text onto it. */
+        html .dc-topics .dc-topic.on { background: var(--dc-purple); border-color: var(--dc-purple); color: var(--bg); font-weight: 600; }
+        html .dc-topics .dc-topic.on .n { opacity: 0.85; }
+        html .dc-topics .dc-topic.on .x { opacity: 0.85; }
+        .dc-bub .who { display: block; font-size: calc(0.58rem * var(--dc-fs, 1)); text-transform: uppercase; letter-spacing: 1px; opacity: 0.6; margin-bottom: 3px; }
+        .dc-bub.me { align-self: flex-end; background: var(--dc-me-bg); color: var(--dc-me-fg); border-bottom-right-radius: 4px; font-family: var(--font-mono); font-size: calc(0.84rem * var(--dc-fs, 1)); }
         .dc-bub.drop { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); color: var(--text); border-bottom-left-radius: 4px; }
         .dc-bub.drop.pending { opacity: 0.7; font-style: italic; }
-        .dc-bub .ts { font-size: 0.56rem; opacity: 0.45; margin-top: 4px; }
+        .dc-bub .ts { font-size: calc(0.56rem * var(--dc-fs, 1)); opacity: 0.45; margin-top: 4px; }
         /* "what did enhance turn it into?" - collapsible under your bubble when enhance changed the text */
-        .dc-bub details.enh { margin-top: 6px; font-size: 0.74rem; }
+        .dc-bub details.enh { margin-top: 6px; font-size: calc(0.74rem * var(--dc-fs, 1)); }
         .dc-bub details.enh summary { cursor: pointer; opacity: .75; list-style: none; }
         .dc-bub details.enh summary::-webkit-details-marker { display: none; }
         .dc-bub details.enh summary:hover { opacity: 1; }
-        .dc-bub details.enh div { margin-top: 5px; padding: 7px 9px; border-radius: 8px; background: var(--dc-inset); white-space: pre-wrap; }
+        .dc-bub details.enh div { margin-top: 5px; padding: 7px 9px; border-radius: var(--dc-r-md); background: var(--dc-inset); white-space: pre-wrap; }
         .dc-chat-input { display: flex; gap: 8px; padding-top: 8px; align-items: stretch; }
-        .dc-chat-input .ps { font-family: var(--font-mono); color: var(--dc-purple); align-self: center; font-size: 1.05rem; padding-left: 2px; user-select: none; }
+        .dc-chat-input .ps { font-family: var(--font-mono); color: var(--dc-purple); align-self: center; font-size: calc(1.05rem * var(--dc-fs, 1)); padding-left: 2px; user-select: none; }
         /* usage fill: a light left-to-right translucent gradient across the input, width = today's output tokens vs the 30-day peak day (--usg, set by renderUsage) */
-        .dc-chat-input textarea { flex: 1; resize: none; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; font-family: var(--font-mono); font-size: 0.88rem; line-height: 1.5;
+        .dc-chat-input textarea { flex: 1; resize: none; color: var(--text); border: 1px solid var(--border); border-radius: var(--dc-r-md); padding: 9px 11px; font-family: var(--font-mono); font-size: calc(0.88rem * var(--dc-fs, 1)); line-height: 1.5;
             background-color: var(--bg); background-image: linear-gradient(90deg, color-mix(in srgb, var(--dc-purple) 18%, transparent), color-mix(in srgb, var(--dc-purple) 5%, transparent)); background-repeat: no-repeat; background-size: var(--usg, 0%) 100%; transition: background-size .7s ease; }
         .dc-chat-input textarea:focus { outline: none; border-color: var(--dc-purple); }
-        .dc-chat-input .dc-btn.push { align-self: stretch; padding: 0 18px; font-size: 1.1rem; }
+        .dc-chat-input .dc-btn.push { align-self: stretch; padding: 0 18px; font-size: calc(1.1rem * var(--dc-fs, 1)); }
         .dc-rt { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px; min-width: 0; overflow: hidden; }
         .dc-rt .hd { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
         .dc-rt .nm { font-weight: 600; flex: 1; min-width: 0; overflow-wrap: anywhere; }
-        .dc-rt .meta { font-family: monospace; font-size: 0.7rem; color: var(--muted); margin-top: 4px; overflow-wrap: anywhere; word-break: break-word; }   /* long paths / urls used to leak out of the card (2026-09-18) */
+        .dc-rt .meta { font-family: monospace; font-size: calc(0.7rem * var(--dc-fs, 1)); color: var(--muted); margin-top: 4px; overflow-wrap: anywhere; word-break: break-word; }   /* long paths / urls used to leak out of the card (2026-09-18) */
         .dc-rt .res { margin-top: 6px; white-space: pre-wrap; color: var(--text); max-height: 9.5em; overflow: auto; padding-right: 4px; }
         .dc-rt .del { padding: 4px 10px; }
         .dc-switch { cursor: pointer; }
         /* fleet tab */
         .dc-fleet { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
         .dc-fleet .fp { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border);
-            border-radius: 8px; font-size: 0.8rem; font-family: var(--font-mono); background: var(--bg); }
+            border-radius: var(--dc-r-md); font-size: calc(0.8rem * var(--dc-fs, 1)); font-family: var(--font-mono); background: var(--bg); }
         .dc-fleet .fp .d { width: 8px; height: 8px; border-radius: 50%; background: #f87171; flex-shrink: 0; }
         .dc-fleet .fp.up .d { background: #4ade80; }
+        /* ── NAMED THEMES (2026-09-20, strengthened). Each changes colour, SHAPE, FONT and
+           border weight - font family is the biggest lever for making two skins feel like
+           different programs, and unlike rem it inherits correctly.
+           Written `html #dc-console.theme-x` to match `html.light #dc-console` on
+           specificity and win by source order, so they hold in light mode too. ── */
+        html #dc-console.theme-silver {
+            --dc-purple: #cfd8e0; --dc-violet: #aab6c2; --dc-green: #8fa89a; --dc-amber: #c2b48a;
+            --dc-red: #c99; --dc-on-purple: #0a0d10; --dc-on-green: #0a1410;
+            --dc-panel: rgba(22,25,28,0.97); --dc-me-bg: #454e56; --dc-me-fg: #f2f6f9;
+            --dc-inset: rgba(255,255,255,0.05); --dc-shadow: rgba(0,0,0,0.6);
+            --dc-r-sm: 0px; --dc-r-md: 0px; --dc-r-lg: 0px; --dc-r-pill: 0px;
+            --dc-font: ui-monospace, 'Cascadia Code', Consolas, monospace;
+            --dc-bw: 1px; --dc-letter: 0.01em;
+        }
+        html #dc-console.theme-fire {
+            --dc-purple: #ff8a2b; --dc-violet: #ff5f1f; --dc-green: #e8b13a; --dc-amber: #ffd07a;
+            --dc-red: #ff4d4d; --dc-on-purple: #2b0f02; --dc-on-green: #2b1a02;
+            --dc-panel: rgba(34,14,6,0.97); --dc-me-bg: #8f3d14; --dc-me-fg: #fff2e4;
+            --dc-inset: rgba(255,140,40,0.10); --dc-shadow: rgba(60,10,0,0.55);
+            --dc-r-sm: 8px; --dc-r-md: 12px; --dc-r-lg: 18px; --dc-r-pill: 999px;
+            --dc-font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            --dc-bw: 2px; --dc-letter: 0;
+        }
+        html #dc-console.theme-blue {
+            --dc-purple: #3fc4ff; --dc-violet: #7ad8ff; --dc-green: #2fd8b0; --dc-amber: #9ae6ff;
+            --dc-red: #ff6f8a; --dc-on-purple: #02182a; --dc-on-green: #02231c;
+            --dc-panel: rgba(6,24,46,0.97); --dc-me-bg: #1173b8; --dc-me-fg: #f0faff;
+            --dc-inset: rgba(90,200,255,0.12); --dc-shadow: rgba(0,30,60,0.5);
+            --dc-r-sm: 16px; --dc-r-md: 22px; --dc-r-lg: 30px; --dc-r-pill: 999px;
+            --dc-font: 'Segoe UI Variable Display', 'SF Pro Rounded', 'Nunito', system-ui, sans-serif;
+            --dc-bw: 2px; --dc-letter: 0.005em;
+        }
+        /* the tokens the themes drive. font-family and letter-spacing INHERIT, so unlike the
+           rem trap these reach every child without touching 45 rules. */
+        #dc-console { font-family: var(--dc-font, inherit); letter-spacing: var(--dc-letter, 0); }
+        #dc-console .dc-topic, #dc-console .dc-btn, #dc-console .dc-pop,
+        #dc-console #dc-chat-in, #dc-console .dc-bubble { border-width: var(--dc-bw, 1px); }
+        /* TEXT SIZE: a unitless multiplier every font-size in this block is calc()'d against. */
+        html #dc-console.fs-xl { --dc-fs: 1.18; }
+
     </style>
     <div id="dc-console">
         <!-- ONE top row (sticky by construction: the body scrolls, not the console): brand · tabs · target dropdown · ⚙ options · status · wake · close -->
@@ -820,6 +933,9 @@
                     <label class="dc-chk" title="Telegram DM you when the reply lands"><input type="checkbox" id="dc-chat-ping"> ping on reply</label>
                     <label class="dc-chk" id="dc-pg-lbl" title="master switch: Telegram DMs from the console on job / routine completion (sent from the bot the daemon reports in meta)"><input type="checkbox" id="dc-pg-enabled" class="dc-switch"> 📣 Telegram pings</label>
                     <label class="dc-chk" id="dc-cmd-lbl" title="show the ⌘ Command target: runs PowerShell on se as homelab. Every send asks for your 6-digit YubiKey code and the daemon checks it (one use per code). Off on every load."><input type="checkbox" id="dc-cmd-on"> ⌘ Command target (YubiKey)</label>
+                    <label class="dc-chk" id="dc-theme-lbl" title="a whole look: colours AND shape. Silver is sharp-edged, Fire is warm with rounded corners, Blue is very bubbly.">🎨 theme<select id="dc-theme-name" style="margin-left:6px;font:inherit"><option value="">Default</option><option value="silver">Silver — sharp</option><option value="fire">Fire — warm</option><option value="blue">Blue — bubbly</option></select></label>
+                    <label class="dc-chk dc-theme-row" title="image URL behind the chat log. Sits under the surface colour at low opacity, so it can never make the text hard to read. Empty = none.">🖼 bg<input type="url" id="dc-theme-bg" placeholder="https://... (empty = none)"></label>
+                    <label class="dc-chk" id="dc-fs-lbl" title="text size of the chat log on this device. The tab bar and menus stay the same size.">🔤 text<select id="dc-theme-fs" style="margin-left:6px;font:inherit"><option value="">Normal</option><option value="xl">Large</option></select></label>
                     <label class="dc-chk" id="dc-tts-lbl" title="which voice reads a reply aloud when you tap Play. Auto guesses from the text.">🗣 voice<select id="dc-tts-lang" style="margin-left:6px;font:inherit;max-width:120px"><option value="auto">Auto</option><option value="en">English</option><option value="es">Español</option></select></label>
                     <label class="dc-chk" id="dc-model-lbl" title="switch the model of Droplet's running session. Sends /model to its terminal on its own line and posts back whatever the terminal says - including 'not found'. Use it when replies come back as 'you have reached your limit'.">🧠 model<select id="dc-model" style="margin-left:6px;font:inherit;max-width:120px"><option value="">switch to…</option><option value="opus">Opus</option><option value="sonnet">Sonnet</option><option value="haiku">Haiku</option><option value="fable">Fable</option><option value="default">default</option></select></label>
                     <label class="dc-chk" title="newest messages at the top, input right under the strips"><input type="checkbox" id="dc-newest"> ⬆ newest first</label>
@@ -1091,7 +1207,9 @@
                 const waiting = name === '' ? pendAny : !!pend[name];
                 b.className = 'dc-topic' + (DC.topic === name ? ' on' : '') + (waiting ? ' thinking' : '');
                 if (waiting) b.title = 'a reply is on its way in this tab';
-                b.innerHTML = esc(label) + `<span class="n">${n}</span>`; b.onclick = () => setTopic(name); return b; };
+                b.innerHTML = esc(label) + `<span class="n">${n}</span>`;
+                if (DC._unread && DC._unread[name || ''] && name !== DC.topic) b.classList.add('unread');
+                b.onclick = () => setTopic(name); return b; };
             bar.appendChild(chip('All', '', turns.length));
             for (const nm of names) { const c = chip('# ' + nm, nm, counts[nm] || 0);
                 if (DC.topic === nm) { const p = document.createElement('span'); p.className = 'x'; p.textContent = '✎'; p.title = 'rename this tab - its messages come with it';
@@ -1108,7 +1226,7 @@
                 inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); done(true); } else if (e.key === 'Escape') done(false); }; inp.onblur = () => done(!!inp.value.trim()); };
             bar.appendChild(add);
             const cl = document.createElement('button'); cl.type = 'button'; cl.className = 'dc-topic dc-topic-close'; cl.textContent = '✕ close'; cl.title = 'close the console';
-            cl.onclick = () => { bar.classList.remove('open'); const x = document.getElementById('dc-x'); if (x) x.click(); }; bar.appendChild(cl);
+            cl.onclick = () => { bar.classList.remove('open'); closeConsole(); }; bar.appendChild(cl);
             const on = bar.querySelector('.dc-topic.on');   // keep the active chip visible in the scrolling strip
             if (on) { const l = on.offsetLeft - 8, r = on.offsetLeft + on.offsetWidth + 8; if (l < bar.scrollLeft) bar.scrollLeft = l; else if (r > bar.scrollLeft + bar.clientWidth) bar.scrollLeft = r - bar.clientWidth; }
         }
@@ -1120,11 +1238,19 @@
             el.style.top = ((vv ? vv.offsetTop : 0) + Math.max(96, Math.min(240, h * (frac || 0.30)))) + 'px';
             el.style.left = (vv ? vv.offsetLeft + vv.width / 2 : innerWidth / 2) + 'px';
         }
+        // One meaning for "close" (2026-09-20, L). Three controls said close and one of them
+        // only dismissed a popover; now they all shut the console. Callers dismiss their own
+        // transient UI first so nothing is left floating for the next open.
+        function closeConsole() {
+            const x = document.getElementById('dc-x');
+            if (x) x.click();
+        }
+
         function showTopicLabel(order, j) {
             const toast = $('#dc-topic-toast'); if (!toast) return;
             placeUnderTop(toast);
             toast.innerHTML = esc(order[j] === FAV_TAB ? FAV_TAB + ' Favorites' : order[j] ? '# ' + order[j] : 'All') + `<small>${j + 1} / ${order.length}</small><button type="button" class="cx">✕ close</button>`;
-            toast.querySelector('.cx').onclick = () => { toast.classList.remove('show'); const x = document.getElementById('dc-x'); if (x) x.click(); };
+            toast.querySelector('.cx').onclick = () => { toast.classList.remove('show'); closeConsole(); };
             toast.classList.add('show'); clearTimeout(DC.toastT); DC.toastT = setTimeout(() => toast.classList.remove('show'), 1800);
         }
         function stepTopic(dir) {
@@ -1180,6 +1306,20 @@
             try { if (String(window.getSelection && window.getSelection() || '').trim()) return; } catch (_) {}          // selecting text is not a tap
             setEditMode(el.dataset.k); });
         document.getElementById('dc-chat-in') && document.getElementById('dc-chat-in').addEventListener('keydown', e => { if (e.key === 'Escape' && DC.editKey) { e.stopPropagation(); e.target.value = ''; setEditMode(''); } });
+        // CANCEL AN EDIT BY TAPPING OUTSIDE (2026-09-20, L: "when I go to edit but I want to back out,
+        // other than not changing the text, maybe just clicking outside the chat window does the same").
+        // Escape already did this, which is no use on a phone - the only way out was to re-send the text
+        // unchanged, i.e. a whole round trip to say "never mind".
+        // pointerdown in the CAPTURE phase on purpose: it fires before the log's click handlers, so a
+        // triple-tap on a DIFFERENT message cancels this edit first and then starts that one cleanly.
+        // The input row is excluded whole - the send button, the enhance box and the target picker all
+        // live in it, and tapping any of them plainly means "carry on with this edit".
+        document.addEventListener('pointerdown', e => {
+            if (!DC.editKey) return;
+            if (e.target.closest && e.target.closest('.dc-chat-input')) return;
+            const ta = $('#dc-chat-in'); if (ta) ta.value = '';
+            setEditMode('');            // same end state as Escape: edit dropped, original message untouched
+        }, true);
         window.__dcSetEditMode = setEditMode;   // test hook
         // DELETE A MESSAGE: triple-tap any bubble, confirm. The turn is removed and the job's copy of the text is blanked.
         async function deleteTurn(k) {
@@ -1262,7 +1402,7 @@
             const onClick = e => { if (!box.isConnected) { cleanup(); return; } if (quiet()) { e.stopPropagation(); e.preventDefault(); } };   // burst clicks: no button, no edit, no new count
             document.addEventListener('pointerdown', onDown, true);
             document.addEventListener('click', onClick, true);
-            box.querySelector('.keep').onclick = () => { if (!quiet()) close(); };
+            box.querySelector('.keep').onclick = () => { if (!quiet()) { close(); closeConsole(); } };
             const pb = box.querySelector('.play');
             pb.onclick = () => {
                 if (quiet()) return;
@@ -1330,18 +1470,60 @@
             const queue = () => { if (!raf) raf = requestAnimationFrame(check); };
             log.addEventListener('scroll', queue, { passive: true }); window.addEventListener('resize', queue, { passive: true });
             const bubbles = () => Array.from(log.children).filter(el => el.dataset && el.dataset.k);
-            const goto = el => log.scrollTo({ top: el ? Math.max(0, el.offsetTop - log.offsetTop - 6) : 0, behavior: 'smooth' });
+            // Also dropped behavior:'smooth' here (2026-09-20). That was a GUESS at the symptom and
+            // was NOT the cause - kept only because an instant scroll cannot be swallowed by an
+            // animation still settling, and cannot be read mid-flight by a fast second tap.
+            // SCROLL BY MEASURED DELTA, NOT offsetTop (2026-09-20). offsetTop is measured from the
+            // element's OFFSET PARENT, so `el.offsetTop - log.offsetTop` only meant anything while the
+            // bubbles and the log shared one. Adding `#dc-chat-log{position:relative}` this afternoon
+            // made the LOG their offset parent, so the subtraction became a spurious offset: every jump
+            // landed short, the same bubble stayed below the top edge, .find() picked it again, and the
+            // arrow did nothing until the log was nudged by hand. Rects share one coordinate space by
+            // definition - this cannot be broken by a CSS change again.
+            const goto = el => { if (!el) { log.scrollTop = 0; return; }
+                log.scrollTop += el.getBoundingClientRect().top - log.getBoundingClientRect().top - 6; };
             up.addEventListener('click', () => { const lrTop = log.getBoundingClientRect().top; let target = null;
                 for (const el of bubbles()) { if (el.getBoundingClientRect().top < lrTop - 2) target = el; else break; } goto(target); });
             down.addEventListener('click', () => { const lrTop = log.getBoundingClientRect().top;
                 const target = bubbles().find(el => el.getBoundingClientRect().top > lrTop + 30);   // skip the bubble already sitting at the top edge (its top is ~6-14px in) - the first press used to 'move' 8px
-                if (target) goto(target); else log.scrollTo({ top: log.scrollHeight, behavior: 'smooth' }); });
+                if (target) goto(target); else log.scrollTop = log.scrollHeight; });
             window.__dcToTopCheck = check;   // test hook
         })();
         // phone: the Chat tab is the topic label. Tapping it while Chat is already showing opens/closes the strip (pick or add a topic).
         (function wireChatTabToggle() { const ct = document.querySelector('.dc-tab[data-tab="ch"]'); if (!ct) return; let was = false;
             ct.addEventListener('pointerdown', () => { was = ct.classList.contains('active'); });
             ct.addEventListener('click', () => { if (was && DC.isPhone()) { const b = $('#dc-topics'); if (b) b.classList.toggle('open'); } }); })();
+        // ROTATING PLACEHOLDER (2026-09-20, L: "can you put suggested text in the chat box when empty").
+        // Every line must be TRUE RIGHT NOW - a suggestion that lies is worse than an empty box. So each
+        // one is gated on live state (the droplet pill, the active tab, the unread tabs) or is one of L's
+        // own standing conventions. It stays a PLACEHOLDER and never text: placeholder can't be sent by
+        // accident, and a stray Enter on pre-filled text would send something he never wrote.
+        (function wirePlaceholder() {
+            const ta = $('#dc-chat-in'); if (!ta) return;
+            const BASE = ta.placeholder;          // the mechanical hint - what shows while he is typing
+            const pool = () => {
+                const out = [];
+                const st = DC.dropletState;
+                if (st && st !== 'up' && !DC.kdaemon) out.push('Droplet is ' + st + ' - tap the red dot to wake it');
+                const un = document.querySelectorAll('.dc-topic.unread').length;
+                if (un) out.push(un + ' tab' + (un > 1 ? 's have' : ' has') + ' a reply you have not read');
+                if (DC.topic && DC.topic !== FAV_TAB) out.push('ask about ' + DC.topic + '…');
+                out.push('“tickle me” - the board, plus a sweep of the whole system');
+                out.push('“what is still open?”');
+                return out;
+            };
+            let i = 0;
+            const tick = () => {
+                if (ta.value || document.activeElement === ta) return;   // never move it under him
+                const p = pool();
+                ta.placeholder = p.length ? p[i++ % p.length] : BASE;
+            };
+            ta.addEventListener('focus', () => { ta.placeholder = BASE; });   // typing gets the Enter/Shift+Enter hint back
+            ta.addEventListener('blur', () => setTimeout(tick, 400));
+            setInterval(tick, 7000);
+            setTimeout(tick, 1200);
+            window.__dcPlaceholderTick = tick;   // test hook
+        })();
         const FAV_TAB = '\u2605';
         function renderChat(obj) {
             DC.chatTurns = obj;
@@ -1349,6 +1531,13 @@
             // Pending bubbles older than 30 min are ignored so one orphaned bubble cannot leave it pulsing forever.
             const thinking = Object.values(obj || {}).some(t => t && t.pending && Date.now() - (t.ts || 0) < 30 * 60 * 1000);
             const sb = $('#dc-chat-send'); if (sb) { sb.classList.toggle('thinking', thinking); sb.title = thinking ? 'a reply is on its way - you can still send' : ''; }
+            {   // unread state is computed from the FULL turn set before the bar is drawn
+                const u = unreadTopics(obj);
+                DC._unread = u.unread;
+                const cur = DC.topic || '';
+                if (u.newest[cur]) markSeen(cur, u.newest[cur]);   // looking at it = read
+                DC._unread[cur] = false;
+            }
             renderTopics();
             const log = $('#dc-chat-log');
             const favView = DC.topic === FAV_TAB;
@@ -1499,6 +1688,79 @@
                 return;
             }
         });
+
+        // ---- THEME (2026-09-20) -----------------------------------------------------------
+        // localStorage on purpose: how the console LOOKS is a property of the device, not the
+        // account. The phone in the truck and the desktop at home want different text sizes.
+        // Every read and write is guarded - a blocked or full store must not break the console.
+        const THEME_KEYS = { bg: 'dc_theme_bg', fs: 'dc_theme_fs', name: 'dc_theme_name' };
+        function themeGet(k) { try { return localStorage.getItem(THEME_KEYS[k]) || ''; } catch (_) { return ''; } }
+        function themeSet(k, v) {
+            try { v ? localStorage.setItem(THEME_KEYS[k], v) : localStorage.removeItem(THEME_KEYS[k]); } catch (_) {}
+            applyTheme();
+        }
+        function applyTheme() {
+            const bg = themeGet('bg');
+            const fs = themeGet('fs');
+            // .dc-chat, not #dc-chat-log: the input row is a SIBLING of the log, so the image
+            // has to sit on the container that holds both or the textarea has nothing behind it.
+            const chatWrap = document.querySelector('.dc-chat');
+            if (chatWrap) {
+                // only http(s) - an arbitrary url() in CSS is not somewhere to be relaxed
+                const safe = /^https?:\/\/[^\s"'()]+$/.test(bg);
+                if (safe) { chatWrap.style.setProperty('--dc-bg-img', `url("${bg}")`); chatWrap.classList.add('dc-bg'); }
+                else { chatWrap.style.removeProperty('--dc-bg-img'); chatWrap.classList.remove('dc-bg'); }
+            }
+            // THEME + SIZE live on #dc-console, because that is where the token layer is.
+            // Setting them on <body> (what the first version did) missed the tokens entirely.
+            const con = document.getElementById('dc-console');
+            if (con) {
+                const name = themeGet('name');
+                con.classList.remove('theme-silver', 'theme-fire', 'theme-blue', 'fs-xl');
+                if (name) con.classList.add('theme-' + name);
+                if (fs === 'xl') con.classList.add('fs-xl');   // one large step; 'lg' was retired
+            }
+        }
+        {
+            const b = $('#dc-theme-bg'), f = $('#dc-theme-fs'), r = $('#dc-theme-reset');
+            if (b) { b.value = themeGet('bg'); b.addEventListener('change', () => themeSet('bg', b.value.trim())); }
+            if (f) { f.value = themeGet('fs'); f.addEventListener('change', () => themeSet('fs', f.value)); }
+            const nm = $('#dc-theme-name');
+            if (nm) { nm.value = themeGet('name'); nm.addEventListener('change', () => themeSet('name', nm.value)); }
+            if (r) r.addEventListener('click', e => {
+                e.preventDefault(); e.stopPropagation();
+                ['bg', 'fs', 'name'].forEach(k => { try { localStorage.removeItem(THEME_KEYS[k]); } catch (_) {} });
+                if (nm) nm.value = '';
+                if (b) b.value = ''; if (f) f.value = '';
+                applyTheme();
+            });
+            applyTheme();   // before first paint of the log
+        }
+
+        // ---- UNREAD PER TAB (2026-09-20) ---------------------------------------------------
+        // Per-device on purpose: "have I read this" belongs to whoever is looking, not the
+        // account. Only Droplet's turns count - your own messages are not news to you.
+        const SEEN_KEY = 'dc_seen_topics';
+        function seenRead() { try { return JSON.parse(localStorage.getItem(SEEN_KEY) || '{}'); } catch (_) { return {}; } }
+        function seenWrite(o) { try { localStorage.setItem(SEEN_KEY, JSON.stringify(o)); } catch (_) {} }
+        function markSeen(topic, ts) {
+            const o = seenRead(), k = topic || '';
+            if (!(o[k] >= ts)) { o[k] = ts; seenWrite(o); }
+        }
+        // newest Droplet turn per topic -> compare against what this device has seen
+        function unreadTopics(turns) {
+            const newest = {}, seen = seenRead(), out = {};
+            for (const t of Object.values(turns || {})) {
+                if (!t || t.s !== 'D' || t.pending) continue;      // only landed replies
+                const k = t.topic || '';
+                const ts = t.ts || 0;
+                if (ts > (newest[k] || 0)) newest[k] = ts;
+            }
+            for (const [k, ts] of Object.entries(newest)) {
+                if (ts > (seen[k] || 0)) out[k] = true;
+            }
+            return { unread: out, newest };
+        }
 
         function updateThreadSize(obj) {
             const el = $('#dc-thread-size'); if (!el) return;
@@ -1664,6 +1926,42 @@
                 if (editTurn) await update(lref, { text: raw, edited: true, editedAt: Date.now(), enhanced: null, enhNote: null });
                 else await set(lref, { s: 'L', text: raw, ts: Date.now(), target, ...tpc });
                 if (editTurn) setEditMode('');
+                // AN EDIT CANCELS ITS OLD JOB (2026-09-20, L: "fix the edit"). Until now an edit
+                // updated the message in place and then started a SECOND job, leaving the first one
+                // running: two answers to one intention. Proved live - one edit reached Droplet as two
+                // console jobs. Worse, if that first job never landed its bubble said "…thinking"
+                // forever, and ONE stuck pending turn holds auto-archive back indefinitely.
+                // Only a job still QUEUED is cancelled: once it is running the answer is already being
+                // written, so it is left to land rather than orphaned. Any bubble whose job is gone or
+                // finished is closed either way - nothing may sit pending with nothing coming.
+                // Wrapped whole: a failure here must never stop the message from being sent.
+                if (editTurn && editTurn.jobId) {
+                    try {
+                        const oldId = editTurn.jobId, jr = ref(database, `${DC.base}/jobs/${oldId}`);
+                        const j0 = (await get(jr)).val() || {};
+                        let dead = false;
+                        if (j0.status === 'queued') {
+                            await update(jr, { status: 'cancelled', doneAt: Date.now(), reply: 'superseded by an edit' });
+                            // RE-READ, and judge by startedAt, not by status. The daemon polls every 3 s and can
+                            // claim the job between the read and the write - and my write would clobber its
+                            // 'running' with 'cancelled', so status can't tell me who won. startedAt only ever
+                            // gets stamped by the daemon when it actually claims one. If it did claim it, the
+                            // bubble is left alone: closing it would drop the reply on the floor with nothing
+                            // to put it back, and losing L's answer is far worse than one duplicate.
+                            dead = !((await get(jr)).val() || {}).startedAt;
+                        } else if (j0.status !== 'running') {
+                            dead = true;   // missing, done, failed, already cancelled - nothing is coming
+                        }
+                        if (dead) {
+                            const all = DC.chatTurns || {};
+                            for (const k of Object.keys(all)) {
+                                const t = all[k];
+                                if (t && t.pending && t.jobId === oldId)
+                                    await update(ref(database, `${turns}/${k}`), { pending: null, text: '↻ superseded by an edit' });
+                            }
+                        }
+                    } catch (_) {}
+                }
                 ta.value = '';
                 let prompt = raw, note = '';
                 if (enhOn && DC.kdaemon) {
@@ -1771,7 +2069,21 @@
             // on THEIR daemon and is greyed out until it detects ollama on their PC.
             DC.kdaemon = m.daemonKind === 'kdaemon';
             DC.ollamaUp = !!(m.ollama && m.ollama.up);
-            const ad = $('#dc-account-daemon'); if (ad) ad.textContent = ' · daemon: ' + (m.daemonKind === 'kdaemon' ? 'kdaemon' + (m.host ? ' on ' + m.host : '') : 'se console daemon') + ' (' + (dOn ? 'online' : 'offline') + (m.version ? ', ' + m.version : '') + ')' + (DC.kdaemon ? ' · ollama ' + (DC.ollamaUp ? 'detected' : 'not detected') : '');
+            // VERSION, NOT CHANGELOG (2026-09-20). The daemon's version string carries its
+            // release notes - ~900 chars of them - and this line used to print the lot. Show the
+            // short head ("console-daemon 0.24") and park the rest on the tooltip. Truncating here
+            // rather than trusting the daemon means a long string can never flood the tab again.
+            const ad = $('#dc-account-daemon');
+            if (ad) {
+                const full = m.version || '';
+                const short = full.split('(')[0].trim() || full.slice(0, 40);
+                const kind = m.daemonKind === 'kdaemon'
+                    ? 'kdaemon' + (m.host ? ' on ' + m.host : '') : 'se console daemon';
+                ad.textContent = ' · daemon: ' + kind + ' (' + (dOn ? 'online' : 'offline')
+                    + (short ? ', ' + short : '') + ')'
+                    + (DC.kdaemon ? ' · ollama ' + (DC.ollamaUp ? 'detected' : 'not detected') : '');
+                ad.title = full || 'no version reported';
+            }
             if (DC.kdaemon) { drp.className = 'dc-pill ' + (dOn ? 'on' : 'off'); drp.lastChild.textContent = 'per msg'; $('#dc-wake').style.display = 'none'; }
             else $('#dc-wake').style.display = 'inline-flex';  // always available (dropletUp can be true with a dead claude inside). 2026-09-19: this else had drifted onto the loOpt line below and only ran when that option was missing
             // a kdaemon runs only its owner's Droplet: the CompMan target is L's fleet, so hide it there (a kdaemon would route it to Droplet anyway)
@@ -1783,6 +2095,25 @@
             $('#dc-console').classList.toggle('kd', DC.kdaemon);   // kdaemon has no routines engine / fleet / pings: System tab shows only the account line
             // pings text names the bot the daemon actually sends from (daemon publishes meta.tgBot from getMe), never a hardcoded handle
             const pb = $('#dc-pg-bot'); if (pb) pb.textContent = m.tgBot && m.tgBot.username ? `Droplet DMs you on Telegram from @${m.tgBot.username} ("${m.tgBot.name || ''}") on job/routine completion.` : 'Droplet DMs you on Telegram on job/routine completion.';
+            // MODEL IN USE (2026-09-20, L: "can the model selector list what model is currently in").
+            // The Stop hook on se publishes the model that ACTUALLY answered the last console turn -
+            // read from the session transcript, not from settings.json, whose default stops being true
+            // the moment anyone runs /model. The row says "now: Opus" rather than "set to": it is an
+            // observation, and the tooltip carries the id and its age so a stale one cannot pose as live.
+            DC.syncModelSel = () => {
+                const sel = $('#dc-model'), lbl = $('#dc-model-lbl'); if (!sel) return;
+                const mm = DC.lastMeta || {};
+                const want = String(mm.modelLabel || '').toLowerCase();
+                const has = !!want && [...sel.options].some(o => o.value === want);
+                const ph = sel.querySelector('option[value=\"\"]'); if (ph) ph.hidden = has;
+                sel.value = has ? want : '';
+                if (lbl) lbl.title = (has ? 'Droplet answered its last console message on ' + mm.modelLabel
+                        + (mm.model ? ' (' + mm.model + ')' : '') + (mm.modelAt ? ', ' + agoStr(mm.modelAt) : '') + '. ' : '')
+                    + 'Switch the model of Droplet’s running session. Sends /model to its terminal on its own line '
+                    + 'and posts back whatever the terminal says - including “not found”. '
+                    + 'Use it when replies come back as “you have reached your limit”.';
+            };
+            DC.syncModelSel();
             const enh = $('#dc-chat-enhance'), enhLbl = enh && enh.closest('label');
             if (enh) {
                 const off = DC.kdaemon && !DC.ollamaUp;
@@ -1930,7 +2261,9 @@
                 : null;
             return (h || '')
                 .replace(/\[([^\]\n]{1,160})\]\((https?:\/\/[^\s)]+)\)/g, (m, label, url) => a(url, label) || m)
-                .replace(/(^|[\s(])(https?:\/\/[^\s<]+[^\s<.,;:!?)\]])/g, (m, pre, url) => {
+                .replace(/(^|[\s(*_~])(https?:\/\/[^\s<]+[^\s<.,;:!?)\]*_~])/g, (m, pre, url) => {   // * _ ~ are markdown emphasis, not URL characters: allowed before, trimmed after.
+                    // Without this, a bolded **https://...** produced NO link at all, because the
+                    // leading guard only accepted start-of-line, whitespace or an open paren.
                     const link = a(url, url);
                     return link ? pre + link : m;
                 });
@@ -2041,7 +2374,10 @@
             // MODEL SWITCH (2026-09-19): send "/model <name>" as an ordinary message. The daemon's slash path
             // sends it bare (the console preamble would otherwise become the model NAME - that is how L's own
             // "/model opus" errored) and reads the pane back, so the terminal's answer lands in the chat.
-            if (!e.isTrusted) return; const v = ms.value; ms.value = '';
+            // put the box back to what Droplet is ACTUALLY in (not blank): the switch has been asked
+            // for, not confirmed, and the published value only changes when a reply comes back on it.
+            if (!e.isTrusted) return; const v = ms.value;
+            if (DC.syncModelSel) DC.syncModelSel(); else ms.value = '';
             if (!v) return;
             if (($('#dc-chat-target') || {}).value !== 'droplet') { $('#dc-chat-status').textContent = '\u26a0 model switch only applies to Droplet\u2019s session'; return; }
             const ta = $('#dc-chat-in'); if (!ta) return;
