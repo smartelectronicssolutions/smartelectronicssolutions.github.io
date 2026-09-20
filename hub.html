@@ -212,6 +212,36 @@
             cursor: pointer; padding: 4px 8px; color: var(--text);
         }
         #links-toggle:hover { color: var(--accent); }
+        /* Sys > Conversation: computed in-page from the whole thread, read once on demand. */
+        .dc-insights { font-size: 0.78rem; }
+        .dc-insights .row { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; }
+        .dc-insights .row b { font-weight: 600; font-variant-numeric: tabular-nums; }
+        .dc-insights h5 { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 1.2px;
+            color: var(--muted); margin: 12px 0 5px; font-weight: 600; }
+        .dc-insights .bar { display: grid; grid-template-columns: 82px 1fr 34px; align-items: center; gap: 7px; margin: 2px 0; }
+        .dc-insights .bar i { font-style: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .dc-insights .bar u { text-decoration: none; display: block; height: 7px; border-radius: 4px;
+            background: linear-gradient(90deg, var(--accent, #7c6cf0), #9a8ef5); min-width: 2px; }
+        .dc-insights .bar s { text-decoration: none; text-align: right; color: var(--muted);
+            font-variant-numeric: tabular-nums; font-size: 0.72rem; }
+        .dc-insights .hours { display: flex; align-items: flex-end; gap: 2px; height: 40px; margin: 4px 0 2px; }
+        .dc-insights .hours span { flex: 1; background: var(--accent, #7c6cf0); opacity: .75; border-radius: 2px 2px 0 0; min-height: 1px; }
+        .dc-insights .hours span.peak { opacity: 1; }
+        .dc-insights .hscale { display: flex; justify-content: space-between; color: var(--muted); font-size: 0.62rem; }
+        .dc-insights .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+        .dc-insights .chips b { font-weight: 500; font-size: 0.72rem; padding: 2px 7px; border-radius: 10px;
+            border: 1px solid var(--border); color: var(--muted); }
+        .dc-insights .chips b em { font-style: normal; opacity: .6; margin-left: 4px; }
+        /* camera frames in a bubble - the JPEGs live in console/snaps/<id>, not in the turn */
+        .dc-snaps { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px; margin-top: 8px; }
+        .dc-snaps figure { margin: 0; }
+        .dc-snaps img { width: 100%; border-radius: 6px; display: block; border: 1px solid var(--border);
+            background: #0002; cursor: zoom-in; }
+        .dc-snaps figcaption { font-size: 0.66rem; color: var(--muted); margin-top: 2px; }
+        .dc-snaps .miss { font-size: 0.7rem; color: var(--muted); grid-column: 1 / -1; }
+        .dc-snapfull { position: fixed; inset: 0; background: #000c; z-index: 999; display: flex;
+            align-items: center; justify-content: center; cursor: zoom-out; }
+        .dc-snapfull img { max-width: 96vw; max-height: 94vh; border-radius: 8px; }
     </style>
 </head>
 <body>
@@ -836,6 +866,10 @@
                 <div id="dc-fleet" class="dc-fleet"></div>
                 <div class="meta" id="dc-fl-note" style="margin-top:8px">Telegram pings and the ⌘ Command target are in the ⚙ menu. Reminder settings moved to kh.</div>
             </div>
+            <div class="dc-panel" id="dc-in-panel">
+                <h4 style="font-size:0.62rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin:0 0 8px">Conversation</h4>
+                <div id="dc-insights" class="dc-insights"><span class="meta">reading the thread\u2026</span></div>
+            </div>
         </div>
     </div>
     <script type="module">
@@ -976,6 +1010,8 @@
             const time = t.ts ? new Date(t.ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
             const pend = (!me && t.pending) ? ' pending' : '';
             const body = (!me && clean && !t.pending) ? cleanReply(t.text || '') : (t.text || '');
+            // camera frames: the turn holds an id, the images are fetched once and cached
+            const snapBox = t.snapId ? `<div class="dc-snaps" data-snap="${esc(t.snapId)}"></div>` : '';
             // enhance visibility: your bubble shows what the enhancer actually sent (collapsed), or "unchanged"
             const changed = me && t.enhanced && t.enhanced !== t.text;
             const tag = (me && t.enhanced ? (t.enhNote ? ' · ✨ rejected: ' + esc(t.enhNote) : (changed ? ' · ✨ enhanced' : ' · ✨ unchanged')) : '') + (me && t.edited ? ' · ✎ edited' : '');
@@ -983,7 +1019,7 @@
             const favBtn = (!me && !t.pending && t.__k) ? `<button type="button" class="dc-fav${(DC.favs || {})[t.__k] ? ' on' : ''}" title="favorite this reply">${'\u2605'}</button>` : '';
             const enh = changed ? `<details class="enh"><summary>✨ see what was sent</summary><div>${esc(t.enhanced)}</div></details>` : '';
             const tp = (!DC.topic && t.topic) ? ' · # ' + esc(t.topic) : '';   // All view: show which topic a turn belongs to
-            return { cls: `dc-bub ${me ? 'me' : 'drop'}${pend}`, html: `${editBtn}${favBtn}<span class="who">${who}${tag}${tp}</span>${linkify(esc(body))}${enh}<div class="ts">${time}</div>` };
+            return { cls: `dc-bub ${me ? 'me' : 'drop'}${pend}`, html: `${editBtn}${favBtn}<span class="who">${who}${tag}${tp}</span>${linkify(esc(body))}${snapBox}${enh}<div class="ts">${time}</div>` };
         }
         // PERF: keyed incremental render - only turns whose content changed are re-built; the rest of the DOM is
         // untouched (the old version rebuilt all 120 bubbles as one innerHTML on every change, which stuttered on the phone).
@@ -1345,10 +1381,125 @@
             const rsig = DC.topic + '|' + nf + '|' + order.join(',');
             if (DC.renderSig !== rsig) { log.scrollTop = nf ? 0 : log.scrollHeight; DC.renderSig = rsig; }
             updateThreadSize(obj);
+            fillSnaps();
             reconcilePending(obj);
         }
         window.__dcRender = renderChat;   // test hook (no auth needed): window.__dcRender({key: {s, text, ts}})
         // thread size (chars) in the head + the auto-archive limit the daemon enforces (console/settings/autoArchiveChars)
+        // ---- Sys > Conversation (2026-09-20, L: "interesting facts about conversation") ----
+        // The chat listener is limitToLast(120), so this reads the WHOLE turns node - once, the
+        // first time Sys is opened. ~660 KB, which is why it is not on the page-load path.
+        const DC_STOP = new Set(('the a an to of in is it and or for on at with my me you i do can that this what how be are ' +
+            'was so if not but have has had get got just now new one all its your from as we he she they them then than there ' +
+            'here when where why who will would could should about into out up down over under again more most some such no nor ' +
+            'too very s t don now ll ve re d m o y ain aren couldn didn doesn hadn hasn haven isn ma mightn mustn needn shan ' +
+            'shouldn wasn weren won wouldn let make made take put see look went going go come came want need like know think ' +
+            'say said tell told use used using thing things way ok okay yes yeah yea nope nah').split(' '));
+        let _insightsDone = false;
+        async function renderInsights() {
+            const box = $('#dc-insights');
+            if (!box || _insightsDone || !DC.base) return;
+            _insightsDone = true;                      // one read per page load
+            try {
+                const snap = await get(ref(database, `${DC.base}/chat/turns`));
+                const all = Object.values(snap.val() || {}).filter(t => t && t.text);
+                if (!all.length) { box.innerHTML = '<span class="meta">No turns yet.</span>'; return; }
+
+                const mine = all.filter(t => t.s !== 'D'), theirs = all.filter(t => t.s === 'D');
+                const chars = all.reduce((n, t) => n + t.text.length, 0);
+                const avg = a => a.length ? Math.round(a.reduce((n, t) => n + t.text.length, 0) / a.length) : 0;
+                const asked = mine.filter(t => t.text.includes('?')).length;
+
+                // topic tabs by weight
+                const byTopic = {};
+                for (const t of all) { const k = t.topic || 'All'; byTopic[k] = (byTopic[k] || 0) + 1; }
+                const topics = Object.entries(byTopic).sort((a, b) => b[1] - a[1]).slice(0, 8);
+                const topMax = topics.length ? topics[0][1] : 1;
+
+                // when YOU write - my replies would only mirror it
+                const hours = new Array(24).fill(0);
+                for (const t of mine) if (t.ts) hours[new Date(t.ts).getHours()]++;
+                const hMax = Math.max(1, ...hours);
+
+                // the words you repeat
+                const freq = {};
+                for (const t of mine) {
+                    const seen = new Set();
+                    for (const w of (t.text.toLowerCase().match(/[a-z']{3,}/g) || [])) {
+                        if (DC_STOP.has(w) || seen.has(w)) continue;
+                        seen.add(w);                    // once per message, so one rant cannot win
+                        freq[w] = (freq[w] || 0) + 1;
+                    }
+                }
+                const words = Object.entries(freq).filter(([, n]) => n > 2).sort((a, b) => b[1] - a[1]).slice(0, 14);
+
+                // span
+                const stamps = all.map(t => t.ts).filter(Boolean).sort((a, b) => a - b);
+                const days = stamps.length > 1 ? Math.max(1, Math.round((stamps.at(-1) - stamps[0]) / 86400000)) : 1;
+
+                const esc2 = v => esc(String(v));
+                box.innerHTML =
+                    `<div class="row"><span>Messages</span><b>${all.length}</b></div>` +
+                    `<div class="row"><span>You / Droplet</span><b>${mine.length} / ${theirs.length}</b></div>` +
+                    `<div class="row"><span>Average length</span><b>${avg(mine)} / ${avg(theirs)} chars</b></div>` +
+                    `<div class="row"><span>You asked a question</span><b>${Math.round(100 * asked / Math.max(1, mine.length))}% of the time</b></div>` +
+                    `<div class="row"><span>Over</span><b>${days} day${days === 1 ? '' : 's'} \u00b7 ${(chars / 1000).toFixed(0)}k chars</b></div>` +
+                    `<h5>Topic tabs</h5>` +
+                    topics.map(([name, n]) =>
+                        `<div class="bar"><i title="${esc2(name)}">${esc2(name)}</i>` +
+                        `<u style="width:${Math.round(100 * n / topMax)}%"></u><s>${n}</s></div>`).join('') +
+                    `<h5>When you write</h5>` +
+                    `<div class="hours">` + hours.map((n, h) =>
+                        `<span class="${n === hMax ? 'peak' : ''}" style="height:${Math.round(100 * n / hMax)}%" title="${h}:00 \u2014 ${n}"></span>`).join('') + `</div>` +
+                    `<div class="hscale"><span>12a</span><span>6a</span><span>12p</span><span>6p</span><span>11p</span></div>` +
+                    `<h5>What you keep coming back to</h5>` +
+                    `<div class="chips">` + (words.length
+                        ? words.map(([w, n]) => `<b>${esc2(w)}<em>${n}</em></b>`).join('')
+                        : '<span class="meta">not enough yet</span>') + `</div>`;
+            } catch (e) {
+                _insightsDone = false;                  // let the next open retry
+                box.innerHTML = `<span class="meta">could not read the thread: ${esc(String(e.message || e))}</span>`;
+            }
+        }
+
+        // ---- camera frames (2026-09-20) --------------------------------------------------
+        // Fills every .dc-snaps placeholder exactly once. Cached by snap id, because
+        // renderChat runs on every incoming turn and these are ~110 KB a set.
+        DC.snapCache = DC.snapCache || {};
+        async function fillSnaps() {
+            for (const el of document.querySelectorAll('.dc-snaps[data-snap]')) {
+                const id = el.dataset.snap;
+                if (!id || el.dataset.done) continue;
+                el.dataset.done = '1';
+                try {
+                    const cached = DC.snapCache[id] || (await get(ref(database, `${DC.base}/snaps/${id}`))).val();
+                    if (!cached) { el.innerHTML = '<span class="miss">frames expired</span>'; continue; }
+                    DC.snapCache[id] = cached;
+                    const shots = cached.shots || [];
+                    const missing = cached.missing || [];
+                    el.innerHTML = shots.map(sh =>
+                        `<figure><img src="${esc(sh.jpg)}" alt="${esc(sh.name)}" loading="lazy">` +
+                        `<figcaption>${esc(sh.name)}</figcaption></figure>`).join('') +
+                        (missing.length ? `<div class="miss">not answering: ${esc(missing.join(', '))}</div>` : '');
+                } catch (e) {
+                    el.dataset.done = '';                       // let the next render retry
+                    el.innerHTML = '<span class="miss">could not load frames</span>';
+                }
+            }
+        }
+        // tap a frame for full size
+        document.addEventListener('click', e => {
+            const img = e.target.closest('.dc-snaps img');
+            if (img) {
+                const o = document.createElement('div');
+                o.className = 'dc-snapfull';
+                o.innerHTML = `<img src="${img.src}" alt="">`;
+                o.onclick = () => o.remove();
+                document.body.appendChild(o);
+                return;
+            }
+        });
+
         function updateThreadSize(obj) {
             const el = $('#dc-thread-size'); if (!el) return;
             // WHOLE thread, not the visible slice. This listener is limitToLast(120), so summing
@@ -1864,6 +2015,8 @@
             // System = one tab: account + daemon line, then Routines, then Fleet (with Pings) - both panels show together
             $('#dc-rt-panel').classList.toggle('active', t.dataset.tab === 'sys');
             $('#dc-fl-panel').classList.toggle('active', t.dataset.tab === 'sys');
+            $('#dc-in-panel') && $('#dc-in-panel').classList.toggle('active', t.dataset.tab === 'sys');
+            if (t.dataset.tab === 'sys') renderInsights();   // reads the thread once, then caches
         });
         $('#dc-chat-send').onclick = sendChat;
         $('#dc-chat-in').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } });
