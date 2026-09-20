@@ -758,14 +758,17 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                 .trim();
         }
 
+        // ONE pass (2026-09-19). Two sequential replaces meant the second rescanned the HTML the
+        // first had just built, so `[click](https://e.com)` came out as an anchor nested inside its
+        // own href. Alternation walks the original string once, so that cannot happen. esc() runs
+        // first and escapes both quote characters, so nothing here can break out of the attribute;
+        // javascript:/data: never match https?:// and stay plain text.
         function linkify(s) {
-            return esc(s)
-                .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, (_, text, url) =>
-                    `<a href="${url}" target="_blank" rel="noopener" class="bubble-link">${text}</a>`
-                )
-                .replace(/https?:\/\/[^\s<>"]+/g, url =>
-                    `<a href="${url}" target="_blank" rel="noopener" class="bubble-link">${url}</a>`
-                );
+            const A = (url, label) => `<a href="${url}" target="_blank" rel="noopener" class="bubble-link">${label}</a>`;
+            return esc(s).replace(
+                /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)|(https?:\/\/[^\s<>"]+)/g,
+                (m, text, mdUrl, bare) => bare ? A(bare, bare) : A(mdUrl, text)
+            );
         }
 
         function getMessagesPath() {
