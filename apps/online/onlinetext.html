@@ -4,11 +4,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Text Playback App</title>
+    <title>Text Playback</title>
     <link rel="stylesheet" href="../assets/css/online.css">
     <style>
-        .chap-nav { padding: 4px 9px; }
-        .chap-nav[hidden] { display: none; }
         main {
             font-family: 'Verdana', sans-serif;
             text-align: center;
@@ -18,19 +16,54 @@
             margin: 0 auto;
         }
 
+        /* A <select> sizes itself to its LONGEST OPTION rather than to its container, so one long
+           document or chapter title made this dropdown wider than the phone - and a single child wider
+           than the viewport is what makes iOS shrink the WHOLE page. It does not need to show a whole
+           title across the top (L): the full one is in the meta line below, and in the list when open. */
+        #savedTexts {
+            max-width: min(100%, 340px);
+            text-overflow: ellipsis;
+        }
+        /* the row could not reflow at all - a label, a select and five buttons on one line */
+        .toolbar-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 0 10px;
+        }
+        .toolbar-row > #docMeta { flex-basis: 100%; }   /* the meta always gets its own line */
+
         #display {
             font-size: 2em;
             font-weight: bold;
             margin: 40px 0;
-            height: 100px;
+            /* min-height, not height: once the words are allowed to wrap, a fixed 100px clips them. */
+            min-height: 100px;
             display: flex;
             align-items: center;
             justify-content: center;
+            /* A flex item will not shrink below its own content, so "10 words at a time" in 2em bold was
+               simply wider than a phone - and one child wider than the viewport makes iOS shrink the WHOLE
+               page to fit, which is what "everything is smaller" looks like. Let it wrap and break. */
+            flex-wrap: wrap;
+            min-width: 0;
+            padding: 0 12px;
+            overflow-wrap: anywhere;
+            text-align: center;
             color: var(--warn);
+            cursor: pointer;
         }
 
         #controls {
             margin: 20px;
+            /* was a plain block, so the slider row and Reset could not reflow on a narrow screen */
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
         }
 
         #fullText {
@@ -58,13 +91,14 @@
 
         .slider-container {
             display: flex;
+            flex-wrap: wrap;
             justify-content: center;
             align-items: center;
             gap: 10px;
         }
 
         .slider-container input[type="range"] {
-            width: 200px;
+            width: min(200px, 45vw);   /* a hard 200px plus its labels overflowed a small phone */
         }
 
         .highlight {
@@ -81,7 +115,7 @@
     <header style="position:relative;">
         <div class="logo-box"><a href="../../index.html"><img src="../../assets/img/android-chrome-192x192.png"
                     alt="Luis Solutions"></a></div>
-        <h1>Text Playback App</h1>
+        <h1>Text Playback</h1>
         <div class="auth-bar"><span id="auth-label">Not signed in</span><button id="auth-btn">Sign In</button></div>
         <button id="theme-toggle" title="Toggle theme">☀️</button>
         <script>(function () { var b = document.getElementById("theme-toggle"), h = document.documentElement; b.textContent = h.classList.contains("light") ? "🌙" : "☀️"; b.addEventListener("click", function () { var n = h.classList.contains("light") ? "dark" : "light"; h.classList.toggle("light", n === "light"); localStorage.setItem("ss-theme", n); b.textContent = n === "light" ? "🌙" : "☀️"; }); })();</script>
@@ -92,22 +126,19 @@
         </div>
     </header>
     <main>
-        <div>
+        <div class="toolbar-row">
             <label for="savedTexts">Saved Texts:</label>
             <select id="savedTexts">
                 <option value="">Select a saved text</option>
             </select>
-            <button id="chapPrev" class="chap-nav" hidden title="previous chapter">◀</button><button id="chapNext" class="chap-nav" hidden title="next chapter">▶</button>
             <button id="deleteTextButton" disabled>Delete Text</button>
             <button id="pdfButton" disabled>Download PDF</button>
             <button id="polishButton" disabled title="Fix typos, spacing & punctuation only — never rewords. Saves a separate polished copy; your original stays untouched.">✨ Polish</button>
             <label id="polishToggleWrap" hidden style="font-size:.85em;margin-left:6px"><input type="checkbox" id="polishToggle"> Show polished</label>
             <div id="docMeta" class="doc-meta"></div>
         </div>
-        <div id="display">Text will appear here</div>
+        <div id="display" role="button" tabindex="0" title="click the word to pause / resume">Text will appear here</div>
         <div id="controls">
-            <button id="startPauseButton">Start</button>
-            <button id="resetButton">Reset</button>
             <div class="slider-container">
                 <label for="speedSlider">Speed:</label>
                 <input type="range" id="speedSlider" min="100" max="1000" value="300" step="25">
@@ -128,6 +159,7 @@
                     <option value="10">10</option>
                 </select>
             </div>
+            <button id="resetButton" title="start this text over - also clears its bookmark">Reset</button>
         </div>
         <div>
             <input type="text" id="titleInput" placeholder="Title (optional)" maxlength="120">
@@ -155,7 +187,6 @@
         let docs = {};                              // 'scope:key' -> {text, title?, createdAt?, source?}
         let unsubPublic = null, unsubMine = null, unsubBooks = null;
         let books = {};                             // {uid}/books index: slug -> {title, author, chapters:{nn:{title,chars}}}
-        const chapPrev = document.getElementById('chapPrev'), chapNext = document.getElementById('chapNext');
 
         function escHtml(s) {
             return String(s ?? '').replace(/[&<>"']/g, c => ({
@@ -166,7 +197,11 @@
         const textInput = document.getElementById('textInput');
         const saveTextButton = document.getElementById('saveTextButton');
         const savedTexts = document.getElementById('savedTexts');
-        const startPauseButton = document.getElementById('startPauseButton');
+        // The Start button is gone (2026-09-20, L: "no need for the start button since the click should
+        // start it") - clicking the word starts, pauses and resumes. Five places still write its label, so
+        // this is a stub with a textContent property: no button to keep in sync, no scattering of null
+        // checks through the playback code, and if the button ever comes back this line finds it again.
+        const startPauseButton = document.getElementById('startPauseButton') || { textContent: '' };
         const resetButton = document.getElementById('resetButton');
         const speedSlider = document.getElementById('speedSlider');
         const speedValue = document.getElementById('speedValue');
@@ -285,7 +320,6 @@
                 }
             }
             deleteTextButton.disabled = !savedTexts.value || !pathOf(savedTexts.value);
-            updateChapNav();
             showDocMeta(savedTexts.value);
         }
         // a book chapter body is fetched the first time it is picked (and kept for the session)
@@ -301,20 +335,6 @@
             words = []; currentIndex = 0; display.textContent = 'Text will appear here'; fullText.textContent = textInput.value;
             saveSettings(); showDocMeta(sel);
         }
-        function updateChapNav() {
-            const sel = savedTexts.value || '', isBook = sel.startsWith('book:');
-            chapPrev.hidden = chapNext.hidden = !isBook;
-            if (!isBook) return;
-            const opt = savedTexts.selectedOptions[0]; const sib = opt ? opt.parentElement.children : [];
-            const i = Array.prototype.indexOf.call(sib, opt);
-            chapPrev.disabled = i <= 0; chapNext.disabled = i < 0 || i >= sib.length - 1;
-        }
-        function stepChapter(dir) {
-            const opt = savedTexts.selectedOptions[0]; if (!opt) return;
-            const next = dir > 0 ? opt.nextElementSibling : opt.previousElementSibling; if (!next) return;
-            savedTexts.value = next.value; savedTexts.dispatchEvent(new Event('change'));
-        }
-        chapPrev.addEventListener('click', () => stepChapter(-1)); chapNext.addEventListener('click', () => stepChapter(1));
         window.__otTest = { setBooks(i) { books = i; renderList(); }, setBase(b) { UIDBASE = b; renderList(); } };   // test hook (no auth needed)
 
         function fetchSavedTexts() {
@@ -338,6 +358,40 @@
             }
         }
 
+        // BOOKMARKS (2026-09-20, L: "pause and leave the page and have it come back to where it left
+        // off... all the different books have essentially a bookmark"). The reader is RSVP, so a position
+        // is just an index - kept PER DOCUMENT KEY so every book and chapter holds its own place.
+        // localStorage, not Firebase: it must work for public docs and while signed out, and where you
+        // are in a book is a per-device fact.
+        const BM_KEY = 'textBookmarks';
+        function bmAll() { try { return JSON.parse(localStorage.getItem(BM_KEY) || '{}') || {}; } catch (_) { return {}; } }
+        function bmWrite(o) { try { localStorage.setItem(BM_KEY, JSON.stringify(o)); } catch (_) {} }
+        function bmGet(key) { const b = bmAll()[key]; return (b && b.i > 0) ? b : null; }
+        function bmClear(key) { const a = bmAll(); if (a[key]) { delete a[key]; bmWrite(a); } }
+        function bmSave() {
+            const key = savedTexts.value; if (!key || !words.length) return;
+            const a = bmAll();
+            // the very start, or already finished, is not a place worth returning to
+            if (currentIndex > 0 && currentIndex < words.length) a[key] = { i: currentIndex, n: words.length, at: Date.now() };
+            else delete a[key];
+            bmWrite(a);
+        }
+        // the actual ask: closing the tab or switching apps fires no pause, so catch both
+        document.addEventListener('visibilitychange', () => { if (document.hidden) bmSave(); });
+        window.addEventListener('pagehide', bmSave);
+        window.__otBookmarks = { bmAll, bmGet, bmSave, bmClear };   // test hook
+
+        // toggle-on-word (2026-09-20, L: "instead of the pause button... just click on the word showing
+        // to pause"). His eyes are already on the word; reaching for a button below it costs a glance.
+        // It TOGGLES rather than only pausing - pause by tap and resume by hunt would be worse than the
+        // button was. Only live once there is something playing, so a click on the placeholder text does
+        // not silently start a read he did not ask for.
+        display.addEventListener('click', () => {
+            if (!words.length && !textInput.value.trim()) return;
+            if (isPlaying.status) pausePlayback(); else startPlayback();
+        });
+        display.style.cursor = 'pointer';
+
         function startPlayback() {
             if (!textInput.value.trim()) {
                 return;
@@ -347,6 +401,11 @@
                 words = textInput.value.trim().split(/\s+/);
                 fullText.textContent = textInput.value;
                 currentIndex = 0;
+                // Resume ONLY if this is still the text that was bookmarked. Edit it, or flip the polished
+                // view, and the old index means nothing - better to start over than to drop him somewhere
+                // arbitrary and call it his place.
+                const bm = bmGet(savedTexts.value);
+                if (bm && bm.n === words.length && bm.i < words.length) currentIndex = bm.i;
             } else if (currentIndex >= words.length) {
                 currentIndex = 0; // finished last time - rewind
             }
@@ -362,6 +421,9 @@
         function pausePlayback() {
             clearTimeout(timer);
             timer = null;
+            bmSave();
+            showDocMeta(savedTexts.value);   // refresh the % where he stopped - a stale one reads as "not saved"
+
             isPlaying.status = false;
             startPauseButton.textContent = "Start";
         }
@@ -369,6 +431,7 @@
         function resetPlayback() {
             clearTimeout(timer);
             timer = null;
+            bmClear(savedTexts.value);   // Reset means start this one over - the bookmark goes with it
             words = [];
             currentIndex = 0;
             display.textContent = 'Text will appear here';
@@ -402,6 +465,7 @@
                 startPauseButton.textContent = "Start";
                 return;
             }
+            if (currentIndex % 24 < groupSize) bmSave();   // keeps the place if the tab is killed outright
             timer = setTimeout(playStep, groupDelay(group));
         }
 
@@ -438,7 +502,6 @@
 
         savedTexts.addEventListener('change', () => {
             const d = docs[savedTexts.value];
-            updateChapNav();
             if (d && d.lazy) { polishToggle.checked = false; deleteTextButton.disabled = true; loadSelected(); return; }
             if (d) {
                 textInput.value = d.text || '';
@@ -485,6 +548,18 @@
             words = []; currentIndex = 0; display.textContent = 'Text will appear here';
         }
         polishToggle.addEventListener('change', () => { applyView(); showDocMeta(savedTexts.value); });
+        // gemma2 signs off a copy-edit with an offer of help - "Let me know if you'd like me to look for
+        // other types of errors as well!" - and that was being SAVED INTO THE DOCUMENT. An editor that adds
+        // content has corrupted the text, and the real corrections are subtle enough that the tail was the
+        // only visible change. Any TRAILING paragraph the original does not have, reading like a sign-off,
+        // is dropped - bounded by the original's paragraph count so it can never eat his own last paragraph.
+        function stripSignoff(orig, out) {
+            const want = orig.split(/\n\s*\n/).filter(p => p.trim()).length;
+            const ps = out.split(/\n\s*\n/);
+            const SIGN = /^\s*(let me know|i['\u2019]?ve |i have |feel free|hope (this|that) helps|note:|here('s| is) the|if you('d| would)|would you like)/i;
+            while (ps.length > want && SIGN.test(ps[ps.length - 1])) ps.pop();
+            return ps.join('\n\n').trim();
+        }
         polishButton.addEventListener('click', async () => {
             const sel = savedTexts.value, d = docs[sel], path = pathOf(sel);
             const orig = ((d && d.text) || '').trim();
@@ -496,7 +571,7 @@
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         model: POLISH_MODEL, stream: false, messages: [
-                            { role: 'system', content: "You are a careful copy editor. Fix ONLY spelling, punctuation, spacing, capitalization, and obvious transcription errors in the user's text. Do NOT change wording, phrasing, style, tone, or add or remove any content. Return ONLY the corrected text — no preamble, notes, or code fences." },
+                            { role: 'system', content: "You are a careful copy editor. Fix ONLY spelling, punctuation, spacing, capitalization, and obvious transcription errors in the user's text. Do NOT change wording, phrasing, style, tone, or add or remove any content. Return ONLY the corrected text — no preamble, no notes, no code fences, and NO closing remark, comment, or offer of further help." },
                             { role: 'user', content: orig }
                         ]
                     })
@@ -504,6 +579,11 @@
                 if (!res.ok) throw new Error('HTTP ' + res.status);
                 let polished = (((await res.json()).message || {}).content || '').trim().replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/, '').trim();
                 if (!polished) throw new Error('empty result');
+                polished = stripSignoff(orig, polished);
+                // a copy editor changes very little; wildly longer or shorter is a rewrite, and a rewrite is
+                // not what this button promises. Refuse rather than save it.
+                if (polished.length < orig.length * 0.6 || polished.length > orig.length * 1.5)
+                    throw new Error('the editor returned something very different in length — not saving it');
                 await set(ref(database, `${path}/polished`), polished);
                 await set(ref(database, `${path}/polishedAt`), Date.now());
                 d.polished = polished; d.polishedAt = Date.now();
@@ -527,12 +607,15 @@
             const d = key && docs[key];
             pdfButton.disabled = !d;
             if (!d) { docMeta.textContent = ''; return; }
+            const _bm = bmGet(key);   // so a place to come back to is visible without pressing Start
             const parts = [];
             if (d.source === 'book') parts.push('📖 ' + ((books[d.book] || {}).title || 'book') + ' · chapter ' + parseInt(d.nn, 10) + ' of ' + Object.keys((books[d.book] || {}).chapters || {}).length);
             else if (d.source) parts.push('from ' + (d.source === 'compman' ? 'CompMan' : d.source));
             if (d.createdAt) parts.push(new Date(d.createdAt).toLocaleDateString());
             parts.push(String(d.text || '').trim().split(/\s+/).filter(Boolean).length + ' words');
             if (d.polished) parts.push(polishToggle.checked ? '✨ viewing polished' : '✨ polished available');
+            // the bookmark is only useful if he can see it BEFORE pressing Start
+            if (_bm && _bm.n) parts.push('📑 bookmark at ' + Math.round(_bm.i / _bm.n * 100) + '%');
             docMeta.textContent = parts.join(' · ');
             refreshPolishUI();
         }
@@ -684,7 +767,7 @@
             fetchSavedTexts();
         });
 
-        startPauseButton.addEventListener('click', () => {
+        if (startPauseButton.addEventListener) startPauseButton.addEventListener('click', () => {
             togglePlayPause();
             saveSettings();
         });

@@ -295,7 +295,11 @@
         /* UNREAD (2026-09-20, L): a reply that landed while you were in another tab.
            Distinct from .thinking, which means a reply is still on its way. */
         .dc-topic.unread { color: var(--accent); border-color: var(--accent); font-weight: 600; }
-        .dc-topic.unread .n { background: var(--accent); color: var(--bg); }
+        /* the count is a NUMBER, not a badge (2026-09-20, L: "a sort of box around it, it looks odd").
+           It had a raw background with no padding and no radius, so it painted a bare rectangle behind
+           the digits. The tab already says "unread" twice - accent colour and the dot - so a third
+           signal shaped like a box was noise. Full-strength number, no plate. */
+        .dc-topic.unread .n { opacity: 1; }
         .dc-topic.unread::after {
             content: ""; display: inline-block; width: 6px; height: 6px; margin-left: 5px;
             border-radius: 50%; background: var(--accent); vertical-align: middle;
@@ -855,7 +859,11 @@
         .dc-bub details.enh summary:hover { opacity: 1; }
         .dc-bub details.enh div { margin-top: 5px; padding: 7px 9px; border-radius: var(--dc-r-md); background: var(--dc-inset); white-space: pre-wrap; }
         .dc-chat-input { display: flex; gap: 8px; padding-top: 8px; align-items: stretch; }
-        .dc-chat-input .ps { font-family: var(--font-mono); color: var(--dc-purple); align-self: center; font-size: calc(1.05rem * var(--dc-fs, 1)); padding-left: 2px; user-select: none; }
+        .dc-chat-input .ps { font-family: var(--font-mono); color: var(--dc-purple); align-self: center; font-size: calc(1.05rem * var(--dc-fs, 1)); padding-left: 2px; user-select: none; cursor: pointer; transition: filter .15s; }
+        /* ARMED (2026-09-20, L: "have the arrow to the left do that when clicked"). A glow, not a new
+           colour or size: the caret's purple is part of the look and the placeholder already SAYS what
+           the suggestion is - this only has to say "tapping me does something". */
+        .dc-chat-input .ps.armed { filter: drop-shadow(0 0 5px var(--dc-purple)); }
         /* usage fill: a light left-to-right translucent gradient across the input, width = today's output tokens vs the 30-day peak day (--usg, set by renderUsage) */
         .dc-chat-input textarea { flex: 1; resize: none; color: var(--text); border: 1px solid var(--border); border-radius: var(--dc-r-md); padding: 9px 11px; font-family: var(--font-mono); font-size: calc(0.88rem * var(--dc-fs, 1)); line-height: 1.5;
             background-color: var(--bg); background-image: linear-gradient(90deg, color-mix(in srgb, var(--dc-purple) 18%, transparent), color-mix(in srgb, var(--dc-purple) 5%, transparent)); background-repeat: no-repeat; background-size: var(--usg, 0%) 100%; transition: background-size .7s ease; }
@@ -960,7 +968,7 @@
                     <div id="dc-ideas" class="dc-ideas" hidden></div>
                     <div class="dc-chat-log" id="dc-chat-log"><div style="color:var(--muted);font-size:0.85rem;text-align:center;margin-top:20px">No turns yet. Say something to Droplet.</div></div>
                     <div class="dc-chat-input">
-                        <span class="ps" aria-hidden="true">❯</span>
+                        <span class="ps" role="button" tabindex="-1" title="tap to put the cursor here">❯</span>
                         <textarea id="dc-chat-in" rows="2" placeholder="type here…  (Enter sends · Shift+Enter newline)"></textarea>
                         <button class="dc-btn push" id="dc-chat-send">▲</button>
                     </div>
@@ -1493,33 +1501,62 @@
         (function wireChatTabToggle() { const ct = document.querySelector('.dc-tab[data-tab="ch"]'); if (!ct) return; let was = false;
             ct.addEventListener('pointerdown', () => { was = ct.classList.contains('active'); });
             ct.addEventListener('click', () => { if (was && DC.isPhone()) { const b = $('#dc-topics'); if (b) b.classList.toggle('open'); } }); })();
-        // ROTATING PLACEHOLDER (2026-09-20, L: "can you put suggested text in the chat box when empty").
-        // Every line must be TRUE RIGHT NOW - a suggestion that lies is worse than an empty box. So each
-        // one is gated on live state (the droplet pill, the active tab, the unread tabs) or is one of L's
-        // own standing conventions. It stays a PLACEHOLDER and never text: placeholder can't be sent by
-        // accident, and a stray Enter on pre-filled text would send something he never wrote.
+        // ROTATING PLACEHOLDER + TAB TO ACCEPT (2026-09-20, L: "suggested text in the chat box when
+        // empty", then "can I press tab to enter suggestion").
+        // Every line must be TRUE RIGHT NOW - a suggestion that lies is worse than an empty box - so each
+        // is gated on live state or is one of L's own standing conventions.
+        // Two KINDS, and the difference is the whole reason this isn't a flat list: a STATUS line ("Droplet
+        // is down") is worth showing but is not a thing you would ever send, so it carries put:null and Tab
+        // leaves it alone. Only a real prompt can be accepted.
+        // It stays a PLACEHOLDER until Tab: pre-filled text plus a stray Enter sends something he never wrote.
         (function wirePlaceholder() {
             const ta = $('#dc-chat-in'); if (!ta) return;
-            const BASE = ta.placeholder;          // the mechanical hint - what shows while he is typing
+            const BASE = ta.placeholder;          // the mechanical hint - what shows once he is typing
             const pool = () => {
-                const out = [];
-                const st = DC.dropletState;
-                if (st && st !== 'up' && !DC.kdaemon) out.push('Droplet is ' + st + ' - tap the red dot to wake it');
+                const out = [], st = DC.dropletState;
+                if (st && st !== 'up' && !DC.kdaemon) out.push({ show: 'Droplet is ' + st + ' - tap the red dot to wake it', put: null });
                 const un = document.querySelectorAll('.dc-topic.unread').length;
-                if (un) out.push(un + ' tab' + (un > 1 ? 's have' : ' has') + ' a reply you have not read');
-                if (DC.topic && DC.topic !== FAV_TAB) out.push('ask about ' + DC.topic + '…');
-                out.push('“tickle me” - the board, plus a sweep of the whole system');
-                out.push('“what is still open?”');
+                if (un) out.push({ show: un + ' tab' + (un > 1 ? 's have' : ' has') + ' a reply you have not read', put: null });
+                if (DC.topic && DC.topic !== FAV_TAB) out.push({ show: 'ask about ' + DC.topic + '…', put: 'Where does ' + DC.topic + ' stand right now?' });
+                out.push({ show: '“tickle me” - the board, plus a sweep of the whole system', put: 'tickle me' });
+                out.push({ show: '“what is still open?”', put: 'What is still open?' });
                 return out;
             };
-            let i = 0;
-            const tick = () => {
-                if (ta.value || document.activeElement === ta) return;   // never move it under him
-                const p = pool();
-                ta.placeholder = p.length ? p[i++ % p.length] : BASE;
+            let i = 0, cur = null;
+            const ps = document.querySelector('.dc-chat-input .ps');
+            const paint = () => {
+                ta.placeholder = cur ? (cur.show + (cur.put && document.activeElement === ta ? '   \u21e5 Tab to use' : '')) : BASE;
+                if (!ps) return;
+                // the caret is the accept button now (L). Armed only when there is a real prompt waiting
+                // and the box is empty - a status line has nothing to send, and his own half-typed message
+                // must never be replaceable by a tap next to it.
+                const on = !!(cur && cur.put && !ta.value);
+                ps.classList.toggle('armed', on);
+                ps.title = on ? 'tap to use: ' + cur.put : 'tap to put the cursor here';
             };
-            ta.addEventListener('focus', () => { ta.placeholder = BASE; });   // typing gets the Enter/Shift+Enter hint back
+            // returns true when it accepted something, so the caret's old focus job still runs otherwise
+            DC.acceptSugg = () => {
+                if (!cur || !cur.put || ta.value) return false;
+                ta.value = cur.put; ta.focus();
+                ta.setSelectionRange(ta.value.length, ta.value.length);
+                paint();
+                return true;
+            };
+            ta.addEventListener('input', paint);   // the chip goes the moment he writes his own
+            const tick = () => {
+                if (ta.value) return;                                   // he is writing - leave it alone
+                if (document.activeElement === ta) { paint(); return; } // FROZEN while focused, so Tab is predictable
+                const p = pool(); cur = p.length ? p[i++ % p.length] : null; paint();
+            };
+            ta.addEventListener('focus', paint);                        // keep the suggestion so it can be accepted
             ta.addEventListener('blur', () => setTimeout(tick, 400));
+            ta.addEventListener('keydown', e => {
+                if (e.key !== 'Tab' || e.shiftKey || ta.value || !cur || !cur.put) return;   // otherwise Tab is still Tab
+                e.preventDefault();
+                ta.value = cur.put;
+                ta.setSelectionRange(ta.value.length, ta.value.length);
+                ta.placeholder = BASE;
+            });
             setInterval(tick, 7000);
             setTimeout(tick, 1200);
             window.__dcPlaceholderTick = tick;   // test hook
@@ -2402,7 +2439,7 @@
             tsel.dispatchEvent(new Event('change'));
         });
         // (removed 2026-09-17: a tap on the log used to put the cursor in the box - L reads by tapping and did not want the keyboard popping)
-        const psGlyph = document.querySelector('.dc-chat-input .ps'); if (psGlyph) psGlyph.onclick = () => $('#dc-chat-in').focus();
+        const psGlyph = document.querySelector('.dc-chat-input .ps'); if (psGlyph) psGlyph.onclick = () => { if (!(DC.acceptSugg && DC.acceptSugg())) $('#dc-chat-in').focus(); };
         // ⬆ newest-first toggle (persisted) - re-renders in place
         const nfBox = $('#dc-newest');
         if (nfBox) { nfBox.checked = newestFirst(); nfBox.addEventListener('change', () => { try { localStorage.setItem('dc_newest_first', nfBox.checked ? '1' : '0'); } catch (_) {} DC.bubbleSig = {}; renderChat(DC.chatTurns || {}); }); }
