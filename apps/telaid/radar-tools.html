@@ -472,6 +472,7 @@
         metaOwnerTaskId: "",
         expectedSensors: 0,
         allProjects: [],
+        projectGroupOf: {},
         validated: false,
         isLoadingProject: false,
         loadSeq: 0,
@@ -1287,7 +1288,7 @@
             return Number.isNaN(t) ? 0 : t;
           };
 
-          state.allProjects = Object.entries(tasks)
+          const rows = Object.entries(tasks)
             .map(([id, task]) => {
               const customer = (task.customerName || "").trim();
               const project = (task.project || "").trim();
@@ -1309,8 +1310,36 @@
                 needsUpload: !lastUpload,
               };
             })
-            .filter(Boolean)
-            .sort((a, b) => b.time - a.time);
+            .filter(Boolean);
+
+          // ONE ROW PER SITE (2026-09-21, L: "shouldn't it only show the Walmart 2004 once?").
+          // Many job records can share a customer+project - one per night of a multi-night job.
+          // They used to render as identical rows, and because getQCPath() hangs off the
+          // SELECTED task id, picking a different row opened a different (empty) checklist.
+          // Canonical id = the EARLIEST record, picked the same way resolveMetaOwnerTaskId()
+          // picks the sensorMeta owner, so checklist + sensor meta + photos all agree.
+          const groups = new Map();
+          for (const r of rows) {
+            const key = `${normKey(r.customer)}|${normKey(r.project)}`;
+            const g = groups.get(key);
+            if (!g) {
+              groups.set(key, { ...r, visits: 1, firstTime: r.time, lastTime: r.time, ids: [r.id] });
+              continue;
+            }
+            g.visits += 1;
+            g.ids.push(r.id);
+            // A site is only "never uploaded" when NOT ONE of its visits has been.
+            g.needsUpload = g.needsUpload && r.needsUpload;
+            if (r.time < g.firstTime) { g.firstTime = r.time; g.id = r.id; }
+            if (r.time > g.lastTime) { g.lastTime = r.time; }
+            g.time = g.lastTime;   // sort sites by most recent activity
+          }
+          state.allProjects = [...groups.values()].sort((a, b) => b.time - a.time);
+          // Any sibling id still has to resolve - a stored lastProject may predate this.
+          state.projectGroupOf = {};
+          for (const g of state.allProjects) {
+            for (const id of g.ids) state.projectGroupOf[id] = g.id;
+          }
         } catch (err) {
           console.error("[populateProjects]", err);
           state.allProjects = [];
@@ -1332,6 +1361,18 @@
         }
       }
 
+      // "(6 visits, 9/20-9/25)" - a collapsed row still has to say what it is hiding.
+      function visitSuffix(p) {
+        if (!p || !(p.visits > 1)) return "";
+        const d = (t) => {
+          const x = new Date(Number(t) || 0);
+          return t && !Number.isNaN(x.getTime()) ? `${x.getMonth() + 1}/${x.getDate()}` : "";
+        };
+        const a = d(p.firstTime), b = d(p.lastTime);
+        const span = a && b && a !== b ? `, ${a}\u2013${b}` : a ? `, ${a}` : "";
+        return `  (${p.visits} visits${span})`;
+      }
+
       function renderProjectDropdown(projects) {
         const sel = $("projectList");
         if (!sel) return;
@@ -1344,7 +1385,10 @@
           return;
         }
 
-        const lastProject = localStorage.getItem("lastProject");
+        const storedProject = localStorage.getItem("lastProject");
+        // rows are collapsed now: an id saved before this change may be a sibling
+        const lastProject =
+          (state.projectGroupOf && state.projectGroupOf[storedProject]) || storedProject;
         const ordered = [...projects];
         if (lastProject) {
           const index = ordered.findIndex((p) => p.id === lastProject);
@@ -1359,7 +1403,7 @@
           // Surface the upload check in the option text (from Firebase markers,
           // so it shows regardless of MS sign-in): ✓ = uploaded, ⚠ = never uploaded.
           const label = `${p.needsUpload ? "⚠" : "✓"} ${p.label}`;
-          const opt = new Option(label, p.id);
+          const opt = new Option(label + visitSuffix(p), p.id);
           if (msSignedIn && p.needsUpload) {
             opt.style.color = "#f87171";
             opt.title = "Never uploaded to OneDrive — open the site and use the Upload buttons";
@@ -1423,9 +1467,11 @@
 
       async function startApp(projectId) {
         state.validated = true;
-        localStorage.setItem("lastProject", projectId);
 
         await populateProjects();
+        // resolve a sibling id to its site's canonical record before anything is stored or loaded
+        projectId = state.projectGroupOf?.[projectId] || projectId;
+        localStorage.setItem("lastProject", projectId);
         if ($("projectList")) $("projectList").value = projectId;
 
         await loadProject(projectId);
