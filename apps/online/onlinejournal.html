@@ -663,6 +663,16 @@
       if (currentArticleId && allArticles[currentArticleId]) renderArticle(currentArticleId);
     });
 
+    /* ── PUBLIC BOOTSTRAP (2026-09-21, L: "says loading for a long time").
+       Every initial load used to hang off onAuthStateChanged above, so a reader who is NOT
+       signed in — which is everyone a public ?id= link gets sent to — sat on "Loading..." while
+       Firebase Auth completed a round-trip whose only possible answer was "not signed in". On a
+       phone, on cell data, or in Safari with ITP that handshake is slow and can fail to resolve
+       at all, and the article then never rendered.
+       Public articles need no auth to read, so fetch them NOW; onAuthStateChanged still runs and
+       refines the list with the private tier if a user turns up. ── */
+    loadArticles(true).catch(function (e) { console.error("public bootstrap failed:", e); });
+
     /* ── token expiry: onIdTokenChanged fires on silent token loss where
        onAuthStateChanged may not. Reflect a dropped token as signed-out. ── */
     onIdTokenChanged(auth, (user) => {
@@ -999,7 +1009,9 @@
             var key = allArticles[id] ? id
               : allArticles["private__" + id] ? "private__" + id
               : allArticles["public__" + id] ? "public__" + id : null;
-            if (key) renderArticle(key);
+            // idempotent: the bootstrap and the post-auth load both run this, and re-rendering
+            // the same article would yank the reader back to the top mid-scroll
+            if (key && currentArticleId !== key) renderArticle(key);
           }
         }
       } catch (err) {
