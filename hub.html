@@ -2449,6 +2449,13 @@
         $('#dc-chat-clear').onclick = async () => {
             if (!DC.base) return;
             if (!Object.keys(DC.chatTurns || {}).length) { $('#dc-chat-status').textContent = 'nothing to archive'; return; }
+            // WAIT FOR REPLIES IN FLIGHT (2026-09-21). The AUTOMATIC archive has always refused while a
+            // bubble is pending; this button had no gate at all. Press it mid-reply and the turns clear,
+            // then the answer lands, finds no bubble to fill, and is never shown - the job record keeps
+            // the text but you never see it. Same gate as the daemon uses, for the same reason.
+            const inflight = Object.values(DC.chatTurns || {}).filter(t => t && t.pending).length;
+            if (inflight) { $('#dc-chat-status').textContent = '⏳ ' + inflight + ' repl' + (inflight > 1 ? 'ies' : 'y')
+                + ' still coming - archiving now would lose ' + (inflight > 1 ? 'them' : 'it'); return; }
             if (!confirm("Archive this thread into Droplet's memory and start fresh?")) return;
             // Phase 2: the daemon (on se, with D:\ access) serializes the thread into the cascade
             // Memory then clears the live turns — the difference between talking and having talked.

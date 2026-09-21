@@ -151,6 +151,12 @@
   .vzone .nm::after{content:"";position:absolute;top:100%;left:50%;transform:translateX(-50%);border:4px solid transparent;border-top-color:var(--amber)}
   .vzone:hover .nm,.vzone.press .nm{opacity:1}
   .vzone.dragging{opacity:.9;border-color:var(--amber);z-index:6;box-shadow:0 3px 10px rgba(0,0,0,.5)}
+  /* SOLO (2026-09-21, L: "if just 1 it takes up the whole thing, if multiple then it does boxes").
+     A view rule, not a stored state - drop a second container in and this class simply stops being
+     applied on the next draw. */
+  .vzone.solo{border-style:solid;border-color:var(--amber);background:linear-gradient(180deg,rgba(45,54,66,.55),rgba(20,26,32,.75))}
+  .vzone.solo .nm{opacity:1;font-size:.72rem;bottom:auto;top:8px}
+  .vzone.solo .cnt{font-size:.8rem}
   .vzone.dragging .nm{opacity:1}
   .storbar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:8px 10px;border-bottom:1px solid var(--edge);background:var(--panel)}
   .achip{font-family:var(--mono);font-size:.6rem;color:#cdd4da;background:var(--slot);border:1px solid var(--edge);border-radius:20px;padding:4px 9px;cursor:pointer;white-space:nowrap;user-select:none}
@@ -1254,9 +1260,14 @@ $("scenePad").addEventListener("click",e=>{if(e.target===$("scenePad")||e.target
 function renderArea(){buildRail();renderAreaChips();const scene=$("storScene"),img=$("storBg"),a=areaCfg(curArea);const _sp=$("scenePad");if(_sp&&img.naturalWidth&&_sp.clientHeight>40){const aw=_sp.clientWidth-14,ah=_sp.clientHeight-14;let sc=Math.max(0.25,Math.min(aw/img.naturalWidth,ah/img.naturalHeight));img.style.maxWidth="none";img.style.maxHeight="none";img.style.imageRendering="pixelated";img.style.width=Math.round(img.naturalWidth*sc)+"px";img.style.height=Math.round(img.naturalHeight*sc)+"px";}
   [...scene.querySelectorAll(".vzone")].forEach(z=>z.remove());
   const sw=(img.clientWidth||a.nw)/(a.nw||320),sh=(img.clientHeight||a.nh)/(a.nh||288);
+  /* ONE THING FILLS IT, SEVERAL ARE BOXES (L's model). Derived at draw time from what is actually
+     in here - containers AND nested storages - so it flips by itself as things come and go. */
+  const solo=residentsOf(curArea).length===1;
   for(const loc of containerLocs()){if(areaOf(loc)!==curArea)continue;const n=(byLoc[loc]||[]).length,m=locMeta(loc),pos=posOf(loc,curArea);
     const d=document.createElement("div");d.className="vzone";
-    const isc=(a.iconScale||1);d.style.left=(pos.x*sw)+"px";d.style.top=(pos.y*sh)+"px";d.style.width=(54*isc)+"px";d.style.height=(48*isc)+"px";d.style.fontSize=(1.3*isc)+"rem";
+    const isc=(a.iconScale||1);
+    if(solo){d.classList.add("solo");d.style.left="6px";d.style.top="6px";d.style.width="calc(100% - 12px)";d.style.height="calc(100% - 12px)";d.style.fontSize=(2.2*isc)+"rem";}
+    else{d.style.left=(pos.x*sw)+"px";d.style.top=(pos.y*sh)+"px";d.style.width=(54*isc)+"px";d.style.height=(48*isc)+"px";d.style.fontSize=(1.3*isc)+"rem";}
     d.innerHTML='<span class="nm">'+esc(m.label)+'</span><span class="cnt'+(n?"":" zero")+'">'+n+'</span>';d.title=m.label+" · "+n+" item"+(n===1?"":"s");
     makeContainerDrag(d,loc,scene,img,a);scene.appendChild(d);}
   for(const sub of nestedIn(curArea)){const pos=posOf(sub,curArea),n=countIn(sub),sa=AREAS[sub]||{};
