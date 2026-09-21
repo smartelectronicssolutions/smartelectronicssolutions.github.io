@@ -790,6 +790,10 @@
         .collapsed .dc-ideas-lbl .car { transform: rotate(-90deg); }
         .dc-ideas.collapsed > :not(.dc-ideas-lbl){ display: none; }
         .dc-ideas.collapsed { padding-bottom: 6px; }
+        /* HIDE THE STRIP ENTIRELY (2026-09-21, L). A CLASS on the console, not the box's `hidden`
+           property: renderIdeas sets box.hidden on every tickler refresh, so a shared flag would be
+           overwritten the next time the data changed. This one cannot be. */
+        #dc-console.no-ideas .dc-ideas { display: none !important; }
         /* rotation: iOS Safari inflates text when the layout width changes (its "text size adjustment") unless told not to */
         html, body { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
         /* phone rules apply in landscape too (a phone on its side is ~390 px tall, so max-height catches it) */
@@ -947,6 +951,7 @@
                     <label class="dc-chk" id="dc-tts-lbl" title="which voice reads a reply aloud when you tap Play. Auto guesses from the text.">🗣 voice<select id="dc-tts-lang" style="margin-left:6px;font:inherit;max-width:120px"><option value="auto">Auto</option><option value="en">English</option><option value="es">Español</option></select></label>
                     <label class="dc-chk" id="dc-model-lbl" title="switch the model of Droplet's running session. Sends /model to its terminal on its own line and posts back whatever the terminal says - including 'not found'. Use it when replies come back as 'you have reached your limit'.">🧠 model<select id="dc-model" style="margin-left:6px;font:inherit;max-width:120px"><option value="">switch to…</option><option value="opus">Opus</option><option value="sonnet">Sonnet</option><option value="haiku">Haiku</option><option value="fable">Fable</option><option value="default">default</option></select></label>
                     <label class="dc-chk" title="newest messages at the top, input right under the strips"><input type="checkbox" id="dc-newest"> ⬆ newest first</label>
+                    <label class="dc-chk" title="show the recent-ideas strip above the input (your open tickler items). Unticked hides it entirely - tapping its label only folds it."><input type="checkbox" id="dc-show-ideas" checked> 💡 recent ideas</label>
                     <label class="dc-chk" title="auto-archive the thread (summary to memory) once it passes this many thousand characters; 0 = never">auto-archive at <input type="number" id="dc-auto-arch" min="0" max="500" step="5">k</label>
                     <span class="dc-size" id="dc-thread-size" title="size of the live thread"></span>
                     <button class="dc-btn ghost sm" id="dc-chat-clear" title="Archive this thread to Droplet's memory (with an ollama summary) and start fresh">📎 New thread</button>
@@ -1254,20 +1259,29 @@
             if (x) x.click();
         }
 
-        function showTopicLabel(order, j) {
+        function showTopicLabel(order, j, skipped) {
             const toast = $('#dc-topic-toast'); if (!toast) return;
             placeUnderTop(toast);
-            toast.innerHTML = esc(order[j] === FAV_TAB ? FAV_TAB + ' Favorites' : order[j] ? '# ' + order[j] : 'All') + `<small>${j + 1} / ${order.length}</small><button type="button" class="cx">✕ close</button>`;
+            toast.innerHTML = esc(order[j] === FAV_TAB ? FAV_TAB + ' Favorites' : order[j] ? '# ' + order[j] : 'All') + `<small>${j + 1} / ${order.length}${skipped ? ' \u00b7 skipped to unread' : ''}</small><button type="button" class="cx">✕ close</button>`;
             toast.querySelector('.cx').onclick = () => { toast.classList.remove('show'); closeConsole(); };
             toast.classList.add('show'); clearTimeout(DC.toastT); DC.toastT = setTimeout(() => toast.classList.remove('show'), 1800);
         }
         function stepTopic(dir) {
             const order = DC.topicOrder || [''];
-            const i = Math.max(0, order.indexOf(DC.topic || '')); const j = i + dir;
+            const i = Math.max(0, order.indexOf(DC.topic || ''));
+            // NEAREST UNREAD FIRST (2026-09-21, L). Scan outward in the SWIPE DIRECTION and stop at the
+            // first tab holding a reply he has not opened, however far along it is; with nothing unread
+            // that way it is an ordinary one-tab step. Directional on purpose - a swipe should never drag
+            // him backwards past the tab he was on. The new-topic gesture is unaffected: it only fires
+            // when the ORDINARY step runs off the end, and a jump always lands on a real tab.
+            let j = i + dir, jumped = false;
+            for (let k = i + dir; k >= 0 && k < order.length; k += dir) {
+                if (DC._unread && DC._unread[order[k] || '']) { j = k; jumped = true; break; }
+            }
             if (j >= order.length) { newTopicBox(); return; }   // one more swipe LEFT past the last tab = make a new topic
             if (j < 0) { showTopicLabel(order, i); return; }    // nothing before All - still show the label (it carries the close X)
             setTopic(order[j]);
-            showTopicLabel(order, j);
+            showTopicLabel(order, j, jumped && Math.abs(j - i) > 1);
             const log = $('#dc-chat-log'); if (log) { log.classList.remove('slide-l', 'slide-r'); void log.offsetWidth; log.classList.add(dir > 0 ? 'slide-l' : 'slide-r'); }
         }
         // floating "new topic" box: opened by swiping left past the last tab. Floats over the log, so it costs no rows.
@@ -2421,6 +2435,14 @@
             const held = ta.value; ta.value = '/model ' + v;
             sendChat().then(() => { if (held) ta.value = held; });
         }); }
+        { const si = $('#dc-show-ideas'); if (si) {
+            const on = (() => { try { return localStorage.getItem('dc_show_ideas') !== '0'; } catch (_) { return true; } })();
+            si.checked = on; $('#dc-console').classList.toggle('no-ideas', !on);
+            si.addEventListener('change', () => {
+                $('#dc-console').classList.toggle('no-ideas', !si.checked);
+                try { localStorage.setItem('dc_show_ideas', si.checked ? '1' : '0'); } catch (_) {}
+            });
+        } }
         { const ts = $('#dc-chat-target'); if (ts) ts.addEventListener('change', e => { if (e.isTrusted) { DC.userPickedTarget = true; DC.autoLocal = false; } syncTarget(); }); }
         setInterval(() => { if (DC.lastMeta) { const on = !!(DC.lastMeta.daemonBeat && (Date.now() - DC.lastMeta.daemonBeat < 60000)); if (on !== DC.daemonOn) renderMeta(DC.lastMeta); } }, 30000);
         // the title dropdown: full names on desktop, short on a phone (the bar is one row there)
