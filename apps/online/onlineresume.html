@@ -1308,6 +1308,53 @@
             focusEditableAtEnd(newJob.querySelector("h3[contenteditable='true']"));
         }
 
+        /* Draw the running header + page number onto an already-rendered jsPDF, the way a
+           Word SECTION header behaves. html2pdf flows one div through html2canvas, so a CSS
+           "fixed" header is painted once into the bitmap and never repeats - this is the only
+           way to get it on page 2, 3, 4. Vector text, so it stays sharp and selectable.
+           Page 1 already carries the full header from the HTML; pages 2+ get the compact one.
+           (2026-09-21, L: "I want it to resemble the doc version in the export".) */
+        function stampDocHeader(pdf) {
+            const TEAL = [0x2d, 0x60, 0x6e];
+            const name = (document.getElementById("name")?.textContent || "").trim();
+            // .contact-info is white-space: pre-line, so its lines are the contact block
+            const contact = (document.querySelector(".contact-info")?.innerText || "")
+                .split("\n").map(t => t.trim()).filter(Boolean);
+
+            const total = pdf.internal.getNumberOfPages();
+            const W = pdf.internal.pageSize.getWidth();
+            const H = pdf.internal.pageSize.getHeight();
+            const M = 0.35;                       // matches options.margin
+
+            for (let i = 1; i <= total; i += 1) {
+                pdf.setPage(i);
+
+                if (i > 1 && name) {
+                    pdf.setFont("helvetica", "bold");
+                    pdf.setTextColor(TEAL[0], TEAL[1], TEAL[2]);
+                    pdf.setFontSize(9);
+                    pdf.text("Resume", M, M + 0.13);
+                    pdf.setFontSize(15);
+                    pdf.text(name, M, M + 0.36);
+
+                    pdf.setTextColor(0, 0, 0);
+                    pdf.setFontSize(8);
+                    contact.slice(0, 3).forEach((line, n) => {
+                        pdf.text(line, W - M, M + 0.10 + n * 0.14, { align: "right" });
+                    });
+
+                    pdf.setDrawColor(TEAL[0], TEAL[1], TEAL[2]);
+                    pdf.setLineWidth(0.012);
+                    pdf.line(M, M + 0.48, W - M, M + 0.48);
+                }
+
+                pdf.setFont("helvetica", "normal");
+                pdf.setTextColor(0x80, 0x80, 0x80);
+                pdf.setFontSize(8);
+                pdf.text(String(i), W - M, H - M + 0.10, { align: "right" });
+            }
+        }
+
         async function exportPDF() {
 
             const element = document.getElementById("resume");
@@ -1344,11 +1391,26 @@
 
             element.classList.add("pdf-export");
 
+            // Pages 2+ need clearance for the stamped header; page 1 has its own in the flow.
+            // Only the "New" format is meant to look like the document, so classic is untouched.
+            const docLook = document.body.dataset.format === "sunderwood";
+            if (docLook) options.margin = [0.68, 0.35, 0.45, 0.35];
+
             try {
-                await html2pdf()
-                    .set(options)
-                    .from(element)
-                    .save();
+                if (docLook) {
+                    await html2pdf()
+                        .set(options)
+                        .from(element)
+                        .toPdf()
+                        .get("pdf")
+                        .then(stampDocHeader)
+                        .save();
+                } else {
+                    await html2pdf()
+                        .set(options)
+                        .from(element)
+                        .save();
+                }
             } finally {
                 hiddenDuringExport.forEach(node => {
                     node.classList.remove("pdf-hidden-empty");
