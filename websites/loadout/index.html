@@ -1330,7 +1330,7 @@ function setBackdrop(b){update(ref(db,"public/loadout/areas/"+curArea),{bg:b.k,n
 function addContainer(){paletteMode="container";$("palTitle").textContent="Pick a container for the tray";paletteOpen=true;buildPalette();$("palette").classList.add("open");}
 /* `art` is the catalog key, so the chip can BE the desk instead of a generic box. It is the one field this added, and only ever read defensively - an older container without it still renders. */
 function makeContainerFrom(k,area,x,y){const nm=((CAT[k]||{}).label||"Container").slice(0,40);const key="c_"+nm.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"").slice(0,20)+"_"+Date.now().toString(36).slice(-5);set(ref(db,BASE+"/loadout/containers/"+key),{name:nm,art:k}).catch(()=>{});/* through placeContainer, never a raw cplace write, so a rail drop onto a one-slot item still swaps */placeContainer(key,area||"tray",x,y);return key;}
-$("pDel").addEventListener("click",()=>{if(!openPlace||String(openPlace).indexOf("c_")!==0)return;if((byLoc[openPlace]||[]).length){alert("Move its items out first.");return;}remove(ref(db,BASE+"/loadout/containers/"+openPlace)).catch(()=>{});remove(ref(db,BASE+"/loadout/cplace/"+openPlace)).catch(()=>{});$("overlay").classList.remove("open");});
+$("pDel").addEventListener("click",()=>{if(!canDeleteContainer(openPlace)){if(openPlace&&(byLoc[openPlace]||[]).length)alert("Move its items out first.");return;}remove(ref(db,BASE+"/loadout/containers/"+openPlace)).catch(()=>{});remove(ref(db,BASE+"/loadout/cplace/"+openPlace)).catch(()=>{});$("overlay").classList.remove("open");});
 (function(){const pn=$("pName");if(!pn)return;
   pn.addEventListener("blur",()=>{const loc=pn.dataset.loc;if(!loc)return;const v=pn.textContent.trim().replace(/\s+/g," ").slice(0,40);if(v&&v!==locMeta(loc).label){set(ref(db,BASE+"/loadout/containers/"+loc),{name:v}).catch(()=>{});}else if(!v){if(String(loc).indexOf("c_")!==0)remove(ref(db,BASE+"/loadout/containers/"+loc)).catch(()=>{});pn.textContent=locMeta(loc).label;}});
   pn.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();pn.blur();}else if(e.key==="Escape"){e.preventDefault();const loc=pn.dataset.loc;if(loc)pn.textContent=locMeta(loc).label;pn.blur();}});
@@ -1501,11 +1501,23 @@ function refuel(){const cost=Math.round((100-FUEL)*FUEL_COST);if(cost<=0){$("job
   $("jobMsg").textContent="⛽ Filled the tank — $"+cost;}
 
 // ---- inventory transfer panel ----
+/* DELETABLE = a real container record, empty, not furniture-backed, not a built-in zone
+   (2026-09-21, L: "can I delete a container that is empty?"). The old test was
+   key.indexOf("c_")===0, which asked how the container was CREATED rather than what it is, and
+   silently protected empty ones like `cabinet` and `veto` so the trash can never showed.
+   decor: keys stay excluded - a room's furniture points at them and would be left holding a
+   container that no longer exists. PLACES/van zones have no containers/<key> node to remove. */
+function canDeleteContainer(key){
+  if(!key||typeof key!=="string")return false;
+  if(key.indexOf("decor:")===0)return false;
+  if(PLACES[key]||!CONTAINERS[key])return false;
+  return (byLoc[key]||[]).length===0;
+}
 let openPlace;
 function isOpen(){return $("overlay").classList.contains("open")||$("reader").classList.contains("open")||$("pcdesk").classList.contains("open")||($("yukiChat")&&$("yukiChat").style.display==="flex");}
 function openPanelFor(key){if(editMode&&!$("storage").classList.contains("open"))return;openPlace=key;
   $("pName").textContent=key?locMeta(key).label:"Backpack";$("pIc").textContent=key?locMeta(key).icon:"🎒";$("dcard").classList.remove("show");
-  {const pr=$("pRen"),pd=$("pDel"),pn=$("pName");if(pr)pr.style.display="none";if(pd)pd.style.display=(key&&String(key).indexOf("c_")===0&&(byLoc[key]||[]).length===0)?"":"none";if(pn){pn.contentEditable=key?"true":"false";pn.dataset.loc=key||"";pn.style.borderBottom=key?"1px dashed rgba(242,165,65,.55)":"";pn.style.cursor=key?"text":"";}}
+  {const pr=$("pRen"),pd=$("pDel"),pn=$("pName");if(pr)pr.style.display="none";if(pd)pd.style.display=canDeleteContainer(key)?"":"none";if(pn){pn.contentEditable=key?"true":"false";pn.dataset.loc=key||"";pn.style.borderBottom=key?"1px dashed rgba(242,165,65,.55)":"";pn.style.cursor=key?"text":"";}}
   document.querySelector(".cols").style.gridTemplateColumns=key?"":"1fr";document.querySelectorAll(".colbox")[0].style.display=key?"":"none";
   $("phint").textContent=key?"Tap an item to move it. Left → backpack (take) · right → crate (stash)":"Your carried items. Walk to a crate to stash them.";
   $("overlay").classList.add("open");renderPanel();}
