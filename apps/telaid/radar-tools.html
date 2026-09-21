@@ -289,8 +289,15 @@
           </div>
 
           <div>
-            <h3>Missing Images</h3>
-            <ul id="missingList"></ul>
+            <!-- collapsible (2026-09-21, L: "since there are so many sensors on this job can I
+                 make the missing section collapsible"). Native details/summary - no JS, works on
+                 a phone, and the count stays visible while collapsed. Open by default. -->
+            <details id="missingDetails" open>
+              <summary style="cursor:pointer;font-weight:600;padding:4px 0">
+                Missing Images <span id="missingCount"></span>
+              </summary>
+              <ul id="missingList"></ul>
+            </details>
           </div>
 
           <div>
@@ -1063,6 +1070,15 @@
             }
           });
 
+          // Nothing to check against means a BLANK section, which reads as broken. Say why.
+          if (!state.expectedSensors) {
+            const li = createEl("li", {
+              text: "Set the device count first - QC Checklist > Site Info > total devices.",
+            });
+            li.style.opacity = ".7";
+            $("missingList")?.appendChild(li);
+          }
+
           for (let i = 1; i <= state.expectedSensors; i += 1) {
             const have = countMap[i] || 0;
             if (have < CONFIG.SENSOR_IMAGE_COUNT_REQUIRED) {
@@ -1078,6 +1094,14 @@
 
               $("missingList")?.appendChild(li);
             }
+          }
+
+          const short = $("missingList")?.querySelectorAll("li.missing-sensor").length || 0;
+          if ($("missingCount")) {
+            $("missingCount").textContent = state.expectedSensors
+              ? (short ? "(" + short + " of " + state.expectedSensors + " incomplete)"
+                       : "(all " + state.expectedSensors + " complete)")
+              : "";
           }
         }
       }
@@ -1119,7 +1143,14 @@
         const skipMarkup = $("skipMarkupCheckbox")?.checked;
 
         if (!state.currentProject || !num || !serial || !file) {
-          alert("Fill out all fields");
+          // Name the missing field. "Fill out all fields" sent L hunting on a phone with no
+          // console, which is most of why uploads read as "nothing happens".
+          const need = [];
+          if (!state.currentProject) need.push("a site (pick one from the dropdown)");
+          if (!num) need.push("a device number");
+          if (!serial) need.push("a serial number");
+          if (!file) need.push("a photo (tap Choose File)");
+          alert("Can't upload yet - still need: " + need.join(", "));
           return;
         }
 
@@ -1187,7 +1218,9 @@
           await updateGallery();
         } catch (err) {
           console.error(err);
-          alert("Upload failed.");
+          // Surface the real reason. A bare "Upload failed." is untriageable in the field;
+          // storage-rule denials and network drops read identically without this.
+          alert("Upload failed: " + (err && (err.code || err.message) ? (err.code || err.message) : err));
         } finally {
           state.isUploading = false;
           if ($("uploadImage")) {
@@ -3234,9 +3267,11 @@
 
           const data =
             (await readOnce(`${sensorMetaBasePath()}/${sensorNum}`)) || {};
-          if (data.serial && $("serialNumber")) {
-            $("serialNumber").value = data.serial;
-          }
+          // ALWAYS write the field, blank included. The old test only assigned when the new
+          // device HAD a serial, so picking one without a serial kept the PREVIOUS device's -
+          // and that value is baked into the filename, stamped onto the image, and saved into
+          // this device's sensorMeta. A stale serial here mislabels real field evidence.
+          if ($("serialNumber")) $("serialNumber").value = data.serial || "";
         });
 
         $$('input[name="viewMode"]').forEach((radio) => {
