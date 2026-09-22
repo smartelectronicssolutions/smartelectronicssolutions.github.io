@@ -478,6 +478,7 @@
         currentCustomerName: "",
         metaOwnerTaskId: "",
         expectedSensors: 0,
+        _sensorTotalTimer: null,
         allProjects: [],
         projectGroupOf: {},
         validated: false,
@@ -2919,6 +2920,30 @@
                 ?.querySelector(".sensor-total")
                 ?.replaceChildren(document.createTextNode(`/ ${total}`));
             });
+
+            /* The count used to be SAVED here and nothing else - the device dropdowns are built
+               only at load time from the stored value, so typing it changed nothing on screen
+               until the site was re-selected. Same reason Missing Images stayed empty: it loops
+               on state.expectedSensors. (2026-09-21, L.) */
+            const n = Math.max(0, Number(total) || 0);
+            if (n !== state.expectedSensors) {
+              state.expectedSensors = n;
+              // rebuilding wipes the selection, so put it back if it is still in range
+              const keepA = $("sensorNumberDropdown")?.value;
+              const keepB = $("sensorMetaNumberDropdown")?.value;
+              populateSensorDropdown(n);
+              if (keepA && Number(keepA) <= n && $("sensorNumberDropdown"))
+                $("sensorNumberDropdown").value = keepA;
+              if (keepB && Number(keepB) <= n && $("sensorMetaNumberDropdown"))
+                $("sensorMetaNumberDropdown").value = keepB;
+              syncSensorTotalToQC();
+              // updateGallery() lists Storage - debounce so "62" does not fire it three times
+              clearTimeout(state._sensorTotalTimer);
+              state._sensorTotalTimer = setTimeout(() => {
+                updateGallery().catch(() => {});
+              }, 600);
+            }
+
             saveQCData();
             return;
           }
