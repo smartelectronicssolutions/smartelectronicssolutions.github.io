@@ -1371,20 +1371,28 @@
           // SELECTED task id, picking a different row opened a different (empty) checklist.
           // Canonical id = the EARLIEST record, picked the same way resolveMetaOwnerTaskId()
           // picks the sensorMeta owner, so checklist + sensor meta + photos all agree.
+          /* A future night's notes are a PLAN, not a record of work. This job pre-seeds every
+             scheduled night with the same scope stub, so "newest visit with notes" reached three
+             days ahead and offered the stub instead of today's walkthrough notes. Only a visit
+             that has already started may feed the Install Summary. (2026-09-22, L.) */
+          const nowTs = Date.now();
           const groups = new Map();
           for (const r of rows) {
+            const notesTs = r.notes && r.time <= nowTs ? r.time : -1;
             const key = `${normKey(r.customer)}|${normKey(r.project)}`;
             const g = groups.get(key);
             if (!g) {
               groups.set(key, { ...r, visits: 1, firstTime: r.time, lastTime: r.time, ids: [r.id],
-                                latestNotes: r.notes, latestNotesTime: r.notes ? r.time : -1 });
+                                latestNotes: notesTs > -1 ? r.notes : "",
+                                latestNotesTime: notesTs,
+                                latestNotesId: notesTs > -1 ? r.id : "" });
               continue;
             }
             g.visits += 1;
             g.ids.push(r.id);
             // newest visit that actually HAS notes wins - a later blank one must not erase it
-            if (r.notes && r.time > (g.latestNotesTime ?? -1)) {
-              g.latestNotes = r.notes; g.latestNotesTime = r.time;
+            if (notesTs > -1 && notesTs > (g.latestNotesTime ?? -1)) {
+              g.latestNotes = r.notes; g.latestNotesTime = notesTs; g.latestNotesId = r.id;
             }
             // A site is only "never uploaded" when NOT ONE of its visits has been.
             g.needsUpload = g.needsUpload && r.needsUpload;
@@ -2913,7 +2921,20 @@
                 value = Number.isFinite(parsed) ? parsed : "";
               }
               patchPayload[taskField] = value;
-              await patch(getTaskPath(), patchPayload);
+              /* Install Summary is SEEDED from the newest visit's notes, so an edit has to go
+                 back to THAT record - not to the canonical one. Writing it to getTaskPath()
+                 would overwrite the earliest visit's notes (the travel day on the Walmart job)
+                 with text belonging to a different visit. Read from A, write to A.
+                 Every other mapped field is site-level and stays on the canonical record.
+                 (2026-09-22, L: "where does it pull Install Summary from?") */
+              let writePath = getTaskPath();
+              if (fieldKey === "installSummary") {
+                const grp = (state.allProjects || []).find(
+                  (p) => p.id === state.currentProject,
+                );
+                if (grp?.latestNotesId) writePath = getTaskPath(grp.latestNotesId);
+              }
+              await patch(writePath, patchPayload);
             }
           }
 
