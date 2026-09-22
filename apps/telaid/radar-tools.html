@@ -8,7 +8,7 @@
     />
     <title>Radar Checklist</title>
     <link rel="icon" href="./assets/img/favicon.ico" type="image/x-icon" />
-    <link rel="stylesheet" href="./assets/css/radartools.css?v=20260922b" />
+    <link rel="stylesheet" href="./assets/css/radartools.css?v=20260922c" />
     <script type="module" src="../assets/js/microsoftAuth.js"></script>
     <script type="module" src="../assets/js/login.js"></script>
     <script src="../assets/js/sidebar.js"></script>
@@ -969,7 +969,14 @@
             img.src = reader.result;
 
             img.onload = () => {
-              const barHeight = Math.max(72, Math.round(img.width * 0.08));
+              /* IDENTICAL MATHS TO onlinejob's stampImg (2026-09-22, L). That app owns both
+                 the stamp and the CROP, and its unstampImg removes max(40, round(width/22)).
+                 Radar used max(72, round(width*0.08)) - roughly width/12.5 - so removing the
+                 label in the jobs app sliced a thinner strip off a taller bar and left a black
+                 band behind. Height is what the round trip depends on, so radar matches it.
+                 The shrink-to-fit loop comes across too: radar had none, so a long
+                 "Customer 01 - SERIAL" label ran off the edge. */
+              const barHeight = Math.max(40, Math.round(img.width / 22));
               const canvas = document.createElement("canvas");
               canvas.width = img.width;
               canvas.height = img.height + barHeight;
@@ -980,11 +987,16 @@
               ctx.fillStyle = "black";
               ctx.fillRect(0, img.height, canvas.width, barHeight);
 
+              let font = Math.round(barHeight * 0.7);
               ctx.fillStyle = "white";
-              ctx.font = `bold ${Math.max(28, Math.round(img.width * 0.05))}px Arial`;
               ctx.textAlign = "center";
-              ctx.textBaseline = "middle";
-              ctx.fillText(text, canvas.width / 2, img.height + barHeight / 2);
+              ctx.textBaseline = "alphabetic";
+              ctx.font = `${font}px Arial`;
+              while (font > 12 && ctx.measureText(text).width > canvas.width * 0.92) {
+                font -= 2;
+                ctx.font = `${font}px Arial`;
+              }
+              ctx.fillText(text, canvas.width / 2, canvas.height - Math.round(barHeight * 0.25));
 
               canvas.toBlob(
                 (finalBlob) => resolve(finalBlob || blob),
