@@ -1342,6 +1342,7 @@
                 id,
                 customer,
                 project,
+                notes: String(task.notes || "").trim(),
                 label: `${customer || "(No Customer)"} — ${project || "(No Project)"}`,
                 time,
                 // Red flag only for sites that have NEVER been uploaded to OneDrive.
@@ -1363,11 +1364,16 @@
             const key = `${normKey(r.customer)}|${normKey(r.project)}`;
             const g = groups.get(key);
             if (!g) {
-              groups.set(key, { ...r, visits: 1, firstTime: r.time, lastTime: r.time, ids: [r.id] });
+              groups.set(key, { ...r, visits: 1, firstTime: r.time, lastTime: r.time, ids: [r.id],
+                                latestNotes: r.notes, latestNotesTime: r.notes ? r.time : -1 });
               continue;
             }
             g.visits += 1;
             g.ids.push(r.id);
+            // newest visit that actually HAS notes wins - a later blank one must not erase it
+            if (r.notes && r.time > (g.latestNotesTime ?? -1)) {
+              g.latestNotes = r.notes; g.latestNotesTime = r.time;
+            }
             // A site is only "never uploaded" when NOT ONE of its visits has been.
             g.needsUpload = g.needsUpload && r.needsUpload;
             if (r.time < g.firstTime) { g.firstTime = r.time; g.id = r.id; }
@@ -2793,7 +2799,13 @@
           siteNumber: taskData.project || "",
           customerName: taskData.customerName || "",
           sensorTotal: taskData.sensorCount || "",
-          installSummary: taskData.notes || "",
+          // The selected record is the EARLIEST visit (that is where the checklist lives), so
+          // its notes are usually the first day's - a travel itinerary on the Walmart job. Offer
+          // the newest visit's notes instead; applyTaskToSiteInfo only ever seeds an EMPTY field,
+          // so this can never overwrite anything typed. (2026-09-21, L.)
+          installSummary:
+            (state.allProjects || []).find((p) => p.id === state.currentProject)
+              ?.latestNotes || taskData.notes || "",
           customerAddress: taskData.customerAddress || "",
           location: taskData.customerAddress || "",
           managerName: taskData.managerName || "",
