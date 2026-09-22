@@ -734,7 +734,7 @@
             if (!snapshot.exists()) {
                 loadEmptyResumeTemplate();
                 initSectionToggles();
-                return;
+                return false;          // the caller needs to know; the DOM cannot tell it
             }
 
             const data = snapshot.val();
@@ -773,6 +773,7 @@
             generateQRCode();
 
             initSectionToggles();
+            return true;
         }
 
         function renderList(id, arr = []) {
@@ -1608,7 +1609,14 @@
 
         document.addEventListener("keydown", handleEnterNavigation);
 
-        const _hashId = location.hash.slice(1);
+        /* The share URL encodes the id (`pub:luis` -> `#pub%3Aluis`) and this used to read it
+           back RAW. Chrome decodes location.hash for you; Safari does not - so on iOS the id
+           arrived as "pub%3Aluis", missed the "pub:" branch in pathOf(), resolved to a node that
+           does not exist and rendered an empty page. Decode it, and survive a malformed escape. */
+        function decodeHashId(raw) {
+            try { return decodeURIComponent(raw); } catch (e) { return raw; }
+        }
+        const _hashId = decodeHashId(location.hash.slice(1));
 
         if (_hashId) {
             document.getElementById('editorToolbar').style.display = 'none';
@@ -1616,7 +1624,7 @@
             document.getElementById('viewExportPdfBtn').addEventListener('click', exportPDF);
             document.body.classList.add('view-mode');
             currentResumeId = _hashId;
-            await loadResume(_hashId);
+            const _found = await loadResume(_hashId);
 
             // Hide empty content (must run before stripping contenteditable)
             document.querySelectorAll('#resume section').forEach(section => {
@@ -1630,6 +1638,17 @@
             });
             if (!document.getElementById('qrLinkInput').value.trim()) {
                 document.getElementById('qrArea').style.display = 'none';
+            }
+
+            /* Never hand back a blank page. If nothing loaded, every section was just hidden
+               above, so say which id failed rather than showing an empty sheet. */
+            if (_found === false) {
+                const r = document.getElementById('resume');
+                if (r) r.innerHTML = '<div style="padding:40px;text-align:center;font-family:system-ui,sans-serif">'
+                    + '<h2 style="margin:0 0 8px">Resume not found</h2>'
+                    + '<p style="opacity:.7;margin:0">No resume saved under <code>'
+                    + String(_hashId).replace(/[<>&]/g, '') + '</code>.</p></div>';
+                document.getElementById('viewToolbar').style.display = 'none';
             }
 
             // Strip editor UI
