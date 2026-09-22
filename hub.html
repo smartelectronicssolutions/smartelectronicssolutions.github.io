@@ -1490,28 +1490,30 @@
         (function () {
             const bar = $('#dc-topics'); if (!bar) return;
             let down = false, sx = 0, sl = 0, moved = false;
+            /* NO setPointerCapture. Capturing makes the capturing element the target for the
+               rest of that pointer's events INCLUDING the click - so every tap landed on the
+               strip instead of the tab button and nothing happened. Listen on WINDOW instead:
+               the drag keeps tracking outside the strip AND the click target is left alone. */
             bar.addEventListener('pointerdown', e => {
                 if (e.button !== 0) return;
                 down = true; moved = false; sx = e.clientX; sl = bar.scrollLeft;
-                try { bar.setPointerCapture(e.pointerId); } catch (_) {}
             });
-            bar.addEventListener('pointermove', e => {
+            window.addEventListener('pointermove', e => {
                 if (!down) return;
                 const dx = e.clientX - sx;
                 if (!moved && Math.abs(dx) > 6) { moved = true; bar.classList.add('dragging'); }
                 if (moved) { bar.scrollLeft = sl - dx; e.preventDefault(); }
             });
-            const end = e => {
+            const end = () => {
                 if (!down) return;
                 down = false; bar.classList.remove('dragging');
-                try { bar.releasePointerCapture(e.pointerId); } catch (_) {}
                 if (moved) {                      // suppress the click this drag is about to fire
                     bar._dcDragged = true;
                     setTimeout(() => { bar._dcDragged = false; }, 0);
                 }
             };
-            bar.addEventListener('pointerup', end);
-            bar.addEventListener('pointercancel', end);
+            window.addEventListener('pointerup', end);
+            window.addEventListener('pointercancel', end);
             bar.addEventListener('click', e => {
                 if (bar._dcDragged) { e.stopPropagation(); e.preventDefault(); }
             }, true);
