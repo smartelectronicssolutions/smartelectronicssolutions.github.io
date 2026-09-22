@@ -595,6 +595,9 @@ const W=cv.width,H=cv.height,FW=A.frame.w,FH=A.frame.h,SC=1.6;
 const _bgc=document.createElement("canvas");_bgc.width=W;_bgc.height=H;const _bgctx=_bgc.getContext("2d");_bgctx.imageSmoothingEnabled=false;let _bgKey="",_bgTime=0;
 const sheet=new Image();let sheetOk=false;sheet.onload=()=>sheetOk=true;sheet.src=A.charSheet;
 let charCanvas=null;   // custom composited character (LimeZu editor) overrides the default sheet when set
+/* Cold load (no cache) has nothing correct to draw yet. Better a player that appears a moment
+   late than one that visibly changes clothes. Capped so a failed composite cannot hide him. */
+let charReady=false; setTimeout(()=>{charReady=true;},2000);
 const floorImg={};for(const k in A.floors){const im=new Image();im.src=A.floors[k];floorImg[k]=im;}
 // ===== NPCs (walk-up characters w/ dialogue) =====
 const npcImg={};for(const k in (A.npc||{})){const im=new Image();im.src=A.npc[k];npcImg[k]=im;}
@@ -830,8 +833,21 @@ async function ceGrid(){const g=$("ceGrid");if(!g)return;g.innerHTML="";const ca
   for(let i=0;i<opts.length;i++)await addOpt(i);}
 async function openCharEditor(){if(!CE_MAN){try{CE_MAN=await (await fetch("chars/manifest.json")).json();}catch(e){CE_MAN={};}}ceTab="body";ceTabs();await ceGrid();await cePreview();$("charEditor").classList.add("open");}
 function closeCharEditor(){$("charEditor").classList.remove("open");}
-async function ceSaveChar(){await ceApply();try{await set(ref(db,BASE+"/loadout/char"),ceSel);}catch(e){}closeCharEditor();}
-async function ceLoadSaved(){try{const v=(await get(ref(db,BASE+"/loadout/char"))).val();if(v){for(const k in ceSel)if(v[k]!=null)ceSel[k]=v[k];}}catch(e){}try{await ceApply();}catch(e){}}   // no save = the default look is still composited, not the bare sprite
+async function ceSaveChar(){await ceApply();try{localStorage.setItem("loadout:char",JSON.stringify(ceSel));}catch(e){}try{await set(ref(db,BASE+"/loadout/char"),ceSel);}catch(e){}closeCharEditor();}
+/* The saved look used to arrive only after a Firebase round trip, so every load showed the
+   DEFAULT character first and swapped once the network answered. Seed from localStorage and
+   composite before touching the network; Firebase still loads next and overrides if it
+   differs, so the cache is only ever a head start. (2026-09-21, L.) */
+async function ceLoadSaved(){
+  try{const c=JSON.parse(localStorage.getItem("loadout:char")||"null");
+      if(c){for(const k in ceSel)if(c[k]!=null)ceSel[k]=c[k];await ceApply();}}catch(e){}
+  try{const v=(await get(ref(db,BASE+"/loadout/char"))).val();
+      if(v){let diff=false;for(const k in ceSel)if(v[k]!=null&&v[k]!==ceSel[k]){ceSel[k]=v[k];diff=true;}
+            if(diff){await ceApply();try{localStorage.setItem("loadout:char",JSON.stringify(ceSel));}catch(e){}}}
+  }catch(e){}
+  try{if(!charCanvas)await ceApply();}catch(e){}
+  charReady=true;
+}   // no save = the default look is still composited, not the bare sprite
 (function(){const c=$("ceClose");if(c)c.onclick=closeCharEditor;const s=$("ceSave");if(s)s.onclick=ceSaveChar;const d=$("dressBtn");if(d)d.onclick=openCharEditor;const r=$("ceRandom");if(r)r.onclick=async()=>{for(const cat of CE_CATS){const opts=(CE_MAN&&CE_MAN[cat.k])||[];if(!opts.length)continue;ceSel[cat.k]=(cat.none&&Math.random()<0.25)?-1:Math.floor(Math.random()*opts.length);}await ceGrid();await cePreview();};})();
 ceLoadSaved();
 // ---- Yuki live game-editor (Tier 1: Firebase data only) ----
@@ -1026,6 +1042,7 @@ function drawPlace(key,p){const x=p.x,y=p.y,w=p.w,h=p.h,n=(byLoc[key]||[]).lengt
   ctx.fillStyle="#cfd6de";ctx.fillText(p.label.toUpperCase(),x+w/2,y-5);ctx.fillStyle="#f2a541";ctx.fillText("· "+n+" ·",x+w/2,y+h-6);}
 function drawPlayer(){const base=player.dir==="up"?6:(player.dir==="down"?18:0);const yRow=128,col=base+(player.moving?player.frame:0);
   const sx=col*FW,sy=yRow,dw=FW*SC,dh=FH*SC,dx=Math.floor(player.x-dw/2),dy=Math.floor(player.y-dh+8);
+  if(!charCanvas&&!charReady)return;   // hold rather than flash the default look
   const _src=charCanvas||sheet;if(!charCanvas&&!sheetOk){ctx.fillStyle="#f2a541";ctx.fillRect(player.x-6,player.y-22,12,22);return;}
   ctx.save();if(player.dir==="left"){ctx.translate(dx+dw,dy);ctx.scale(-1,1);ctx.drawImage(_src,sx,sy,FW,FH,0,0,dw,dh);}else ctx.drawImage(_src,sx,sy,FW,FH,dx,dy,dw,dh);ctx.restore();}
 function drawPrompt(p){const px=p.x+p.w/2,py=p.y-24+Math.sin(performance.now()/240)*2;
