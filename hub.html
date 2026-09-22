@@ -1659,11 +1659,35 @@
             // snap to the newest end only when the visible turns or the tab changed - a star toggle, an edit or a
             // reply landing in an existing bubble keeps your scroll position (2026-09-18)
             const rsig = DC.topic + '|' + nf + '|' + order.join(',');
-            if (DC.renderSig !== rsig) { log.scrollTop = nf ? 0 : log.scrollHeight; DC.renderSig = rsig; }
+            if (DC.renderSig !== rsig) { snapChatEnd(log, nf); DC.renderSig = rsig; }
             updateThreadSize(obj);
             fillSnaps();
             reconcilePending(obj);
         }
+        /* Put the log at its newest end and KEEP it there while the layout settles.
+           newest-first anchors at scrollTop 0, where anything growing below is harmless.
+           Oldest-first anchors at the bottom, where it is not: fillSnaps() runs AFTER the snap
+           and injects <img loading="lazy"> with no intrinsic size, so the log grows under L and
+           leaves him mid-thread. Re-assert on the next frame, at 90ms and at 400ms, and on every
+           image that finishes loading - but only while the view has not moved. Content growing
+           below the fold does not change scrollTop, so an untouched view still reads as unmoved,
+           while a deliberate scroll reads as moved and is left alone.
+           (2026-09-22, L: "newest first unchecked ... start me out scrolled to the bottom") */
+        function snapChatEnd(log, nf) {
+            if (!log) return;
+            const put = () => { log.scrollTop = nf ? 0 : log.scrollHeight; return log.scrollTop; };
+            let at = put();
+            DC.reSnap = () => { if (Math.abs(log.scrollTop - at) <= 4) at = put(); };
+            requestAnimationFrame(() => DC.reSnap());
+            setTimeout(() => DC.reSnap(), 90);
+            setTimeout(() => DC.reSnap(), 400);
+        }
+        // `load` does not bubble, so this listens in the capture phase. Snap frames decode long
+        // after the 400ms re-assert, and each one moves the bottom down.
+        document.getElementById('dc-chat-log') &&
+            document.getElementById('dc-chat-log').addEventListener(
+                'load', () => DC.reSnap && DC.reSnap(), true);
+
         window.__dcRender = renderChat;   // test hook (no auth needed): window.__dcRender({key: {s, text, ts}})
         // thread size (chars) in the head + the auto-archive limit the daemon enforces (console/settings/autoArchiveChars)
         // ---- Sys > Conversation (2026-09-20, L: "interesting facts about conversation") ----
@@ -2435,7 +2459,7 @@
             document.querySelectorAll('.dc-panel').forEach(x => x.classList.remove('active'));
             t.classList.add('active');
             $('#dc-chat-panel').classList.toggle('active', t.dataset.tab === 'ch');
-            if (t.dataset.tab === 'ch' && !wasActive) { const l = $('#dc-chat-log'); if (l) l.scrollTop = newestFirst() ? 0 : l.scrollHeight; if (!DC.isPhone()) setTimeout(() => $('#dc-chat-in') && $('#dc-chat-in').focus(), 50); }
+            if (t.dataset.tab === 'ch' && !wasActive) { snapChatEnd($('#dc-chat-log'), newestFirst()); if (!DC.isPhone()) setTimeout(() => $('#dc-chat-in') && $('#dc-chat-in').focus(), 50); }
             // System = one tab: account + daemon line, then Routines, then Fleet (with Pings) - both panels show together
             $('#dc-rt-panel').classList.toggle('active', t.dataset.tab === 'sys');
             $('#dc-fl-panel').classList.toggle('active', t.dataset.tab === 'sys');
