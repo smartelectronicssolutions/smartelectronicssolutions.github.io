@@ -908,7 +908,13 @@
         // Device metadata
         const snapshot = await readOnce(sensorMetaBasePath());
         if (snapshot) {
+          /* RTDB hands back an ARRAY, not an object, when the keys are numeric and
+             near-contiguous from 0 - and sensorMeta is keyed by device number. With
+             marks 1-241 loaded that is a 242-slot array whose index 0 is a null hole,
+             and meta.serial on the hole used to throw straight out of the export.
+             Keep only real rows; this also covers a skipped device. (2026-09-22) */
           Object.entries(snapshot)
+            .filter(([, meta]) => meta && typeof meta === "object")
             .sort((a, b) => Number(a[0]) - Number(b[0]))
             .forEach(([sensorNum, meta]) => {
               const label = `Device ${sensorNum}`;
@@ -1571,11 +1577,25 @@
             (await readOnce(getTaskPath(state.metaOwnerTaskId))) || data;
           if (seq !== state.loadSeq) return;
 
+          /* The count lives on the TASK record, not in the checklist:
+             collectData() deliberately EXCLUDES sensorTotal (with date, the odometers and
+             installSummary) so the task stays its single source of truth, and typing in the
+             field writes task.sensorCount. This read was still pointed at qcData_radar - a
+             path the exclusion list guarantees nothing writes - so expectedSensors came back
+             0, the device dropdowns built empty, and Missing Images (which loops on
+             expectedSensors) stayed blank whatever he typed. `owner` was already being
+             fetched two lines up for exactly this and then never used; it is also the right
+             record to ask, since sensorMeta hangs off the owner too. The qcData path stays
+             last as a fallback for sites saved before the exclusion existed.
+             (2026-09-22, L: "add the device serial numbers to the device info") */
           state.expectedSensors =
+            Number(owner?.sensorCount) ||
+            Number(data?.sensorCount) ||
             Number(
               data?.qcData_radar?.sections?.site_info?.fields?.sensorTotal
                 ?.value,
-            ) || 0;
+            ) ||
+            0;
           syncSensorTotalToQC();
 
           if ($("project")) $("project").value = state.currentProjectName;
@@ -3197,7 +3217,13 @@
         // ── Device metadata ──
         const snapshot = await readOnce(sensorMetaBasePath());
         if (snapshot) {
+          /* RTDB hands back an ARRAY, not an object, when the keys are numeric and
+             near-contiguous from 0 - and sensorMeta is keyed by device number. With
+             marks 1-241 loaded that is a 242-slot array whose index 0 is a null hole,
+             and meta.serial on the hole used to throw straight out of the export.
+             Keep only real rows; this also covers a skipped device. (2026-09-22) */
           Object.entries(snapshot)
+            .filter(([, meta]) => meta && typeof meta === "object")
             .sort((a, b) => Number(a[0]) - Number(b[0]))
             .forEach(([num, meta]) => {
               const label = `Device ${num}`;
