@@ -731,6 +731,8 @@
         /* topic tabs (2026-09-17): one thread, a chip per topic filters the view; All = everything */
         .dc-topics { display: flex; gap: 6px; align-items: center; overflow-x: auto; padding: 6px 2px; border-bottom: 1px solid var(--border); scrollbar-width: none; flex: 0 0 auto; }
         .dc-topics::-webkit-scrollbar { display: none; }
+        .dc-topics { cursor: grab; }            /* draggable left/right with the mouse */
+        .dc-topics.dragging { cursor: grabbing; }
         .dc-chat.newest-first .dc-topics { order: 0; }
         .dc-topic { flex: 0 0 auto; border: 1px solid var(--border); background: transparent; color: var(--muted); border-radius: var(--dc-r-pill); padding: 3px 10px; font-size: calc(0.74rem * var(--dc-fs, 1)); cursor: pointer; white-space: nowrap; font-family: inherit; }
         .dc-topic.on { color: var(--dc-purple); border-color: var(--dc-purple); background: color-mix(in srgb, var(--dc-purple) 10%, transparent); font-weight: 600; }
@@ -1479,6 +1481,42 @@
             try { await set(ref(database, `${DC.base}/chat/favorites/${k}`), on ? null : { s: 'D', who: src.who || 'Droplet', text: src.text || '', ts: src.ts || Date.now(), ...(src.topic ? { topic: src.topic } : {}), savedAt: Date.now() }); }
             catch (err) { $('#dc-chat-status').textContent = '⚠ could not save favorite: ' + (err.message || err); }
         }, true);   // capture: runs before the edit/triple-tap handlers
+        /* DRAG THE TAB STRIP (2026-09-21, L). It is overflow-x:auto with the scrollbar hidden,
+           so a trackpad could swipe it and a plain mouse could not reach an off-screen tab at all.
+           Pointer events cover mouse/pen/touch in one path. A TAP must still select a topic, so
+           the trailing click is only swallowed once the pointer has travelled >6px - above click
+           jitter, far below a real drag. Phone is untouched: .dc-topics is display:none there and
+           the swipe gesture is bound to the chat log, not this strip. */
+        (function () {
+            const bar = $('#dc-topics'); if (!bar) return;
+            let down = false, sx = 0, sl = 0, moved = false;
+            bar.addEventListener('pointerdown', e => {
+                if (e.button !== 0) return;
+                down = true; moved = false; sx = e.clientX; sl = bar.scrollLeft;
+                try { bar.setPointerCapture(e.pointerId); } catch (_) {}
+            });
+            bar.addEventListener('pointermove', e => {
+                if (!down) return;
+                const dx = e.clientX - sx;
+                if (!moved && Math.abs(dx) > 6) { moved = true; bar.classList.add('dragging'); }
+                if (moved) { bar.scrollLeft = sl - dx; e.preventDefault(); }
+            });
+            const end = e => {
+                if (!down) return;
+                down = false; bar.classList.remove('dragging');
+                try { bar.releasePointerCapture(e.pointerId); } catch (_) {}
+                if (moved) {                      // suppress the click this drag is about to fire
+                    bar._dcDragged = true;
+                    setTimeout(() => { bar._dcDragged = false; }, 0);
+                }
+            };
+            bar.addEventListener('pointerup', end);
+            bar.addEventListener('pointercancel', end);
+            bar.addEventListener('click', e => {
+                if (bar._dcDragged) { e.stopPropagation(); e.preventDefault(); }
+            }, true);
+        })();
+
         window.__dcStepTopic = stepTopic;   // test hook
         // MESSAGE ARROWS: ⤒ = top of the nearest message above the view (then the one before, up to the top of the log);
         // ⤓ = top of the next message below the view (then the next, down to the bottom). Each shows only when it can move.
