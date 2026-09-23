@@ -536,7 +536,7 @@
     // onIdTokenChanged is not re-exported by firebase-init.js; pull it from the
     // same (already-cached) auth module so we can catch token expiry live.
     import { onIdTokenChanged } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
-    import { normTag, SPENDING_HINT, INV_TAG } from "../assets/js/taxonomy.js";   // 2026-09-17: shared ledger taxonomy
+    import { normTag, parentTag, tagLabel, subSuggestions, SPENDING_HINT, INV_TAG } from "../assets/js/taxonomy.js";   // 2026-09-17: shared ledger taxonomy; parent/sub wired 2026-09-23
     import { uploadImage as sharedUploadImage, removeStorageImage } from "../assets/js/imgupload.js";
 
     /* HTML-escape untrusted (world-writable public/*) strings before they touch innerHTML.
@@ -1384,15 +1384,20 @@
       if (!bar) return;
       bar.innerHTML = "";
 
+      // ROLL UP (2026-09-23). Count against the PARENT tag, so ☕/🍔/🍺 add to 🍽 and 🛻 adds to
+      // 🚗 instead of each holding its own chip. L asked for few tags; this is how few tags stop
+      // being a lie about the data. The rows keep whatever tag they were given - nothing is
+      // rewritten to make the bar tidy, the bar just stops showing eleven near-duplicates.
       const map = new Map();
       for (const t of txInCurrentYear()) {
         for (const raw of t.tags || []) {
           const tag = String(raw || "").trim();
           if (!tag) continue;
-          const key = tag.toLowerCase();
+          const roll = parentTag(tag) || tag;
+          const key = roll.toLowerCase();
           const prev = map.get(key);
           if (prev) prev.count += 1;
-          else map.set(key, { label: tag, count: 1 });
+          else map.set(key, { label: roll, count: 1 });
         }
       }
 
@@ -1415,29 +1420,64 @@
         const input = document.getElementById("global-search");
         if (input) input.value = "";
         filterGlobalEntries();
-        bar
-          .querySelectorAll(".tag-chip")
-          .forEach((el) => el.classList.remove("active"));
+        renderTagBar();     // active state is read back off the query now, so redraw rather than un-class by hand
       });
       bar.appendChild(clear);
+
+      const searchBox = document.getElementById("global-search");
+      const cur = String((searchBox || {}).value || "");
+      const curTag = (cur.match(/tags\s*:\s*(?:"([^"]+)"|(\S+))/i) || []).slice(1).find(Boolean) || "";
+      const curSub = (cur.match(/sub\s*:\s*(?:"([^"]+)"|(\S+))/i) || []).slice(1).find(Boolean) || "";
+
+      const setQuery = (tag, sub) => {
+        if (!searchBox) return;
+        const q = (v) => (String(v).includes(" ") ? `"${String(v).replace(/"/g, '\\"')}"` : v);
+        searchBox.value = [tag ? `tags:${q(tag)}` : "", sub ? `sub:${q(sub)}` : ""].filter(Boolean).join(" ");
+        filterGlobalEntries();
+        renderTagBar();                       // redraw so the sub row follows the tag
+      };
 
       for (const { label, count } of tags) {
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = "tag-chip";
         btn.textContent = `${label} (${count})`;
-        btn.title = `Filter by tag: ${label}`;
-        btn.addEventListener("click", () => {
-          const input = document.getElementById("global-search");
-          if (!input) return;
-          input.value = `tags:${label.includes(" ") ? `"${label.replace(/"/g, '\\"')}"` : label}`;
-          filterGlobalEntries();
-          bar
-            .querySelectorAll(".tag-chip")
-            .forEach((el) => el.classList.remove("active"));
-          btn.classList.add("active");
-        });
+        const lbl = tagLabel(label);
+        btn.title = lbl ? `Filter by ${lbl} (${label})` : `Filter by tag: ${label}`;
+        if (normTag(label) === normTag(curTag)) btn.classList.add("active");
+        btn.addEventListener("click", () => setQuery(normTag(label) === normTag(curTag) ? "" : label, ""));
         bar.appendChild(btn);
+      }
+
+      // SECOND ROW: once a tag is picked, the `sub` values actually present under it - which is
+      // the "show me just the fast food" he asked for. Only values that EXIST in the filtered
+      // rows are offered, plus the suggestions for that tag, so the row never promises a slice
+      // that would come back empty. It stays hidden entirely until a tag is active.
+      if (curTag) {
+        const present = new Map();
+        for (const t of txInCurrentYear()) {
+          if (!(t.tags || []).some((x) => normTag(parentTag(x)) === normTag(curTag))) continue;
+          const s = String(t.sub || "").trim();
+          if (s) present.set(s.toLowerCase(), s);
+        }
+        const offered = Array.from(present.values());
+        if (offered.length) {
+          const row = document.createElement("span");
+          row.className = "tag-sub-row";
+          row.style.cssText = "display:inline-flex;flex-wrap:wrap;gap:6px;margin-left:8px;padding-left:8px;border-left:1px solid var(--border,#3a3a3a)";
+          for (const s of offered.sort()) {
+            const sb = document.createElement("button");
+            sb.type = "button";
+            sb.className = "tag-chip";
+            sb.textContent = s;
+            sb.title = `Narrow ${curTag} to ${s}`;
+            if (s.toLowerCase() === curSub.toLowerCase()) sb.classList.add("active");
+            sb.addEventListener("click", () =>
+              setQuery(curTag, s.toLowerCase() === curSub.toLowerCase() ? "" : s));
+            row.appendChild(sb);
+          }
+          bar.appendChild(row);
+        }
       }
     }
 
@@ -1452,19 +1492,30 @@
       const q = String(query || "").trim();
       if (!q) return records;
 
-      const m = q.match(/tags\s*:\s*(?:"([^"]+)"|([^\s]+))/i);
-      if (m) {
-        const want = (m[1] || m[2] || "").toLowerCase();
-        return records.filter((r) =>
-          (r.tags || []).some((t) => String(t).toLowerCase() === want),
-        );
+      // `tags:` and `sub:` combine, and either can stand alone (2026-09-23).
+      const mt = q.match(/tags\s*:\s*(?:"([^"]+)"|(\S+))/i);
+      const ms = q.match(/sub\s*:\s*(?:"([^"]+)"|(\S+))/i);
+      if (mt || ms) {
+        const wantTag = normTag((mt ? mt[1] || mt[2] : "") || "").toLowerCase();
+        const wantSub = ((ms ? ms[1] || ms[2] : "") || "").toLowerCase();
+        return records.filter((r) => {
+          // ROLL UP: asking for 🍽 has to return the ☕ and 🍔 rows too, or the tag bar's
+          // count and the table's row count disagree - which is the bug that makes someone
+          // stop trusting the filter. parentTag maps a row's own tag up to the one he clicked.
+          const tagOk = !wantTag ||
+            (r.tags || []).some((t) => normTag(parentTag(t)).toLowerCase() === wantTag ||
+                                       normTag(t).toLowerCase() === wantTag);
+          const subOk = !wantSub || String(r.sub || "").trim().toLowerCase() === wantSub;
+          return tagOk && subOk;
+        });
       }
 
       const low = q.toLowerCase();
       return records.filter((r) => {
         const name = String(r.name || "").toLowerCase();
         const tags = (r.tags || []).join(" ").toLowerCase();
-        return name.includes(low) || tags.includes(low);
+        const sub = String(r.sub || "").toLowerCase();      // free text reaches the second tier too
+        return name.includes(low) || tags.includes(low) || sub.includes(low);
       });
     }
 

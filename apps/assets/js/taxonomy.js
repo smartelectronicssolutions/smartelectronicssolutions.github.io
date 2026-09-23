@@ -14,8 +14,8 @@ export const SPENDING_TAGS = [
   { tag: '⛽', label: 'Gas' },                                                // onlinegas filters on this one - never rename
   { tag: '🚥', label: 'Tolls' },
   { tag: '🅿️', label: 'Parking' },
-  { tag: '🛻', label: 'Vehicle admin (DMV)' },
-  { tag: '🚗', label: 'Auto (parts, repair, rideshare)' },
+  { tag: '🚗', label: 'Auto (parts, repair, rideshare)', children: ['🛻'] },   // 🛻 = DMV/registration; 3 rows ever, so it rolls up rather than holding its own chip
+
   { tag: '🏦', label: 'Bank fees / interest' },
   { tag: '🔌', label: 'Utilities / electronics' },
   { tag: '💳', label: 'Subscriptions' },
@@ -30,6 +30,21 @@ export const SPENDING_TAGS = [
 
 export const INV_TAG = 'inv';            // "this is a tracked / billable part" - the inventory/invoice link
 export const GAS_TAG = '⛽';
+
+// SECOND TIER (wired 2026-09-23). L wanted few tags but still a way to see one KIND of spend:
+// "so if i want to see say all the fast food or gas or whatever i could somehow filter". The tag
+// stays coarse and `sub` - already on the node, no new field - carries the flavour. These are
+// SUGGESTIONS for the input datalist, not a closed list; anything typed is kept.
+export const SUB_SUGGESTIONS = {
+  '🍽': ['fast food', 'coffee', 'restaurant', 'bar', 'liquor', 'delivery'],
+  '🛒': ['groceries', 'household', 'pharmacy'],
+  '🚗': ['dmv', 'parts', 'repair', 'rideshare', 'insurance'],
+  '🛍': ['clothes', 'personal care', 'travel', 'gifts'],
+  '🔌': ['utilities', 'electronics', 'internet'],
+  '💳': ['subscription', 'software', 'streaming'],
+  '🛠': ['materials', 'tools', 'hardware'],
+};
+export function subSuggestions(t) { return SUB_SUGGESTIONS[normTag(parentTag(t))] || []; }
 
 // System 2: canonical part categories for tx.cat (only meaningful on inv-tagged rows). Resale = goods bought to sell on.
 export const PART_CATEGORIES = ['Tools', 'Electronics', 'Storage', 'Supplies', 'Networking', 'Cables/Wires', 'Resale'];
