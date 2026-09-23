@@ -156,12 +156,65 @@
         #yuki-toggle {
             position: fixed; right: 20px; bottom: 20px;
             width: 46px; height: 46px; border-radius: 50%;
-            background: steelblue; border: none; color: #fff;
+            background: none; border: none; color: #fff; padding: 0;
             font-size: 1.3rem; cursor: pointer; z-index: 200;
             display: none; align-items: center; justify-content: center;
             box-shadow: 0 2px 10px rgba(0,0,0,0.5);
         }
         #yuki-toggle.visible { display: flex; }
+        /* the mark IS the button now - the badge is a circle, so the old steelblue plate
+           underneath it would only show as a rim (2026-09-23) */
+        #yuki-toggle img { width: 100%; height: 100%; display: block; pointer-events: none; }
+        #yuki-toggle:hover img { transform: scale(1.06); }
+        #yuki-toggle img { transition: transform .15s ease; }
+        /* it lands rather than just appearing, so the eye follows the intro into the corner */
+        #yuki-toggle.landing { animation: dropLand .42s cubic-bezier(.34,1.56,.64,1) both; }
+        @keyframes dropLand { 0% { transform: scale(.2); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+
+        /* INTRO (2026-09-23, L: "initially shows it then shrinks to just the droplet").
+           The wordmark comes up centred, holds long enough to read, then shrinks toward the
+           corner and hands off to the badge. pointer-events stays none the whole time - an
+           overlay that eats a tap during its first second is worse than no overlay. Once per
+           TAB SESSION, not per navigation: a splash you cannot get past gets old by lunchtime. */
+        /* Anchored BOTTOM RIGHT, not centred (L, 2026-09-23: "keep it in the lower right hand
+           corner instead of the center"). The padding puts the wordmark's bottom-right corner
+           exactly where the button's is, so with transform-origin at that same corner the logo
+           shrinks straight into the button's own footprint - no travel to compute, and nothing
+           to re-derive if the button ever moves. */
+        #droplet-intro {
+            position: fixed; inset: 0; z-index: 400; display: none;
+            align-items: flex-end; justify-content: flex-end;
+            padding: 0 20px 20px 0; pointer-events: none;
+        }
+        #droplet-intro.run { display: flex; }
+        /* COLLAPSE INTO THE DROPLET (L: "shrink around the droplet O ... as though it's reducing
+           to it"). The origin is the badge's own centre inside the artwork, measured from the
+           build rather than eyeballed: the "o" sits at 163.9/402 across and 77.5/140 down, so
+           40.77% 55.36%. Scaling about that point pulls "Dr" and "plet" inward onto the droplet
+           instead of shrinking the whole lockup toward a corner.
+           The badge does not move under a transform about its own centre, so the translate is
+           purely "carry the droplet from where it is to where the button is" - derived from the
+           width, so it holds at any size instead of being a magic pixel offset. */
+        #droplet-intro img {
+            --dw: min(82vw, 420px);
+            width: var(--dw);
+            transform-origin: 40.77% 55.36%;
+            animation: dropIntro 1.75s cubic-bezier(.6,.02,.28,1) forwards;
+        }
+        @keyframes dropIntro {
+            0%   { opacity: 0; transform: scale(.86); }
+            16%  { opacity: 1; transform: scale(1); }
+            52%  { opacity: 1; transform: scale(1); }
+            /* .575 lands the badge at ~46px, the button's size, from a 420px-wide lockup */
+            100% { opacity: 0;
+                   transform: translate(calc(0.5923 * var(--dw) - 23px),
+                                        calc(0.15546 * var(--dw) - 23px)) scale(.575); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            #droplet-intro { display: none !important; }
+            #yuki-toggle.landing { animation: none; }
+            #yuki-toggle img, #yuki-toggle:hover img { transition: none; transform: none; }
+        }
         #yuki-sidebar {
             position: fixed; right: 0; top: 0; bottom: 0; width: 300px;
             background: var(--surface); border-left: 1px solid var(--border);
@@ -627,8 +680,11 @@
     </main>
     </div>
 
+    <!-- intro: the wordmark, then it shrinks into the corner badge -->
+    <div id="droplet-intro" aria-hidden="true"><img src="assets/img/droplet-logo.svg" alt=""></div>
+
     <!-- Yuki sidebar -->
-    <button id="yuki-toggle" title="Droplet Console">💧</button>
+    <button id="yuki-toggle" title="Droplet Console"><img src="assets/img/droplet-mark.svg" alt="Droplet Console"></button>
     <div id="yuki-sidebar">
         <div id="yuki-sidebar-header">
             <span>🌸 Yuki</span>
@@ -667,6 +723,13 @@
             border-bottom: 1px solid var(--border); background: var(--surface); }
         .dc-bar .dc-brand { font-weight: 600; color: var(--dc-purple); display: flex; align-items: center; gap: 4px; font-size: calc(0.95rem * var(--dc-fs, 1)); margin-right: 4px; }
         .dc-bar select.dc-brand { display: inline-block; width: auto; flex: 0 0 auto; max-width: 15em; background: transparent; border: 1px solid transparent; border-radius: var(--dc-r-sm); padding: 2px 4px; cursor: pointer; font-family: inherit; }
+        /* the mark rides in the title dropdown (L, 2026-09-23) - but ONLY while the target IS
+           Droplet. The other targets carry their own glyph in the option text, and a Droplet
+           badge sitting next to "CompMan" would just be wrong. JS owns the class. */
+        .dc-bar select.dc-brand.has-mark {
+            background: transparent url('assets/img/droplet-mark.svg') no-repeat 3px center / 17px 17px;
+            padding-left: 24px;
+        }
         .dc-bar select.dc-brand:hover, .dc-bar select.dc-brand:focus { border-color: color-mix(in srgb, var(--dc-purple) 45%, transparent); outline: none; }
         .dc-bar select.dc-brand option { color: var(--text); background: var(--surface); font-weight: 500; }
         .dc-bar .dc-tab { padding: 5px 10px; font-size: calc(0.82rem * var(--dc-fs, 1)); border-radius: 0; }
@@ -737,7 +800,13 @@
         .dc-topic { flex: 0 0 auto; border: 1px solid var(--border); background: transparent; color: var(--muted); border-radius: var(--dc-r-pill); padding: 3px 10px; font-size: calc(0.74rem * var(--dc-fs, 1)); cursor: pointer; white-space: nowrap; font-family: inherit; }
         .dc-topic.on { color: var(--dc-purple); border-color: var(--dc-purple); background: color-mix(in srgb, var(--dc-purple) 10%, transparent); font-weight: 600; }
         .dc-topic .n { opacity: 0.65; margin-left: 4px; font-weight: 400; }
-        .dc-topic .x { margin-left: 6px; opacity: 0.7; }
+        .dc-topic .x { margin-left: 6px; opacity: 0.7; padding: 0 3px; }
+        /* ✎ and ✕ sit side by side on the active chip and only one of them is destructive, so the
+           ✕ gets its own gap and turns red under a finger - a thumb aiming for rename must not be
+           one pixel from remove (2026-09-23). The confirm is the real guard; this is so the tap
+           is deliberate before the guard is ever reached. */
+        .dc-topic .x.del { margin-left: 10px; }
+        .dc-topic .x.del:hover, .dc-topic .x.del:active { color: var(--dc-red); opacity: 1; }
         @keyframes dcSlideL { from { transform: translateX(28px); opacity: 0.35; } to { transform: none; opacity: 1; } }
         @keyframes dcSlideR { from { transform: translateX(-28px); opacity: 0.35; } to { transform: none; opacity: 1; } }
         .dc-chat-log.slide-l { animation: dcSlideL 0.18s ease-out; } .dc-chat-log.slide-r { animation: dcSlideR 0.18s ease-out; }
@@ -761,6 +830,16 @@
         .dc-del .tagrow { display: flex; gap: 6px; margin-top: 10px; }
         .dc-del .tagrow input { flex: 1; min-width: 0; font-size: calc(16px * var(--dc-fs, 1)); padding: 7px 10px; border-radius: var(--dc-r-md); border: 1px solid var(--border); background: transparent; color: var(--text); font-family: inherit; }   /* 16px: no iOS zoom */
         .dc-del .tagrow button.sv { border-color: var(--dc-purple); color: var(--dc-purple); font-weight: 600; }
+        /* the tab list, as chips - see the comment on the # Tag handler for why this is not a <datalist> */
+        .dc-del .tagrow.chips { flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+        .dc-del .tchip { padding: 5px 10px; font-size: calc(0.76rem * var(--dc-fs, 1)); border: 1px solid var(--border);
+            background: transparent; color: var(--text); border-radius: var(--dc-r-md); cursor: pointer; font-family: inherit; }
+        .dc-del .tchip:hover { border-color: var(--dc-purple); color: var(--dc-purple); }
+        /* the tab it is already in: shown for context, not a target - no hover, no pointer */
+        .dc-del .tchip.on { border-color: var(--dc-purple); color: var(--dc-purple);
+            background: color-mix(in srgb, var(--dc-purple) 14%, transparent); cursor: default; opacity: .75; }
+        .dc-del .tchip.none { color: var(--muted); }
+        .dc-del .tchip.none:hover { border-color: var(--dc-red); color: var(--dc-red); }
         .dc-del .r button { transition: opacity 0.15s; }
         .dc-del.arming .r button { opacity: 0.4; pointer-events: none; }   /* inert until the opening tap burst is spent */
         .dc-topic-new .t { color: var(--dc-purple); font-weight: 600; font-size: calc(0.9rem * var(--dc-fs, 1)); margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; }
@@ -1188,15 +1267,85 @@
                     for (const k of keys) patch[`${k}/topic`] = nm;
                     await update(ref(database, `${DC.base}/chat/turns`), patch);   // atomic: all or none
                 }
+                const inflight = await retargetJobs(oldName, nm);   // replies still on their way come to the new name too
                 await update(ref(database, `${DC.base}/chat/topics/${topicKey(nm)}`), { name: nm, createdAt: Date.now() });
                 await set(ref(database, `${DC.base}/chat/topics/${topicKey(oldName)}`), null);
                 setTopic(nm);
-                if (status) status.textContent = `# ${oldName} → # ${nm} · ${keys.length} message${keys.length === 1 ? '' : 's'} carried`;
+                if (status) status.textContent = `# ${oldName} → # ${nm} · ${keys.length} message${keys.length === 1 ? '' : 's'} carried`
+                    + (inflight ? ` · ${inflight} reply still on its way redirected` : '');
             } catch (e) {
                 if (status) status.textContent = '⚠ rename failed: ' + (e.message || e);
             }
         }
         window.__dcRenameTopic = renameTopic;   // test hook
+
+        /* A rename or a tab removal moves the turns that exist RIGHT NOW. It cannot reach a job
+           that is already in flight: the job record carries the topic captured when the message
+           was sent, so the reply lands afterwards under the OLD name - and if no tab has that
+           name any more, the turn renders only in All. That is exactly how three turns went
+           missing on 2026-09-23 ('Finacial' -> 'Financial'). So: carry the change onto every
+           job that has not finished yet. `to` = null untags. */
+        async function retargetJobs(oldName, to) {
+            if (!DC.base || !oldName) return 0;
+            let jobs = {};
+            try { jobs = (await get(ref(database, `${DC.base}/jobs`))).val() || {}; } catch (_) { return 0; }
+            const patch = {};
+            for (const [jid, j] of Object.entries(jobs)) {
+                if (j && typeof j === 'object' && j.topic === oldName &&
+                    (j.status === 'queued' || j.status === 'running')) patch[`${jid}/topic`] = to;
+            }
+            const n = Object.keys(patch).length;
+            if (n) { try { await update(ref(database, `${DC.base}/jobs`), patch); } catch (_) { return 0; } }
+            return n;
+        }
+
+        /* Remove a tab. The messages are NEVER deleted - they lose the tag and stay in All.
+           An empty tab just goes; one with messages asks first, because "delete" next to a
+           number is the kind of button people regret. */
+        async function deleteTopic(name) {
+            if (!DC.base || !name || name === FAV_TAB) return;
+            const status = $('#dc-chat-status');
+            if (status) status.textContent = 'reading the full thread…';
+            let turns = {}, favs = {};
+            try {
+                // whole node, not DC.chatTurns - the listener is limitToLast(120) and anything
+                // older would keep a tag whose tab no longer exists
+                turns = (await get(ref(database, `${DC.base}/chat/turns`))).val() || {};
+                favs = (await get(ref(database, `${DC.base}/chat/favorites`))).val() || {};
+            } catch (e) { if (status) status.textContent = '⚠ could not read the thread: ' + (e.message || e); return; }
+            const tk = Object.keys(turns).filter(k => turns[k] && turns[k].topic === name);
+            const fk = Object.keys(favs).filter(k => favs[k] && favs[k].topic === name);
+            try {
+                if (tk.length) { const p = {}; for (const k of tk) p[`${k}/topic`] = null; await update(ref(database, `${DC.base}/chat/turns`), p); }
+                if (fk.length) { const p = {}; for (const k of fk) p[`${k}/topic`] = null; await update(ref(database, `${DC.base}/chat/favorites`), p); }
+                const inflight = await retargetJobs(name, null);
+                await set(ref(database, `${DC.base}/chat/topics/${topicKey(name)}`), null);
+                setTopic('');
+                if (status) status.textContent = tk.length
+                    ? `# ${name} removed · ${tk.length} message${tk.length === 1 ? '' : 's'} kept, now untagged in All`
+                      + (inflight ? ` · ${inflight} reply still on its way redirected` : '')
+                    : `# ${name} removed`;
+            } catch (e) { if (status) status.textContent = '⚠ could not remove the tab: ' + (e.message || e); }
+        }
+        window.__dcDeleteTopic = deleteTopic;   // test hook
+
+        /* The ask. Same look as the message box, much simpler life: a chip tap is one tap, not
+           the tail of a triple-tap burst, so none of the arming machinery is needed here. */
+        function confirmTabDelete(name, count) {
+            const host = $('.dc-chat'); if (!host || host.querySelector('.dc-del')) return;
+            const box = document.createElement('div'); box.className = 'dc-del';
+            box.innerHTML = `<div class="t">Remove tab <span class="tg"># ${esc(name)}</span></div>`
+                + `<div class="q">${count} message${count === 1 ? '' : 's'} ${count === 1 ? 'is' : 'are'} tagged # ${esc(name)}.`
+                + ` Nothing is deleted — ${count === 1 ? 'it loses' : 'they lose'} the tag and stay${count === 1 ? 's' : ''} in All.</div>`
+                + `<div class="r"><button type="button" class="keep">Cancel</button><button type="button" class="go">Remove tab</button></div>`;
+            host.appendChild(box);
+            const cleanup = () => { document.removeEventListener('pointerdown', onDown, true); };
+            const close = () => { box.remove(); cleanup(); };
+            const onDown = e => { if (!box.isConnected) { cleanup(); return; } if (!box.contains(e.target)) close(); };
+            setTimeout(() => document.addEventListener('pointerdown', onDown, true), 0);
+            box.querySelector('.keep').onclick = close;
+            box.querySelector('.go').onclick = async () => { close(); await deleteTopic(name); };
+        }
 
         function renderTopics() {
             const bar = $('#dc-topics'); if (!bar) return;
@@ -1229,8 +1378,17 @@
             for (const nm of names) { const c = chip('# ' + nm, nm, counts[nm] || 0);
                 if (DC.topic === nm) { const p = document.createElement('span'); p.className = 'x'; p.textContent = '✎'; p.title = 'rename this tab - its messages come with it';
                     p.onclick = e => { e.stopPropagation(); renameTopic(nm); }; c.appendChild(p); }
-                if (DC.topic === nm && !(counts[nm] > 0)) { const x = document.createElement('span'); x.className = 'x'; x.textContent = '✕'; x.title = 'remove this empty topic';
-                    x.onclick = async e => { e.stopPropagation(); try { await set(ref(database, `${DC.base}/chat/topics/${topicKey(nm)}`), null); } catch (_) {} setTopic(''); }; c.appendChild(x); }
+                // ✕ on ANY selected tab now, not just an empty one (L asked twice, 2026-09-23:
+                // "theres no x anymore just the pencil"). It was hidden on a tab with messages
+                // because removing the tab would have orphaned them; deleteTopic() untags them
+                // instead, so there is nothing left to protect them from.
+                if (DC.topic === nm) { const n = counts[nm] || 0;
+                    const x = document.createElement('span'); x.className = 'x del'; x.textContent = '✕';
+                    x.title = n ? `remove this tab - its ${n} message${n === 1 ? '' : 's'} stay in All, just untagged` : 'remove this empty topic';
+                    x.onclick = async e => { e.stopPropagation();
+                        if (!n) { try { await set(ref(database, `${DC.base}/chat/topics/${topicKey(nm)}`), null); } catch (_) {} setTopic(''); return; }
+                        confirmTabDelete(nm, n); };
+                    c.appendChild(x); }
                 bar.appendChild(c); }
             const nf = Object.keys(DC.favs || {}).length; const fc = document.createElement('button'); fc.type = 'button'; fc.className = 'dc-topic fav' + (DC.topic === FAV_TAB ? ' on' : '');
             fc.innerHTML = FAV_TAB + `<span class="n">${nf}</span>`; fc.title = 'favorites - replies you starred, kept even after New thread'; fc.onclick = () => setTopic(FAV_TAB); bar.appendChild(fc);
@@ -1351,10 +1509,24 @@
             const gone = '[deleted by L]';
             try {
                 if (DC.topic === FAV_TAB) { await set(ref(database, `${DC.base}/chat/favorites/${k}`), null); $('#dc-chat-status').textContent = 'removed from favorites'; return; }   // ★ view: drop the favorite only
-                if (t.jobId) await update(ref(database, `${DC.base}/jobs/${t.jobId}`), t.s === 'L' ? { rough: gone, enhanced: gone } : { reply: gone });
+                // DELETING AN EXCHANGE THAT IS STILL IN FLIGHT CANCELS IT (2026-09-23, L: "if i
+                // delete a message that is currently thinking i want it to cancel"). Either half
+                // does it - your message and its reply share a jobId - because deleting the
+                // thinking bubble and deleting the question mean the same thing: stop.
+                // The flag goes on, the STATUS does not: only the daemon knows whether the work
+                // has actually been stopped, and it owns that transition.
+                let cancelled = false;
+                if (t.jobId) {
+                    let st = '';
+                    try { st = (await get(ref(database, `${DC.base}/jobs/${t.jobId}/status`))).val() || ''; } catch (_) {}
+                    cancelled = (st === 'queued' || st === 'running');
+                    await update(ref(database, `${DC.base}/jobs/${t.jobId}`),
+                        Object.assign(t.s === 'L' ? { rough: gone, enhanced: gone } : { reply: gone },
+                                      cancelled ? { cancel: true } : {}));
+                }
                 await set(ref(database, `${DC.base}/chat/turns/${k}`), null);
                 if ((DC.favs || {})[k]) await set(ref(database, `${DC.base}/chat/favorites/${k}`), null);   // a deleted reply leaves favorites too
-                $('#dc-chat-status').textContent = 'message deleted';
+                $('#dc-chat-status').textContent = cancelled ? 'deleted — cancelling…' : 'message deleted';
             } catch (e) { $('#dc-chat-status').textContent = '⚠ could not delete: ' + (e.message || e); }
         }
         // ▶ PLAY (2026-09-18): read a message aloud with the device's own voice. Ephemeral - nothing generated or stored.
@@ -1439,13 +1611,38 @@
             box.querySelector('.tag').onclick = () => {
                 if (quiet() || box.querySelector('.tagrow')) return;
                 const names = (DC.topicOrder || []).filter(n => n && n !== FAV_TAB);
+                // TAPPABLE CHIPS, NOT A <datalist> (2026-09-23, L: "the dropdown for tags isnt
+                // showing all the tags i have"). The tabs were always in DC.topicOrder - the list
+                // just never appeared, because <datalist> barely works on mobile Safari. On a
+                // phone it degrades to a bare text box, so the only thing he could do was type,
+                // which reads as "it only lets me rename". Chips show every tab and move the
+                // message on one tap. The input stays, for a tab that does not exist yet.
+                const save = async (nm) => { close(); await retagTurn(k, String(nm || '').trim().replace(/\s+/g, ' ').slice(0, 40)); };
+
+                const chips = document.createElement('div'); chips.className = 'tagrow chips';
+                for (const n of names) {
+                    const b = document.createElement('button'); b.type = 'button';
+                    b.className = 'tchip' + (n === t.topic ? ' on' : '');
+                    b.textContent = '# ' + n;
+                    b.title = n === t.topic ? 'already in this tab' : `move to # ${n}`;
+                    if (n !== t.topic) b.onclick = () => save(n);
+                    chips.appendChild(b);
+                }
+                if (t.topic) {
+                    const none = document.createElement('button'); none.type = 'button';
+                    none.className = 'tchip none'; none.textContent = '✕ no tag';
+                    none.title = 'remove the tag - it stays in All';
+                    none.onclick = () => save('');
+                    chips.appendChild(none);
+                }
+                if (chips.children.length) box.appendChild(chips);
+
                 const row = document.createElement('div'); row.className = 'tagrow';
-                row.innerHTML = `<input type="text" maxlength="40" placeholder="topic (empty = no tag)" list="dc-tag-list" value="${esc(t.topic || '')}"><datalist id="dc-tag-list">${names.map(n => `<option value="${esc(n)}"></option>`).join('')}</datalist><button type="button" class="sv">Save</button>`;
+                row.innerHTML = `<input type="text" maxlength="40" placeholder="or a new tab name…" value=""><button type="button" class="sv">Save</button>`;
                 box.appendChild(row);
-                const inp = row.querySelector('input'); inp.focus(); inp.select();
-                const save = async () => { const nm = inp.value.trim().replace(/\s+/g, ' ').slice(0, 40); close(); await retagTurn(k, nm); };
-                row.querySelector('.sv').onclick = save;
-                inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); save(); } if (e.key === 'Escape') { e.stopPropagation(); row.remove(); } });
+                const inp = row.querySelector('input');
+                row.querySelector('.sv').onclick = () => save(inp.value);
+                inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); save(inp.value); } if (e.key === 'Escape') { e.stopPropagation(); row.remove(); chips.remove(); } });
             };
         }
         async function retagTurn(k, name) {
@@ -1905,6 +2102,15 @@
                 const jr = ref(database, `${DC.base}/jobs/${t.jobId}`), tr = ref(database, `${DC.base}/chat/turns/${k}`);
                 const unwatch = onValue(jr, async s => {
                     const j = s.val(); if (!j) return;
+                    // CANCELLED: let go WITHOUT writing the turn back. `set()` on a deleted path
+                    // recreates it, so the old code would have resurrected the very bubble he
+                    // deleted to cancel - the cancel would have looked like it did nothing.
+                    // If the bubble is still there (he deleted his own message instead), say so.
+                    if (j.status === 'cancelled') {
+                        unwatch(); delete DC.pendWatch[k];
+                        if ((DC.chatTurns || {})[k]) await update(tr, { text: '⛔ ' + (j.reply || 'cancelled'), pending: null, ts: Date.now() });
+                        return;
+                    }
                     if (j.status === 'done') { await set(tr, { s: 'D', who: t.who || 'Droplet', text: j.reply || '(done, no captured reply)', ts: Date.now(), jobId: t.jobId, ...(t.topic ? { topic: t.topic } : {}) }); unwatch(); delete DC.pendWatch[k]; }
                     else if (j.status === 'error' || j.status === 'failed') { await set(tr, { s: 'D', who: t.who || 'Droplet', text: '⚠ ' + (j.error || j.reply || 'failed'), ts: Date.now(), jobId: t.jobId, ...(t.topic ? { topic: t.topic } : {}) }); unwatch(); delete DC.pendWatch[k]; }
                 });
@@ -1942,6 +2148,13 @@
             const onLocal = !!DC.guest && tsel.value === 'local';
             const note = $('#dc-guest-note'); if (note) { note.hidden = !onLocal; note.textContent = onLocal ? GUEST_LOCAL_NOTE : ''; }
             const wk = $('#dc-wake'); if (wk && DC.guest && !DC.daemonOn) wk.style.display = 'none';   // nothing of theirs to wake
+            // The mark follows the selected target. Toggled INLINE, not via relabelTargets():
+            // syncTarget() runs during module evaluation, before `const TARGET_NAMES` is
+            // initialised, so reaching it here threw a TDZ ReferenceError that killed the rest
+            // of the module - which is how `openDropletConsole` stopped existing and the corner
+            // button silently fell back to the old Yuki chat link (2026-09-23). Function
+            // declarations hoist; the const they read does not.
+            tsel.classList.toggle('has-mark', tsel.value === 'droplet');
         }
         window.__dcSyncTarget = syncTarget; window.__dcRenderMeta = m => renderMeta(m); window.__dcState = () => ({ guest: !!DC.guest, daemonOn: !!DC.daemonOn, autoLocal: !!DC.autoLocal, userPicked: !!DC.userPickedTarget, base: DC.base });
         window.__dcUserPick = v => { const t = $('#dc-chat-target'); if (t) t.value = v; DC.userPickedTarget = true; DC.autoLocal = false; syncTarget(); };   // test hooks (a real pick = a trusted change event, which a script cannot fake)
@@ -2510,9 +2723,14 @@
         { const ts = $('#dc-chat-target'); if (ts) ts.addEventListener('change', e => { if (e.isTrusted) { DC.userPickedTarget = true; DC.autoLocal = false; } syncTarget(); }); }
         setInterval(() => { if (DC.lastMeta) { const on = !!(DC.lastMeta.daemonBeat && (Date.now() - DC.lastMeta.daemonBeat < 60000)); if (on !== DC.daemonOn) renderMeta(DC.lastMeta); } }, 30000);
         // the title dropdown: full names on desktop, short on a phone (the bar is one row there)
-        const TARGET_NAMES = { droplet: ['💧 Droplet Console', '💧 Droplet'], compman: ['🤖 CompMan Console', '🤖 CompMan'], command: ['⌘ Command Console', '⌘ Command'], local: ['🦙 Local Console', '🦙 Local'] };
+        // droplet has no emoji here on purpose: when it is the selected target the real mark is
+        // painted into the control as a background, and "💧 Droplet Console" next to the badge
+        // was the same thing said twice.
+        const TARGET_NAMES = { droplet: ['Droplet Console', 'Droplet'], compman: ['🤖 CompMan Console', '🤖 CompMan'], command: ['⌘ Command Console', '⌘ Command'], local: ['🦙 Local Console', '🦙 Local'] };
         function targetLabel(v) { const n = TARGET_NAMES[v] || [v, v]; return DC.isPhone() ? n[1] : n[0]; }
-        function relabelTargets() { const t = $('#dc-chat-target'); if (t) Array.from(t.options).forEach(o => { o.textContent = targetLabel(o.value); }); }
+        function relabelTargets() { const t = $('#dc-chat-target'); if (!t) return;
+            Array.from(t.options).forEach(o => { o.textContent = targetLabel(o.value); });
+            t.classList.toggle('has-mark', t.value === 'droplet'); }
         relabelTargets(); matchMedia('(max-width: 640px)').addEventListener('change', relabelTargets);
         // ⌘ Command target lives behind the ⚙ toggle: off on every load, never offered to guests
         const cmdBox = $('#dc-cmd-on'), tsel = $('#dc-chat-target');
@@ -2732,6 +2950,39 @@ MOOD TAG: End every reply with [MOOD:X] where X is one of: happy sleepy excited 
         import { auth, database, onAuthStateChanged, ref, get, set } from './assets/js/firebase-init.js';
         import { loginToMicrosoft, logoutFromMicrosoft, getUserInfo, isLoggedIn } from './apps/assets/js/microsoftAuth.js';
 
+        /* ── Droplet mark: the intro, then the corner badge (2026-09-23) ──
+           Called once the hub is actually on screen, so the wordmark never plays over the login
+           gate. sessionStorage, not localStorage: it should feel like an entrance when you open
+           the hub and stay out of the way while you work in it. Every storage touch is wrapped -
+           a private window or blocked site data must cost you the animation, not the button. */
+        function revealDropletToggle() {
+            const btn = document.getElementById('yuki-toggle');
+            if (!btn || btn.classList.contains('visible')) return;
+            const intro = document.getElementById('droplet-intro');
+            let seen = true;
+            try { seen = sessionStorage.getItem('droplet_intro_seen') === '1'; } catch (_) { seen = true; }
+            const reduced = (() => { try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (_) { return false; } })();
+
+            if (seen || reduced || !intro) { btn.classList.add('visible'); return; }
+            try { sessionStorage.setItem('droplet_intro_seen', '1'); } catch (_) {}
+
+            intro.classList.add('run');
+            const land = () => {
+                if (btn.classList.contains('visible')) return;      // whichever fires first wins
+                intro.classList.remove('run');
+                btn.classList.add('visible', 'landing');
+                setTimeout(() => btn.classList.remove('landing'), 600);
+            };
+            const img = intro.querySelector('img');
+            if (img) img.addEventListener('animationend', land, { once: true });
+            // Backstop, in case animationend never fires (animation disabled, tab backgrounded
+            // mid-run, image never decoded): the button must never be lost to a stuck overlay.
+            // Comfortably LONGER than the 1.75s animation - set it tight and the backstop wins
+            // the race instead, cutting the intro off part-way. land() is idempotent, so the
+            // first of the two to fire is the one that counts.
+            setTimeout(land, 4000);
+        }
+
         /* ── Clock ── */
         const clockEl = document.getElementById('hub-clock');
         const tick = () => {
@@ -2949,7 +3200,7 @@ MOOD TAG: End every reply with [MOOD:X] where X is one of: happy sleepy excited 
             const data = snap.exists() ? snap.val() : (user.uid === '7cIh8rrhVNOjjj5CBDgb3IlqzEh2' ? DEFAULTS : {});
             renderAll(data);
             window.__hubData = data;
-            document.getElementById('yuki-toggle').classList.add('visible');
+            revealDropletToggle();
 
             // Service tickets (open + in-progress)
             get(ref(database, `${user.uid}/serviceTickets`))
