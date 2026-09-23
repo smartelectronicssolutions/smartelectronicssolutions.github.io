@@ -2254,38 +2254,39 @@
                 if (editTurn) await update(lref, { text: raw, edited: true, editedAt: Date.now(), enhanced: null, enhNote: null });
                 else await set(lref, { s: 'L', text: raw, ts: Date.now(), target, ...tpc });
                 if (editTurn) setEditMode('');
-                // AN EDIT CANCELS ITS OLD JOB (2026-09-20, L: "fix the edit"). Until now an edit
-                // updated the message in place and then started a SECOND job, leaving the first one
-                // running: two answers to one intention. Proved live - one edit reached Droplet as two
-                // console jobs. Worse, if that first job never landed its bubble said "…thinking"
-                // forever, and ONE stuck pending turn holds auto-archive back indefinitely.
-                // Only a job still QUEUED is cancelled: once it is running the answer is already being
-                // written, so it is left to land rather than orphaned. Any bubble whose job is gone or
-                // finished is closed either way - nothing may sit pending with nothing coming.
+                // AN EDIT SUPERSEDES ITS OLD JOB (2026-09-20, reworked 2026-09-23 once a real
+                // cancel existed). An edit starts a second job, so the first one has to go or you
+                // get two answers to one intention - and, as L saw, TWO "…thinking" bubbles.
+                //
+                // The old version only cancelled a job still QUEUED. Once it was running it left
+                // the bubble alone, on the reasoning that the answer was already being written and
+                // losing it would be worse than a duplicate. That was right at the time, because
+                // there was no way to actually stop the work. The daemon polls every 3 s, so by
+                // the time you have typed an edit the job is almost always RUNNING - which is why
+                // the duplicate bubble was the normal case rather than the rare one.
+                //
+                // Now `cancel: true` genuinely stops it: queued jobs die un-injected, running ones
+                // get Esc, and a reply file that lands anyway is discarded. So there is no answer
+                // left to lose, and the old bubble can simply go. The new one is pushed at the end
+                // as usual, which also puts it back in the right place in the thread.
                 // Wrapped whole: a failure here must never stop the message from being sent.
                 if (editTurn && editTurn.jobId) {
                     try {
                         const oldId = editTurn.jobId, jr = ref(database, `${DC.base}/jobs/${oldId}`);
                         const j0 = (await get(jr)).val() || {};
-                        let dead = false;
-                        if (j0.status === 'queued') {
-                            await update(jr, { status: 'cancelled', doneAt: Date.now(), reply: 'superseded by an edit' });
-                            // RE-READ, and judge by startedAt, not by status. The daemon polls every 3 s and can
-                            // claim the job between the read and the write - and my write would clobber its
-                            // 'running' with 'cancelled', so status can't tell me who won. startedAt only ever
-                            // gets stamped by the daemon when it actually claims one. If it did claim it, the
-                            // bubble is left alone: closing it would drop the reply on the floor with nothing
-                            // to put it back, and losing L's answer is far worse than one duplicate.
-                            dead = !((await get(jr)).val() || {}).startedAt;
-                        } else if (j0.status !== 'running') {
-                            dead = true;   // missing, done, failed, already cancelled - nothing is coming
-                        }
-                        if (dead) {
-                            const all = DC.chatTurns || {};
-                            for (const k of Object.keys(all)) {
-                                const t = all[k];
-                                if (t && t.pending && t.jobId === oldId)
-                                    await update(ref(database, `${turns}/${k}`), { pending: null, text: '↻ superseded by an edit' });
+                        if (j0.status === 'queued' || j0.status === 'running')
+                            await update(jr, { cancel: true, reply: 'superseded by an edit' });
+                        // The bubble goes either way - whether the job was cancelled, or was
+                        // already finished/failed/missing. Nothing may sit pending with nothing
+                        // coming. Deleting rather than reusing the turn is deliberate: its old
+                        // watcher is still live, and reusing the key would let that watcher fire
+                        // on `cancelled` and overwrite the fresh bubble. Gone, it finds nothing.
+                        const all = DC.chatTurns || {};
+                        for (const k of Object.keys(all)) {
+                            const t = all[k];
+                            if (t && t.pending && t.jobId === oldId) {
+                                delete DC.pendWatch[k];
+                                await set(ref(database, `${turns}/${k}`), null);
                             }
                         }
                     } catch (_) {}
