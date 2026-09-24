@@ -133,7 +133,7 @@
   </main>
 
   <script type="module">
-    import { auth, database, ref, get, onAuthStateChanged } from "../assets/js/firebase-init.js";
+    import { auth, database, ref, get, set, onAuthStateChanged } from "../assets/js/firebase-init.js";
 
     // ── what this page reads ──
     const TELAID_UID = "SDN0vKPQ1qfN5vxkvhR3auVhDYq1";   // Telaid apps live under this uid by design
@@ -178,27 +178,43 @@
       renderStats();
     }
 
+    // NO LOGIN NEEDED (2026-09-24, L: "so I can have the guys scan without giving them a login").
+    // public/sensorLookup/<task> = {serials: {serial: mark}, count, updatedAt} - world-READABLE, writable only by
+    // the Telaid uid and L's (rules). The crew reads that. When L opens the page signed in, the real sensorMeta
+    // is read too and, if the public copy differs, the public copy is refreshed - so it cannot drift from radar-tools.
+    const PUBLISHERS = [TELAID_UID, "7cIh8rrhVNOjjj5CBDgb3IlqzEh2"];
+    const sameTable = (a, b) => { const ka = Object.keys(a || {}), kb = Object.keys(b || {}); return ka.length === kb.length && ka.every(s => a[s] === b[s]); };
+
     async function pull(user) {
       // One read per page load - never on a timer.
-      const owners = [...new Set([user?.uid, TELAID_UID].filter(Boolean))];
       const why = [];
-      for (const owner of owners) {
-        try {
-          const snap = await get(ref(database, `${owner}/tasks/${TASK}/sensorMeta`));
-          const t = buildTable(snap.val());
-          if (Object.keys(t).length) {
-            save(CACHE_KEY, { t, at: Date.now() });
-            useTable(t, `pulled ${new Date().toLocaleString()}`);
-            return;
-          }
-          why.push(`${owner.slice(0, 6)}: no serials`);
-        } catch (e) { why.push(`${owner.slice(0, 6)}: ${e.code || e.message || e}`); }
+      let pub = null;
+      try { pub = (await get(ref(database, `public/sensorLookup/${TASK}`))).val(); } catch (e) { why.push(`public: ${e.code || e.message || e}`); }
+      if (pub && pub.serials && Object.keys(pub.serials).length) {
+        save(CACHE_KEY, { t: pub.serials, at: Date.now() });
+        useTable(pub.serials, `list updated ${new Date(pub.updatedAt || Date.now()).toLocaleString()}`);
       }
+      if (user) {
+        for (const owner of [...new Set([user.uid, TELAID_UID])]) {
+          try {
+            const t = buildTable((await get(ref(database, `${owner}/tasks/${TASK}/sensorMeta`))).val());
+            if (!Object.keys(t).length) { why.push(`${owner.slice(0, 6)}: no serials`); continue; }
+            save(CACHE_KEY, { t, at: Date.now() });
+            useTable(t, `pulled ${new Date().toLocaleString()} (from radar-tools)`);
+            if (PUBLISHERS.includes(user.uid) && !sameTable(t, pub && pub.serials)) {
+              try {
+                await set(ref(database, `public/sensorLookup/${TASK}`), { serials: t, count: Object.keys(t).length, updatedAt: Date.now(), source: `${owner}/tasks/${TASK}/sensorMeta` });
+                $("source").textContent += " · crew copy refreshed";
+              } catch (e) { $("source").textContent += ` · ⚠ crew copy NOT refreshed (${e.code || e.message})`; }
+            }
+            return;
+          } catch (e) { why.push(`${owner.slice(0, 6)}: ${e.code || e.message || e}`); }
+        }
+      }
+      if (total) return;   // the public copy loaded - that is enough to scan
       const c = load(CACHE_KEY, null);
       if (c) { useTable(c.t, `offline copy from ${new Date(c.at).toLocaleString()}`); return; }
-      $("source").innerHTML = user
-        ? `<span class="loadfail">⚠ Serial list didn't load (signed in as ${escapeHtml(user.email || user.uid)}).</span> <span class="raw">${escapeHtml(why.join(" · "))}</span>`
-        : `<span class="loadfail">⚠ Sign in (top right) once, with signal, to download the serial list.</span>`;
+      $("source").innerHTML = `<span class="loadfail">⚠ Serial list didn't load - it needs signal the first time.</span> <span class="raw">${escapeHtml(why.join(" · "))}</span>`;
     }
 
     // Pull the serial out of whatever the barcode holds. RS550 carton labels (seen 2026-09-24):
@@ -242,7 +258,7 @@
       const box = $("result");
       if (!total) {   // no table = every lookup would "miss" - say what's actually wrong instead
         box.innerHTML = `<div class="bad">Serial list not loaded</div>
-          <div class="sub">Sign in (top right) once, with signal. After that it works offline.</div>`;
+          <div class="sub">Open this page once with signal (no login needed). After that it works offline.</div>`;
         return;
       }
       const serial = resolve(raw);
