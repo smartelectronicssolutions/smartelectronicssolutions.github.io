@@ -85,7 +85,7 @@
           <button id="scan-btn" class="big-btn">📷 Scan</button>
         </div>
         <div id="reader" hidden></div>
-        <div class="muted" style="margin-top:6px">Type the serial (it looks up at 5 digits) or scan its barcode.</div>
+        <div class="muted" style="margin-top:6px">Type the serial (leading zeros optional) or scan the QR on the carton label.</div>
       </div>
 
       <div class="card" id="result"><div class="sub">Scan or type a serial.</div></div>
@@ -180,11 +180,14 @@
       else $("source").textContent = user ? "Couldn't read serials for this task." : "Sign in once to download the serial list.";
     }
 
-    // Pull the serial out of whatever the barcode holds: exact, then any digit run that is a known serial,
-    // then the last 5 digits of a longer run (in case the label encodes a prefix/model/MAC around it).
+    // Pull the serial out of whatever the barcode holds. RS550 carton labels (seen 2026-09-24):
+    //   printed "Serial No. 0084647" · 1D barcode "0084647" · QR "0084647,BC:31:98:E1:3B:07,RS550" (serial,MAC,model)
+    // while radar-tools stores the serial as "84647" - so strip leading zeros, and read the QR's FIRST field.
     function resolve(raw) {
       const s = String(raw || "").trim();
       if (bySerial.has(s)) return s;
+      const first = s.split(",")[0].trim();
+      if (/^\d+$/.test(first)) { const n = String(Number(first)); if (bySerial.has(n)) return n; }
       const runs = s.match(/\d+/g) || [];
       for (const r of runs) if (bySerial.has(r)) return r;
       for (const r of runs) if (r.length > 5 && bySerial.has(r.slice(-5))) return r.slice(-5);
@@ -244,10 +247,11 @@
 
     const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-    // ── typing: look up as soon as 5 digits are in; Enter looks up anything ──
+    // ── typing: look up as soon as 5 SIGNIFICANT digits are in (label prints "0084647", table holds "84647"),
+    //    so the leading zeros never fire a false "not in the 241" mid-typing. Enter looks up anything. ──
     $("serial-in").addEventListener("input", e => {
       const v = e.target.value.trim();
-      if (/^\d{5}$/.test(v)) show(v, false);
+      if (/^\d+$/.test(v) && String(Number(v)).length === 5) show(v, false);
     });
     $("serial-in").addEventListener("keydown", e => { if (e.key === "Enter" && e.target.value.trim()) show(e.target.value.trim(), false); });
 
