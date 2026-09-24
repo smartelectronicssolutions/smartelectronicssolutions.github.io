@@ -41,6 +41,21 @@
     .muted { color: var(--muted); font-size: .9rem; }
     .raw { font-family: monospace; font-size: .85rem; color: var(--muted); word-break: break-all; }
     details summary { cursor: pointer; }
+    /* hit / spare / dupe feedback: a colour wash over the card + the number pops in */
+    #result { position: relative; overflow: hidden; }
+    #result::after { content: ""; position: absolute; inset: 0; opacity: 0; pointer-events: none; }
+    #result.hit { border-color: var(--success); box-shadow: 0 0 0 3px var(--success); }
+    #result.hit::after { background: var(--success); animation: wash 1.1s ease-out; }
+    #result.hit .mark { color: var(--success); animation: pop .45s cubic-bezier(.2, 1.6, .4, 1); }
+    #result.spare { border-color: var(--warn); box-shadow: 0 0 0 3px var(--warn); }
+    #result.spare::after { background: var(--warn); animation: wash 1.1s ease-out; }
+    #result.dupe { border-color: var(--danger); box-shadow: 0 0 0 3px var(--danger); }
+    #result.dupe::after { background: var(--danger); animation: wash 1.1s ease-out; }
+    #result .marklabel { font-size: .95rem; letter-spacing: .3em; color: var(--muted); font-weight: 700; }
+    #result .sparehead { font-size: 3.2rem; font-weight: 900; letter-spacing: .12em; color: var(--warn); animation: pop .45s cubic-bezier(.2, 1.6, .4, 1); }
+    .loadfail { color: var(--danger); font-weight: 700; }
+    @keyframes wash { 0% { opacity: .55; } 100% { opacity: 0; } }
+    @keyframes pop { 0% { transform: scale(.4); } 100% { transform: scale(1); } }
   </style>
 </head>
 
@@ -164,6 +179,7 @@
     async function pull(user) {
       // One read per page load - never on a timer.
       const owners = [...new Set([user?.uid, TELAID_UID].filter(Boolean))];
+      const why = [];
       for (const owner of owners) {
         try {
           const snap = await get(ref(database, `${owner}/tasks/${TASK}/sensorMeta`));
@@ -173,11 +189,14 @@
             useTable(t, `pulled ${new Date().toLocaleString()}`);
             return;
           }
-        } catch (_) { /* no access to this owner - try the next */ }
+          why.push(`${owner.slice(0, 6)}: no serials`);
+        } catch (e) { why.push(`${owner.slice(0, 6)}: ${e.code || e.message || e}`); }
       }
       const c = load(CACHE_KEY, null);
-      if (c) useTable(c.t, `offline copy from ${new Date(c.at).toLocaleString()}`);
-      else $("source").textContent = user ? "Couldn't read serials for this task." : "Sign in once to download the serial list.";
+      if (c) { useTable(c.t, `offline copy from ${new Date(c.at).toLocaleString()}`); return; }
+      $("source").innerHTML = user
+        ? `<span class="loadfail">⚠ Serial list didn't load (signed in as ${escapeHtml(user.email || user.uid)}).</span> <span class="raw">${escapeHtml(why.join(" · "))}</span>`
+        : `<span class="loadfail">⚠ Sign in (top right) once, with signal, to download the serial list.</span>`;
     }
 
     // Pull the serial out of whatever the barcode holds. RS550 carton labels (seen 2026-09-24):
@@ -195,27 +214,55 @@
       return null;
     }
 
-    function show(raw, fromScan) {
-      const serial = resolve(raw);
+    // Feedback you can't miss on a noisy floor: the card flashes, the phone buzzes, and a tone plays
+    // (high double beep = got a number, low long tone = spare, two lows = already labeled).
+    let actx = null;
+    function tone(freqs, ms) {
+      try {
+        actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+        let t = actx.currentTime;
+        for (const f of freqs) {
+          const o = actx.createOscillator(), g = actx.createGain();
+          o.frequency.value = f; o.type = "square"; g.gain.value = 0.08;
+          o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t + ms / 1000); t += ms / 1000 + 0.05;
+        }
+      } catch (_) { }
+    }
+    function flash(kind) {
       const box = $("result");
+      box.classList.remove("hit", "spare", "dupe"); void box.offsetWidth;   // restart the animation
+      box.classList.add(kind);
+      if (navigator.vibrate) navigator.vibrate(kind === "hit" ? [70, 40, 70] : kind === "spare" ? [350] : [120, 80, 120]);
+      if (kind === "hit") tone([1320, 1760], 90); else if (kind === "spare") tone([330], 400); else tone([440, 440], 150);
+    }
+
+    function show(raw, fromScan) {
+      const box = $("result");
+      if (!total) {   // no table = every lookup would "miss" - say what's actually wrong instead
+        box.innerHTML = `<div class="bad">Serial list not loaded</div>
+          <div class="sub">Sign in (top right) once, with signal. After that it works offline.</div>`;
+        return;
+      }
+      const serial = resolve(raw);
       if (!serial) {
-        box.innerHTML = `<div class="bad">NOT IN THE ${total}</div>
-          <div class="sub">Spare, or a mis-scan. Set it aside, don't label it.</div>
+        box.innerHTML = `<div class="sparehead">SPARE</div>
+          <div class="sub">Not one of the ${total} assigned sensors. Put it with the spares, no number.</div>
           <div class="raw">read: ${escapeHtml(raw)}</div>`;
+        flash("spare");
         logRecent(raw, null);
         return;
       }
       const mark = bySerial.get(serial);
       const z = zoneOf(mark), idf = idfOf(mark);
       const already = labeled[mark];
-      box.innerHTML = `<div class="mark">${mark}</div>
+      box.innerHTML = `<div class="marklabel">WRITE</div><div class="mark">${mark}</div>
         <div class="sub">serial ${serial}${z ? ` · zone ${z}` : ""}${idf ? ` · IDF ${idf}` : ""}</div>
         ${already ? `<div class="warn">⚠ Already labeled ${new Date(already).toLocaleTimeString()}. Duplicate label, or a second scan?</div>`
           : `<button id="tick-btn" class="big-btn" style="margin-top:10px">✓ Labeled</button>`}
         ${fromScan && raw !== serial ? `<div class="raw">read: ${escapeHtml(raw)}</div>` : ""}`;
       if (!already) $("tick-btn").onclick = () => tick(mark);
+      flash(already ? "dupe" : "hit");
       logRecent(raw, mark);
-      if (navigator.vibrate) navigator.vibrate(60);
     }
 
     function tick(mark) {
