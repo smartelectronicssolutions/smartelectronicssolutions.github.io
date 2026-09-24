@@ -262,6 +262,18 @@
         return;
       }
       const serial = resolve(raw);
+      // A code with NO serial-shaped number in it (e.g. the sensor body's QR = just the MAC, BC:31:98:...) is
+      // not a spare - it is the wrong code. Calling it SPARE would put a real sensor in the spare pile.
+      // Serials are 5 digits (7 with the label's leading zeros); only a code carrying one can be judged.
+      if (!serial && !/(^|\D)0{0,2}\d{5}(\D|$)/.test(String(raw).replace(/([0-9a-f]{2}[:-]){5}[0-9a-f]{2}/ig, ""))) {
+        const isMac = /([0-9a-f]{2}[:-]){5}[0-9a-f]{2}/i.test(String(raw));
+        box.innerHTML = `<div class="bad">${isMac ? "That's the MAC" : "No serial in that code"}</div>
+          <div class="sub">Scan the <b>barcode</b> or the carton label's QR, or type the serial number.</div>
+          <div class="raw">read: ${escapeHtml(raw)}</div>`;
+        flash("dupe");
+        logRecent(raw, null);
+        return;
+      }
       if (!serial) {
         box.innerHTML = `<div class="sparehead">SPARE</div>
           <div class="sub">Not one of the ${total} assigned sensors. Put it with the spares, no number.</div>
