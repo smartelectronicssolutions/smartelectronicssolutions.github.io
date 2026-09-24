@@ -1,0 +1,312 @@
+<!doctype html>
+<!-- Sensor Lookup - scan or type a RADAR sensor SERIAL, get its MARK (the number you write on it).
+     Built 2026-09-24 for Walmart #54 (L: "I scan the serial and it tells me the corresponding number").
+     DATA: reads the serials radar-tools already holds - {uid}/tasks/<task>/sensorMeta/<mark>.serial -
+     ONCE per load (no timer, no loop: see the poll-loop scar), then caches the table on the device so the
+     page keeps working with no signal inside the conex. "Labeled" ticks live on this device only.
+     ?task=<id> overrides the default task (the Walmart 54 canonical record). -->
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sensor Lookup</title>
+  <link rel="stylesheet" href="../assets/css/online.css" />
+  <link rel="icon" href="./assets/img/favicon.ico" />
+  <script>
+    (function () {
+      const t = localStorage.getItem("ss-theme");
+      if (t === "light") document.documentElement.classList.add("light");
+    })();
+  </script>
+  <script type="module" src="../assets/js/auth.js"></script>
+  <style>
+    .app-shell { max-width: 560px; margin: auto; padding: 12px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; margin: 12px 0; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    #serial-in { flex: 1 1 160px; font-size: 1.8rem; letter-spacing: .08em; padding: 10px 12px; min-width: 0; }
+    .big-btn { font-size: 1.1rem; padding: 12px 16px; }
+    #result { text-align: center; min-height: 150px; }
+    #result .mark { font-size: 5.5rem; font-weight: 800; line-height: 1; color: var(--primary); }
+    #result .sub { color: var(--muted); margin-top: 6px; font-size: 1.05rem; }
+    #result .warn { color: var(--warn); font-weight: 700; margin-top: 8px; }
+    #result .bad { color: var(--danger); font-size: 1.6rem; font-weight: 800; }
+    #result .ok { color: var(--success); font-weight: 700; margin-top: 8px; }
+    #reader { width: 100%; max-width: 480px; margin: 8px auto 0; }
+    .stats { display: flex; justify-content: space-between; color: var(--muted); font-size: .95rem; }
+    .progress { height: 8px; background: var(--surface2); border-radius: 4px; overflow: hidden; margin-top: 6px; }
+    .progress > div { height: 100%; background: var(--success); width: 0; }
+    #recent li, #todo li { padding: 4px 0; border-bottom: 1px solid var(--border); list-style: none; }
+    #recent, #todo { padding: 0; margin: 6px 0 0; max-height: 260px; overflow: auto; }
+    .muted { color: var(--muted); font-size: .9rem; }
+    .raw { font-family: monospace; font-size: .85rem; color: var(--muted); word-break: break-all; }
+    details summary { cursor: pointer; }
+  </style>
+</head>
+
+<body>
+  <header style="position:relative;">
+    <div class="logo-box"><a href="../../index.html"><img src="../../assets/img/android-chrome-192x192.png" alt="Luis Solutions"></a></div>
+    <h1>Sensor Lookup</h1>
+    <div class="auth-bar">
+      <span id="auth-label">Not signed in</span>
+      <button id="auth-btn">Sign In</button>
+    </div>
+    <button id="theme-toggle" title="Toggle theme">☀️</button>
+    <script>
+      (function () {
+        const btn = document.getElementById("theme-toggle");
+        const html = document.documentElement;
+        btn.textContent = html.classList.contains("light") ? "🌙" : "☀️";
+        btn.addEventListener("click", function () {
+          const next = html.classList.contains("light") ? "dark" : "light";
+          html.classList.toggle("light", next === "light");
+          localStorage.setItem("ss-theme", next);
+          btn.textContent = next === "light" ? "🌙" : "☀️";
+        });
+      })();
+    </script>
+    <div id="login-inline">
+      <h3>Sign In</h3>
+      <input type="email" id="email-in" placeholder="Email" />
+      <input type="password" id="pass-in" placeholder="Password" />
+      <button id="do-login">Sign In</button>
+      <p id="auth-err"></p>
+    </div>
+  </header>
+
+  <main>
+    <div class="app-shell">
+      <div class="muted" id="source">Loading…</div>
+
+      <div class="card">
+        <div class="row">
+          <input id="serial-in" type="text" inputmode="numeric" autocomplete="off" placeholder="Serial" />
+          <button id="scan-btn" class="big-btn">📷 Scan</button>
+        </div>
+        <div id="reader" hidden></div>
+        <div class="muted" style="margin-top:6px">Type the serial (it looks up at 5 digits) or scan its barcode.</div>
+      </div>
+
+      <div class="card" id="result"><div class="sub">Scan or type a serial.</div></div>
+
+      <div class="card">
+        <div class="stats"><span id="stat-count">0 / 0 labeled</span><button id="undo-btn" class="muted" hidden>Undo last ✓</button></div>
+        <div class="progress"><div id="bar"></div></div>
+      </div>
+
+      <div class="card">
+        <details>
+          <summary>Recent (this device)</summary>
+          <ul id="recent"></ul>
+        </details>
+        <details>
+          <summary>Not labeled yet</summary>
+          <ul id="todo"></ul>
+        </details>
+        <details>
+          <summary>Tools</summary>
+          <div class="row" style="margin-top:8px">
+            <button id="export-btn">Export labeled CSV</button>
+            <button id="reset-btn">Clear labeled ticks</button>
+            <button id="reload-btn">Re-pull serials</button>
+          </div>
+          <p class="muted" id="reset-confirm" hidden>Tap "Clear labeled ticks" again to confirm.</p>
+        </details>
+      </div>
+    </div>
+  </main>
+
+  <script type="module">
+    import { auth, database, ref, get, onAuthStateChanged } from "../assets/js/firebase-init.js";
+
+    // ── what this page reads ──
+    const TELAID_UID = "SDN0vKPQ1qfN5vxkvhR3auVhDYq1";   // Telaid apps live under this uid by design
+    const TASK = new URLSearchParams(location.search).get("task") || "1789898400000"; // Walmart 54 canonical record
+    const CACHE_KEY = `sensorLookup:${TASK}:table`;
+    const DONE_KEY = `sensorLookup:${TASK}:labeled`;
+    const RECENT_KEY = `sensorLookup:${TASK}:recent`;
+
+    // Walmart 54 zones + IDF per mark (from the 9-16 zone package). Numbers only, no serials.
+    const ZONES = [[1, 10, 1], [11, 75, 2], [76, 141, 3], [142, 203, 4], [204, 241, 5]];
+    const IDF = "6666666666666666665566666555655566611555551111155551111111555551111115555551111115554455441111555544411115555441111144454444441154444444441334441444443334444443334224222333322222222332232222233332222233322222333322222333322233333223322333333";
+    const zoneOf = m => (ZONES.find(([a, b]) => m >= a && m <= b) || [])[2];
+    const idfOf = m => (TASK === "1789898400000" && IDF[m - 1]) || null;
+
+    const $ = id => document.getElementById(id);
+    let bySerial = new Map();      // serial -> mark
+    let total = 0;
+    let lastTicked = null;
+
+    const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch (_) { return d; } };
+    const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (_) { } };
+    let labeled = load(DONE_KEY, {});     // mark -> timestamp
+    let recent = load(RECENT_KEY, []);    // [{t, raw, mark}]
+
+    function buildTable(meta) {
+      // RTDB hands sensorMeta back as an ARRAY with a null hole at 0 when keys are numeric - guard both shapes.
+      const entries = Array.isArray(meta) ? meta.map((v, i) => [i, v]) : Object.entries(meta || {});
+      const t = {};
+      for (const [k, v] of entries) {
+        const s = v && String(v.serial || "").trim();
+        if (s && s.toLowerCase() !== "test") t[s] = Number(k);
+      }
+      return t;
+    }
+
+    function useTable(t, label) {
+      bySerial = new Map(Object.entries(t));
+      total = bySerial.size;
+      $("source").textContent = total ? `${total} sensors · ${label}` : "No serials found for this task.";
+      renderStats();
+    }
+
+    async function pull(user) {
+      // One read per page load - never on a timer.
+      const owners = [...new Set([user?.uid, TELAID_UID].filter(Boolean))];
+      for (const owner of owners) {
+        try {
+          const snap = await get(ref(database, `${owner}/tasks/${TASK}/sensorMeta`));
+          const t = buildTable(snap.val());
+          if (Object.keys(t).length) {
+            save(CACHE_KEY, { t, at: Date.now() });
+            useTable(t, `pulled ${new Date().toLocaleString()}`);
+            return;
+          }
+        } catch (_) { /* no access to this owner - try the next */ }
+      }
+      const c = load(CACHE_KEY, null);
+      if (c) useTable(c.t, `offline copy from ${new Date(c.at).toLocaleString()}`);
+      else $("source").textContent = user ? "Couldn't read serials for this task." : "Sign in once to download the serial list.";
+    }
+
+    // Pull the serial out of whatever the barcode holds: exact, then any digit run that is a known serial,
+    // then the last 5 digits of a longer run (in case the label encodes a prefix/model/MAC around it).
+    function resolve(raw) {
+      const s = String(raw || "").trim();
+      if (bySerial.has(s)) return s;
+      const runs = s.match(/\d+/g) || [];
+      for (const r of runs) if (bySerial.has(r)) return r;
+      for (const r of runs) if (r.length > 5 && bySerial.has(r.slice(-5))) return r.slice(-5);
+      for (const r of runs) { const n = String(Number(r)); if (bySerial.has(n)) return n; }
+      return null;
+    }
+
+    function show(raw, fromScan) {
+      const serial = resolve(raw);
+      const box = $("result");
+      if (!serial) {
+        box.innerHTML = `<div class="bad">NOT IN THE ${total}</div>
+          <div class="sub">Spare, or a mis-scan. Set it aside, don't label it.</div>
+          <div class="raw">read: ${escapeHtml(raw)}</div>`;
+        logRecent(raw, null);
+        return;
+      }
+      const mark = bySerial.get(serial);
+      const z = zoneOf(mark), idf = idfOf(mark);
+      const already = labeled[mark];
+      box.innerHTML = `<div class="mark">${mark}</div>
+        <div class="sub">serial ${serial}${z ? ` · zone ${z}` : ""}${idf ? ` · IDF ${idf}` : ""}</div>
+        ${already ? `<div class="warn">⚠ Already labeled ${new Date(already).toLocaleTimeString()}. Duplicate label, or a second scan?</div>`
+          : `<button id="tick-btn" class="big-btn" style="margin-top:10px">✓ Labeled</button>`}
+        ${fromScan && raw !== serial ? `<div class="raw">read: ${escapeHtml(raw)}</div>` : ""}`;
+      if (!already) $("tick-btn").onclick = () => tick(mark);
+      logRecent(raw, mark);
+      if (navigator.vibrate) navigator.vibrate(60);
+    }
+
+    function tick(mark) {
+      labeled[mark] = Date.now();
+      lastTicked = mark;
+      save(DONE_KEY, labeled);
+      $("result").querySelector("#tick-btn")?.replaceWith(Object.assign(document.createElement("div"), { className: "ok", textContent: "✓ labeled" }));
+      renderStats();
+      $("serial-in").value = "";
+      $("serial-in").focus();
+    }
+
+    function logRecent(raw, mark) {
+      recent.unshift({ t: Date.now(), raw: String(raw).slice(0, 60), mark });
+      recent = recent.slice(0, 40);
+      save(RECENT_KEY, recent);
+      $("recent").innerHTML = recent.map(r =>
+        `<li>${new Date(r.t).toLocaleTimeString()} · ${r.mark ? `<b>#${r.mark}</b>` : "<b>not found</b>"} <span class="raw">${escapeHtml(r.raw)}</span></li>`).join("");
+    }
+
+    function renderStats() {
+      const n = Object.keys(labeled).length;
+      $("stat-count").textContent = `${n} / ${total} labeled`;
+      $("bar").style.width = total ? `${Math.min(100, (100 * n) / total)}%` : "0";
+      $("undo-btn").hidden = !lastTicked;
+      const marks = [...bySerial.entries()].filter(([, m]) => !labeled[m]).sort((a, b) => a[1] - b[1]);
+      $("todo").innerHTML = marks.map(([s, m]) => `<li>#${m} · ${s}${idfOf(m) ? ` · IDF ${idfOf(m)}` : ""}</li>`).join("") || "<li>All labeled.</li>";
+    }
+
+    const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+    // ── typing: look up as soon as 5 digits are in; Enter looks up anything ──
+    $("serial-in").addEventListener("input", e => {
+      const v = e.target.value.trim();
+      if (/^\d{5}$/.test(v)) show(v, false);
+    });
+    $("serial-in").addEventListener("keydown", e => { if (e.key === "Enter" && e.target.value.trim()) show(e.target.value.trim(), false); });
+
+    // ── camera: html5-qrcode, loaded only when Scan is first tapped ──
+    let scanner = null, lastRaw = "", lastAt = 0;
+    function loadLib() {
+      return new Promise((res, rej) => {
+        if (window.Html5Qrcode) return res();
+        const s = document.createElement("script");
+        s.src = "https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js";
+        s.onload = res; s.onerror = () => rej(new Error("scanner library didn't load (no signal?) - type the serial instead"));
+        document.head.appendChild(s);
+      });
+    }
+    $("scan-btn").addEventListener("click", async () => {
+      const r = $("reader");
+      if (scanner) { await scanner.stop().catch(() => { }); scanner = null; r.hidden = true; $("scan-btn").textContent = "📷 Scan"; return; }
+      try {
+        await loadLib();
+        r.hidden = false;
+        scanner = new Html5Qrcode("reader");
+        $("scan-btn").textContent = "■ Stop";
+        await scanner.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 280, height: 140 } }, text => {
+          const now = Date.now();
+          if (text === lastRaw && now - lastAt < 2500) return;   // same label held in frame - don't re-fire
+          lastRaw = text; lastAt = now;
+          show(text, true);
+        });
+      } catch (e) {
+        scanner = null; r.hidden = true; $("scan-btn").textContent = "📷 Scan";
+        $("result").innerHTML = `<div class="warn">${escapeHtml(e.message || e)}</div>`;
+      }
+    });
+
+    $("undo-btn").addEventListener("click", () => {
+      if (lastTicked == null) return;
+      delete labeled[lastTicked]; save(DONE_KEY, labeled); lastTicked = null; renderStats();
+    });
+    $("export-btn").addEventListener("click", () => {
+      const rows = [["mark", "serial", "zone", "idf", "labeledAt"]];
+      for (const [s, m] of [...bySerial.entries()].sort((a, b) => a[1] - b[1]))
+        rows.push([m, s, zoneOf(m) || "", idfOf(m) || "", labeled[m] ? new Date(labeled[m]).toISOString() : ""]);
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([rows.map(r => r.join(",")).join("\n")], { type: "text/csv" }));
+      a.download = `sensor-labels-${TASK}.csv`; a.click();
+    });
+    let resetArmed = false;
+    $("reset-btn").addEventListener("click", () => {
+      if (!resetArmed) { resetArmed = true; $("reset-confirm").hidden = false; setTimeout(() => { resetArmed = false; $("reset-confirm").hidden = true; }, 4000); return; }
+      labeled = {}; save(DONE_KEY, labeled); lastTicked = null; resetArmed = false; $("reset-confirm").hidden = true; renderStats();
+    });
+    $("reload-btn").addEventListener("click", () => pull(auth.currentUser));
+
+    // Offline first: show the cached table immediately, then refresh it once auth resolves.
+    const cached = load(CACHE_KEY, null);
+    if (cached) useTable(cached.t, `offline copy from ${new Date(cached.at).toLocaleString()}`);
+    $("recent").innerHTML = recent.map(r => `<li>${new Date(r.t).toLocaleTimeString()} · ${r.mark ? `<b>#${r.mark}</b>` : "<b>not found</b>"} <span class="raw">${escapeHtml(r.raw)}</span></li>`).join("");
+    onAuthStateChanged(auth, user => pull(user));
+  </script>
+</body>
+
+</html>
