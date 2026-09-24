@@ -2321,10 +2321,28 @@
             if (!u || !u.today) { box.innerHTML = '<span style="color:var(--muted);font-size:0.82rem">No usage data yet.</span>'; return; }
             const row = (label, c) => `<div style="display:flex;justify-content:space-between;font-size:0.92rem;padding:4px 0;border-bottom:1px solid var(--border)"><span style="color:var(--muted)">${label}</span><span><b>${fmtTok((c || {}).out || 0)}</b> tokens</span></div>`;
             const lastAct = u.lastActivity ? Date.parse(u.lastActivity) : 0;
+            // Firebase egress (daemon 0.27). This card exists because a 3 s full-node poll ran up
+            // ~$197 in September and NOTHING showed the number until someone went looking. The
+            // headline is the run-rate, not the month total: month-to-date can only ever go up and
+            // says nothing about whether the leak is still leaking.
+            const f = u.firebase;
+            let fb = '';
+            if (f && typeof f.perDayGB === 'number') {
+                const over = f.runRateBill > (f.budget || 25);
+                const col = over ? 'var(--bad, #d9534f)' : 'var(--muted)';
+                fb = `<div style="display:flex;justify-content:space-between;font-size:0.92rem;padding:4px 0;border-bottom:1px solid var(--border)">
+                        <span style="color:var(--muted)">Firebase now</span>
+                        <span style="color:${col}"><b>${f.perDayGB.toFixed(2)} GB</b>/day${over ? ' &middot; $' + Math.round(f.runRateBill) + '/mo' : ''}</span>
+                      </div>
+                      <div style="font-size:0.66rem;color:${col};margin-top:3px">
+                        ${f.mtdGB.toFixed(0)} GB this month (${f.freeGB} free)${f.billedNow > 0 ? ' &middot; $' + Math.round(f.billedNow) + ' billed' : ''}${over ? ' &middot; over the $' + (f.budget || 25) + ' budget at this rate' : ''}
+                      </div>`;
+            }
             box.innerHTML = `
                 ${row('Today', u.today)}
                 ${row('This week', u.week)}
                 ${row('This month', u.last30)}
+                ${fb}
                 <div style="font-size:0.66rem;color:var(--muted);margin-top:7px">${lastAct ? 'last active ' + agoStr(lastAct) + ' &middot; ' : ''}"tokens" = the work Claude generated</div>`;
             $('#usage-age').textContent = u.updatedAt ? 'updated ' + agoStr(u.updatedAt) : '';
         }
