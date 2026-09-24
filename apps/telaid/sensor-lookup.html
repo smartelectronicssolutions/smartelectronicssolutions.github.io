@@ -39,6 +39,9 @@
     .progress { height: 8px; background: var(--surface2); border-radius: 4px; overflow: hidden; margin-top: 6px; }
     .progress > div { height: 100%; background: var(--success); width: 0; }
     #recent li, #todo li { padding: 4px 0; border-bottom: 1px solid var(--border); list-style: none; }
+    #recent li { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    #recent .rtick { padding: 6px 10px; white-space: nowrap; flex: none; }
+    #recent .okmini { color: var(--success); font-weight: 700; white-space: nowrap; flex: none; }
     #recent, #todo { padding: 0; margin: 6px 0 0; max-height: 260px; overflow: auto; }
     .muted { color: var(--muted); font-size: .9rem; }
     .raw { font-family: monospace; font-size: .85rem; color: var(--muted); word-break: break-all; }
@@ -292,30 +295,47 @@
       box.innerHTML = `<div class="marklabel">WRITE</div><div class="mark">${mark}</div>
         <div class="sub">serial ${serial}${z ? ` · zone ${z}` : ""}${idf ? ` · IDF ${idf}` : ""}</div>
         ${already ? `<div class="warn">⚠ Already labeled ${new Date(already).toLocaleTimeString()}. Duplicate label, or a second scan?</div>`
-          : `<button id="tick-btn" class="big-btn" style="margin-top:10px">✓ Labeled</button>`}
+          : `<button id="tick-btn" class="big-btn" style="margin-top:10px" data-mark="${mark}">✓ Labeled</button>`}
         ${fromScan && raw !== serial ? `<div class="raw">read: ${escapeHtml(raw)}</div>` : ""}`;
       if (!already) $("tick-btn").onclick = () => tick(mark);
       flash(already ? "dupe" : "hit");
       logRecent(raw, mark);
     }
 
-    function tick(mark) {
+    function tick(mark, fromRecent) {
+      if (labeled[mark]) return;
       labeled[mark] = Date.now();
       lastTicked = mark;
       save(DONE_KEY, labeled);
-      $("result").querySelector("#tick-btn")?.replaceWith(Object.assign(document.createElement("div"), { className: "ok", textContent: "✓ labeled" }));
+      // only flip the big card's button if the card is showing THIS sensor
+      const b = $("result").querySelector("#tick-btn");
+      if (b && Number(b.dataset.mark) === Number(mark))
+        b.replaceWith(Object.assign(document.createElement("div"), { className: "ok", textContent: "✓ labeled" }));
       renderStats();
-      $("serial-in").value = "";
-      $("serial-in").focus();
+      if (!fromRecent) { $("serial-in").value = ""; $("serial-in").focus(); }
     }
 
     function logRecent(raw, mark) {
       recent.unshift({ t: Date.now(), raw: String(raw).slice(0, 60), mark });
       recent = recent.slice(0, 40);
       save(RECENT_KEY, recent);
-      $("recent").innerHTML = recent.map(r =>
-        `<li>${new Date(r.t).toLocaleTimeString()} · ${r.mark ? `<b>#${r.mark}</b>` : "<b>not found</b>"} <span class="raw">${escapeHtml(r.raw)}</span></li>`).join("");
+      renderRecent();
     }
+
+    // Recent list: each found sensor gets its own ✓ Labeled button on the right, for when the big button
+    // got skipped (L, 2026-09-24: "in case I forget to click that I labeled it").
+    function renderRecent() {
+      $("recent").innerHTML = recent.map(r => {
+        const right = !r.mark ? "" : labeled[r.mark]
+          ? `<span class="okmini">✓ labeled</span>`
+          : `<button type="button" class="rtick" data-mark="${r.mark}">✓ Labeled</button>`;
+        return `<li><span>${new Date(r.t).toLocaleTimeString()} · ${r.mark ? `<b>#${r.mark}</b>` : "<b>not found</b>"} <span class="raw">${escapeHtml(r.raw)}</span></span>${right}</li>`;
+      }).join("");
+    }
+    $("recent").addEventListener("click", e => {
+      const b = e.target.closest(".rtick");
+      if (b) tick(Number(b.dataset.mark), true);
+    });
 
     function renderStats() {
       const n = Object.keys(labeled).length;
@@ -324,6 +344,7 @@
       $("undo-btn").hidden = !lastTicked;
       const marks = [...bySerial.entries()].filter(([, m]) => !labeled[m]).sort((a, b) => a[1] - b[1]);
       $("todo").innerHTML = marks.map(([s, m]) => `<li>#${m} · ${s}${idfOf(m) ? ` · IDF ${idfOf(m)}` : ""}</li>`).join("") || "<li>All labeled.</li>";
+      renderRecent();   // keep the recent list's ✓ buttons in step (undo, clear, a tick from the big card)
     }
 
     const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -389,7 +410,7 @@
     // Offline first: show the cached table immediately, then refresh it once auth resolves.
     const cached = load(CACHE_KEY, null);
     if (cached) useTable(cached.t, `offline copy from ${new Date(cached.at).toLocaleString()}`);
-    $("recent").innerHTML = recent.map(r => `<li>${new Date(r.t).toLocaleTimeString()} · ${r.mark ? `<b>#${r.mark}</b>` : "<b>not found</b>"} <span class="raw">${escapeHtml(r.raw)}</span></li>`).join("");
+    renderRecent();
     onAuthStateChanged(auth, user => pull(user));
   </script>
 </body>
