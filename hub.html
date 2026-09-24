@@ -1475,6 +1475,14 @@
                     await update(ref(database, `${DC.base}/jobs/${t.jobId}`),
                         Object.assign(t.s === 'L' ? { rough: gone, enhanced: gone } : { reply: gone },
                                       cancelled ? { cancel: true } : {}));
+                    // NOT PROCESSED YET = NO TRACE (2026-09-24, L: "if it hasn't processed I don't need the
+                    // canceled message"). Deleting your message while its job is still QUEUED takes the
+                    // "…thinking" bubble with it, right now - there is nothing to report, nothing was sent.
+                    if (st === 'queued' && t.s === 'L') {
+                        for (const [ok, ot] of Object.entries(DC.chatTurns || {}))
+                            if (ok !== k && ot && ot.s === 'D' && ot.pending && ot.jobId === t.jobId)
+                                await set(ref(database, `${DC.base}/chat/turns/${ok}`), null);
+                    }
                 }
                 await set(ref(database, `${DC.base}/chat/turns/${k}`), null);
                 if ((DC.favs || {})[k]) await set(ref(database, `${DC.base}/chat/favorites/${k}`), null);   // a deleted reply leaves favorites too
@@ -2060,7 +2068,13 @@
                     // If the bubble is still there (he deleted his own message instead), say so.
                     if (j.status === 'cancelled') {
                         unwatch(); delete DC.pendWatch[k];
-                        if ((DC.chatTurns || {})[k]) await update(tr, { text: '⛔ ' + (j.reply || 'cancelled'), pending: null, ts: Date.now() });
+                        // Never started (no startedAt: the daemon cancelled it while still queued) = nothing
+                        // happened, so the bubble just goes - no "⛔ cancelled" left behind (L, 2026-09-24).
+                        // Stopped mid-work keeps the ⛔ note: Droplet may have done part of it.
+                        if ((DC.chatTurns || {})[k]) {
+                            if (!j.startedAt) await set(tr, null);
+                            else await update(tr, { text: '⛔ ' + (j.reply || 'cancelled'), pending: null, ts: Date.now() });
+                        }
                         return;
                     }
                     if (j.status === 'done') { await set(tr, { s: 'D', who: t.who || 'Droplet', text: j.reply || '(done, no captured reply)', ts: Date.now(), jobId: t.jobId, ...(t.topic ? { topic: t.topic } : {}) }); unwatch(); delete DC.pendWatch[k]; }
