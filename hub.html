@@ -775,6 +775,22 @@
         .dc-del .q { color: var(--muted); font-size: calc(0.78rem * var(--dc-fs, 1)); margin-bottom: 10px; max-height: 3.6em; overflow: hidden; }
         .dc-del .r { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
         .dc-del button.play { border-color: var(--dc-purple); color: var(--dc-purple); background: color-mix(in srgb, var(--dc-purple) 12%, transparent); margin-right: auto; }
+        .dc-del button.rsvp { border-color: var(--dc-green); color: var(--dc-green); background: color-mix(in srgb, var(--dc-green) 12%, transparent); }
+        /* ⚡ SPEED READ (2026-09-24): full-screen RSVP over the console, same method as onlinetext.html */
+        .dc-rsvp { position: fixed; inset: 0; z-index: 60; background: var(--dc-panel); display: flex; flex-direction: column;
+            padding: calc(14px + env(safe-area-inset-top, 0px)) 16px calc(14px + env(safe-area-inset-bottom, 0px)); gap: 14px; }
+        .dc-rsvp .bar { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: calc(0.8rem * var(--dc-fs, 1)); }
+        .dc-rsvp .bar .x { margin-left: auto; }
+        .dc-rsvp button { border: 1px solid var(--border); background: transparent; color: var(--text); border-radius: var(--dc-r-md); padding: 8px 14px; cursor: pointer; font-family: inherit; font-size: calc(0.9rem * var(--dc-fs, 1)); }
+        .dc-rsvp .stage { flex: 1; display: flex; align-items: center; justify-content: center; text-align: center; cursor: pointer; user-select: none;
+            font-size: clamp(1.7rem, 7.5vw, 3rem); font-weight: 600; line-height: 1.25; color: var(--text); padding: 0 6px; overflow-wrap: anywhere; }
+        .dc-rsvp .stage.paused { color: var(--muted); }
+        .dc-rsvp .prog { height: 4px; background: var(--dc-inset); border-radius: 2px; overflow: hidden; }
+        .dc-rsvp .prog > div { height: 100%; width: 0; background: var(--dc-green); }
+        .dc-rsvp .ctl { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: center; color: var(--muted); font-size: calc(0.82rem * var(--dc-fs, 1)); }
+        .dc-rsvp .ctl input[type=range] { width: min(46vw, 220px); }
+        .dc-rsvp .ctl .grp button.on { border-color: var(--dc-green); color: var(--dc-green); font-weight: 700; }
+        .dc-rsvp .ctl .pp { border-color: var(--dc-green); color: var(--dc-green); min-width: 5.5em; font-weight: 600; }
         .dc-del button { border: 1px solid var(--border); background: transparent; color: var(--text); border-radius: var(--dc-r-md); padding: 6px 14px; cursor: pointer; font-family: inherit; }
         .dc-del button.go { border-color: var(--dc-amber); background: color-mix(in srgb, var(--dc-amber) 15%, transparent); color: var(--dc-amber); font-weight: 600; }
         .dc-del .t .tg { color: var(--dc-purple); font-weight: 400; font-size: calc(0.78rem * var(--dc-fs, 1)); margin-left: 6px; }
@@ -1527,6 +1543,76 @@
             return true;
         }
         function stopSpeak() { try { speechSynthesis.cancel(); } catch (_) {} DC.speakingKey = ''; }
+        // ⚡ SPEED READ (2026-09-24, L: "a speed reader option for message reading, the same methodology as the app I
+        // have, maybe 2-3 words at a time because of the more complex character language used in chat").
+        // Same method as onlinetext.html: RSVP groups at a WPM, lingering x1.6 after . ! ? and x1.3 after , ; :
+        // Chat-specific: markdown is stripped the way ▶ Play strips it, and a long token (a path, an id, a URL) always
+        // shows ALONE and gets extra time - that's the "complex character language" that a 3-word group would mangle.
+        // Speed + group size persist per device (localStorage). Nothing is stored anywhere else.
+        function openSpeedRead(text) {
+            const host = $('#dc-console') || document.body;
+            if (host.querySelector('.dc-rsvp')) return;
+            const src = cleanReply(String(text || ''))
+                .replace(/```[\s\S]*?```/g, ' [code block] ')
+                .replace(/^#+\s*/gm, '').replace(/^\s*[-*]\s+/gm, '• ').replace(/^\s*\|?[-: |]+\|?\s*$/gm, ' ')
+                .replace(/\|/g, ' ').replace(/[*_`>]+/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/https?:\/\/\S+/g, '[link]');
+            const words = src.split(/\s+/).filter(Boolean);
+            if (!words.length) return;
+            const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (_) { return null; } };
+            let wpm = Number(store('dc_rsvp_wpm')) || 300, grp = Number(store('dc_rsvp_grp')) || 2;
+            let i = 0, timer = null, playing = false;
+            const LONG = 16;   // chars: a token this long reads alone
+            const el = document.createElement('div'); el.className = 'dc-rsvp';
+            el.innerHTML = `<div class="bar"><span class="pos"></span><button type="button" class="x" title="close (Esc)">✕</button></div>
+                <div class="stage" title="tap to pause / resume"></div><div class="prog"><div></div></div>
+                <div class="ctl"><button type="button" class="back" title="back a few words">⟲ back</button>
+                <button type="button" class="pp">▶ Start</button>
+                <span class="grp">${[1, 2, 3, 4].map(n => `<button type="button" data-g="${n}">${n}</button>`).join('')}</span>
+                <label><input type="range" min="150" max="900" step="25"> <span class="wv"></span></label></div>`;
+            host.appendChild(el);
+            const stage = el.querySelector('.stage'), pp = el.querySelector('.pp'), rng = el.querySelector('input[type=range]');
+            const nextGroup = at => {   // up to `grp` words, but a long token never shares the screen
+                const g = [];
+                for (let j = at; j < words.length && g.length < grp; j++) {
+                    if (words[j].length >= LONG) { if (!g.length) g.push(words[j]); break; }
+                    g.push(words[j]);
+                }
+                return g;
+            };
+            const delayFor = g => {
+                let d = g.length * (60000 / wpm);
+                const last = g[g.length - 1] || '';
+                if (/[.!?]["')\]]?$/.test(last)) d *= 1.6; else if (/[,;:]["')\]]?$/.test(last)) d *= 1.3;
+                if (g.length === 1 && last.length >= LONG) d *= 1.8;
+                return d;
+            };
+            const paint = g => {
+                stage.textContent = g.join(' ');
+                el.querySelector('.pos').textContent = `${Math.min(i, words.length)} / ${words.length} words`;
+                el.querySelector('.prog > div').style.width = `${(100 * Math.min(i, words.length)) / words.length}%`;
+            };
+            const step = () => {
+                if (i >= words.length) { stop(); stage.textContent = '✓ end'; i = 0; return; }
+                const g = nextGroup(i); paint(g); i += g.length;
+                timer = setTimeout(step, delayFor(g));
+            };
+            const start = () => { if (playing) return; playing = true; stage.classList.remove('paused'); pp.textContent = '❚❚ Pause'; step(); };
+            const stop = () => { playing = false; clearTimeout(timer); timer = null; stage.classList.add('paused'); pp.textContent = '▶ Start'; };
+            const toggle = () => (playing ? stop() : start());
+            const close = () => { stop(); el.remove(); document.removeEventListener('keydown', onKey, true); };
+            const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } else if (e.key === ' ') { e.preventDefault(); toggle(); } };
+            const syncGrp = () => el.querySelectorAll('.grp button').forEach(b => b.classList.toggle('on', Number(b.dataset.g) === grp));
+            rng.value = wpm; el.querySelector('.wv').textContent = `${wpm} wpm`; syncGrp();
+            rng.oninput = () => { wpm = Number(rng.value); el.querySelector('.wv').textContent = `${wpm} wpm`; store('dc_rsvp_wpm', String(wpm)); };
+            el.querySelector('.grp').onclick = e => { const b = e.target.closest('button'); if (!b) return; grp = Number(b.dataset.g); store('dc_rsvp_grp', String(grp)); syncGrp(); };
+            el.querySelector('.back').onclick = () => { const was = playing; stop(); i = Math.max(0, i - grp * 4); paint(nextGroup(i)); if (was) start(); };
+            stage.onclick = toggle; pp.onclick = toggle;
+            el.querySelector('.x').onclick = close;
+            document.addEventListener('keydown', onKey, true);
+            paint(nextGroup(0)); stage.classList.add('paused');
+            setTimeout(start, 700);   // a beat to get your eyes on the middle before it runs
+        }
+        window.__dcSpeedRead = openSpeedRead;   // test hook
         try { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices(); } catch (_) {}
         function confirmDelete(k) {
             const host = $('.dc-chat'); if (!host || host.querySelector('.dc-del')) return;
@@ -1534,7 +1620,7 @@
             if (DC.editKey) { const ta0 = $('#dc-chat-in'); if (ta0) ta0.value = ''; } setEditMode('');   // a triple-tap on the newest message had started an edit: drop it
             const box = document.createElement('div'); box.className = 'dc-del';
             const playing = DC.speakingKey === k;
-            box.innerHTML = `<div class="t">Message${t.topic ? ' <span class="tg"># ' + esc(t.topic) + '</span>' : ''}</div><div class="q">${esc(String(t.text || '').slice(0, 140))}</div><div class="r"><button type="button" class="play" title="read it aloud with this device's voice - nothing is saved">${playing ? '■ Stop' : '▶ Play'}</button><button type="button" class="tag" title="move this message (and its reply) to another topic tab, or untag it"># Tag</button><button type="button" class="keep">Close</button><button type="button" class="go">Delete</button></div>`;
+            box.innerHTML = `<div class="t">Message${t.topic ? ' <span class="tg"># ' + esc(t.topic) + '</span>' : ''}</div><div class="q">${esc(String(t.text || '').slice(0, 140))}</div><div class="r"><button type="button" class="play" title="read it aloud with this device's voice - nothing is saved">${playing ? '■ Stop' : '▶ Play'}</button><button type="button" class="rsvp" title="speed read - a few words at a time, like the text app">⚡ Read</button><button type="button" class="tag" title="move this message (and its reply) to another topic tab, or untag it"># Tag</button><button type="button" class="keep">Close</button><button type="button" class="go">Delete</button></div>`;
             host.appendChild(box);
             // ARMING (2026-09-19, second pass): the box opens right under a finger that is often still tapping. The first fix only
             // ignored taps OUTSIDE the box for 550 ms - a 4th tap landing on Close (or Delete!) still fired at once, and a slow
@@ -1565,6 +1651,7 @@
                 if (DC.speakingKey === k) { stopSpeak(); pb.textContent = '▶ Play'; return; }
                 if (speakText(t.text, k, () => { pb.textContent = '▶ Play'; })) pb.textContent = '■ Stop';
             };
+            box.querySelector('.rsvp').onclick = () => { if (quiet()) return; close(); stopSpeak(); openSpeedRead(t.text); };
             box.querySelector('.go').onclick = async () => { if (quiet()) return; close(); await deleteTurn(k); };
             // # TAG (2026-09-19, L: "add edit tag name in the triple click menu"): retag this message - and the other half of its
             // exchange (same jobId) - into another topic tab; empty = no tag (it shows under All only). A new name creates the tab.
