@@ -167,52 +167,7 @@
         #yuki-toggle img { width: 100%; height: 100%; display: block; pointer-events: none; }
         #yuki-toggle:hover img { transform: scale(1.06); }
         #yuki-toggle img { transition: transform .15s ease; }
-        /* it lands rather than just appearing, so the eye follows the intro into the corner */
-        #yuki-toggle.landing { animation: dropLand .42s cubic-bezier(.34,1.56,.64,1) both; }
-        @keyframes dropLand { 0% { transform: scale(.2); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
-
-        /* INTRO (2026-09-23, L: "initially shows it then shrinks to just the droplet").
-           The wordmark comes up centred, holds long enough to read, then shrinks toward the
-           corner and hands off to the badge. pointer-events stays none the whole time - an
-           overlay that eats a tap during its first second is worse than no overlay. Once per
-           TAB SESSION, not per navigation: a splash you cannot get past gets old by lunchtime. */
-        /* Anchored BOTTOM RIGHT, not centred (L, 2026-09-23: "keep it in the lower right hand
-           corner instead of the center"). The padding puts the wordmark's bottom-right corner
-           exactly where the button's is, so with transform-origin at that same corner the logo
-           shrinks straight into the button's own footprint - no travel to compute, and nothing
-           to re-derive if the button ever moves. */
-        #droplet-intro {
-            position: fixed; inset: 0; z-index: 400; display: none;
-            align-items: flex-end; justify-content: flex-end;
-            padding: 0 20px 20px 0; pointer-events: none;
-        }
-        #droplet-intro.run { display: flex; }
-        /* COLLAPSE INTO THE DROPLET (L: "shrink around the droplet O ... as though it's reducing
-           to it"). The origin is the badge's own centre inside the artwork, measured from the
-           build rather than eyeballed: the "o" sits at 163.9/402 across and 77.5/140 down, so
-           40.77% 55.36%. Scaling about that point pulls "Dr" and "plet" inward onto the droplet
-           instead of shrinking the whole lockup toward a corner.
-           The badge does not move under a transform about its own centre, so the translate is
-           purely "carry the droplet from where it is to where the button is" - derived from the
-           width, so it holds at any size instead of being a magic pixel offset. */
-        #droplet-intro img {
-            --dw: min(82vw, 420px);
-            width: var(--dw);
-            transform-origin: 40.77% 55.36%;
-            animation: dropIntro 1.75s cubic-bezier(.6,.02,.28,1) forwards;
-        }
-        @keyframes dropIntro {
-            0%   { opacity: 0; transform: scale(.86); }
-            16%  { opacity: 1; transform: scale(1); }
-            52%  { opacity: 1; transform: scale(1); }
-            /* .575 lands the badge at ~46px, the button's size, from a 420px-wide lockup */
-            100% { opacity: 0;
-                   transform: translate(calc(0.5923 * var(--dw) - 23px),
-                                        calc(0.15546 * var(--dw) - 23px)) scale(.575); }
-        }
         @media (prefers-reduced-motion: reduce) {
-            #droplet-intro { display: none !important; }
-            #yuki-toggle.landing { animation: none; }
             #yuki-toggle img, #yuki-toggle:hover img { transition: none; transform: none; }
         }
         #yuki-sidebar {
@@ -679,9 +634,6 @@
 
     </main>
     </div>
-
-    <!-- intro: the wordmark, then it shrinks into the corner badge -->
-    <div id="droplet-intro" aria-hidden="true"><img src="assets/img/droplet-logo.svg" alt=""></div>
 
     <!-- Yuki sidebar -->
     <button id="yuki-toggle" title="Droplet Console"><img src="assets/img/droplet-mark.svg" alt="Droplet Console"></button>
@@ -2958,37 +2910,7 @@ MOOD TAG: End every reply with [MOOD:X] where X is one of: happy sleepy excited 
            a private window or blocked site data must cost you the animation, not the button. */
         function revealDropletToggle() {
             const btn = document.getElementById('yuki-toggle');
-            if (!btn || btn.classList.contains('visible')) return;
-            const intro = document.getElementById('droplet-intro');
-            const reduced = (() => { try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (_) { return false; } })();
-
-            // EVERY page load, not once per tab session (2026-09-23, L: "the animation ... isnt
-            // always showing"). It was gated on sessionStorage, so a reload in the same tab
-            // skipped it - nothing to do with how long the login took, which was his guess.
-            // Playing it every time only works because it is SKIPPABLE: the first touch or key
-            // lands it immediately, so it greets you when you open the hub and gets out of the
-            // way the moment you are actually doing something.
-            if (reduced || !intro) { btn.classList.add('visible'); return; }
-
-            intro.classList.add('run');
-            const land = () => {
-                if (btn.classList.contains('visible')) return;      // whichever fires first wins
-                document.removeEventListener('pointerdown', land, true);
-                document.removeEventListener('keydown', land, true);
-                intro.classList.remove('run');
-                btn.classList.add('visible', 'landing');
-                setTimeout(() => btn.classList.remove('landing'), 600);
-            };
-            document.addEventListener('pointerdown', land, true);
-            document.addEventListener('keydown', land, true);
-            const img = intro.querySelector('img');
-            if (img) img.addEventListener('animationend', land, { once: true });
-            // Backstop, in case animationend never fires (animation disabled, tab backgrounded
-            // mid-run, image never decoded): the button must never be lost to a stuck overlay.
-            // Comfortably LONGER than the 1.75s animation - set it tight and the backstop wins
-            // the race instead, cutting the intro off part-way. land() is idempotent, so the
-            // first of the two to fire is the one that counts.
-            setTimeout(land, 4000);
+            if (btn) btn.classList.add('visible');
         }
 
         /* ── Clock ── */
