@@ -2960,20 +2960,27 @@ MOOD TAG: End every reply with [MOOD:X] where X is one of: happy sleepy excited 
             const btn = document.getElementById('yuki-toggle');
             if (!btn || btn.classList.contains('visible')) return;
             const intro = document.getElementById('droplet-intro');
-            let seen = true;
-            try { seen = sessionStorage.getItem('droplet_intro_seen') === '1'; } catch (_) { seen = true; }
             const reduced = (() => { try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (_) { return false; } })();
 
-            if (seen || reduced || !intro) { btn.classList.add('visible'); return; }
-            try { sessionStorage.setItem('droplet_intro_seen', '1'); } catch (_) {}
+            // EVERY page load, not once per tab session (2026-09-23, L: "the animation ... isnt
+            // always showing"). It was gated on sessionStorage, so a reload in the same tab
+            // skipped it - nothing to do with how long the login took, which was his guess.
+            // Playing it every time only works because it is SKIPPABLE: the first touch or key
+            // lands it immediately, so it greets you when you open the hub and gets out of the
+            // way the moment you are actually doing something.
+            if (reduced || !intro) { btn.classList.add('visible'); return; }
 
             intro.classList.add('run');
             const land = () => {
                 if (btn.classList.contains('visible')) return;      // whichever fires first wins
+                document.removeEventListener('pointerdown', land, true);
+                document.removeEventListener('keydown', land, true);
                 intro.classList.remove('run');
                 btn.classList.add('visible', 'landing');
                 setTimeout(() => btn.classList.remove('landing'), 600);
             };
+            document.addEventListener('pointerdown', land, true);
+            document.addEventListener('keydown', land, true);
             const img = intro.querySelector('img');
             if (img) img.addEventListener('animationend', land, { once: true });
             // Backstop, in case animationend never fires (animation disabled, tab backgrounded
