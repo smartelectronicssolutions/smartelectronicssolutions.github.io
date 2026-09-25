@@ -1462,9 +1462,20 @@
             toast.querySelector('.cx').onclick = () => { toast.classList.remove('show'); closeConsole(); };
             toast.classList.add('show'); clearTimeout(DC.toastT); DC.toastT = setTimeout(() => toast.classList.remove('show'), 1800);
         }
+        // THIRD SWIPE OPENS THE WHOLE BAR (2026-09-24, L: "after 3 swiped can I have it show the entire bar also"):
+        // three swipes inside 4 s means he is hunting for a tab - show the strip so he can tap it directly.
+        // setTopic() closes the strip on every switch, so the open happens AFTER the switch.
+        DC.swipeN = 0; DC.swipeT = 0;
+        function noteSwipe() {
+            const now = Date.now(); DC.swipeN = (now - DC.swipeT < 4000) ? DC.swipeN + 1 : 1; DC.swipeT = now;
+            if (DC.swipeN < 3) return false;
+            DC.swipeN = 0; return true;
+        }
+        function openTopicBar() { const b = $('#dc-topics'); if (b) b.classList.add('open'); }
         function stepTopic(dir) {
             const order = DC.topicOrder || [''];
             const i = Math.max(0, order.indexOf(DC.topic || ''));
+            const third = noteSwipe();
             // NEAREST UNREAD FIRST (2026-09-21, L). Scan outward in the SWIPE DIRECTION and stop at the
             // first tab holding a reply he has not opened, however far along it is; with nothing unread
             // that way it is an ordinary one-tab step. Directional on purpose - a swipe should never drag
@@ -1475,8 +1486,9 @@
                 if (DC._unread && DC._unread[order[k] || '']) { j = k; jumped = true; break; }
             }
             if (j >= order.length) { newTopicBox(); return; }   // one more swipe LEFT past the last tab = make a new topic
-            if (j < 0) { showTopicLabel(order, i); return; }    // nothing before All - still show the label (it carries the close X)
+            if (j < 0) { showTopicLabel(order, i); if (third) openTopicBar(); return; }    // nothing before All - still show the label (it carries the close X)
             setTopic(order[j]);
+            if (third) openTopicBar();
             showTopicLabel(order, j, jumped && Math.abs(j - i) > 1);
             const log = $('#dc-chat-log'); if (log) { log.classList.remove('slide-l', 'slide-r'); void log.offsetWidth; log.classList.add(dir > 0 ? 'slide-l' : 'slide-r'); }
         }
