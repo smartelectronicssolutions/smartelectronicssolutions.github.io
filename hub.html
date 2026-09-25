@@ -3268,6 +3268,9 @@
                     // word the model changed here but left alone elsewhere in the same message
                     if (NO_LEARN.has(a)) continue;   // the SOURCE being a real word is the danger ("its" -> "it's" for ever); a typo landing on one ("som" -> "some") is fine
                     if (A.some((w, j) => j !== i && acKey(w) === a && acKey(B[j]) === a)) continue;
+                    const bl = b.toLowerCase();
+                    if (bl.endsWith(a)) continue;   // "nners" -> "banners": the tail of a word a splice cut in two, not a typo (learned as a rule on 2026-09-25)
+                    if (bl.startsWith(a) && /^(s|es|ed|d|ing)$/.test(bl.slice(a.length))) continue;   // "open" -> "opened", "account" -> "accounts": grammar, not spelling - never a blanket fix
                     const cur = ((AC().learned || {})[a]) || { n: 0 };
                     acWrite(`learned/${a}`, { to: b, n: (cur.n || 0) + 1, at: Date.now() });
                 }
@@ -3430,6 +3433,14 @@
                     // a proofread never DROPS words either (one fewer is a merged "a lot"/de-doubled "to to"; more is the model cutting his
                     // sentence - on a short segment the 60 % length guard never fires, and that read as "it deletes text as I type", L 2026-09-25)
                     if (inW.length - outWords > 1) { stable = tailEnd; enhLog('rewrite dropped words, kept yours', text.slice(0, 60) + ' → ' + out.slice(0, 60)); return; }
+                    // the LAST word of a live tail is the word he is still on - a proofread never touches it. "Get rid of the red ba" went out
+                    // (a space had landed after "ba"), came back "…red ball", and his "nners" glued on: "ballbanners" (2026-09-25 19:16). The
+                    // instant fixes cover a typo there, and Send's pass (forceApply) proofreads the whole message once it really is finished.
+                    if (!forceApply && tailEnd === full.length) {
+                        const lw = /([A-Za-z0-9']+)([^A-Za-z0-9']*)$/.exec(text), ow = /([A-Za-z0-9']+)([^A-Za-z0-9']*)$/.exec(out);
+                        if (lw && ow && lw[1].toLowerCase() !== ow[1].toLowerCase()) { out = out.slice(0, ow.index) + lw[1] + ow[2]; enhLog('last word kept', ow[1] + ' → ' + lw[1]); }
+                        if (norm(out) === norm(text)) { stable = tailEnd; enhLog('no change (last word)', (Date.now() - t0) + ' ms'); return; }
+                    }
                     const editingInside = ta.selectionStart < tailEnd && ta.selectionStart > at;   // his caret is inside the segment: don't move it under him
                     if (!editingInside || forceApply) {
                         // land it at a word boundary: splicing while a word is half-typed is where a keystroke and the splice can collide.
