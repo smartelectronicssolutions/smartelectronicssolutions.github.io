@@ -3268,13 +3268,12 @@
             // Runs on EVERY insert - a key, a swipe-typed word, dictation, iOS's own autocorrect, a paste - and looks at what
             // sits before the caret. The first cut keyed on the single typed character, so swipe typing on the phone
             // (which inserts "word " in ONE event) slipped past it entirely and nothing local ever fired (L, 12:45).
-            ta.addEventListener('input', e => {
-                lastFix = null;
-                if (!on() || !e.inputType || !e.inputType.startsWith('insert')) return;
-                let pos = ta.selectionStart; if (pos !== ta.selectionEnd || pos < 2) return;
-                if (!/[\s.,!?;:]/.test(ta.value[pos - 1])) return;                    // caret is mid-word: not finished yet
+            // fixAt(pos): the word that ends just before the separator at pos-1. Called for EVERY completed word in what an
+            // input event inserted (a swipe gives one word, dictation or iOS's replacement can give a whole sentence).
+            function fixAt(pos) {
+                if (pos < 2 || !/[\s.,!?;:]/.test(ta.value[pos - 1])) return;
                 // a second space right after a space = an accidental double (L, 2026-09-25) - drop it
-                if (ta.value[pos - 1] === ' ' && ta.value[pos - 2] === ' ') { ta.setRangeText('', pos - 1, pos, 'end'); pos = ta.selectionStart; enhLog('double space dropped'); if (!/[\s.,!?;:]/.test(ta.value[pos - 1])) return; }
+                if (ta.value[pos - 1] === ' ' && ta.value[pos - 2] === ' ') { ta.setRangeText('', pos - 1, pos, 'preserve'); pos -= 1; enhLog('double space dropped'); if (!/[\s.,!?;:]/.test(ta.value[pos - 1])) return; }
                 const before = ta.value.slice(0, pos - 1);
                 const m = /([A-Za-z']+)$/.exec(before); if (!m) return;
                 const word = m[1], start = pos - 1 - word.length;
@@ -3283,25 +3282,43 @@
                 for (const nwords of [3, 2]) {
                     const mm = new RegExp('((?:[A-Za-z\']+\\s+){' + (nwords - 1) + '}[A-Za-z\']+)$').exec(before); if (!mm) continue;
                     const k = mm[1].toLowerCase().replace(/\s+/g, ' '), hit = ph[k.replace(/ /g, '_')];
-                    if (hit && hit.to) { const s0 = pos - 1 - mm[1].length; ta.setRangeText(hit.to, s0, pos - 1, 'end'); ta.setSelectionRange(s0 + hit.to.length + 1, s0 + hit.to.length + 1);
-                        lastFix = { at: s0, from: mm[1], to: hit.to }; lastRewrite = null; chip('fix', `<b>✓</b>${esc(mm[1])} → ${esc(hit.to)}<span class="k">↶ tap to undo</span>`, 4000); return; }
+                    if (hit && hit.to) { const s0 = pos - 1 - mm[1].length; ta.setRangeText(hit.to, s0, pos - 1, 'preserve');
+                        lastFix = { at: s0, from: mm[1], to: hit.to }; lastRewrite = null; chip('fix', `<b>✓</b>${esc(mm[1])} → ${esc(hit.to)}<span class="k">↶ tap to undo</span>`, 4000); enhLog('fix', mm[1] + ' → ' + hit.to); return; }
                 }
                 // a doubled word ("I want to to") - drop the second one (L, 2026-09-25: "I doubled a word, let's see if it figures it out")
                 const dbl = /([A-Za-z']+)\s+$/.exec(before.slice(0, start));
                 if (dbl && word.length >= 2 && dbl[1].toLowerCase() === word.toLowerCase() && !/^(had|that|is|do|so)$/i.test(word)) {
-                    ta.setRangeText('', start - 1, pos - 1, 'end'); ta.setSelectionRange(start, start);
+                    ta.setRangeText('', start - 1, pos - 1, 'preserve');
                     lastFix = { at: start - 1, from: ' ' + word, to: '' }; lastRewrite = null;
-                    chip('fix', `<b>✓</b>dropped the doubled “${esc(word)}”<span class="k">↶ tap to undo</span>`, 4000); return;
+                    chip('fix', `<b>✓</b>dropped the doubled “${esc(word)}”<span class="k">↶ tap to undo</span>`, 4000); enhLog('doubled word dropped', word); return;
                 }
                 let rep = fixFor(word.toLowerCase()); rep = rep && rep !== word ? caseLike(word, rep) : word;
                 // first word of the message, or the first after . ! ? or a newline, gets its capital
                 const lead = before.slice(0, start);
                 if (/^[a-z]/.test(rep) && (lead.trim() === '' || /[.!?]\s+$|\n\s*$/.test(lead))) rep = rep[0].toUpperCase() + rep.slice(1);
                 if (rep === word) return;
-                ta.setRangeText(rep, start, pos - 1, 'end'); ta.setSelectionRange(start + rep.length + 1, start + rep.length + 1);
+                ta.setRangeText(rep, start, pos - 1, 'preserve');
                 lastFix = { at: start, from: word, to: rep }; lastRewrite = null;
                 chip('fix', `<b>✓</b>${esc(word)} → ${esc(rep)}<span class="k">↶ tap to undo</span>`, 4000);
                 enhLog('fix', word + ' → ' + rep);
+            }
+            ta.addEventListener('input', e => {
+                lastFix = null;
+                if (!on() || !e.inputType || !e.inputType.startsWith('insert')) return;
+                const caret = ta.selectionStart; if (caret !== ta.selectionEnd) return;
+                const atEnd = caret === ta.value.length;
+                // walk every completed word inside what just arrived (a key: the last word; dictation: all of them)
+                let scan = Math.max(0, caret - ((e.data && e.data.length) ? e.data.length + 1 : 80));
+                // doubled spaces anywhere in that span first (a dictated "if  this" has its double in the middle, not at the caret)
+                const span = ta.value.slice(scan, caret); if (/ {2,}/.test(span)) { ta.setRangeText(span.replace(/ {2,}/g, ' '), scan, caret, 'preserve'); enhLog('double space dropped'); if (atEnd) ta.setSelectionRange(ta.value.length, ta.value.length); }
+                for (let guard = 0; guard < 16; guard++) {
+                    const seg = ta.value.slice(scan, ta.selectionStart);
+                    const mm = /[A-Za-z']+[\s.,!?;:]/.exec(seg); if (!mm) break;
+                    const sepPos = scan + mm.index + mm[0].length, len0 = ta.value.length;
+                    fixAt(sepPos);
+                    scan = sepPos + (ta.value.length - len0);
+                }
+                if (atEnd) ta.setSelectionRange(ta.value.length, ta.value.length);
             });
             // the last local pass at send: single spaces, a first capital, a period on a sentence left hanging
             window.__dcTidy = s => { s = String(s || '').replace(/[ \t]{2,}/g, ' ').replace(/\s+([.,!?;:])/g, '$1').trim();
