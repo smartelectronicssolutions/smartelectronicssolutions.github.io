@@ -3239,6 +3239,13 @@
                 for (let i = 1; i <= a.length; i++) { const c = [i]; for (let j = 1; j <= b.length; j++) c[j] = Math.min(p[j] + 1, c[j - 1] + 1, p[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); p = c; } return p[b.length]; };
             // LEARN (L: "learn my common typos... learn my typing style"): after a rewrite he keeps, every word that changed
             // by a small edit (1-2 letters, not a rename) becomes a learned pair; the second time it becomes an instant fix.
+            const NO_LEARN = new Set(('there their theyre your youre its then than too two were where wear affect effect loose lose now know ' +
+                'hear here whether weather which witch accept except buy bye sent cent scent see sea sight site cite write right wait weight way weigh ' +
+                'week weak whole hole hour knew new made maid mail male peace piece plain plane rain reign role roll sole soul some sum son sun steal steel ' +
+                'tail tale waist waste allowed aloud bare bear brake break die dye fair fare heal heel meat meet pair pear passed past poor pour sail sale ' +
+                'threw through vain vein vary very whose whos add aid aide ate eight board bored coarse course desert dessert due dew forth fourth hair hare ' +
+                'idle idol knight night lessen lesson main mane none nun pain pane pray prey profit prophet raise rays read red reed root route seam seem sew sow ' +
+                'stair stare suite sweet toe tow warn worn wood would been being lets lose loss then than form from thing think though thought through thorough').split(' '));
             function learnFrom(prev, out) {
                 const A = prev.split(/\s+/).filter(Boolean), B = out.split(/\s+/).filter(Boolean);
                 if (A.length !== B.length) return;
@@ -3246,6 +3253,10 @@
                     const a = acKey(A[i]), b = B[i].replace(/^[^A-Za-z']+|[^A-Za-z']+$/g, '');
                     if (!a || !b || a.length < 3 || a === b.toLowerCase() || !/^[A-Za-z']+$/.test(b)) continue;
                     if (lev(a, b.toLowerCase()) > 2) continue;
+                    // a homophone swap (there/their, your/you're, then/than) is context, not a typo - never a blanket rule; nor is a
+                    // word the model changed here but left alone elsewhere in the same message
+                    if (NO_LEARN.has(a)) continue;   // the SOURCE being a real word is the danger ("its" -> "it's" for ever); a typo landing on one ("som" -> "some") is fine
+                    if (A.some((w, j) => j !== i && acKey(w) === a && acKey(B[j]) === a)) continue;
                     const cur = ((AC().learned || {})[a]) || { n: 0 };
                     acWrite(`learned/${a}`, { to: b, n: (cur.n || 0) + 1, at: Date.now() });
                 }
@@ -3260,11 +3271,19 @@
             // message never re-sends its whole self (that is what stalled L's long test: each request grew, each answer
             // arrived after he had typed on, and every one was thrown away as stale).
             let stable = 0;
+            // flushing = Send is waiting on the last pass (the send listeners must not abort it); forceApply = apply even mid-caret;
+            // inflight = the request in the air, so Send can wait for it instead of asking twice
+            let flushing = false, forceApply = false, inflight = null, pendingAgain = false;
+            // CARET RULE (Chrome, verified 2026-09-25): setRangeText(..., 'preserve') with the caret sitting EXACTLY at the end of the
+            // replaced range does not keep the caret - it SELECTS the new text, and his next key wipes it. Every replacement that can
+            // meet the caret at its end sets the caret by hand: past the range -> shifted by the length change; else the range's end.
+            const caretAfter = (c, start, oldLen, newLen) => c >= start + oldLen ? c + (newLen - oldLen) : Math.min(c, start + newLen);
             const undoRewrite = () => { const r = lastRewrite; if (!r) return false; lastRewrite = null; clearTimeout(applyRewrite._learn);
                 // he rejected it: every word it changed goes on the never list (twice = never again)
                 const A = r.prev.split(/\s+/).filter(Boolean), B = (r.out || '').split(/\s+/).filter(Boolean);
                 if (A.length === B.length) A.forEach((w, i) => { if (acKey(w) && acKey(w) !== acKey(B[i])) neverAgain(w); });
-                if (ta.value.slice(r.at, r.at + r.out.length) === r.out) { ta.setRangeText(r.prev, r.at, r.at + r.out.length, 'preserve'); stable = r.at; }
+                if (ta.value.slice(r.at, r.at + r.out.length) === r.out) { const c = ta.selectionStart; ta.setRangeText(r.prev, r.at, r.at + r.out.length, 'preserve'); stable = r.at;
+                    const nc = caretAfter(c, r.at, r.out.length, r.prev.length); ta.setSelectionRange(nc, nc); }
                 lastSrc = ''; hideGhost(); return true; };
             // what the live enhance did, visible: a short status line, and {uid}/console/enhanceLog for Droplet to read from se
             // (2026-09-25, L: "go over the enhance, it's not doing a good job" - from a phone I cannot see; this is the evidence)
@@ -3284,41 +3303,46 @@
                 if (ta.value[pos - 1] === ' ' && ta.value[pos - 2] === ' ') { ta.setRangeText('', pos - 1, pos, 'preserve'); pos -= 1; enhLog('double space dropped'); if (!/[\s.,!?;:]/.test(ta.value[pos - 1])) return; }
                 const before = ta.value.slice(0, pos - 1);
                 const m = /([A-Za-z']+)$/.exec(before); if (!m) return;
-                const word = m[1], start = pos - 1 - word.length;
+                const word = m[1], start = pos - 1 - word.length, lead = before.slice(0, start);
+                if (/[\/.@#=:_\-\\]$/.test(lead)) return;   // mid-token (a URL, a path, an e-mail, "hub.html"): never fix a piece of one - "…/im" is not "I'm"
                 // PHRASES Droplet taught (autocorrect/phrases, e.g. "goin gabout" -> "going about"): the last two or three words
                 const ph = AC().phrases || {};
                 for (const nwords of [3, 2]) {
                     const mm = new RegExp('((?:[A-Za-z\']+\\s+){' + (nwords - 1) + '}[A-Za-z\']+)$').exec(before); if (!mm) continue;
                     const k = mm[1].toLowerCase().replace(/\s+/g, ' '), hit = ph[k.replace(/ /g, '_')];
                     if (hit && hit.to) { const s0 = pos - 1 - mm[1].length; ta.setRangeText(hit.to, s0, pos - 1, 'preserve');
-                        lastFix = { at: s0, from: mm[1], to: hit.to }; lastRewrite = null; chip('fix', `<b>✓</b>${esc(mm[1])} → ${esc(hit.to)}<span class="k">↶ tap to undo</span>`, 4000); enhLog('fix', mm[1] + ' → ' + hit.to); return; }
+                        lastFix = { at: s0, from: mm[1], to: hit.to }; chip('fix', `<b>✓</b>${esc(mm[1])} → ${esc(hit.to)}<span class="k">↶ tap to undo</span>`, 4000); enhLog('fix', mm[1] + ' → ' + hit.to); return; }
                 }
-                // a doubled word ("I want to to") - drop the second one (L, 2026-09-25: "I doubled a word, let's see if it figures it out")
-                const dbl = /([A-Za-z']+)\s+$/.exec(before.slice(0, start));
-                if (dbl && word.length >= 2 && dbl[1].toLowerCase() === word.toLowerCase() && !/^(had|that|is|do|so)$/i.test(word)) {
+                // a doubled word ("I want to to") - drop the second one (L, 2026-09-25: "I doubled a word, let's see if it figures it out");
+                // doubles English says on purpose stay, and so does a word he has undone twice
+                const dbl = /([A-Za-z']+)\s+$/.exec(lead);
+                if (dbl && word.length >= 2 && dbl[1].toLowerCase() === word.toLowerCase() && !/^(had|that|is|do|so|very|no|bye|really|much|many|ha|ok|yes|long|blah|go|there|far|well)$/i.test(word) && ((AC().never || {})[acKey(word)] || 0) < 2) {
                     ta.setRangeText('', start - 1, pos - 1, 'preserve');
-                    lastFix = { at: start - 1, from: ' ' + word, to: '' }; lastRewrite = null;
+                    lastFix = { at: start - 1, from: ' ' + word, to: '' };
                     chip('fix', `<b>✓</b>dropped the doubled “${esc(word)}”<span class="k">↶ tap to undo</span>`, 4000); enhLog('doubled word dropped', word); return;
                 }
                 let rep = fixFor(word.toLowerCase()); rep = rep && rep !== word ? caseLike(word, rep) : word;
-                // first word of the message, or the first after . ! ? or a newline, gets its capital
-                const lead = before.slice(0, start);
-                if (/^[a-z]/.test(rep) && (lead.trim() === '' || /[.!?]\s+$|\n\s*$/.test(lead))) rep = rep[0].toUpperCase() + rep.slice(1);
+                // first word of the message, or the first after . ! ? or a newline, gets its capital - but not after an abbreviation
+                // ("e.g. this", "vs. that", "approx. 3") or a numbered item ("1. first")
+                const abbr = /\b(e\.g|i\.e|etc|vs|mr|mrs|ms|dr|st|jr|sr|no|approx|min|max|ft|sq|in|inc|ave|blvd|apt|rd|misc|est|dept|fig|ref|tel|ext)\.\s+$|\d\.\s+$/i.test(lead);
+                if (/^[a-z]/.test(rep) && !abbr && (lead.trim() === '' || /[.!?]\s+$|\n\s*$/.test(lead))) rep = rep[0].toUpperCase() + rep.slice(1);
                 if (rep === word) return;
                 ta.setRangeText(rep, start, pos - 1, 'preserve');
-                lastFix = { at: start, from: word, to: rep }; lastRewrite = null;
+                lastFix = { at: start, from: word, to: rep };
                 chip('fix', `<b>✓</b>${esc(word)} → ${esc(rep)}<span class="k">↶ tap to undo</span>`, 4000);
                 enhLog('fix', word + ' → ' + rep);
             }
             ta.addEventListener('input', e => {
-                lastFix = null;
-                if (!on() || !e.inputType || !e.inputType.startsWith('insert')) return;
+                // lastFix / lastRewrite are NOT cleared here: the chip's "tap to undo" (and the 8.5 s learn) must survive him typing on -
+                // the undo itself checks the text is still there. The old `lastFix = null` on every input killed both on the next key.
+                if (!on() || !e.inputType || !e.inputType.startsWith('insert') || e.isComposing) return;   // isComposing: an Android IME is mid-word; touching the box now breaks its composition
                 const caret = ta.selectionStart; if (caret !== ta.selectionEnd) return;
                 const atEnd = caret === ta.value.length;
                 // walk every completed word inside what just arrived (a key: the last word; dictation: all of them)
                 let scan = Math.max(0, caret - ((e.data && e.data.length) ? e.data.length + 1 : 80));
                 // doubled spaces anywhere in that span first (a dictated "if  this" has its double in the middle, not at the caret)
-                const span = ta.value.slice(scan, caret); if (/ {2,}/.test(span)) { ta.setRangeText(span.replace(/ {2,}/g, ' '), scan, caret, 'preserve'); enhLog('double space dropped'); if (atEnd) ta.setSelectionRange(ta.value.length, ta.value.length); }
+                const span = ta.value.slice(scan, caret);
+                if (/ {2,}/.test(span)) { const one = span.replace(/ {2,}/g, ' '); ta.setRangeText(one, scan, caret, 'preserve'); const nc = caret - (span.length - one.length); ta.setSelectionRange(nc, nc); enhLog('double space dropped'); }
                 for (let guard = 0; guard < 16; guard++) {
                     const seg = ta.value.slice(scan, ta.selectionStart);
                     const mm = /[A-Za-z']+[\s.,!?;:]/.exec(seg); if (!mm) break;
@@ -3334,42 +3358,63 @@
                 if (s.split(/\s+/).length >= 3 && /[A-Za-z0-9)]$/.test(s) && !/https?:\/\/\S+$/.test(s)) s += '.';
                 return s; };
             // --- 2. rewrite (in the text when he has paused at the end; waits for Tab when he is editing the middle) ---
-            async function suggest(minWords) {
+            const suggest = minWords => { const p = suggestRun(minWords); if (inflight && !inflight.p) inflight.p = p; return p; };
+            async function suggestRun(minWords) {
                 const full = ta.value; if (!on() || full.startsWith('/')) return;
                 if (stable > full.length) stable = 0;
                 const at = stable, tailEnd = full.length, text = full.slice(at);
                 if (text.split(/\s+/).filter(Boolean).length < (minWords || 5)) return;
+                // ONE request in the air at a time. ollama runs requests one after another, and a request the page aborts keeps
+                // computing on the server - so firing one per pause piled them up, and Send's pass sat behind stale ones and
+                // missed its 3.5 s window (measured 2026-09-25: the same request answers in 0.9 s on an idle model). A pause
+                // that lands while one is out just asks again when it returns.
+                if (inflight && inflight.p) { pendingAgain = true; return; }
                 if (norm(text) === lastSrc) return; lastSrc = norm(text);
-                if (ctl) ctl.abort(); ctl = new AbortController(); const mine = ctl; const t0 = Date.now();
+                ctl = new AbortController(); const mine = ctl; const t0 = Date.now();
+                inflight = { src: lastSrc, p: null }; const myReq = inflight;
                 try {
                     // gemma2:9b, not the 14b chat model: 2.4 s warm / 4.7 s cold on his real sample and it fixed everything;
                     // qwen3:14b took 96 s cold. keep_alive holds it in memory between pauses (measured 2026-09-25).
                     const res = await fetch(OLLAMA, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: mine.signal,
-                        body: JSON.stringify({ model: LIVE_MODEL, stream: false, keep_alive: '30m', options: { temperature: 0 }, messages: [{ role: 'system', content: PROOF_SYS + (/qwen/i.test(LIVE_MODEL) ? ' /no_think' : '') }, { role: 'user', content: text }] }) });
+                        body: JSON.stringify({ model: LIVE_MODEL, stream: false, keep_alive: '30m', options: { temperature: 0, num_predict: Math.min(512, Math.ceil(text.length / 2) + 24) }, messages: [{ role: 'system', content: PROOF_SYS + (/qwen/i.test(LIVE_MODEL) ? ' /no_think' : '') }, { role: 'user', content: 'Proofread the message between the markers. Output only the corrected message, nothing else.\n<<<\n' + text + '\n>>>' }] }) });
+                    // num_predict: a proofread is as long as its input - a runaway answer must not hold the model. MARKERS: with the bare text as the
+                    // user turn, gemma2 read a short fragment ("Then I keep typin the secnd one…") as a cue and WROTE a new sloppy message instead
+                    // ("i think its a good idea to start with the basics tho"), and on long ones expanded "gonna" and dropped a clause. Between markers
+                    // it proofread all five test messages and kept the shorthand (tested against ollama directly, temperature 0, 2026-09-25).
                     if (!res.ok) { enhLog('model HTTP ' + res.status); return; }
                     const j = await res.json(); let out = String((j.message && j.message.content) || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
                     if (j.error) { enhLog('model error', j.error); return; }
+                    out = out.replace(/^\s*<<<\s*/, '').replace(/\s*>>>\s*$/, '').trim();   // the markers, if it echoed them
                     if (/^["“].*["”]$/.test(out)) out = out.slice(1, -1).trim();   // some models quote the answer
+                    out = out.replace(/^(sure[,!.:]?\s+|here('s| is)( the| your)?( corrected| fixed| proofread)?( message| text| version)?:?\s+)/i, '');   // a one-word preamble slips past the invented-words guard
+                    // he had not ended the sentence yet: a period the model tacked on would turn his next words into a new sentence
+                    // (and hand them a capital). Send's own tidy adds the final period when the message really is done.
+                    if (!/[.!?…:;,]\s*$/.test(text) && /\.$/.test(out.trim())) out = out.trim().replace(/\.+$/, '');
                     out = (text.match(/^\s*/) || [''])[0] + out.trim() + (text.match(/\s*$/) || [''])[0];   // keep the segment's own spacing: a rewritten sentence must not swallow the space before the next one
                     // still good if the box STARTS with what we sent - he may have typed on past it, that is fine
                     if (mine !== ctl || ta.value.slice(0, tailEnd) !== full) { enhLog('rewrite stale', (Date.now() - t0) + ' ms'); return; }
-                    if (!out || norm(out) === norm(text) || out.length > text.length * 1.6) { if (ghost.dataset.kind === 'rewrite' || ghost.dataset.kind === 'ready') hideGhost(); stable = tailEnd; enhLog(out && norm(out) !== norm(text) ? 'rewrite too long, kept yours' : 'no change', (Date.now() - t0) + ' ms'); return; }
+                    const tooLong = out.length > text.length * 1.6, tooShort = text.length > 40 && out.length < text.length * 0.6;   // a proofread neither pads nor drops half the message
+                    if (!out || norm(out) === norm(text) || tooLong || tooShort) { if (ghost.dataset.kind === 'rewrite' || ghost.dataset.kind === 'ready') hideGhost(); stable = tailEnd; enhLog(out && norm(out) !== norm(text) ? (tooLong ? 'rewrite too long, kept yours' : 'rewrite too short, kept yours') : 'no change', (Date.now() - t0) + ' ms'); return; }
                     // a proofread never ADDS content: a word in the answer that is not in the message, and is not a typo fix
                     // of one (edit distance <= 2), is the model inventing - the prompt's shorthand examples leaked into L's text
                     // once ("S3 N1 dterm se kh comp fav"). More than one such word = throw the answer away.
                     const inW = (text.toLowerCase().match(/[a-z']+/g) || []); const inSet = new Set(inW);
                     const invented = (out.toLowerCase().match(/[a-z']+/g) || []).filter(w => w.length > 1 && !inSet.has(w) && !inW.some(x => Math.abs(x.length - w.length) <= 2 && lev(x, w) <= 2));
-                    if (invented.length > 1) { stable = tailEnd; enhLog('rewrite discarded (invented words)', invented.join(' ')); return; }
+                    const outWords = (out.toLowerCase().match(/[a-z']+/g) || []).length;
+                    if (invented.length > 1 || (invented.length && invented.length > outWords * 0.2)) { stable = tailEnd; enhLog('rewrite discarded (invented words)', invented.join(' ')); return; }   // >1 new word, or 1 in a very short answer = not a proofread
                     const editingInside = ta.selectionStart < tailEnd && ta.selectionStart > at;   // his caret is inside the segment: don't move it under him
-                    if (!editingInside) { applyRewrite(out, text, at, tailEnd); enhLog('rewritten', (Date.now() - t0) + ' ms · ' + text.split(/\s+/).length + ' words'); }
+                    if (!editingInside || forceApply) { applyRewrite(out, text, at, tailEnd); enhLog('rewritten', (Date.now() - t0) + ' ms · ' + text.split(/\s+/).length + ' words'); }   // forceApply = Send is waiting: it goes in wherever his caret is
                     else { ghost._sugg = { out, prev: text, at, end: tailEnd }; chip('ready', `<b>✨</b>rewrite ready<span class="k">⇥ Tab</span>`, 0); enhLog('rewrite ready (Tab)'); }
                 } catch (err) { if (!(err && err.name === 'AbortError')) enhLog('model unreachable', (err && err.message) || err); }
+                finally { if (inflight === myReq) inflight = null;   // by identity - lastSrc has moved on by now when the rewrite landed
+                    if (pendingAgain) { pendingAgain = false; if (!flushing && on() && ta.value) setTimeout(() => suggest(5), 50); } }   // the pause that landed while this one was out
             }
             // replaces just the segment [at, end); anything he typed after it stays, and the caret keeps its place
             function applyRewrite(out, prev, at, end) {
                 if (ta.value.slice(at, end) !== prev) return;
-                const tailTyped = ta.value.length > end;
-                ta.setRangeText(out, at, end, tailTyped ? 'preserve' : 'end');
+                const c = ta.selectionStart;
+                ta.setRangeText(out, at, end, 'end');
+                if (c > end || c < at) { const nc = caretAfter(c, at, prev.length, out.length); ta.setSelectionRange(nc, nc); }   // he typed on past it (or sits before it): keep his place
                 stable = at + out.length; lastSrc = ''; lastRewrite = { prev, out, at }; lastFix = null;
                 chip('rewrite', `<b>✨</b>rewritten<span class="k">↶ tap to undo</span>`, 8000);
                 clearTimeout(applyRewrite._learn); applyRewrite._learn = setTimeout(() => { if (lastRewrite && lastRewrite.out === out) learnFrom(prev, out); }, 8500);   // kept for 8.5 s = he agreed
@@ -3377,8 +3422,10 @@
             ghost.onclick = () => {
                 if (ghost.dataset.kind === 'ready' && ghost._sugg) { const s = ghost._sugg; applyRewrite(s.out, s.prev, s.at, s.end); ta.focus(); return; }
                 if (ghost.dataset.kind === 'rewrite') { undoRewrite(); ta.focus(); return; }
-                if (ghost.dataset.kind === 'fix' && lastFix) { const f = lastFix; lastFix = null; neverAgain(f.from);   // undone on purpose: remember that
-                    if (ta.value.slice(f.at, f.at + f.to.length) === f.to) ta.setRangeText(f.from, f.at, f.at + f.to.length, 'preserve'); hideGhost(); ta.focus(); }
+                if (ghost.dataset.kind === 'fix') { const f = lastFix; lastFix = null; hideGhost(); ta.focus(); if (!f) return;
+                    const end = f.at + f.to.length; if (ta.value.slice(f.at, end) !== f.to) return;   // he already changed that spot himself
+                    neverAgain(f.from);   // undone on purpose: remember that (twice = never touched again)
+                    const c = ta.selectionStart; ta.setRangeText(f.from, f.at, end, 'preserve'); const nc = caretAfter(c, f.at, f.to.length, f.from.length); ta.setSelectionRange(nc, nc); }
             };
             // warm the rewrite model on the first keystroke of a message (once per 10 min): a cold gemma2 is 5 s, warm 2 s,
             // and the Send hold is 3.5 s - L's next message went out half-fixed because the model had gone cold
@@ -3413,15 +3460,25 @@
                 // some of the rewrites"). Undo lives on the chip only - tap it. His deleting a character must never revert a fix.
                 if (e.key === 'Tab' && !e.shiftKey && ghost.dataset.kind === 'ready' && !ghost.hidden && ghost._sugg) { e.preventDefault(); const s = ghost._sugg; applyRewrite(s.out, s.prev, s.at, s.end); return; }
                 if (e.key === 'Escape' && !ghost.hidden) hideGhost();
-                if (e.key === 'Enter' && !e.shiftKey) { clearTimeout(timer); if (ctl) ctl.abort(); hideGhost(); lastRewrite = null; stable = 0; lastSrc = ''; }   // sending: nothing lands under an empty box
+                if (e.key === 'Enter' && !e.shiftKey && !flushing) { clearTimeout(timer); if (ctl) ctl.abort(); hideGhost(); lastRewrite = null; stable = 0; lastSrc = ''; }   // a send with no flush (enhance off for it): nothing lands under an empty box
             });
-            $('#dc-chat-send') && $('#dc-chat-send').addEventListener('click', () => { clearTimeout(timer); if (ctl) ctl.abort(); hideGhost(); lastRewrite = null; stable = 0; lastSrc = ''; });
+            // ORDER MATTERS: sendChat (the onclick / the keydown registered first) runs FIRST and starts the flush; these two listeners ran
+            // second and ABORTED the very request the flush was waiting on - so the last sentence never got its pass at Send. (Review 2026-09-25.)
+            $('#dc-chat-send') && $('#dc-chat-send').addEventListener('click', () => { if (flushing) return; clearTimeout(timer); if (ctl) ctl.abort(); hideGhost(); lastRewrite = null; stable = 0; lastSrc = ''; });
             window.__dcLiveFix = w => fixFor(String(w || '').toLowerCase()) || null;   // test hooks
-            window.__dcLiveState = () => ({ stable, lastSrc, hasRewrite: !!lastRewrite });
-            // Send calls this: give the unrewritten tail its pass now (3+ words), but never wait longer than `ms`
-            window.__dcLiveFlush = ms => { if (!on()) return Promise.resolve(); clearTimeout(timer); lastSrc = '';
-                let done = false; const p = suggest(3).then(() => { done = true; });
-                return Promise.race([p, new Promise(r => setTimeout(() => { if (!done) enhLog('send: gave up waiting for the rewrite', ms + ' ms'); r(); }, ms || 3000))]); };
+            window.__dcLiveState = () => ({ stable, lastSrc, hasRewrite: !!lastRewrite, flushing, inflight: !!inflight });
+            // Send calls this: give the unrewritten tail its pass now (3+ words), but never wait longer than `ms`. A request already in
+            // the air for exactly this tail (the ". " trigger fired a second ago) is waited for, not aborted and asked again.
+            window.__dcLiveFlush = ms => { if (!on()) return Promise.resolve(); clearTimeout(timer); flushing = true; forceApply = true;
+                const tail = norm(ta.value.slice(stable));
+                // a request out for exactly this tail: wait for it. One out for an older piece: let it land (the server is on it
+                // anyway; it advances `stable`), then ask for what is left. Nothing out: ask now.
+                const p0 = (inflight && inflight.p) ? (inflight.src === tail ? inflight.p : inflight.p.then(() => { lastSrc = ''; return suggest(3); })) : (lastSrc = '', suggest(3));
+                let done = false; const p = p0.then(() => { done = true; });
+                return Promise.race([p, new Promise(r => setTimeout(() => { if (!done) enhLog('send: gave up waiting for the rewrite', ms + ' ms'); r(); }, ms || 3000))])
+                    .finally(() => { flushing = false; forceApply = false; if (!done && ctl) ctl.abort();
+                        if (lastRewrite) { clearTimeout(applyRewrite._learn); learnFrom(lastRewrite.prev, lastRewrite.out); }   // sent = kept
+                        hideGhost(); lastRewrite = null; lastFix = null; stable = 0; lastSrc = ''; inflight = null; }); };
         })();
         // remember the chat controls per device (enhance toggle, ping, target) - restored before the first render
         const PERSIST = { 'dc-chat-enhance': 'dc_enh_on', 'dc-chat-ping': 'dc_ping_on', 'dc-chat-target': 'dc_target' };
