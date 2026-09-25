@@ -738,7 +738,7 @@
         .dc-btn.ghost { background: transparent; color: var(--muted); border-color: var(--border); font-weight: 500; }
         .dc-btn.push { background: var(--dc-green); border-color: var(--dc-green); color: var(--dc-on-green); }
         .dc-chk { font-size: calc(0.78rem * var(--dc-fs, 1)); color: var(--muted); display: inline-flex; gap: 5px; align-items: center; cursor: pointer; }
-        .dc-status { font-family: monospace; font-size: calc(0.72rem * var(--dc-fs, 1)); color: var(--muted); min-height: 15px; margin-bottom: 8px; }
+        .dc-status { font-family: monospace; font-size: calc(0.72rem * var(--dc-fs, 1)); color: var(--muted); margin-bottom: 8px; }
         .dc-status.dc-guest-note { color: var(--dc-amber); min-height: 0; margin: 2px 2px 6px; line-height: 1.35; }
         .dc-status.dc-guest-note[hidden] { display: none; }
         /* dterm: fills the console body edge to edge (was 72vh capped at 640px) */
@@ -930,7 +930,7 @@
         .dc-bub.me { align-self: flex-end; background: var(--dc-me-bg); color: var(--dc-me-fg); border-bottom-right-radius: 4px; font-family: var(--font-mono); font-size: calc(0.84rem * var(--dc-fs, 1)); }
         .dc-bub.drop { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); color: var(--text); border-bottom-left-radius: 4px; }
         .dc-bub.drop.pending { opacity: 0.7; font-style: italic; }
-        .dc-bub .ts { font-size: calc(0.56rem * var(--dc-fs, 1)); opacity: 0.45; margin-top: 4px; }
+        .dc-bub .ts { font-size: calc(0.64rem * var(--dc-fs, 1)); opacity: 0.72; margin-top: 4px; }   /* readable on a phone (L, 2026-09-24: "I need a timestamp on the messages") */
         /* "what did enhance turn it into?" - collapsible under your bubble when enhance changed the text */
         .dc-bub details.enh { margin-top: 6px; font-size: calc(0.74rem * var(--dc-fs, 1)); }
         .dc-bub details.enh summary { cursor: pointer; opacity: .75; list-style: none; }
@@ -1209,10 +1209,22 @@
         }
         // newest-first (default on): input sits under the strips, the log runs newest -> oldest. Persisted per device.
         function newestFirst() { let v = null; try { v = localStorage.getItem('dc_newest_first'); } catch (_) {} return v === null ? true : v === '1'; }
+        // TIMESTAMPS (2026-09-24, L): the stamp used to be time-only, so an older message read as if it were
+        // from today. Today = "9:14 PM", yesterday = "Yesterday 9:14 PM", else "Sep 23, 9:14 PM" (+ year if not this year).
+        function fmtStamp(ts) {
+            const d = new Date(ts), now = new Date();
+            const tm = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+            const day = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+            const diff = Math.round((day(now) - day(d)) / 86400000);
+            if (diff === 0) return tm;
+            if (diff === 1) return 'Yesterday ' + tm;
+            const opts = { month: 'short', day: 'numeric' }; if (d.getFullYear() !== now.getFullYear()) opts.year = 'numeric';
+            return d.toLocaleDateString([], opts) + ', ' + tm;
+        }
         function bubbleHtml(t, clean) {
             const me = t.s === 'L';
             const who = me ? 'You' : (t.who || 'Droplet');
-            const time = t.ts ? new Date(t.ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+            const time = t.ts ? fmtStamp(t.ts) : '';
             const pend = (!me && t.pending) ? ' pending' : '';
             const body = (!me && clean && !t.pending) ? cleanReply(t.text || '') : (t.text || '');
             // camera frames: the turn holds an id, the images are fetched once and cached
