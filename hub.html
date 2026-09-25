@@ -504,6 +504,12 @@
                     <h3>Claude Usage <span id="usage-age" style="float:right;font-size:0.65rem;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0"></span></h3>
                     <div id="usage-body"><span style="color:var(--muted);font-style:italic">Loading...</span></div>
                 </div>
+                <!-- INTERNET DATA (2026-09-24, L: "Build it"): wan-meter reads the EdgeSwitch's router port over SNMP
+                     and publishes console/data every 2 min. Two stat tiles, a 7-day grouped bar, a per-device table. -->
+                <div class="hcard" id="data-card">
+                    <h3>Internet Data <span id="data-age" style="float:right;font-size:0.65rem;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0"></span></h3>
+                    <div id="data-body"><span style="color:var(--muted);font-style:italic">Loading...</span></div>
+                </div>
             </section>
 
             <section class="hub-section">
@@ -880,6 +886,22 @@
         .dc-bub .dc-choices { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
         .dc-bub .dc-choice { border: 1px solid var(--dc-green); color: var(--dc-green); background: color-mix(in srgb, var(--dc-green) 12%, transparent); border-radius: var(--dc-r-md); padding: 8px 14px; min-height: 36px; cursor: pointer; font-family: inherit; font-size: calc(0.88rem * var(--dc-fs, 1)); font-weight: 600; text-align: left; }
         .dc-bub .dc-choice:disabled { opacity: 0.45; cursor: default; }
+        /* INTERNET DATA card (2026-09-24). Series colors validated with the dataviz checks per theme:
+           dark on #111c2a = #2a78d6 / #d9531f (all pass), light on #d8dde4 = #1f5fb0 / #c9541f (all pass). */
+        :root { --dv-down: #2a78d6; --dv-up: #d9531f; }
+        html.light { --dv-down: #1f5fb0; --dv-up: #c9541f; }
+        .dv-week { display: flex; gap: 8px; align-items: flex-end; height: 76px; padding: 0 2px; }
+        .dv-day { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; cursor: default; }
+        .dv-bars { display: flex; gap: 2px; align-items: flex-end; height: 56px; }          /* 2px surface gap between the two marks */
+        .dv-bar { width: 10px; max-width: 24px; border-radius: 4px 4px 0 0; }                /* thin, rounded data-end, square at the baseline */
+        .dv-down { background: var(--dv-down); }
+        .dv-up { background: var(--dv-up); }
+        .dv-lbl { font-size: 0.62rem; color: var(--muted); margin-top: 4px; }
+        .dv-legend { display: flex; gap: 14px; align-items: center; font-size: 0.7rem; color: var(--muted); margin: 6px 0 8px; }
+        .dv-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+        .dv-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+        .dv-table th { text-align: left; font-weight: 500; color: var(--muted); font-size: 0.66rem; text-transform: uppercase; letter-spacing: 1px; padding: 2px 0; }
+        .dv-table td { padding: 3px 0; border-top: 1px solid var(--border); color: var(--text); }
         .dc-chat-input.editing textarea { border-color: var(--dc-amber); }
         .dc-chat-input.editing .dc-btn.push { background: var(--dc-amber); }
         /* THINKING (2026-09-19, L: "make the click button a different color or pulsate when thinking is happening"): purple + a slow
@@ -1117,6 +1139,7 @@
             onValue(ref(database, `${DC.base}/pings/settings`), s => { $('#dc-pg-enabled').checked = (s.val() || {}).enabled !== false; });
             onValue(ref(database, `${DC.base}/fleet`), s => renderFleet(s.val() || {}));
             onValue(ref(database, `${DC.base}/usage`), s => renderUsage(s.val() || {}));
+            onValue(ref(database, `${DC.base}/data`), s => renderData(s.val() || null));   // wan-meter, ~1 KB every 2 min
             onValue(ref(database, `${DC.base}/settings/autoArchiveChars`), s => { DC.autoArchiveChars = Number(s.val() || 0); const b = $('#dc-auto-arch'); if (b && document.activeElement !== b) b.value = Math.round(DC.autoArchiveChars / 1000); updateThreadSize(DC.chatTurns || {}); });
             onValue(query(ref(database, `${DC.base}/chat/turns`), limitToLast(120)), s => renderChat(s.val() || {}));
             onValue(ref(database, `${DC.base}/chat/topics`), s => { DC.topicList = s.val() || {}; renderTopics(); });
@@ -2439,6 +2462,31 @@
             return n >= 1e9 ? (n / 1e9).toFixed(2) + 'B' : n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(n);
         }
         function agoStr(ms){ if(!ms) return ''; let s=Math.max(0,Math.round((Date.now()-ms)/1000)); if(s<60) return s+'s ago'; let m=Math.round(s/60); if(m<60) return m+'m ago'; let h=Math.round(m/60); if(h<24) return h+'h ago'; return Math.round(h/24)+'d ago'; }
+        // INTERNET DATA card (2026-09-24). Data = wan-meter's summary of the switch port that faces the
+        // Cradlepoint: IN on that port is the house's downloads, OUT its uploads. Colors live on the marks
+        // only (--dv-down / --dv-up, validated per theme); text stays in text tokens. The device table is the
+        // table view for the bars; each bar carries its own tooltip.
+        function renderData(d) {
+            const box = $('#data-body'), age = $('#data-age'); if (!box) return;
+            if (!d || !d.days) { box.innerHTML = '<span style="color:var(--muted);font-size:0.82rem">No data yet - the meter publishes every 2 minutes.</span>'; return; }
+            const gb = v => ((v = Number(v) || 0) >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2)) + ' GB';
+            const r = d.rate || {};
+            const tile = (label, val, sub, col) => `<div style="flex:1;min-width:130px"><div style="font-size:0.64rem;color:var(--muted);text-transform:uppercase;letter-spacing:1px">${label}</div><div style="font-size:1.55rem;font-weight:700;line-height:1.15;color:var(--text)"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${col};margin-right:6px;vertical-align:middle"></span>${val}</div><div style="font-size:0.72rem;color:var(--muted)">${sub || '&nbsp;'}</div></div>`;
+            const max = Math.max(0.01, ...d.days.map(x => Math.max(Number(x.inGB) || 0, Number(x.outGB) || 0)));
+            const dow = md => { const [m, dd] = String(md).split('-').map(Number); const dt = new Date(new Date().getFullYear(), m - 1, dd); return isNaN(dt) ? md : dt.toLocaleDateString([], { weekday: 'short' }); };
+            const bars = d.days.map(x => {
+                const hi = Math.max(2, Math.round(56 * (Number(x.inGB) || 0) / max)), ho = Math.max(2, Math.round(56 * (Number(x.outGB) || 0) / max));
+                return `<div class="dv-day" title="${esc(x.d)}: down ${gb(x.inGB)}, up ${gb(x.outGB)}"><div class="dv-bars"><div class="dv-bar dv-down" style="height:${hi}px"></div><div class="dv-bar dv-up" style="height:${ho}px"></div></div><div class="dv-lbl">${dow(x.d)}</div></div>`;
+            }).join('');
+            const devs = (d.devices || []).filter(x => String(x.port) !== String(d.wanPort) && (Number(x.inGB) + Number(x.outGB)) > 0).slice(0, 6)
+                .map(x => `<tr><td>${esc(x.name)}</td><td style="text-align:right">${gb(x.inGB)}</td><td style="text-align:right">${gb(x.outGB)}</td></tr>`).join('');
+            box.innerHTML = `<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px">${tile('Down today', gb(d.todayInGB), r.downMbps != null ? 'now ' + Number(r.downMbps).toFixed(2) + ' Mb/s' : '', 'var(--dv-down)')}${tile('Up today', gb(d.todayOutGB), r.upMbps != null ? 'now ' + Number(r.upMbps).toFixed(2) + ' Mb/s' : '', 'var(--dv-up)')}</div>
+                <div class="dv-week">${bars}</div>
+                <div class="dv-legend"><span><i style="background:var(--dv-down)"></i>down</span><span><i style="background:var(--dv-up)"></i>up</span><span style="margin-left:auto">${new Date().toLocaleDateString([], { month: 'short' })}: ${gb(d.monthInGB)} down, ${gb(d.monthOutGB)} up</span></div>
+                ${devs ? `<table class="dv-table"><thead><tr><th>device, today</th><th style="text-align:right">sent</th><th style="text-align:right">received</th></tr></thead><tbody>${devs}</tbody></table>` : ''}
+                <div style="font-size:0.66rem;color:var(--muted);margin-top:4px">${esc(d.wanName || 'the router port')} on the switch = the house's internet · alert at ${Number(d.alertGB) || 150} GB/day</div>`;
+            if (age) { const m = Math.round((Date.now() - (Number(d.at) || 0)) / 60000); age.textContent = m < 1 ? 'live' : m < 60 ? m + ' min ago' : Math.round(m / 60) + ' h ago'; }
+        }
         function renderUsage(u) {
             // usage fill on the chat input: today's output vs the 30-day peak day, 0-100%
             const inp = $('#dc-chat-in');
