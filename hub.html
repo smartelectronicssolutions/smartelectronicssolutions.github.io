@@ -2072,26 +2072,37 @@
                 return out;
             };
             let i = 0, cur = null;
+            // put = what the caret (or Tab) last dropped into the box, and its index in the cycle list. While the box still
+            // holds exactly that text, another tap swaps in the NEXT item and one Backspace clears it whole (L, 2026-09-25:
+            // "if I keep clicking it have it cycle through the recent ideas; if I backspace after doing one of those, have it
+            // clear as it entered it all at once"). The moment he edits it, it is his text again and both stop.
+            let put = null;
             const ps = document.querySelector('.dc-chat-input .ps');
+            // the cycle: the placeholder's prompt first (when there is one), then the \ud83d\udca1 recent ideas in their strip order
+            const cycle = () => { const ideas = [...document.querySelectorAll('#dc-ideas .dc-idea')].map(c => c.dataset.t).filter(Boolean);
+                return [...(cur && cur.put ? [cur.put] : []), ...ideas.filter(t => !cur || t !== cur.put)]; };
+            const untouched = () => !!(put && ta.value === put.text);
             const paint = () => {
                 ta.placeholder = cur ? (cur.show + (cur.put && document.activeElement === ta ? '   \u21e5 Tab to use' : '')) : BASE;
                 if (!ps) return;
-                // the caret is the accept button now (L). Armed only when there is a real prompt waiting
-                // and the box is empty - a status line has nothing to send, and his own half-typed message
-                // must never be replaceable by a tap next to it.
-                const on = !!(cur && cur.put && !ta.value);
+                // the caret is the accept button now (L). Armed when a real prompt waits and the box is empty, or when the box
+                // holds an untouched insert and there is a next one to cycle to. His own half-typed message is never replaceable.
+                const list = cycle();
+                const on = !!((cur && cur.put && !ta.value) || (untouched() && list.length > 1));
                 ps.classList.toggle('armed', on);
-                ps.title = on ? 'tap to use: ' + cur.put : 'tap to put the cursor here';
+                ps.title = !on ? 'tap to put the cursor here' : untouched() ? 'tap again: next idea \u00b7 Backspace clears it' : 'tap to use: ' + cur.put;
             };
             // returns true when it accepted something, so the caret's old focus job still runs otherwise
             DC.acceptSugg = () => {
-                if (!cur || !cur.put || ta.value) return false;
-                ta.value = cur.put; ta.focus();
+                const list = cycle(); if (!list.length) return false;
+                if (ta.value && !untouched()) return false;                       // his own words: leave them alone
+                const n = untouched() ? (put.i + 1) % list.length : 0;
+                ta.value = list[n]; put = { text: list[n], i: n }; ta.focus();
                 ta.setSelectionRange(ta.value.length, ta.value.length);
                 paint();
                 return true;
             };
-            ta.addEventListener('input', paint);   // the chip goes the moment he writes his own
+            ta.addEventListener('input', () => { if (put && ta.value !== put.text) put = null; paint(); });   // the chip goes the moment he writes his own
             const tick = () => {
                 if (ta.value) return;                                   // he is writing - leave it alone
                 if (document.activeElement === ta) { paint(); return; } // FROZEN while focused, so Tab is predictable
@@ -2100,9 +2111,11 @@
             ta.addEventListener('focus', paint);                        // keep the suggestion so it can be accepted
             ta.addEventListener('blur', () => setTimeout(tick, 400));
             ta.addEventListener('keydown', e => {
+                // one Backspace on an untouched insert = the whole thing goes, the way it came
+                if (e.key === 'Backspace' && untouched()) { e.preventDefault(); ta.value = ''; put = null; paint(); ta.dispatchEvent(new Event('input', { bubbles: true })); return; }
                 if (e.key !== 'Tab' || e.shiftKey || ta.value || !cur || !cur.put) return;   // otherwise Tab is still Tab
                 e.preventDefault();
-                ta.value = cur.put;
+                ta.value = cur.put; put = { text: cur.put, i: 0 };
                 ta.setSelectionRange(ta.value.length, ta.value.length);
                 ta.placeholder = BASE;
             });
