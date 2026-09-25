@@ -858,8 +858,9 @@
             .dc-bar select.dc-brand { max-width: 7.5em; font-size: calc(0.88rem * var(--dc-fs, 1)); }      /* phone: short labels (set by JS) */
             .dc-bar .dc-tab { padding: 5px 8px; font-size: calc(0.78rem * var(--dc-fs, 1)); }
             .dc-bar #dc-daemon { display: none; }        /* droplet pill is the one that matters */
-            .dc-bar #dc-droplet { font-size: 0; padding: 5px; gap: 0; }   /* just the status dot */
+            .dc-bar #dc-droplet { font-size: 0; padding: 5px; gap: 0; }   /* just the status dot while up */
             .dc-bar #dc-droplet .d { margin: 0; }
+            .dc-bar #dc-droplet.clk { font-size: calc(0.68rem * var(--dc-fs, 1)); padding: 3px 9px; gap: 6px; }   /* not up: the pill is the wake button, so it says so */
             .dc-topic-close { display: inline-block; }   /* phone: the dropped-down strip carries a console close */
             .dc-pop { left: auto; right: -60px; min-width: 220px; }
             .dc-body { padding: 6px 8px 6px; }
@@ -1048,7 +1049,7 @@
                     <label class="dc-chk" title="auto-archive the thread (summary to memory) once it passes this many thousand characters; 0 = never">auto-archive at <input type="number" id="dc-auto-arch" min="0" max="500" step="5">k</label>
                     <span class="dc-size" id="dc-thread-size" title="size of the live thread"></span>
                     <button class="dc-btn ghost sm" id="dc-chat-clear" title="Archive this thread to Droplet's memory (with an ollama summary) and start fresh">📎 New thread</button>
-                    <button class="dc-btn ghost sm" id="dc-wake" title="relaunch Droplet's terminal session on se (use when replies say claude has exited)">▲ wake Droplet</button>
+                    <!-- the "wake Droplet" button left the menu 2026-09-25 (L): the droplet pill in the bar IS the wake control whenever it is not up -->
                 </div>
             </span>
             <span id="dc-pins"></span>   <!-- gear rows dragged up here live here (wirePins) -->
@@ -2435,7 +2436,6 @@
             }
             const onLocal = !!DC.guest && tsel.value === 'local';
             const note = $('#dc-guest-note'); if (note) { note.hidden = !onLocal; note.textContent = onLocal ? GUEST_LOCAL_NOTE : ''; }
-            const wk = $('#dc-wake'); if (wk && DC.guest && !DC.daemonOn) wk.style.display = 'none';   // nothing of theirs to wake
             // The mark follows the selected target. Toggled INLINE, not via relabelTargets():
             // syncTarget() runs during module evaluation, before `const TARGET_NAMES` is
             // initialised, so reaching it here threw a TDZ ReferenceError that killed the rest
@@ -2791,7 +2791,7 @@
             const drp = $('#dc-droplet');
             drp.className = 'dc-pill ' + (st === 'up' ? 'on' : (st === 'starting' || st === 'waking') ? 'busy clk' : 'off clk');
             drp.lastChild.textContent = ({ up: 'up', starting: 'starting…', waking: 'waking…',
-                dead: 'dead · tap to wake', down: 'down · tap to wake' })[st] || st;
+                dead: '▲ wake Droplet', down: '▲ wake Droplet' })[st] || st;   // the pill IS the wake button when not up (L, 2026-09-25)
             drp.title = st === 'up' ? "Droplet's terminal session on se is live"
                 : (st === 'starting' || st === 'waking') ? 'session launching - claude not drawn yet (tap to re-wake if it sticks)'
                 : 'tap to relaunch the Droplet session on se';
@@ -2814,8 +2814,7 @@
                     + (DC.kdaemon ? ' · ollama ' + (DC.ollamaUp ? 'detected' : 'not detected') : '');
                 ad.title = full || 'no version reported';
             }
-            if (DC.kdaemon) { drp.className = 'dc-pill ' + (dOn ? 'on' : 'off'); drp.lastChild.textContent = 'per msg'; $('#dc-wake').style.display = 'none'; }
-            else $('#dc-wake').style.display = 'inline-flex';  // always available (dropletUp can be true with a dead claude inside). 2026-09-19: this else had drifted onto the loOpt line below and only ran when that option was missing
+            if (DC.kdaemon) { drp.className = 'dc-pill ' + (dOn ? 'on' : 'off'); drp.lastChild.textContent = 'per msg'; }
             // a kdaemon runs only its owner's Droplet: the CompMan target is L's fleet, so hide it there (a kdaemon would route it to Droplet anyway)
             const cmOpt = document.querySelector('#dc-chat-target option[value="compman"]'); if (cmOpt) { cmOpt.hidden = !!DC.kdaemon; if (DC.kdaemon && $('#dc-chat-target').value === 'compman') $('#dc-chat-target').value = 'droplet'; }
             // 🦙 Local used to be hidden for every kdaemon user. 2026-09-19 (L: anyone in the Louverse can participate): it stays offered -
@@ -3052,20 +3051,18 @@
         async function dcWake() {
             if (!DC.base || DC.kdaemon || DC.waking || (DC.guest && !DC.daemonOn)) return;   // a guest with no daemon has nothing to wake - the job would sit forever
             DC.waking = true;
-            const b = $('#dc-wake'); b.textContent = 'waking…'; b.disabled = true;
             const drp = $('#dc-droplet'); drp.className = 'dc-pill busy clk'; drp.lastChild.textContent = 'waking…';
             const j = push(ref(database, `${DC.base}/jobs`));
             await set(j, { kind: 'wake', status: 'queued', createdAt: Date.now(), ping: false });
             const stop = onValue(j, s => {
                 const v = s.val();
                 if (!v || (v.status !== 'done' && v.status !== 'error')) return;
-                stop(); DC.waking = false; b.textContent = '▲ wake Droplet'; b.disabled = false;
+                stop(); DC.waking = false; if (DC.lastMeta) renderMeta(DC.lastMeta);   // the pill repaints from the daemon's state (up, or wake again)
                 const msg = v.reply || v.error || '';
                 const cs = $('#dc-chat-status'); if (cs && msg) { cs.textContent = msg; setTimeout(() => { if (cs.textContent === msg) cs.textContent = ''; }, 8000); }
             });
         }
-        $('#dc-wake').onclick = dcWake;
-        $('#dc-droplet').onclick = () => { if (DC.dropletState && DC.dropletState !== 'up') dcWake(); };
+        $('#dc-droplet').onclick = () => { if (DC.dropletState && DC.dropletState !== 'up') dcWake(); };   // the pill is the wake button (L, 2026-09-25)
         // Workbench tab retired 2026-09-11 — its enhance lives inline in the Chat now (computeEnhance).
         $('#dc-pg-enabled').onchange = e => set(ref(database, `${DC.base}/pings/settings`), { channel: 'telegram_dm', enabled: e.target.checked });
         document.querySelectorAll('.dc-tab').forEach(t => t.onclick = () => {
