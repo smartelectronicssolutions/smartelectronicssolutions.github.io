@@ -2667,7 +2667,10 @@
             if (!raw || !DC.base) return;
             const target = ($('#dc-chat-target') && $('#dc-chat-target').value) || 'droplet';
             const enhOn = !!($('#dc-chat-enhance') && $('#dc-chat-enhance').checked) && target !== 'command' && !raw.startsWith('/');   // a slash command is for the TUI - enhancing it into prose would destroy it
-            if (enhOn && window.__dcTidy) { raw = window.__dcTidy(raw); ta.value = raw; }   // last local pass: spaces, first capital, a final period (2026-09-25)
+            // the last sentence rarely gets its rewrite before Send (L's test: "rtyping", "to to" went out raw) - hold the
+            // send up to 3.5 s for the tail's pass, then the local tidy: spaces, first capital, a final period (2026-09-25)
+            if (enhOn && window.__dcLiveFlush) { const st = $('#dc-chat-status'); if (st) st.textContent = '✨ finishing…'; try { await window.__dcLiveFlush(3500); } catch (_) {} raw = ta.value.trim(); if (st && st.textContent === '✨ finishing…') st.textContent = ''; if (!raw) return; }
+            if (enhOn && window.__dcTidy) { raw = window.__dcTidy(raw); ta.value = raw; }
             const wantPing = !!($('#dc-chat-ping') && $('#dc-chat-ping').checked);
             const who = CHAT_WHO[target] || 'Droplet';
             // ⌘ Command (2026-09-16, pick D): every run needs a live YubiKey code; the daemon verifies it, one use per code
@@ -3262,6 +3265,13 @@
                 const before = ta.value.slice(0, pos - 1);
                 const m = /([A-Za-z']+)$/.exec(before); if (!m) return;
                 const word = m[1], start = pos - 1 - word.length;
+                // a doubled word ("I want to to") - drop the second one (L, 2026-09-25: "I doubled a word, let's see if it figures it out")
+                const dbl = /([A-Za-z']+)\s+$/.exec(before.slice(0, start));
+                if (dbl && word.length >= 2 && dbl[1].toLowerCase() === word.toLowerCase() && !/^(had|that|is|do|so)$/i.test(word)) {
+                    ta.setRangeText('', start - 1, pos - 1, 'end'); ta.setSelectionRange(start, start);
+                    lastFix = { at: start - 1, from: ' ' + word, to: '' }; lastRewrite = null;
+                    chip('fix', `<b>✓</b>dropped the doubled “${esc(word)}”<span class="k">↶ tap to undo</span>`, 4000); return;
+                }
                 let rep = fixFor(word.toLowerCase()); rep = rep && rep !== word ? caseLike(word, rep) : word;
                 // first word of the message, or the first after . ! ? or a newline, gets its capital
                 const lead = before.slice(0, start);
@@ -3345,6 +3355,9 @@
             $('#dc-chat-send') && $('#dc-chat-send').addEventListener('click', () => { clearTimeout(timer); if (ctl) ctl.abort(); hideGhost(); lastRewrite = null; stable = 0; lastSrc = ''; });
             window.__dcLiveFix = w => fixFor(String(w || '').toLowerCase()) || null;   // test hooks
             window.__dcLiveState = () => ({ stable, lastSrc, hasRewrite: !!lastRewrite });
+            // Send calls this: give the unrewritten tail its pass now (3+ words), but never wait longer than `ms`
+            window.__dcLiveFlush = ms => { if (!on()) return Promise.resolve(); clearTimeout(timer); lastSrc = '';
+                return Promise.race([suggest(3), new Promise(r => setTimeout(r, ms || 3000))]); };
         })();
         // remember the chat controls per device (enhance toggle, ping, target) - restored before the first render
         const PERSIST = { 'dc-chat-enhance': 'dc_enh_on', 'dc-chat-ping': 'dc_ping_on', 'dc-chat-target': 'dc_target' };
