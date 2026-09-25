@@ -3269,7 +3269,7 @@
                 if (rep === word) return;
                 ta.setRangeText(rep, start, pos - 1, 'end'); ta.setSelectionRange(start + rep.length + 1, start + rep.length + 1);
                 lastFix = { at: start, from: word, to: rep }; lastRewrite = null;
-                chip('fix', `<b>✓</b>${esc(word)} → ${esc(rep)}<span class="k">↶</span>`, 2500);
+                chip('fix', `<b>✓</b>${esc(word)} → ${esc(rep)}<span class="k">↶ tap to undo</span>`, 4000);
             });
             // the last local pass at send: single spaces, a first capital, a period on a sentence left hanging
             window.__dcTidy = s => { s = String(s || '').replace(/[ \t]{2,}/g, ' ').replace(/\s+([.,!?;:])/g, '$1').trim();
@@ -3306,13 +3306,14 @@
                 const tailTyped = ta.value.length > end;
                 ta.setRangeText(out, at, end, tailTyped ? 'preserve' : 'end');
                 stable = at + out.length; lastSrc = ''; lastRewrite = { prev, out, at }; lastFix = null;
-                chip('rewrite', `<b>✨</b>rewritten<span class="k">↶ undo</span>`, 8000);
+                chip('rewrite', `<b>✨</b>rewritten<span class="k">↶ tap to undo</span>`, 8000);
                 clearTimeout(applyRewrite._learn); applyRewrite._learn = setTimeout(() => { if (lastRewrite && lastRewrite.out === out) learnFrom(prev, out); }, 8500);   // kept for 8.5 s = he agreed
             }
             ghost.onclick = () => {
                 if (ghost.dataset.kind === 'ready' && ghost._sugg) { const s = ghost._sugg; applyRewrite(s.out, s.prev, s.at, s.end); ta.focus(); return; }
                 if (ghost.dataset.kind === 'rewrite') { undoRewrite(); ta.focus(); return; }
-                if (ghost.dataset.kind === 'fix' && lastFix) { const f = lastFix; lastFix = null; ta.setRangeText(f.from, f.at, f.at + f.to.length, 'end'); ta.setSelectionRange(f.at + f.from.length + 1, f.at + f.from.length + 1); hideGhost(); ta.focus(); }
+                if (ghost.dataset.kind === 'fix' && lastFix) { const f = lastFix; lastFix = null; neverAgain(f.from);   // undone on purpose: remember that
+                    if (ta.value.slice(f.at, f.at + f.to.length) === f.to) ta.setRangeText(f.from, f.at, f.at + f.to.length, 'preserve'); hideGhost(); ta.focus(); }
             };
             ta.addEventListener('input', e => {
                 clearTimeout(timer);
@@ -3335,13 +3336,8 @@
                 wpmEl.hidden = false; wpmEl.textContent = wpm + ' wpm'; wpmEl.classList.toggle('idle', now - keys[keys.length - 1] > 3000); };
             ta.addEventListener('input', e => { if (e.inputType && e.inputType.startsWith('insertText') && e.data) { for (let i = 0; i < e.data.length; i++) keys.push(Date.now()); if (!wpmTick) wpmTick = setInterval(paintWpm, 500); paintWpm(); } });
             ta.addEventListener('keydown', e => {
-                if (e.key === 'Backspace' && lastRewrite && ta.selectionStart === ta.value.length && ta.value === (ghost.dataset.kind === 'rewrite' ? ta.value : ta.value)) {
-                    if (!ghost.hidden && ghost.dataset.kind === 'rewrite') { e.preventDefault(); undoRewrite(); return; }   // one Backspace right after = his words back
-                }
-                if (e.key === 'Backspace' && lastFix && ta.selectionStart === lastFix.at + lastFix.to.length + 1 && ta.value.slice(lastFix.at, lastFix.at + lastFix.to.length) === lastFix.to) {
-                    e.preventDefault(); const f = lastFix; lastFix = null; neverAgain(f.from);   // he wanted it his way: remember that
-                    ta.setRangeText(f.from, f.at, f.at + f.to.length, 'end'); ta.setSelectionRange(f.at + f.from.length + 1, f.at + f.from.length + 1); hideGhost(); return;
-                }
+                // Backspace is just Backspace (2026-09-25, L: "the backspace action isn't what I'm looking for, it's undoing
+                // some of the rewrites"). Undo lives on the chip only - tap it. His deleting a character must never revert a fix.
                 if (e.key === 'Tab' && !e.shiftKey && ghost.dataset.kind === 'ready' && !ghost.hidden && ghost._sugg) { e.preventDefault(); const s = ghost._sugg; applyRewrite(s.out, s.prev, s.at, s.end); return; }
                 if (e.key === 'Escape' && !ghost.hidden) hideGhost();
                 if (e.key === 'Enter' && !e.shiftKey) { clearTimeout(timer); if (ctl) ctl.abort(); hideGhost(); lastRewrite = null; stable = 0; lastSrc = ''; }   // sending: nothing lands under an empty box
