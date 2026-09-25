@@ -876,6 +876,10 @@
         .dc-topic.fav { color: var(--dc-amber); } .dc-topic.fav.on { border-color: var(--dc-amber); background: color-mix(in srgb, var(--dc-amber) 12%, transparent); }
         .dc-bub .dc-edit { float: right; margin: -2px -4px 0 8px; border: 0; background: transparent; color: inherit; opacity: 0.55; cursor: pointer; font-size: calc(0.85rem * var(--dc-fs, 1)); line-height: 1; padding: 2px 4px; }
         .dc-bub .dc-edit:hover { opacity: 1; }
+        /* 1 / 2 BUTTONS (2026-09-24): a reply carrying a terminal menu gets one tappable button per option */
+        .dc-bub .dc-choices { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+        .dc-bub .dc-choice { border: 1px solid var(--dc-green); color: var(--dc-green); background: color-mix(in srgb, var(--dc-green) 12%, transparent); border-radius: var(--dc-r-md); padding: 8px 14px; min-height: 36px; cursor: pointer; font-family: inherit; font-size: calc(0.88rem * var(--dc-fs, 1)); font-weight: 600; text-align: left; }
+        .dc-bub .dc-choice:disabled { opacity: 0.45; cursor: default; }
         .dc-chat-input.editing textarea { border-color: var(--dc-amber); }
         .dc-chat-input.editing .dc-btn.push { background: var(--dc-amber); }
         /* THINKING (2026-09-19, L: "make the click button a different color or pulsate when thinking is happening"): purple + a slow
@@ -1197,7 +1201,15 @@
             const favBtn = (!me && !t.pending && t.__k) ? `<button type="button" class="dc-fav${(DC.favs || {})[t.__k] ? ' on' : ''}" title="favorite this reply">${'\u2605'}</button>` : '';
             const enh = changed ? `<details class="enh"><summary>✨ see what was sent</summary><div>${esc(t.enhanced)}</div></details>` : '';
             const tp = (!DC.topic && t.topic) ? ' · # ' + esc(t.topic) : '';   // All view: show which topic a turn belongs to
-            return { cls: `dc-bub ${me ? 'me' : 'drop'}${pend}`, html: `${editBtn}${favBtn}<span class="who">${who}${tag}${tp}</span>${linkify(esc(body))}${snapBox}${enh}<div class="ts">${time}</div>` };
+            // 1 / 2 BUTTONS (2026-09-24, L: "yes"): daemon 0.29 reports a terminal menu as "My terminal is asking: ...
+            // 1. Yes ... 2. No ...". On the tail turn, each option becomes a button that sends its digit as the next message.
+            let choices = '';
+            if (!me && !t.pending && t.__tail && /My terminal is asking:/.test(t.text || '')) {
+                const opts = []; const re = /^\s{2}(\d)\.\s+(.+?)\s*$/gm; let m;
+                while ((m = re.exec(t.text || ''))) opts.push([m[1], m[2]]);
+                if (opts.length >= 2) choices = `<div class="dc-choices">${opts.map(([n, l]) => `<button type="button" class="dc-choice" data-n="${n}" title="answer the terminal's menu with ${n}">${n} · ${esc(l)}</button>`).join('')}</div>`;
+            }
+            return { cls: `dc-bub ${me ? 'me' : 'drop'}${pend}`, html: `${editBtn}${favBtn}<span class="who">${who}${tag}${tp}</span>${linkify(esc(body))}${choices}${snapBox}${enh}<div class="ts">${time}</div>` };
         }
         // PERF: keyed incremental render - only turns whose content changed are re-built; the rest of the DOM is
         // untouched (the old version rebuilt all 120 bubbles as one innerHTML on every change, which stuttered on the phone).
@@ -1725,6 +1737,20 @@
             try { await set(ref(database, `${DC.base}/chat/favorites/${k}`), on ? null : { s: 'D', who: src.who || 'Droplet', text: src.text || '', ts: src.ts || Date.now(), ...(src.topic ? { topic: src.topic } : {}), savedAt: Date.now() }); }
             catch (err) { $('#dc-chat-status').textContent = '⚠ could not save favorite: ' + (err.message || err); }
         }, true);   // capture: runs before the edit/triple-tap handlers
+        // 1 / 2 BUTTONS: a tap sends that digit as the next message (the normal send path, so it gets its own bubble
+        // and job); daemon 0.29 presses it on the terminal menu. Capture phase + stopPropagation keeps the tap out of
+        // the triple-tap counter, and an in-progress edit is dropped first so the digit can never overwrite a message.
+        document.getElementById('dc-chat-log') && document.getElementById('dc-chat-log').addEventListener('click', e => {
+            const b = e.target.closest && e.target.closest('.dc-choice'); if (!b) return; e.stopPropagation(); e.preventDefault();
+            const ta = $('#dc-chat-in'); if (!ta) return;
+            if (DC.editKey) { ta.value = ''; setEditMode(''); }
+            const sel = $('#dc-chat-target'); const was = sel ? sel.value : '';
+            if (sel) sel.value = 'droplet';           // the menu is on Droplet's terminal - the answer goes there whatever the target pick
+            ta.value = b.dataset.n; sendChat();         // reads the target synchronously before its first await
+            if (sel && was) sel.value = was;
+            b.closest('.dc-choices').querySelectorAll('.dc-choice').forEach(x => { x.disabled = true; });
+        }, true);
+        window.__dcRenderChat = renderChat;   // test hook
         /* DRAG THE TAB STRIP (2026-09-21, L). It is overflow-x:auto with the scrollbar hidden,
            so a trackpad could swipe it and a plain mouse could not reach an off-screen tab at all.
            Pointer events cover mouse/pen/touch in one path. A TAP must still select a topic, so
@@ -1881,6 +1907,10 @@
             const keys = Object.keys(obj).filter(k => favView || !DC.topic || (obj[k] && obj[k].topic === DC.topic));
             DC.lastLKey = keys.slice().reverse().find(k => obj[k] && obj[k].s === 'L') || '';
             for (const k of keys) if (obj[k] && obj[k].s === 'L') obj[k].__last = (k === DC.lastLKey);
+            // the TAIL turn (nothing after it in this view): only it may show menu buttons - an answered menu is
+            // gone from the terminal, and a "1" sent later would just be a plain message (2026-09-24)
+            for (const k of Object.keys(obj)) if (obj[k]) obj[k].__tail = false;
+            if (keys.length && obj[keys[keys.length - 1]]) obj[keys[keys.length - 1]].__tail = true;
             const nf = newestFirst();
             $('.dc-chat') && $('.dc-chat').classList.toggle('newest-first', nf);
             if (!keys.length) { log.innerHTML = '<div style="color:var(--muted);font-size:0.85rem;text-align:center;margin-top:20px">' + (favView ? 'No favorites yet. Tap the star on a reply to keep it here.' : DC.topic ? 'Nothing under # ' + esc(DC.topic) + ' yet. What you send now lands here and in All.' : (DC.guest && ($('#dc-chat-target') || {}).value === 'local') ? 'No turns yet. Say something - the Local assistant answers here.' : 'No turns yet. Say something to Droplet.') + '</div>'; DC.bubbleSig = {}; updateThreadSize(obj); reconcilePending(obj); return; }
