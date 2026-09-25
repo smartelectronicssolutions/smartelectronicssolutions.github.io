@@ -2460,13 +2460,16 @@
             const base = DC.guest ? LOCAL_SYS_GUEST : LOCAL_SYS;
             if (!DC.uid) return base;
             const read = async p => { try { const s = await get(ref(database, p)); return s.exists() ? s.val() : null; } catch (_) { return null; } };
-            const personality = String((await read(`${DC.uid}/bot/personality`)) || (await read('public/bot/personality')) || '').trim();
+            // the personality text calls the character "bot" (onlinechat's placeholder); her name lives in bot/name
+            const botName = String((await read(`${DC.uid}/bot/name`)) || '').replace(/[^\p{L}\p{N} '-]/gu, '').trim();
+            let personality = String((await read(`${DC.uid}/bot/personality`)) || (await read('public/bot/personality')) || '').trim();
+            if (botName) personality = personality.replace(/@bot\b/g, '@' + botName).replace(/\bbot\b/g, botName);
             const memRaw = (await read(`${DC.uid}/bot/memory`)) || (await read(`${DC.uid}/yuki/memory`)) || {};
             const memory = Object.entries(memRaw).map(([k, v]) => `${k}: ${v && typeof v === 'object' ? v.value : v}`).join('\n');
             const memSum = String((await read(`${DC.uid}/bot/memory_summary`)) || '').trim();   // onlinechat keeps a rolled-up summary too
             if (!personality) return base;
             const parts = [personality,
-                "You are reached as 'Local' inside the Droplet Console, running on the Ollama server in Luis's homelab (model " + MODEL + "). " + (DC.guest ? "The person you are talking to is a friend of Luis using his platform, not Luis." : "The person you are talking to is Luis."),
+                "You are reached as 'Local' inside the Droplet Console on Luis's own server. " + (DC.guest ? "The person you are talking to is a friend of Luis using his platform, not Luis." : "The person you are talking to is Luis."),   // no model talk: her character never says she is an AI
                 LOCAL_RULES];
             if (memSum) parts.push('MEMORY SUMMARY:\n' + memSum);
             if (memory) parts.push('MEMORY (things this person told you before):\n' + memory);
