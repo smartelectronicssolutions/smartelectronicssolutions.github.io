@@ -302,7 +302,10 @@
             font-size: 0.68rem; font-family: var(--font-mono); }
         /* UNREAD (2026-09-20, L): a reply that landed while you were in another tab.
            Distinct from .thinking, which means a reply is still on its way. */
-        .dc-topic.unread { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+        .dc-topic.unread { color: var(--accent); border-color: var(--accent); font-weight: 600; animation: dcNew 1.4s ease-in-out infinite; }
+        /* the pulse lives HERE since 2026-09-24 (L): it means "a reply landed", never "still working" */
+        @keyframes dcNew { 0%,100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent); } 50% { box-shadow: 0 0 0 6px transparent; } }
+        @media (prefers-reduced-motion: reduce) { .dc-topic.unread { animation: none; } }
         /* the count is a NUMBER, not a badge (2026-09-20, L: "a sort of box around it, it looks odd").
            It had a raw background with no padding and no radius, so it painted a bare rectangle behind
            the digits. The tab already says "unread" twice - accent colour and the dot - so a third
@@ -312,7 +315,8 @@
             content: ""; display: inline-block; width: 6px; height: 6px; margin-left: 5px;
             border-radius: 50%; background: var(--accent); vertical-align: middle;
         }
-        .dc-topic.thinking.unread::after { display: none; }   /* in-flight is the louder fact */
+        /* both at once (one landed, another still coming): amber outline from .thinking, dot + pulse
+           from .unread - the landed reply is the louder fact now (it used to hide the dot). */
     </style>
 </head>
 <body>
@@ -924,16 +928,19 @@
         .dc-chat-input .dc-btn.push.thinking { background: var(--dc-purple); border-color: var(--dc-purple); animation: dcThink 1.4s ease-in-out infinite; }
         @keyframes dcThink { 0%,100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--dc-purple) 60%, transparent); opacity: 1; } 50% { box-shadow: 0 0 0 7px transparent; opacity: .7; } }
         @media (prefers-reduced-motion: reduce) { .dc-chat-input .dc-btn.push.thinking { animation: none; } }
-        /* the same light on a topic tab: that tab has a reply still coming (2026-09-19). */
-        .dc-topic.thinking { color: var(--dc-amber); border-color: var(--dc-amber); animation: dcThink 1.4s ease-in-out infinite; }
-        /* light mode: a faint purple fill + weight, so the waiting tab reads by shape as well as hue */
+        /* a topic tab with a reply still coming (2026-09-19): amber outline, STATIC. It pulsed like the
+           send button until 2026-09-24, when L moved the pulse to .unread ("make the pulsing happen only
+           if it has new messages, have it static outlined when thinking") - motion now means "look
+           here", never "wait here". */
+        .dc-topic.thinking { color: var(--dc-amber); border-color: var(--dc-amber); }
+        /* light mode: a faint amber fill + weight, so the waiting tab reads by shape as well as hue */
         html.light .dc-topic.thinking { background: color-mix(in srgb, var(--dc-amber) 14%, transparent); font-weight: 600; }
-        @media (prefers-reduced-motion: reduce) { .dc-topic.thinking { animation: none; } }
         /* THREE STATES, THREE LOOKS (2026-09-20, L: "the current tab should be a different colour
            than loading or finished"). They used to differ by hue alone - and two of them SHARED it:
            .on and .thinking were both --dc-purple outlines, identical but for the pulse, and nearly
-           identical in light mode. Now: current = FILLED purple, loading = AMBER outline + pulse,
-           finished = ACCENT outline + dot. Fill is a difference in shape, not hue, so the current
+           identical in light mode. Now: current = FILLED purple, loading = AMBER outline (static),
+           finished = ACCENT outline + dot + pulse (2026-09-24: the pulse moved from loading to
+           finished). Fill is a difference in shape, not hue, so the current
            tab still reads with the animation off, in any theme, without relying on colour vision.
            Declared here, after .thinking, and specificity (0,3,1) to tie html.light .dc-topic.thinking
            and win on source order - otherwise a tab that is BOTH current and waiting keeps the old
