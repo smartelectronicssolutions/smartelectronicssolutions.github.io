@@ -731,6 +731,11 @@
         #dc-pins .dc-btn.sm { padding: 3px 8px; font-size: calc(0.74rem * var(--dc-fs, 1)); }
         #dc-pins .dc-tab { padding: 4px 8px; }
         .dc-bar.dc-drop { outline: 2px dashed color-mix(in srgb, var(--dc-purple) 55%, transparent); outline-offset: -3px; }
+        /* the slot a dragged row would take: a purple line above/below a menu row, left/right of a bar row */
+        #dc-gear-pop > .dc-ins-before { box-shadow: 0 -5px 0 -3px var(--dc-purple); }
+        #dc-gear-pop > .dc-ins-after { box-shadow: 0 5px 0 -3px var(--dc-purple); }
+        #dc-pins > .dc-ins-before { box-shadow: -5px 0 0 -3px var(--dc-purple); }
+        #dc-pins > .dc-ins-after { box-shadow: 5px 0 0 -3px var(--dc-purple); }
         .dc-gear.dc-drop { color: var(--dc-purple); border-color: var(--dc-purple); }
         .dc-pin-ghost { position: fixed; z-index: 9999; pointer-events: none; padding: 4px 10px; border-radius: var(--dc-r-pill, 999px); background: var(--surface); border: 1px solid var(--dc-purple); color: var(--text); font-size: calc(0.76rem * var(--dc-fs, 1)); box-shadow: 0 6px 18px var(--dc-shadow); opacity: .92; transform: translate(-50%, -140%); white-space: nowrap; }
         .dc-bar .dc-sp { flex: 1; }
@@ -1253,7 +1258,12 @@
         // The row element itself MOVES between #dc-gear-pop and #dc-pins, so its ids, change listeners
         // and the guest/kd display rules all travel with it - nothing is cloned or re-wired. Pointer
         // events rather than HTML5 dnd so a thumb on the phone can do it. ⋮⋮ onto the bar = pin, onto
-        // ⚙ / the open menu = unpin, a plain tap = toggle. Order inside the menu is restored on unpin.
+        // ⚙ = unpin (back to its original slot), a plain tap = toggle.
+        // ORDER TOO (2026-09-24, L: "can I drop and move the items in the gear, their order"): a drop
+        // BETWEEN rows - in the menu (vertical) or in the bar (horizontal) - lands the row exactly there,
+        // with a purple line showing the slot while you hover. Two lists persisted per device:
+        // dc_pins (what is up in the bar, in order) and dc_gear_order (the menu's order). A row added
+        // in a later build that neither list knows goes to the end of the menu.
         (function wirePins() {
             const pop = $('#dc-gear-pop'), pins = $('#dc-pins'), bar = document.querySelector('.dc-bar'), gear = $('#dc-gear');
             if (!pop || !pins || !bar || !gear) return;
@@ -1266,20 +1276,43 @@
                 if (el.tagName === 'BUTTON') { row = document.createElement('span'); row.className = 'dc-prow'; row.dataset.idx = idx; pop.insertBefore(row, el); row.appendChild(el); }
                 row.dataset.pin = ctl.id;
                 const h = document.createElement('span'); h.className = 'dc-pin-h'; h.textContent = '⋮⋮';
-                h.title = 'drag onto the top bar to keep this up there (a tap does it too) - drag back to ⚙ to return it';
+                h.title = 'drag: between rows to reorder, onto the top bar to keep it up there, back onto ⚙ to return it. A tap pins / unpins.';
                 row.appendChild(h); rows.push(row); wireHandle(h, row);
             });
-            const load = () => { try { return JSON.parse(localStorage.getItem('dc_pins') || '[]'); } catch (_) { return []; } };
-            const save = () => { try { localStorage.setItem('dc_pins', JSON.stringify([...pins.children].map(r => r.dataset.pin))); } catch (_) {} };
+            const sizeEl = pop.querySelector('.dc-size'); if (sizeEl) pop.appendChild(sizeEl);   // the readout sits last; rows reorder above it
+            const loadList = k => { try { const v = JSON.parse(localStorage.getItem(k) || '[]'); return Array.isArray(v) ? v : []; } catch (_) { return []; } };
+            const save = () => { try {
+                localStorage.setItem('dc_pins', JSON.stringify([...pins.children].map(r => r.dataset.pin)));
+                localStorage.setItem('dc_gear_order', JSON.stringify([...pop.querySelectorAll(':scope > [data-pin]')].map(r => r.dataset.pin)));
+            } catch (_) {} };
             function setPinned(row, on) {
                 if (on) pins.appendChild(row);
-                else { const after = [...pop.children].find(c => +c.dataset.idx > +row.dataset.idx); pop.insertBefore(row, after || null); }
+                else { const after = [...pop.children].find(c => c.dataset.pin && +c.dataset.idx > +row.dataset.idx); pop.insertBefore(row, after || sizeEl || null); }
                 save();
             }
-            function over(e) {
-                const el = document.elementFromPoint(e.clientX, e.clientY); if (!el) return '';
-                if (gear.contains(el) || pop.contains(el)) return 'gear';
-                return bar.contains(el) ? 'bar' : '';
+            // where a drop would land: zone + (for a slot between rows) the row it lands next to and which side
+            function spot(e) {
+                const el = document.elementFromPoint(e.clientX, e.clientY); if (!el) return { zone: '' };
+                if (gear.contains(el)) return { zone: 'gear' };
+                const row = el.closest('[data-pin]');
+                if (pop.contains(el)) { if (row && pop.contains(row)) { const r = row.getBoundingClientRect(); return { zone: 'pop', ref: row, before: e.clientY < r.top + r.height / 2 }; } return { zone: 'pop' }; }
+                if (pins.contains(el)) { if (row && pins.contains(row)) { const r = row.getBoundingClientRect(); return { zone: 'pins', ref: row, before: e.clientX < r.left + r.width / 2 }; } return { zone: 'pins' }; }
+                return { zone: bar.contains(el) ? 'bar' : '' };
+            }
+            function clearHints() { bar.classList.remove('dc-drop'); gear.classList.remove('dc-drop'); document.querySelectorAll('.dc-ins-before, .dc-ins-after').forEach(x => x.classList.remove('dc-ins-before', 'dc-ins-after')); }
+            function showHint(s, row) {
+                clearHints();
+                if (s.ref && s.ref !== row) s.ref.classList.add(s.before ? 'dc-ins-before' : 'dc-ins-after');
+                else if (s.zone === 'bar' || s.zone === 'pins') bar.classList.add('dc-drop');
+                else if (s.zone === 'gear') gear.classList.add('dc-drop');
+            }
+            function drop(row, s) {
+                if (s.zone === 'gear') { setPinned(row, false); return; }
+                if (s.ref && s.ref !== row) s.ref.insertAdjacentElement(s.before ? 'beforebegin' : 'afterend', row);
+                else if (s.zone === 'pop') { if (!pop.contains(row)) pop.insertBefore(row, sizeEl || null); }
+                else if (s.zone === 'bar' || s.zone === 'pins') { if (!pins.contains(row)) pins.appendChild(row); }
+                else return;   // nowhere: nothing moves
+                save();
             }
             function wireHandle(h, row) {
                 let ghost = null, moved = false, active = false, sx = 0, sy = 0;
@@ -1293,18 +1326,20 @@
                     if (!moved && Math.hypot(e.clientX - sx, e.clientY - sy) < 6) return;
                     if (!moved) { moved = true; ghost = document.createElement('div'); ghost.className = 'dc-pin-ghost'; ghost.textContent = row.textContent.replace('⋮⋮', '').trim().slice(0, 28); document.body.appendChild(ghost); }
                     ghost.style.left = e.clientX + 'px'; ghost.style.top = e.clientY + 'px';
-                    const t = over(e); bar.classList.toggle('dc-drop', t === 'bar'); gear.classList.toggle('dc-drop', t === 'gear');
+                    showHint(spot(e), row);
                 });
                 const end = e => {
                     if (!active) return; active = false; try { h.releasePointerCapture(e.pointerId); } catch (_) {}
-                    bar.classList.remove('dc-drop'); gear.classList.remove('dc-drop'); if (ghost) { ghost.remove(); ghost = null; }
-                    const inBar = pins.contains(row);
-                    if (!moved) { setPinned(row, !inBar); return; }
-                    const t = over(e); if (t === 'bar' && !inBar) setPinned(row, true); else if (t === 'gear' && inBar) setPinned(row, false);
+                    clearHints(); if (ghost) { ghost.remove(); ghost = null; }
+                    if (!moved) { setPinned(row, !pins.contains(row)); return; }
+                    drop(row, spot(e));
                 };
                 h.addEventListener('pointerup', end); h.addEventListener('pointercancel', end);
             }
-            for (const id of load()) { const r = rows.find(x => x.dataset.pin === id); if (r) pins.appendChild(r); }
+            // restore: the menu's order first, then whatever lives in the bar (in its own order)
+            const order = loadList('dc_gear_order');
+            if (order.length) { const known = order.map(id => rows.find(r => r.dataset.pin === id)).filter(Boolean); const rest = rows.filter(r => !known.includes(r)); [...known, ...rest].forEach(r => pop.insertBefore(r, sizeEl || null)); }
+            for (const id of loadList('dc_pins')) { const r = rows.find(x => x.dataset.pin === id); if (r) pins.appendChild(r); }
         })();
         DC.chatTurns = {};
         // ENHANCE-RENDER: when ✨ enhance is on, show a clean conversational reply (no code fences / inline code).
