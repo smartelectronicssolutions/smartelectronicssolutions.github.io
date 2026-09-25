@@ -983,6 +983,9 @@
         .dc-ghost b { color: var(--dc-purple); font-weight: 600; margin-right: 4px; }
         .dc-ghost .k { opacity: .7; margin-left: 6px; }
         .dc-ghost:hover { color: var(--text); }
+        /* live words-per-minute, lower-right inside the box; fades when he stops */
+        .dc-wpm { position: absolute; right: 72px; bottom: 5px; z-index: 2; font-family: var(--font-mono); font-size: calc(0.62rem * var(--dc-fs, 1)); color: var(--muted); opacity: .7; pointer-events: none; transition: opacity .6s; }
+        .dc-wpm.idle { opacity: .25; }
         .dc-chat-input .dc-btn.push { align-self: stretch; padding: 0 18px; font-size: calc(1.1rem * var(--dc-fs, 1)); }
         .dc-rt { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px; min-width: 0; overflow: hidden; }
         .dc-rt .hd { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -1094,6 +1097,7 @@
                         <textarea id="dc-chat-in" rows="2" placeholder="type here…  (Enter sends · Shift+Enter newline)"></textarea>
                         <button class="dc-btn push" id="dc-chat-send">▲</button>
                         <div id="dc-ghost" class="dc-ghost" hidden></div>   <!-- live enhance chip: floats on the box's top edge, never takes layout space; tap = undo -->
+                        <span id="dc-wpm" class="dc-wpm" hidden></span>       <!-- live typing speed, lower-right of the box (L, 2026-09-25) -->
                     </div>
                     <div class="dc-status" id="dc-chat-status" style="margin:6px 2px 0"></div>
                     <div class="dc-status dc-guest-note" id="dc-guest-note" hidden></div>   <!-- guest on the Local target: says plainly what they are talking to (2026-09-19) -->
@@ -1142,6 +1146,7 @@
 
         const OLLAMA = 'https://api.luissolutions.us/chat';
         const MODEL = 'qwen3:14b';
+        const LIVE_MODEL = 'gemma2:9b';   // the in-box rewrite: fast + accurate on L's typing (timed 2026-09-25); the chat model stays qwen3:14b
         const $ = s => document.querySelector(s);
         const DC = { uid: null, base: null, memory: [], watchJob: null };
 
@@ -1196,7 +1201,7 @@
             // the Local seat wears the person's bot name when they gave it one (L, 2026-09-25: "if there's a name put
             // that in the dropdown, otherwise call it Local"). Async callback, so TARGET_NAMES is long initialised.
             onValue(ref(database, `${DC.uid}/bot/name`), s => { setBotName(s.val()); });
-            onValue(ref(database, `${DC.base}/autocorrect`), s => { DC.autocorrect = s.val() || {}; });   // his own word -> fix pairs for the live autocorrect
+            onValue(ref(database, `${DC.base}/autocorrect`), s => { DC.autocorrect = s.val() || {}; });   // {own: word->fix, learned: word->{to,n}, never: word->n} for the live autocorrect
             onValue(ref(database, `${DC.base}/memoryIndex`), s => { DC.memory = s.val() || []; });
             onValue(ref(database, `${DC.base}/meta`), s => renderMeta(s.val() || {}));
             onValue(ref(database, `${DC.base}/routines`), s => renderRoutines(s.val() || {}));
@@ -2658,10 +2663,11 @@
         setTimeout(outboxPaint, 1500);
 
         async function sendChat() {
-            const ta = $('#dc-chat-in'); const raw = ta.value.trim();
+            const ta = $('#dc-chat-in'); let raw = ta.value.trim();
             if (!raw || !DC.base) return;
             const target = ($('#dc-chat-target') && $('#dc-chat-target').value) || 'droplet';
             const enhOn = !!($('#dc-chat-enhance') && $('#dc-chat-enhance').checked) && target !== 'command' && !raw.startsWith('/');   // a slash command is for the TUI - enhancing it into prose would destroy it
+            if (enhOn && window.__dcTidy) { raw = window.__dcTidy(raw); ta.value = raw; }   // last local pass: spaces, first capital, a final period (2026-09-25)
             const wantPing = !!($('#dc-chat-ping') && $('#dc-chat-ping').checked);
             const who = CHAT_WHO[target] || 'Droplet';
             // ⌘ Command (2026-09-16, pick D): every run needs a live YubiKey code; the daemon verifies it, one use per code
@@ -3208,25 +3214,63 @@
                 recieve: 'receive', seperate: 'separate', definately: 'definitely', wierd: 'weird', thier: 'their', wich: 'which', whcih: 'which', shoudl: 'should', woudl: 'would',
                 coudl: 'could', tommorow: 'tomorrow', untill: 'until', occured: 'occurred', occure: 'occur', accross: 'across', alot: 'a lot',
                 konw: 'know', coptied: 'copied', theiers: 'theirs', aorund: 'around', tthink: 'think', inchecked: 'unchecked' };
-            const fixFor = w => (DC.autocorrect || {})[w] || FIX[w];
+            // his dictionary: own pairs win; a LEARNED pair (from rewrites he kept) counts once it has been seen twice;
+            // a word he UNDID twice is never touched again. All under {uid}/console/autocorrect/{own,learned,never}.
+            const AC = () => DC.autocorrect || {};
+            const fixFor = w => { const a = AC(); if (((a.never || {})[w] || 0) >= 2) return null; const l = (a.learned || {})[w];
+                return (a.own || {})[w] || (l && l.n >= 2 ? l.to : null) || FIX[w] || null; };
+            const acWrite = (path, val) => { if (!DC.base) return; try { return set(ref(database, `${DC.base}/autocorrect/${path}`), val); } catch (_) {} };
+            const acKey = w => String(w || '').toLowerCase().replace(/[^a-z']/g, '').slice(0, 40);
+            const lev = (a, b) => { if (a === b) return 0; if (!a.length || !b.length) return a.length + b.length; let p = [...Array(b.length + 1).keys()];
+                for (let i = 1; i <= a.length; i++) { const c = [i]; for (let j = 1; j <= b.length; j++) c[j] = Math.min(p[j] + 1, c[j - 1] + 1, p[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); p = c; } return p[b.length]; };
+            // LEARN (L: "learn my common typos... learn my typing style"): after a rewrite he keeps, every word that changed
+            // by a small edit (1-2 letters, not a rename) becomes a learned pair; the second time it becomes an instant fix.
+            function learnFrom(prev, out) {
+                const A = prev.split(/\s+/).filter(Boolean), B = out.split(/\s+/).filter(Boolean);
+                if (A.length !== B.length) return;
+                for (let i = 0; i < A.length; i++) {
+                    const a = acKey(A[i]), b = B[i].replace(/^[^A-Za-z']+|[^A-Za-z']+$/g, '');
+                    if (!a || !b || a.length < 3 || a === b.toLowerCase() || !/^[A-Za-z']+$/.test(b)) continue;
+                    if (lev(a, b.toLowerCase()) > 2) continue;
+                    const cur = ((AC().learned || {})[a]) || { n: 0 };
+                    acWrite(`learned/${a}`, { to: b, n: (cur.n || 0) + 1, at: Date.now() });
+                }
+            }
+            const neverAgain = w => { const k = acKey(w); if (!k) return; acWrite(`never/${k}`, (((AC().never || {})[k]) || 0) + 1); };
             const caseLike = (src, fix) => src === src.toUpperCase() && src.length > 1 ? fix.toUpperCase() : (src[0] === src[0].toUpperCase() ? fix[0].toUpperCase() + fix.slice(1) : fix);
             const norm = s => s.replace(/\s+/g, ' ').trim();
             let lastFix = null, lastRewrite = null, timer = null, ctl = null, lastSrc = '';
             const hideGhost = () => { ghost.hidden = true; ghost._sugg = null; ghost.dataset.kind = ''; };
             const chip = (kind, html, ms) => { ghost.dataset.kind = kind; ghost.hidden = false; ghost.innerHTML = html; clearTimeout(ghost._t); if (ms) ghost._t = setTimeout(() => { if (ghost.dataset.kind === kind) hideGhost(); }, ms); };
-            const undoRewrite = () => { const r = lastRewrite; if (!r) return false; lastRewrite = null; ta.value = r.prev; ta.setSelectionRange(r.prev.length, r.prev.length); lastSrc = norm(r.prev); hideGhost(); return true; };
-            // --- 1. autocorrect (in the text, instantly) ---
+            const undoRewrite = () => { const r = lastRewrite; if (!r) return false; lastRewrite = null; clearTimeout(applyRewrite._learn);
+                // he rejected it: every word it changed goes on the never list (twice = never again)
+                const A = r.prev.split(/\s+/).filter(Boolean), B = (r.out || '').split(/\s+/).filter(Boolean);
+                if (A.length === B.length) A.forEach((w, i) => { if (acKey(w) && acKey(w) !== acKey(B[i])) neverAgain(w); });
+                ta.value = r.prev; ta.setSelectionRange(r.prev.length, r.prev.length); lastSrc = norm(r.prev); hideGhost(); return true; };
+            // --- 1. autocorrect (in the text, instantly): the word table, then sentence capitals, then double spaces ---
             ta.addEventListener('input', e => {
                 lastFix = null;
                 if (!on() || e.inputType !== 'insertText' || !e.data || !/[\s.,!?;:]/.test(e.data)) return;
-                const pos = ta.selectionStart, before = ta.value.slice(0, pos - 1);
+                let pos = ta.selectionStart;
+                // a second space right after a space = an accidental double (L, 2026-09-25) - drop it
+                if (e.data === ' ' && pos >= 2 && ta.value[pos - 2] === ' ') { ta.setRangeText('', pos - 1, pos, 'end'); pos = ta.selectionStart; return; }
+                const before = ta.value.slice(0, pos - 1);
                 const m = /([A-Za-z']+)$/.exec(before); if (!m) return;
-                const word = m[1], fix = fixFor(word.toLowerCase()); if (!fix || fix === word) return;
-                const rep = caseLike(word, fix), start = pos - 1 - word.length;
+                const word = m[1], start = pos - 1 - word.length;
+                let rep = fixFor(word.toLowerCase()); rep = rep && rep !== word ? caseLike(word, rep) : word;
+                // first word of the message, or the first after . ! ? or a newline, gets its capital
+                const lead = before.slice(0, start);
+                if (/^[a-z]/.test(rep) && (lead.trim() === '' || /[.!?]\s+$|\n\s*$/.test(lead))) rep = rep[0].toUpperCase() + rep.slice(1);
+                if (rep === word) return;
                 ta.setRangeText(rep, start, pos - 1, 'end'); ta.setSelectionRange(start + rep.length + 1, start + rep.length + 1);
                 lastFix = { at: start, from: word, to: rep }; lastRewrite = null;
                 chip('fix', `<b>✓</b>${esc(word)} → ${esc(rep)}<span class="k">↶</span>`, 2500);
             });
+            // the last local pass at send: single spaces, a first capital, a period on a sentence left hanging
+            window.__dcTidy = s => { s = String(s || '').replace(/[ \t]{2,}/g, ' ').replace(/\s+([.,!?;:])/g, '$1').trim();
+                if (/^[a-z]/.test(s)) s = s[0].toUpperCase() + s.slice(1);
+                if (s.split(/\s+/).length >= 3 && /[A-Za-z0-9)]$/.test(s) && !/https?:\/\/\S+$/.test(s)) s += '.';
+                return s; };
             // --- 2. rewrite (in the text when he has paused at the end; waits for Tab when he is editing the middle) ---
             async function suggest() {
                 const text = ta.value;
@@ -3234,9 +3278,12 @@
                 if (norm(text) === lastSrc) return; lastSrc = norm(text);
                 if (ctl) ctl.abort(); ctl = new AbortController(); const mine = ctl;
                 try {
+                    // gemma2:9b, not the 14b chat model: 2.4 s warm / 4.7 s cold on his real sample and it fixed everything;
+                    // qwen3:14b took 96 s cold. keep_alive holds it in memory between pauses (measured 2026-09-25).
                     const res = await fetch(OLLAMA, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: mine.signal,
-                        body: JSON.stringify({ model: MODEL, stream: false, messages: [{ role: 'system', content: PROOF_SYS }, { role: 'user', content: text }] }) });
-                    const j = await res.json(); const out = String((j.message && j.message.content) || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+                        body: JSON.stringify({ model: LIVE_MODEL, stream: false, keep_alive: '30m', options: { temperature: 0 }, messages: [{ role: 'system', content: PROOF_SYS }, { role: 'user', content: text }] }) });
+                    const j = await res.json(); let out = String((j.message && j.message.content) || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+                    if (/^["“].*["”]$/.test(out)) out = out.slice(1, -1).trim();   // some models quote the answer
                     if (mine !== ctl || norm(ta.value) !== lastSrc) return;                                        // he typed on - stale
                     if (!out || norm(out) === norm(ta.value) || out.length > text.length * 1.6) { if (ghost.dataset.kind === 'rewrite' || ghost.dataset.kind === 'ready') hideGhost(); return; }
                     const atEnd = ta.selectionStart === ta.value.length && ta.selectionEnd === ta.value.length;
@@ -3245,8 +3292,9 @@
                 } catch (_) {}
             }
             function applyRewrite(out, prev) {
-                ta.value = out; ta.setSelectionRange(out.length, out.length); lastSrc = norm(out); lastRewrite = { prev }; lastFix = null;
+                ta.value = out; ta.setSelectionRange(out.length, out.length); lastSrc = norm(out); lastRewrite = { prev, out }; lastFix = null;
                 chip('rewrite', `<b>✨</b>rewritten<span class="k">↶ undo</span>`, 6000);
+                clearTimeout(applyRewrite._learn); applyRewrite._learn = setTimeout(() => { if (lastRewrite && lastRewrite.out === out) learnFrom(prev, out); }, 6500);   // kept for 6.5 s = he agreed
             }
             ghost.onclick = () => {
                 if (ghost.dataset.kind === 'ready' && ghost._sugg) { applyRewrite(ghost._sugg, ta.value); ta.focus(); return; }
@@ -3257,14 +3305,22 @@
                 clearTimeout(timer);
                 if (!ta.value) { hideGhost(); lastRewrite = null; if (ctl) ctl.abort(); return; }
                 if ((ghost.dataset.kind === 'ready' || ghost.dataset.kind === 'rewrite') && !ghost.hidden && norm(ta.value) !== lastSrc) { hideGhost(); lastRewrite = null; }
-                timer = setTimeout(suggest, 900);
+                timer = setTimeout(suggest, 700);
             });
+            // --- 3. words per minute, live (L: "a number in the lower right of the box that logs the speed in real time") ---
+            // characters typed in a sliding 10 s window, 5 characters = a word. Fades after 3 s of quiet.
+            const wpmEl = $('#dc-wpm'); const keys = []; let wpmTick = null;
+            const paintWpm = () => { const now = Date.now(); while (keys.length && now - keys[0] > 10000) keys.shift();
+                if (!wpmEl) return; if (!keys.length) { wpmEl.hidden = true; clearInterval(wpmTick); wpmTick = null; return; }
+                const span = Math.max(2000, now - keys[0]); const wpm = Math.round((keys.length / 5) / (span / 60000));
+                wpmEl.hidden = false; wpmEl.textContent = wpm + ' wpm'; wpmEl.classList.toggle('idle', now - keys[keys.length - 1] > 3000); };
+            ta.addEventListener('input', e => { if (e.inputType && e.inputType.startsWith('insertText') && e.data) { for (let i = 0; i < e.data.length; i++) keys.push(Date.now()); if (!wpmTick) wpmTick = setInterval(paintWpm, 500); paintWpm(); } });
             ta.addEventListener('keydown', e => {
                 if (e.key === 'Backspace' && lastRewrite && ta.selectionStart === ta.value.length && ta.value === (ghost.dataset.kind === 'rewrite' ? ta.value : ta.value)) {
                     if (!ghost.hidden && ghost.dataset.kind === 'rewrite') { e.preventDefault(); undoRewrite(); return; }   // one Backspace right after = his words back
                 }
                 if (e.key === 'Backspace' && lastFix && ta.selectionStart === lastFix.at + lastFix.to.length + 1 && ta.value.slice(lastFix.at, lastFix.at + lastFix.to.length) === lastFix.to) {
-                    e.preventDefault(); const f = lastFix; lastFix = null;
+                    e.preventDefault(); const f = lastFix; lastFix = null; neverAgain(f.from);   // he wanted it his way: remember that
                     ta.setRangeText(f.from, f.at, f.at + f.to.length, 'end'); ta.setSelectionRange(f.at + f.from.length + 1, f.at + f.from.length + 1); hideGhost(); return;
                 }
                 if (e.key === 'Tab' && !e.shiftKey && ghost.dataset.kind === 'ready' && !ghost.hidden && ghost._sugg) { e.preventDefault(); applyRewrite(ghost._sugg, ta.value); return; }
