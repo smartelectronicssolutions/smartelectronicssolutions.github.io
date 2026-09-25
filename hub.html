@@ -3274,6 +3274,7 @@
             // flushing = Send is waiting on the last pass (the send listeners must not abort it); forceApply = apply even mid-caret;
             // inflight = the request in the air, so Send can wait for it instead of asking twice
             let flushing = false, forceApply = false, inflight = null, pendingAgain = false;
+            let lastInputAt = 0, deferredApply = null, deferredTimer = null;   // a rewrite that arrived mid-word waits for the word to end
             // CARET RULE (Chrome, verified 2026-09-25): setRangeText(..., 'preserve') with the caret sitting EXACTLY at the end of the
             // replaced range does not keep the caret - it SELECTS the new text, and his next key wipes it. Every replacement that can
             // meet the caret at its end sets the caret by hand: past the range -> shifted by the length change; else the range's end.
@@ -3335,9 +3336,12 @@
             ta.addEventListener('input', e => {
                 // lastFix / lastRewrite are NOT cleared here: the chip's "tap to undo" (and the 8.5 s learn) must survive him typing on -
                 // the undo itself checks the text is still there. The old `lastFix = null` on every input killed both on the next key.
+                lastInputAt = Date.now();
                 if (!on() || !e.inputType || !e.inputType.startsWith('insert') || e.isComposing) return;   // isComposing: an Android IME is mid-word; touching the box now breaks its composition
                 const caret = ta.selectionStart; if (caret !== ta.selectionEnd) return;
                 const atEnd = caret === ta.value.length;
+                // a rewrite held back mid-word lands now that a separator arrived (before the instant fixes look at the new word)
+                if (deferredApply && /[\s.,!?;:]$/.test(ta.value.slice(0, caret))) { const f = deferredApply; deferredApply = null; clearTimeout(deferredTimer); f(); }
                 // walk every completed word inside what just arrived (a key: the last word; dictation: all of them)
                 let scan = Math.max(0, caret - ((e.data && e.data.length) ? e.data.length + 1 : 80));
                 // doubled spaces anywhere in that span first (a dictated "if  this" has its double in the middle, not at the caret)
@@ -3402,8 +3406,18 @@
                     const invented = (out.toLowerCase().match(/[a-z']+/g) || []).filter(w => w.length > 1 && !inSet.has(w) && !inW.some(x => Math.abs(x.length - w.length) <= 2 && lev(x, w) <= 2));
                     const outWords = (out.toLowerCase().match(/[a-z']+/g) || []).length;
                     if (invented.length > 1 || (invented.length && invented.length > outWords * 0.2)) { stable = tailEnd; enhLog('rewrite discarded (invented words)', invented.join(' ')); return; }   // >1 new word, or 1 in a very short answer = not a proofread
+                    // a proofread never DROPS words either (one fewer is a merged "a lot"/de-doubled "to to"; more is the model cutting his
+                    // sentence - on a short segment the 60 % length guard never fires, and that read as "it deletes text as I type", L 2026-09-25)
+                    if (inW.length - outWords > 1) { stable = tailEnd; enhLog('rewrite dropped words, kept yours', text.slice(0, 60) + ' → ' + out.slice(0, 60)); return; }
                     const editingInside = ta.selectionStart < tailEnd && ta.selectionStart > at;   // his caret is inside the segment: don't move it under him
-                    if (!editingInside || forceApply) { applyRewrite(out, text, at, tailEnd); enhLog('rewritten', (Date.now() - t0) + ' ms · ' + text.split(/\s+/).length + ' words'); }   // forceApply = Send is waiting: it goes in wherever his caret is
+                    if (!editingInside || forceApply) {
+                        // land it at a word boundary: splicing while a word is half-typed is where a keystroke and the splice can collide.
+                        // If he is mid-word right now, the apply waits for his next separator or 450 ms of quiet (Send never waits).
+                        const land = () => { applyRewrite(out, text, at, tailEnd); enhLog('rewritten', (Date.now() - t0) + ' ms · ' + text.split(/\s+/).length + ' words · ' + text.trim().slice(0, 70) + ' → ' + out.trim().slice(0, 70)); };
+                        const midWord = !forceApply && Date.now() - lastInputAt < 400 && /[A-Za-z0-9']$/.test(ta.value.slice(0, ta.selectionStart));
+                        if (midWord) { deferredApply = land; clearTimeout(deferredTimer); deferredTimer = setTimeout(() => { if (deferredApply === land) { deferredApply = null; land(); } }, 450); }
+                        else land();
+                    }
                     else { ghost._sugg = { out, prev: text, at, end: tailEnd }; chip('ready', `<b>✨</b>rewrite ready<span class="k">⇥ Tab</span>`, 0); enhLog('rewrite ready (Tab)'); }
                 } catch (err) { if (!(err && err.name === 'AbortError')) enhLog('model unreachable', (err && err.message) || err); }
                 finally { if (inflight === myReq) inflight = null;   // by identity - lastSrc has moved on by now when the rewrite landed
