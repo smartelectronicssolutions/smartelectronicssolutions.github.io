@@ -3258,13 +3258,23 @@
                 if (A.length === B.length) A.forEach((w, i) => { if (acKey(w) && acKey(w) !== acKey(B[i])) neverAgain(w); });
                 if (ta.value.slice(r.at, r.at + r.out.length) === r.out) { ta.setRangeText(r.prev, r.at, r.at + r.out.length, 'preserve'); stable = r.at; }
                 lastSrc = ''; hideGhost(); return true; };
+            // what the live enhance did, visible: a short status line, and {uid}/console/enhanceLog for Droplet to read from se
+            // (2026-09-25, L: "go over the enhance, it's not doing a good job" - from a phone I cannot see; this is the evidence)
+            const enhLog = (kind, info) => {
+                try { const st = $('#dc-chat-status'); if (st && !st.textContent) { st.textContent = '✨ ' + kind + (info ? ': ' + String(info).slice(0, 60) : ''); setTimeout(() => { if (st.textContent.startsWith('✨ ' + kind)) st.textContent = ''; }, 2500); } } catch (_) {}
+                try { if (DC.base) push(ref(database, `${DC.base}/enhanceLog`), { t: Date.now(), kind, info: String(info || '').slice(0, 200), ua: navigator.userAgent.slice(0, 60) }); } catch (_) {}
+            };
             // --- 1. autocorrect (in the text, instantly): the word table, then sentence capitals, then double spaces ---
+            // Runs on EVERY insert - a key, a swipe-typed word, dictation, iOS's own autocorrect, a paste - and looks at what
+            // sits before the caret. The first cut keyed on the single typed character, so swipe typing on the phone
+            // (which inserts "word " in ONE event) slipped past it entirely and nothing local ever fired (L, 12:45).
             ta.addEventListener('input', e => {
                 lastFix = null;
-                if (!on() || e.inputType !== 'insertText' || !e.data || !/[\s.,!?;:]/.test(e.data)) return;
-                let pos = ta.selectionStart;
+                if (!on() || !e.inputType || !e.inputType.startsWith('insert')) return;
+                let pos = ta.selectionStart; if (pos !== ta.selectionEnd || pos < 2) return;
+                if (!/[\s.,!?;:]/.test(ta.value[pos - 1])) return;                    // caret is mid-word: not finished yet
                 // a second space right after a space = an accidental double (L, 2026-09-25) - drop it
-                if (e.data === ' ' && pos >= 2 && ta.value[pos - 2] === ' ') { ta.setRangeText('', pos - 1, pos, 'end'); pos = ta.selectionStart; return; }
+                if (ta.value[pos - 1] === ' ' && ta.value[pos - 2] === ' ') { ta.setRangeText('', pos - 1, pos, 'end'); pos = ta.selectionStart; enhLog('double space dropped'); if (!/[\s.,!?;:]/.test(ta.value[pos - 1])) return; }
                 const before = ta.value.slice(0, pos - 1);
                 const m = /([A-Za-z']+)$/.exec(before); if (!m) return;
                 const word = m[1], start = pos - 1 - word.length;
@@ -3291,6 +3301,7 @@
                 ta.setRangeText(rep, start, pos - 1, 'end'); ta.setSelectionRange(start + rep.length + 1, start + rep.length + 1);
                 lastFix = { at: start, from: word, to: rep }; lastRewrite = null;
                 chip('fix', `<b>✓</b>${esc(word)} → ${esc(rep)}<span class="k">↶ tap to undo</span>`, 4000);
+                enhLog('fix', word + ' → ' + rep);
             });
             // the last local pass at send: single spaces, a first capital, a period on a sentence left hanging
             window.__dcTidy = s => { s = String(s || '').replace(/[ \t]{2,}/g, ' ').replace(/\s+([.,!?;:])/g, '$1').trim();
@@ -3304,28 +3315,30 @@
                 const at = stable, tailEnd = full.length, text = full.slice(at);
                 if (text.split(/\s+/).filter(Boolean).length < (minWords || 5)) return;
                 if (norm(text) === lastSrc) return; lastSrc = norm(text);
-                if (ctl) ctl.abort(); ctl = new AbortController(); const mine = ctl;
+                if (ctl) ctl.abort(); ctl = new AbortController(); const mine = ctl; const t0 = Date.now();
                 try {
                     // gemma2:9b, not the 14b chat model: 2.4 s warm / 4.7 s cold on his real sample and it fixed everything;
                     // qwen3:14b took 96 s cold. keep_alive holds it in memory between pauses (measured 2026-09-25).
                     const res = await fetch(OLLAMA, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: mine.signal,
                         body: JSON.stringify({ model: LIVE_MODEL, stream: false, keep_alive: '30m', options: { temperature: 0 }, messages: [{ role: 'system', content: PROOF_SYS + (/qwen/i.test(LIVE_MODEL) ? ' /no_think' : '') }, { role: 'user', content: text }] }) });
+                    if (!res.ok) { enhLog('model HTTP ' + res.status); return; }
                     const j = await res.json(); let out = String((j.message && j.message.content) || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+                    if (j.error) { enhLog('model error', j.error); return; }
                     if (/^["“].*["”]$/.test(out)) out = out.slice(1, -1).trim();   // some models quote the answer
                     out = (text.match(/^\s*/) || [''])[0] + out.trim() + (text.match(/\s*$/) || [''])[0];   // keep the segment's own spacing: a rewritten sentence must not swallow the space before the next one
                     // still good if the box STARTS with what we sent - he may have typed on past it, that is fine
-                    if (mine !== ctl || ta.value.slice(0, tailEnd) !== full) return;
-                    if (!out || norm(out) === norm(text) || out.length > text.length * 1.6) { if (ghost.dataset.kind === 'rewrite' || ghost.dataset.kind === 'ready') hideGhost(); stable = tailEnd; return; }
+                    if (mine !== ctl || ta.value.slice(0, tailEnd) !== full) { enhLog('rewrite stale', (Date.now() - t0) + ' ms'); return; }
+                    if (!out || norm(out) === norm(text) || out.length > text.length * 1.6) { if (ghost.dataset.kind === 'rewrite' || ghost.dataset.kind === 'ready') hideGhost(); stable = tailEnd; enhLog(out && norm(out) !== norm(text) ? 'rewrite too long, kept yours' : 'no change', (Date.now() - t0) + ' ms'); return; }
                     // a proofread never ADDS content: a word in the answer that is not in the message, and is not a typo fix
                     // of one (edit distance <= 2), is the model inventing - the prompt's shorthand examples leaked into L's text
                     // once ("S3 N1 dterm se kh comp fav"). More than one such word = throw the answer away.
                     const inW = (text.toLowerCase().match(/[a-z']+/g) || []); const inSet = new Set(inW);
                     const invented = (out.toLowerCase().match(/[a-z']+/g) || []).filter(w => w.length > 1 && !inSet.has(w) && !inW.some(x => Math.abs(x.length - w.length) <= 2 && lev(x, w) <= 2));
-                    if (invented.length > 1) { stable = tailEnd; return; }
+                    if (invented.length > 1) { stable = tailEnd; enhLog('rewrite discarded (invented words)', invented.join(' ')); return; }
                     const editingInside = ta.selectionStart < tailEnd && ta.selectionStart > at;   // his caret is inside the segment: don't move it under him
-                    if (!editingInside) applyRewrite(out, text, at, tailEnd);
-                    else { ghost._sugg = { out, prev: text, at, end: tailEnd }; chip('ready', `<b>✨</b>rewrite ready<span class="k">⇥ Tab</span>`, 0); }
-                } catch (_) {}
+                    if (!editingInside) { applyRewrite(out, text, at, tailEnd); enhLog('rewritten', (Date.now() - t0) + ' ms · ' + text.split(/\s+/).length + ' words'); }
+                    else { ghost._sugg = { out, prev: text, at, end: tailEnd }; chip('ready', `<b>✨</b>rewrite ready<span class="k">⇥ Tab</span>`, 0); enhLog('rewrite ready (Tab)'); }
+                } catch (err) { if (!(err && err.name === 'AbortError')) enhLog('model unreachable', (err && err.message) || err); }
             }
             // replaces just the segment [at, end); anything he typed after it stays, and the caret keeps its place
             function applyRewrite(out, prev, at, end) {
@@ -3355,9 +3368,10 @@
                 if (ta.selectionStart < stable) stable = 0;                                     // he went back to edit rewritten text: start over from the top
                 if (ghost.dataset.kind === 'ready' && !ghost.hidden) hideGhost();
                 // a finished sentence (". " "! " "? ") goes to the model at once, while he types the next one -
-                // that is how a long message gets fixed as it grows instead of all at the end
+                // that is how a long message gets fixed as it grows instead of all at the end. Judged from the text before
+                // the caret, not the typed character, so a swipe-typed "word. " counts too.
                 const p = ta.selectionStart;
-                if (e.inputType === 'insertText' && e.data === ' ' && p >= 2 && /[.!?]/.test(ta.value[p - 2]) && p === ta.value.length) { suggest(3); return; }
+                if (e.inputType && e.inputType.startsWith('insert') && p === ta.value.length && /[.!?]\s$/.test(ta.value.slice(0, p))) { suggest(3); return; }
                 timer = setTimeout(() => suggest(5), 700);
             });
             // --- 3. words per minute, live (L: "a number in the lower right of the box that logs the speed in real time") ---
@@ -3381,7 +3395,8 @@
             window.__dcLiveState = () => ({ stable, lastSrc, hasRewrite: !!lastRewrite });
             // Send calls this: give the unrewritten tail its pass now (3+ words), but never wait longer than `ms`
             window.__dcLiveFlush = ms => { if (!on()) return Promise.resolve(); clearTimeout(timer); lastSrc = '';
-                return Promise.race([suggest(3), new Promise(r => setTimeout(r, ms || 3000))]); };
+                let done = false; const p = suggest(3).then(() => { done = true; });
+                return Promise.race([p, new Promise(r => setTimeout(() => { if (!done) enhLog('send: gave up waiting for the rewrite', ms + ' ms'); r(); }, ms || 3000))]); };
         })();
         // remember the chat controls per device (enhance toggle, ping, target) - restored before the first render
         const PERSIST = { 'dc-chat-enhance': 'dc_enh_on', 'dc-chat-ping': 'dc_ping_on', 'dc-chat-target': 'dc_target' };
