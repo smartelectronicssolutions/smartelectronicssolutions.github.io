@@ -88,7 +88,7 @@
             else {
                 // end of the shot: hold for Droplet's ✓ if asked, otherwise roll on
                 const s = script[shot]; const n = s.n != null ? s.n : shot + 1;
-                if ($('hold').checked && done < n) { paint(); writePos(true); return; }
+                if ($('hold').checked && done < n) { paint(); writePos(true); $('next').innerHTML = '<b>waiting for Droplet\'s ✓</b> - tap the text to go on without it'; return; }
                 if (shot < script.length - 1) { shot++; word = 0; paint(); writePos(true); } else pause();
             }
             // ms per word from wpm; a word ending a sentence gets a beat
@@ -99,8 +99,13 @@
         function pause() { playing = false; clearTimeout(timer); timer = null; paint(); writePos(true); }
         function go(d) { pause(); shot = Math.max(0, Math.min(script.length - 1, shot + d)); word = 0; paint(); writePos(true); }
 
-        $('play').onclick = () => playing ? pause() : play();
-        $('say').onclick = () => playing ? pause() : play();
+        // a tap while it is holding for the ✓ = go on anyway (the hold is a courtesy, not a lock)
+        const holding = () => playing && !timer && script[shot] && word >= words().length - 1;
+        const skipHold = () => { if (shot < script.length - 1) { shot++; word = 0; paint(); writePos(true); timer = setTimeout(tick, 60000 / wpm()); } else pause(); };
+        $('play').onclick = () => holding() ? skipHold() : (playing ? pause() : play());
+        $('say').onclick = () => holding() ? skipHold() : (playing ? pause() : play());
+        // the phone freezes a background tab: say so instead of silently stopping (Droplet reads pos from the server)
+        document.addEventListener('visibilitychange', () => { if (document.hidden && playing) { pause(); $('next').innerHTML = '<b>paused</b> - the screen left; press play to continue'; } });
         $('prev').onclick = () => go(-1); $('nextBtn').onclick = () => go(1);
         $('wpm').oninput = () => { $('wpmv').textContent = wpm(); if (base) update(ref(database, base), { wpm: wpm() }).catch(() => {}); };
         document.addEventListener('keydown', e => {
