@@ -3008,7 +3008,7 @@
         const PROOF_SYS = "You are a proofreader for Luis's chat messages to Droplet. Return his message with spelling, punctuation, capitalization and sentence structure corrected. "
             + "Keep his words, his order, his meaning and his length; keep his tone, his abbreviations and his shorthand exactly as typed. Never add words that were not in the message. "
             + "Do NOT: expand abbreviations, add or remove information, add questions, split into lists, merge or reorder sentences, or explain anything. If it is already fine, return it unchanged. "
-            + "Output ONLY the corrected message: no preamble, no quotes, no notes. /no_think";
+            + "Output ONLY the corrected message: no preamble, no quotes, no notes.";   // no "/no_think" here: gemma2 echoed it INTO L's text ("eat./no_think xplained", 2026-09-25); it is a qwen token, added per call below only for qwen models
         async function computeEnhance(rough) {
             const idx = matchIndex(rough), topics = matchTopics(rough), rules = pickRules(topics);
             const hits = idx.filter(e => e.hit);
@@ -3268,6 +3268,14 @@
                 const before = ta.value.slice(0, pos - 1);
                 const m = /([A-Za-z']+)$/.exec(before); if (!m) return;
                 const word = m[1], start = pos - 1 - word.length;
+                // PHRASES Droplet taught (autocorrect/phrases, e.g. "goin gabout" -> "going about"): the last two or three words
+                const ph = AC().phrases || {};
+                for (const nwords of [3, 2]) {
+                    const mm = new RegExp('((?:[A-Za-z\']+\\s+){' + (nwords - 1) + '}[A-Za-z\']+)$').exec(before); if (!mm) continue;
+                    const k = mm[1].toLowerCase().replace(/\s+/g, ' '), hit = ph[k.replace(/ /g, '_')];
+                    if (hit && hit.to) { const s0 = pos - 1 - mm[1].length; ta.setRangeText(hit.to, s0, pos - 1, 'end'); ta.setSelectionRange(s0 + hit.to.length + 1, s0 + hit.to.length + 1);
+                        lastFix = { at: s0, from: mm[1], to: hit.to }; lastRewrite = null; chip('fix', `<b>✓</b>${esc(mm[1])} → ${esc(hit.to)}<span class="k">↶ tap to undo</span>`, 4000); return; }
+                }
                 // a doubled word ("I want to to") - drop the second one (L, 2026-09-25: "I doubled a word, let's see if it figures it out")
                 const dbl = /([A-Za-z']+)\s+$/.exec(before.slice(0, start));
                 if (dbl && word.length >= 2 && dbl[1].toLowerCase() === word.toLowerCase() && !/^(had|that|is|do|so)$/i.test(word)) {
@@ -3301,7 +3309,7 @@
                     // gemma2:9b, not the 14b chat model: 2.4 s warm / 4.7 s cold on his real sample and it fixed everything;
                     // qwen3:14b took 96 s cold. keep_alive holds it in memory between pauses (measured 2026-09-25).
                     const res = await fetch(OLLAMA, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: mine.signal,
-                        body: JSON.stringify({ model: LIVE_MODEL, stream: false, keep_alive: '30m', options: { temperature: 0 }, messages: [{ role: 'system', content: PROOF_SYS }, { role: 'user', content: text }] }) });
+                        body: JSON.stringify({ model: LIVE_MODEL, stream: false, keep_alive: '30m', options: { temperature: 0 }, messages: [{ role: 'system', content: PROOF_SYS + (/qwen/i.test(LIVE_MODEL) ? ' /no_think' : '') }, { role: 'user', content: text }] }) });
                     const j = await res.json(); let out = String((j.message && j.message.content) || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
                     if (/^["“].*["”]$/.test(out)) out = out.slice(1, -1).trim();   // some models quote the answer
                     out = (text.match(/^\s*/) || [''])[0] + out.trim() + (text.match(/\s*$/) || [''])[0];   // keep the segment's own spacing: a rewritten sentence must not swallow the space before the next one
