@@ -1052,6 +1052,7 @@
                 <option value="local">🦙 Local Console</option>
             </select>
             <button class="dc-tab active" data-tab="ch">Chat</button>
+            <span id="dc-pins"></span>   <!-- gear rows dragged up here live here (wirePins); the gear itself sits AFTER them (L, 2026-09-25: "move the gear to the right, after the six dots") -->
             <span class="dc-menu">
                 <button id="dc-gear" class="dc-gear" title="chat options">⚙</button>
                 <div id="dc-gear-pop" class="dc-pop" hidden>
@@ -1077,7 +1078,6 @@
                     <!-- the "wake Droplet" button left the menu 2026-09-25 (L): the droplet pill in the bar IS the wake control whenever it is not up -->
                 </div>
             </span>
-            <span id="dc-pins"></span>   <!-- gear rows dragged up here live here (wirePins) -->
             <span class="dc-sp"></span>
             <span class="dc-pill" id="dc-daemon"><span class="d"></span>daemon</span>
             <span class="dc-pill" id="dc-droplet"><span class="d"></span>droplet</span>
@@ -3242,11 +3242,16 @@
             let lastFix = null, lastRewrite = null, timer = null, ctl = null, lastSrc = '';
             const hideGhost = () => { ghost.hidden = true; ghost._sugg = null; ghost.dataset.kind = ''; };
             const chip = (kind, html, ms) => { ghost.dataset.kind = kind; ghost.hidden = false; ghost.innerHTML = html; clearTimeout(ghost._t); if (ms) ghost._t = setTimeout(() => { if (ghost.dataset.kind === kind) hideGhost(); }, ms); };
+            // `stable` = how much of the box has already been rewritten; only the text AFTER it goes to the model. A long
+            // message never re-sends its whole self (that is what stalled L's long test: each request grew, each answer
+            // arrived after he had typed on, and every one was thrown away as stale).
+            let stable = 0;
             const undoRewrite = () => { const r = lastRewrite; if (!r) return false; lastRewrite = null; clearTimeout(applyRewrite._learn);
                 // he rejected it: every word it changed goes on the never list (twice = never again)
                 const A = r.prev.split(/\s+/).filter(Boolean), B = (r.out || '').split(/\s+/).filter(Boolean);
                 if (A.length === B.length) A.forEach((w, i) => { if (acKey(w) && acKey(w) !== acKey(B[i])) neverAgain(w); });
-                ta.value = r.prev; ta.setSelectionRange(r.prev.length, r.prev.length); lastSrc = norm(r.prev); hideGhost(); return true; };
+                if (ta.value.slice(r.at, r.at + r.out.length) === r.out) { ta.setRangeText(r.prev, r.at, r.at + r.out.length, 'preserve'); stable = r.at; }
+                lastSrc = ''; hideGhost(); return true; };
             // --- 1. autocorrect (in the text, instantly): the word table, then sentence capitals, then double spaces ---
             ta.addEventListener('input', e => {
                 lastFix = null;
@@ -3272,9 +3277,11 @@
                 if (s.split(/\s+/).length >= 3 && /[A-Za-z0-9)]$/.test(s) && !/https?:\/\/\S+$/.test(s)) s += '.';
                 return s; };
             // --- 2. rewrite (in the text when he has paused at the end; waits for Tab when he is editing the middle) ---
-            async function suggest() {
-                const text = ta.value;
-                if (!on() || text.startsWith('/') || text.split(/\s+/).filter(Boolean).length < 5) return;
+            async function suggest(minWords) {
+                const full = ta.value; if (!on() || full.startsWith('/')) return;
+                if (stable > full.length) stable = 0;
+                const at = stable, tailEnd = full.length, text = full.slice(at);
+                if (text.split(/\s+/).filter(Boolean).length < (minWords || 5)) return;
                 if (norm(text) === lastSrc) return; lastSrc = norm(text);
                 if (ctl) ctl.abort(); ctl = new AbortController(); const mine = ctl;
                 try {
@@ -3284,35 +3291,47 @@
                         body: JSON.stringify({ model: LIVE_MODEL, stream: false, keep_alive: '30m', options: { temperature: 0 }, messages: [{ role: 'system', content: PROOF_SYS }, { role: 'user', content: text }] }) });
                     const j = await res.json(); let out = String((j.message && j.message.content) || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
                     if (/^["“].*["”]$/.test(out)) out = out.slice(1, -1).trim();   // some models quote the answer
-                    if (mine !== ctl || norm(ta.value) !== lastSrc) return;                                        // he typed on - stale
-                    if (!out || norm(out) === norm(ta.value) || out.length > text.length * 1.6) { if (ghost.dataset.kind === 'rewrite' || ghost.dataset.kind === 'ready') hideGhost(); return; }
-                    const atEnd = ta.selectionStart === ta.value.length && ta.selectionEnd === ta.value.length;
-                    if (atEnd) applyRewrite(out, ta.value);
-                    else { ghost._sugg = out; chip('ready', `<b>✨</b>rewrite ready<span class="k">⇥ Tab</span>`, 0); }
+                    out = (text.match(/^\s*/) || [''])[0] + out.trim() + (text.match(/\s*$/) || [''])[0];   // keep the segment's own spacing: a rewritten sentence must not swallow the space before the next one
+                    // still good if the box STARTS with what we sent - he may have typed on past it, that is fine
+                    if (mine !== ctl || ta.value.slice(0, tailEnd) !== full) return;
+                    if (!out || norm(out) === norm(text) || out.length > text.length * 1.6) { if (ghost.dataset.kind === 'rewrite' || ghost.dataset.kind === 'ready') hideGhost(); stable = tailEnd; return; }
+                    const editingInside = ta.selectionStart < tailEnd && ta.selectionStart > at;   // his caret is inside the segment: don't move it under him
+                    if (!editingInside) applyRewrite(out, text, at, tailEnd);
+                    else { ghost._sugg = { out, prev: text, at, end: tailEnd }; chip('ready', `<b>✨</b>rewrite ready<span class="k">⇥ Tab</span>`, 0); }
                 } catch (_) {}
             }
-            function applyRewrite(out, prev) {
-                ta.value = out; ta.setSelectionRange(out.length, out.length); lastSrc = norm(out); lastRewrite = { prev, out }; lastFix = null;
-                chip('rewrite', `<b>✨</b>rewritten<span class="k">↶ undo</span>`, 6000);
-                clearTimeout(applyRewrite._learn); applyRewrite._learn = setTimeout(() => { if (lastRewrite && lastRewrite.out === out) learnFrom(prev, out); }, 6500);   // kept for 6.5 s = he agreed
+            // replaces just the segment [at, end); anything he typed after it stays, and the caret keeps its place
+            function applyRewrite(out, prev, at, end) {
+                if (ta.value.slice(at, end) !== prev) return;
+                const tailTyped = ta.value.length > end;
+                ta.setRangeText(out, at, end, tailTyped ? 'preserve' : 'end');
+                stable = at + out.length; lastSrc = ''; lastRewrite = { prev, out, at }; lastFix = null;
+                chip('rewrite', `<b>✨</b>rewritten<span class="k">↶ undo</span>`, 8000);
+                clearTimeout(applyRewrite._learn); applyRewrite._learn = setTimeout(() => { if (lastRewrite && lastRewrite.out === out) learnFrom(prev, out); }, 8500);   // kept for 8.5 s = he agreed
             }
             ghost.onclick = () => {
-                if (ghost.dataset.kind === 'ready' && ghost._sugg) { applyRewrite(ghost._sugg, ta.value); ta.focus(); return; }
+                if (ghost.dataset.kind === 'ready' && ghost._sugg) { const s = ghost._sugg; applyRewrite(s.out, s.prev, s.at, s.end); ta.focus(); return; }
                 if (ghost.dataset.kind === 'rewrite') { undoRewrite(); ta.focus(); return; }
                 if (ghost.dataset.kind === 'fix' && lastFix) { const f = lastFix; lastFix = null; ta.setRangeText(f.from, f.at, f.at + f.to.length, 'end'); ta.setSelectionRange(f.at + f.from.length + 1, f.at + f.from.length + 1); hideGhost(); ta.focus(); }
             };
-            ta.addEventListener('input', () => {
+            ta.addEventListener('input', e => {
                 clearTimeout(timer);
-                if (!ta.value) { hideGhost(); lastRewrite = null; if (ctl) ctl.abort(); return; }
-                if ((ghost.dataset.kind === 'ready' || ghost.dataset.kind === 'rewrite') && !ghost.hidden && norm(ta.value) !== lastSrc) { hideGhost(); lastRewrite = null; }
-                timer = setTimeout(suggest, 700);
+                if (!ta.value) { hideGhost(); lastRewrite = null; stable = 0; lastSrc = ''; if (ctl) ctl.abort(); return; }
+                if (ta.selectionStart < stable) stable = 0;                                     // he went back to edit rewritten text: start over from the top
+                if (ghost.dataset.kind === 'ready' && !ghost.hidden) hideGhost();
+                // a finished sentence (". " "! " "? ") goes to the model at once, while he types the next one -
+                // that is how a long message gets fixed as it grows instead of all at the end
+                const p = ta.selectionStart;
+                if (e.inputType === 'insertText' && e.data === ' ' && p >= 2 && /[.!?]/.test(ta.value[p - 2]) && p === ta.value.length) { suggest(3); return; }
+                timer = setTimeout(() => suggest(5), 700);
             });
             // --- 3. words per minute, live (L: "a number in the lower right of the box that logs the speed in real time") ---
             // characters typed in a sliding 10 s window, 5 characters = a word. Fades after 3 s of quiet.
             const wpmEl = $('#dc-wpm'); const keys = []; let wpmTick = null;
-            const paintWpm = () => { const now = Date.now(); while (keys.length && now - keys[0] > 10000) keys.shift();
+            // a 30 s window with a 5 s floor: the 10 s / 2 s first cut swung between "really low and really fast" (L)
+            const paintWpm = () => { const now = Date.now(); while (keys.length && now - keys[0] > 30000) keys.shift();
                 if (!wpmEl) return; if (!keys.length) { wpmEl.hidden = true; clearInterval(wpmTick); wpmTick = null; return; }
-                const span = Math.max(2000, now - keys[0]); const wpm = Math.round((keys.length / 5) / (span / 60000));
+                const span = Math.max(5000, now - keys[0]); const wpm = Math.round((keys.length / 5) / (span / 60000));
                 wpmEl.hidden = false; wpmEl.textContent = wpm + ' wpm'; wpmEl.classList.toggle('idle', now - keys[keys.length - 1] > 3000); };
             ta.addEventListener('input', e => { if (e.inputType && e.inputType.startsWith('insertText') && e.data) { for (let i = 0; i < e.data.length; i++) keys.push(Date.now()); if (!wpmTick) wpmTick = setInterval(paintWpm, 500); paintWpm(); } });
             ta.addEventListener('keydown', e => {
@@ -3323,13 +3342,13 @@
                     e.preventDefault(); const f = lastFix; lastFix = null; neverAgain(f.from);   // he wanted it his way: remember that
                     ta.setRangeText(f.from, f.at, f.at + f.to.length, 'end'); ta.setSelectionRange(f.at + f.from.length + 1, f.at + f.from.length + 1); hideGhost(); return;
                 }
-                if (e.key === 'Tab' && !e.shiftKey && ghost.dataset.kind === 'ready' && !ghost.hidden && ghost._sugg) { e.preventDefault(); applyRewrite(ghost._sugg, ta.value); return; }
+                if (e.key === 'Tab' && !e.shiftKey && ghost.dataset.kind === 'ready' && !ghost.hidden && ghost._sugg) { e.preventDefault(); const s = ghost._sugg; applyRewrite(s.out, s.prev, s.at, s.end); return; }
                 if (e.key === 'Escape' && !ghost.hidden) hideGhost();
-                if (e.key === 'Enter' && !e.shiftKey) { clearTimeout(timer); if (ctl) ctl.abort(); hideGhost(); lastRewrite = null; }   // sending: nothing lands under an empty box
+                if (e.key === 'Enter' && !e.shiftKey) { clearTimeout(timer); if (ctl) ctl.abort(); hideGhost(); lastRewrite = null; stable = 0; lastSrc = ''; }   // sending: nothing lands under an empty box
             });
-            $('#dc-chat-send') && $('#dc-chat-send').addEventListener('click', () => { clearTimeout(timer); if (ctl) ctl.abort(); hideGhost(); lastRewrite = null; });
+            $('#dc-chat-send') && $('#dc-chat-send').addEventListener('click', () => { clearTimeout(timer); if (ctl) ctl.abort(); hideGhost(); lastRewrite = null; stable = 0; lastSrc = ''; });
             window.__dcLiveFix = w => fixFor(String(w || '').toLowerCase()) || null;   // test hooks
-            window.__dcLiveApply = (out) => applyRewrite(out, ta.value);
+            window.__dcLiveState = () => ({ stable, lastSrc, hasRewrite: !!lastRewrite });
         })();
         // remember the chat controls per device (enhance toggle, ping, target) - restored before the first render
         const PERSIST = { 'dc-chat-enhance': 'dc_enh_on', 'dc-chat-ping': 'dc_ping_on', 'dc-chat-target': 'dc_target' };
