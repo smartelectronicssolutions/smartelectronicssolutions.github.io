@@ -1845,7 +1845,7 @@
             if (DC.editKey) { const ta0 = $('#dc-chat-in'); if (ta0) ta0.value = ''; } setEditMode('');   // a triple-tap on the newest message had started an edit: drop it
             const box = document.createElement('div'); box.className = 'dc-del';
             const playing = DC.speakingKey === k;
-            box.innerHTML = `<div class="t">Message${t.topic ? ' <span class="tg"># ' + esc(t.topic) + '</span>' : ''}</div><div class="q">${esc(String(t.text || '').slice(0, 140))}</div><div class="r"><button type="button" class="play" title="Play - read it aloud with this device's voice - nothing is saved">${playing ? '■' : '▶'}</button><button type="button" class="rsvp" title="Read - speed read, a few words at a time, like the text app">⚡</button><button type="button" class="tag" title="Tag - move this message (and its reply) to another topic tab, or untag it">#</button><button type="button" class="keep">Close</button><button type="button" class="go">Delete</button></div>`;
+            box.innerHTML = `<div class="t">Message${t.topic ? ' <span class="tg"># ' + esc(t.topic) + '</span>' : ''}</div><div class="q">${esc(String(t.text || '').slice(0, 140))}</div><div class="r"><button type="button" class="play" title="Play - read it aloud with this device's voice - nothing is saved">${playing ? '■' : '▶'}</button><button type="button" class="rsvp" title="Read - speed read, a few words at a time, like the text app">⚡</button><button type="button" class="tag" title="Tag - move this message (and its reply) to another topic tab, or untag it">#</button><button type="button" class="go">Delete</button></div>`;
             host.appendChild(box);
             // ARMING (2026-09-19, second pass): the box opens right under a finger that is often still tapping. The first fix only
             // ignored taps OUTSIDE the box for 550 ms - a 4th tap landing on Close (or Delete!) still fired at once, and a slow
@@ -1856,8 +1856,11 @@
             box.classList.add('arming');
             const arm = () => { if (!box.isConnected) return; const left = quietUntil - Date.now(); if (left > 0) { setTimeout(arm, left + 15); return; } box.classList.remove('arming'); };
             setTimeout(arm, 615);
-            const cleanup = () => { document.removeEventListener('pointerdown', onDown, true); document.removeEventListener('click', onClick, true); };
+            const cleanup = () => { document.removeEventListener('pointerdown', onDown, true); document.removeEventListener('click', onClick, true); document.removeEventListener('keydown', onKey, true); };
             const close = () => { box.remove(); cleanup(); };
+            // Escape = a tap outside (L, 2026-09-25: "get rid of the Close, make escape work like clicking outside the box");
+            // captured so the console's own Escape (which closes the whole console) never sees it
+            const onKey = e => { if (e.key !== 'Escape') return; if (!box.isConnected) { cleanup(); return; } e.stopPropagation(); e.preventDefault(); close(); };
             const onDown = e => {
                 if (!box.isConnected) { cleanup(); return; }
                 if (quiet()) { quietUntil = Math.max(quietUntil, Date.now() + 450); return; }   // still inside the opening burst: push the window out, ignore the tap
@@ -1869,7 +1872,7 @@
             const onClick = e => { if (!box.isConnected) { cleanup(); return; } if (quiet()) { e.stopPropagation(); e.preventDefault(); } };   // burst clicks: no button, no edit, no new count
             document.addEventListener('pointerdown', onDown, true);
             document.addEventListener('click', onClick, true);
-            box.querySelector('.keep').onclick = () => { if (!quiet()) { close(); closeConsole(); } };
+            document.addEventListener('keydown', onKey, true);
             const pb = box.querySelector('.play');
             pb.onclick = () => {
                 if (quiet()) return;
@@ -3003,7 +3006,7 @@
         // pure enhance core — no DOM. Used by BOTH the Workbench and the Chat.
         // one proofreader prompt for both the send-time enhance and the live rewrite under the box
         const PROOF_SYS = "You are a proofreader for Luis's chat messages to Droplet. Return his message with spelling, punctuation, capitalization and sentence structure corrected. "
-            + "Keep his words, his order, his meaning and his length; keep his tone and his shorthand (S3, N1, dterm, se, kh, comp, fav) exactly as typed. "
+            + "Keep his words, his order, his meaning and his length; keep his tone, his abbreviations and his shorthand exactly as typed. Never add words that were not in the message. "
             + "Do NOT: expand abbreviations, add or remove information, add questions, split into lists, merge or reorder sentences, or explain anything. If it is already fine, return it unchanged. "
             + "Output ONLY the corrected message: no preamble, no quotes, no notes. /no_think";
         async function computeEnhance(rough) {
@@ -3305,6 +3308,12 @@
                     // still good if the box STARTS with what we sent - he may have typed on past it, that is fine
                     if (mine !== ctl || ta.value.slice(0, tailEnd) !== full) return;
                     if (!out || norm(out) === norm(text) || out.length > text.length * 1.6) { if (ghost.dataset.kind === 'rewrite' || ghost.dataset.kind === 'ready') hideGhost(); stable = tailEnd; return; }
+                    // a proofread never ADDS content: a word in the answer that is not in the message, and is not a typo fix
+                    // of one (edit distance <= 2), is the model inventing - the prompt's shorthand examples leaked into L's text
+                    // once ("S3 N1 dterm se kh comp fav"). More than one such word = throw the answer away.
+                    const inW = (text.toLowerCase().match(/[a-z']+/g) || []); const inSet = new Set(inW);
+                    const invented = (out.toLowerCase().match(/[a-z']+/g) || []).filter(w => w.length > 1 && !inSet.has(w) && !inW.some(x => Math.abs(x.length - w.length) <= 2 && lev(x, w) <= 2));
+                    if (invented.length > 1) { stable = tailEnd; return; }
                     const editingInside = ta.selectionStart < tailEnd && ta.selectionStart > at;   // his caret is inside the segment: don't move it under him
                     if (!editingInside) applyRewrite(out, text, at, tailEnd);
                     else { ghost._sugg = { out, prev: text, at, end: tailEnd }; chip('ready', `<b>✨</b>rewrite ready<span class="k">⇥ Tab</span>`, 0); }
