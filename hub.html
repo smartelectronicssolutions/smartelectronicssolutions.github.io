@@ -974,10 +974,14 @@
            (L, 2026-09-25: "green shouldn't be in the default, keep with purple all around"). Green had crept in on his
            side (bubbles + send since the 09-18 theme pass, then briefly the fill tonight when I read him backwards). */
         .dc-chat-input textarea:focus { outline: none; border-color: var(--dc-purple); }
-        /* live enhance (2026-09-25): a quiet line under the box - an autocorrect note for 2.5 s, or the suggested rewrite */
-        .dc-ghost { margin: 4px 2px 0; padding: 4px 8px; border-left: 2px solid var(--dc-purple); font-size: calc(0.78rem * var(--dc-fs, 1)); color: var(--muted); line-height: 1.4; cursor: pointer; white-space: pre-wrap; word-break: break-word; }
+        /* live enhance (2026-09-25): everything happens IN the box - fixes and the rewrite land in the text itself; this chip
+           only floats on the box's top-right edge to say what changed, and a tap undoes it. Absolute, so nothing moves
+           (L: "it pops up text above and it's pushing the window down - I wanted all this to happen in the chatbox"). */
+        .dc-chat-input { position: relative; }
+        .dc-ghost { position: absolute; right: 66px; top: -9px; z-index: 3; max-width: 62%; padding: 2px 9px; border-radius: 999px; background: var(--surface); border: 1px solid var(--dc-purple);
+            color: var(--muted); font-size: calc(0.68rem * var(--dc-fs, 1)); line-height: 1.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; box-shadow: 0 2px 8px var(--dc-shadow); }
         .dc-ghost b { color: var(--dc-purple); font-weight: 600; margin-right: 4px; }
-        .dc-ghost .k { opacity: .6; font-size: .86em; margin-left: 6px; white-space: nowrap; }
+        .dc-ghost .k { opacity: .7; margin-left: 6px; }
         .dc-ghost:hover { color: var(--text); }
         .dc-chat-input .dc-btn.push { align-self: stretch; padding: 0 18px; font-size: calc(1.1rem * var(--dc-fs, 1)); }
         .dc-rt { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px; min-width: 0; overflow: hidden; }
@@ -1089,8 +1093,8 @@
                         <span class="ps" role="button" tabindex="-1" title="tap to put the cursor here">❯</span>
                         <textarea id="dc-chat-in" rows="2" placeholder="type here…  (Enter sends · Shift+Enter newline)"></textarea>
                         <button class="dc-btn push" id="dc-chat-send">▲</button>
+                        <div id="dc-ghost" class="dc-ghost" hidden></div>   <!-- live enhance chip: floats on the box's top edge, never takes layout space; tap = undo -->
                     </div>
-                    <div id="dc-ghost" class="dc-ghost" hidden></div>   <!-- live enhance: the autocorrect note / the suggested rewrite (Tab or tap to use) -->
                     <div class="dc-status" id="dc-chat-status" style="margin:6px 2px 0"></div>
                     <div class="dc-status dc-guest-note" id="dc-guest-note" hidden></div>   <!-- guest on the Local target: says plainly what they are talking to (2026-09-19) -->
                 </div>
@@ -2720,14 +2724,12 @@
                 let prompt = raw, note = '';
                 if (enhOn && DC.kdaemon) {
                     note = '✨ enhance by your daemon';       // their ollama, server-side; it writes `enhanced` onto this turn
-                } else if (enhOn) {
-                    $('#dc-chat-status').textContent = '✨ enhancing…';
-                    const r = await computeEnhance(raw);
-                    prompt = r.enhanced;
-                    note = (r.ollamaFailed ? 'ollama down — sent raw' : (r.rejected ? '✨ rejected (' + r.rejected + ') — sent raw' : 'enhanced')) + ' · ' + r.hits.length + ' hits'
-                        + (r.verdict.tier === 'strong' || r.verdict.tier === 'filed' ? ' · ⚠ recall ' + r.verdict.tier : '');
-                    await update(lref, { enhanced: prompt, enhNote: r.rejected || '' });   // your bubble shows "✨ see what was sent" / "✨ rejected"
                 }
+                // 2026-09-25 (L: "I'm seeing the old style enhance where it gives the 'see what was sent' part - I want it
+                // all to happen in the typing window"): the send-time rewrite is GONE for his own login. Enhance now works
+                // entirely in the box (wireLiveEnhance: autocorrect + the in-place rewrite) and what he sends is exactly
+                // what the box shows - no `enhanced` field, no "✨ see what was sent" on the bubble. computeEnhance() stays
+                // for the kdaemon path above and for old turns that still carry `enhanced`.
                 // 🦙 no job, no daemon - and NOT awaited (L, 2026-09-25: "when it is thinking on local and I switch back
                 // to droplet I can't post until local is done"): the reply lands in its own pending bubble whenever
                 // ollama answers, exactly like a Droplet job; the box is yours again the moment it is queued.
@@ -3190,9 +3192,12 @@
         //      his real habits from 1,170 archived console lines (im, dont, whats, theres, lets, isnt, cant, didnt, ive...) plus
         //      classic typos and his own {uid}/console/autocorrect pairs. Backspace right after a fix puts the original back,
         //      like a phone. Ambiguous forms (id, ill, well, were, hell) are deliberately NOT in the table.
-        //   2. REWRITE - after 900 ms of quiet with 5+ words, the send-time proofreader prompt goes to ollama; if the answer
-        //      differs it shows as a ghost line under the box. Tab or a tap swaps it in; typing on hides it; a newer keystroke
-        //      aborts the older request. The suggestion never touches the box on its own.
+        //   2. REWRITE - after 900 ms of quiet with 5+ words, the send-time proofreader prompt goes to ollama. If the answer
+        //      differs and his caret is at the END of the text (he is not editing the middle), it is applied IN the box, caret
+        //      kept at the end, and the chip says "rewritten · ↶" - tap the chip or press Backspace right away to get his
+        //      words back. If the caret is mid-text the rewrite waits as "ready · Tab" instead of moving under his cursor.
+        //      Typing on discards it; a newer keystroke aborts the older request. (2026-09-25 10:10, L: "I wanted all this
+        //      to happen in the chatbox" - the first cut showed it as a line under the box, which pushed the log down.)
         (function wireLiveEnhance() {
             const ta = $('#dc-chat-in'), ghost = $('#dc-ghost'); if (!ta || !ghost) return;
             const on = () => !!($('#dc-chat-enhance') && $('#dc-chat-enhance').checked);
@@ -3206,23 +3211,23 @@
             const fixFor = w => (DC.autocorrect || {})[w] || FIX[w];
             const caseLike = (src, fix) => src === src.toUpperCase() && src.length > 1 ? fix.toUpperCase() : (src[0] === src[0].toUpperCase() ? fix[0].toUpperCase() + fix.slice(1) : fix);
             const norm = s => s.replace(/\s+/g, ' ').trim();
-            let lastFix = null, timer = null, ctl = null, lastSrc = '';
+            let lastFix = null, lastRewrite = null, timer = null, ctl = null, lastSrc = '';
             const hideGhost = () => { ghost.hidden = true; ghost._sugg = null; ghost.dataset.kind = ''; };
-            // --- 1. autocorrect ---
+            const chip = (kind, html, ms) => { ghost.dataset.kind = kind; ghost.hidden = false; ghost.innerHTML = html; clearTimeout(ghost._t); if (ms) ghost._t = setTimeout(() => { if (ghost.dataset.kind === kind) hideGhost(); }, ms); };
+            const undoRewrite = () => { const r = lastRewrite; if (!r) return false; lastRewrite = null; ta.value = r.prev; ta.setSelectionRange(r.prev.length, r.prev.length); lastSrc = norm(r.prev); hideGhost(); return true; };
+            // --- 1. autocorrect (in the text, instantly) ---
             ta.addEventListener('input', e => {
-                const armed = lastFix; lastFix = null;
+                lastFix = null;
                 if (!on() || e.inputType !== 'insertText' || !e.data || !/[\s.,!?;:]/.test(e.data)) return;
                 const pos = ta.selectionStart, before = ta.value.slice(0, pos - 1);
                 const m = /([A-Za-z']+)$/.exec(before); if (!m) return;
                 const word = m[1], fix = fixFor(word.toLowerCase()); if (!fix || fix === word) return;
                 const rep = caseLike(word, fix), start = pos - 1 - word.length;
                 ta.setRangeText(rep, start, pos - 1, 'end'); ta.setSelectionRange(start + rep.length + 1, start + rep.length + 1);
-                lastFix = { at: start, from: word, to: rep };
-                ghost.dataset.kind = 'fix'; ghost._sugg = null; ghost.hidden = false;
-                ghost.innerHTML = `<b>✓</b>${esc(word)} → ${esc(rep)}<span class="k">backspace to undo</span>`;
-                clearTimeout(ghost._t); ghost._t = setTimeout(() => { if (ghost.dataset.kind === 'fix') hideGhost(); }, 2500);
+                lastFix = { at: start, from: word, to: rep }; lastRewrite = null;
+                chip('fix', `<b>✓</b>${esc(word)} → ${esc(rep)}<span class="k">↶</span>`, 2500);
             });
-            // --- 2. rewrite ---
+            // --- 2. rewrite (in the text when he has paused at the end; waits for Tab when he is editing the middle) ---
             async function suggest() {
                 const text = ta.value;
                 if (!on() || text.startsWith('/') || text.split(/\s+/).filter(Boolean).length < 5) return;
@@ -3233,33 +3238,42 @@
                         body: JSON.stringify({ model: MODEL, stream: false, messages: [{ role: 'system', content: PROOF_SYS }, { role: 'user', content: text }] }) });
                     const j = await res.json(); const out = String((j.message && j.message.content) || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
                     if (mine !== ctl || norm(ta.value) !== lastSrc) return;                                        // he typed on - stale
-                    if (!out || norm(out) === norm(ta.value) || out.length > text.length * 1.6) { if (ghost.dataset.kind === 'rewrite') hideGhost(); return; }
-                    ghost._sugg = out; ghost.dataset.kind = 'rewrite'; ghost.hidden = false;
-                    ghost.innerHTML = `<b>✨</b>${esc(out)}<span class="k">⇥ Tab / tap to use · keep typing to ignore</span>`;
+                    if (!out || norm(out) === norm(ta.value) || out.length > text.length * 1.6) { if (ghost.dataset.kind === 'rewrite' || ghost.dataset.kind === 'ready') hideGhost(); return; }
+                    const atEnd = ta.selectionStart === ta.value.length && ta.selectionEnd === ta.value.length;
+                    if (atEnd) applyRewrite(out, ta.value);
+                    else { ghost._sugg = out; chip('ready', `<b>✨</b>rewrite ready<span class="k">⇥ Tab</span>`, 0); }
                 } catch (_) {}
             }
-            function acceptRewrite() {
-                const s = ghost._sugg; if (!s) return;
-                ta.value = s; ta.focus(); ta.setSelectionRange(s.length, s.length); lastSrc = norm(s); hideGhost();
+            function applyRewrite(out, prev) {
+                ta.value = out; ta.setSelectionRange(out.length, out.length); lastSrc = norm(out); lastRewrite = { prev }; lastFix = null;
+                chip('rewrite', `<b>✨</b>rewritten<span class="k">↶ undo</span>`, 6000);
             }
-            ghost.onclick = () => { if (ghost.dataset.kind === 'rewrite') acceptRewrite(); };
+            ghost.onclick = () => {
+                if (ghost.dataset.kind === 'ready' && ghost._sugg) { applyRewrite(ghost._sugg, ta.value); ta.focus(); return; }
+                if (ghost.dataset.kind === 'rewrite') { undoRewrite(); ta.focus(); return; }
+                if (ghost.dataset.kind === 'fix' && lastFix) { const f = lastFix; lastFix = null; ta.setRangeText(f.from, f.at, f.at + f.to.length, 'end'); ta.setSelectionRange(f.at + f.from.length + 1, f.at + f.from.length + 1); hideGhost(); ta.focus(); }
+            };
             ta.addEventListener('input', () => {
                 clearTimeout(timer);
-                if (!ta.value) { hideGhost(); if (ctl) ctl.abort(); return; }
-                if (ghost.dataset.kind === 'rewrite' && !ghost.hidden && norm(ta.value) !== lastSrc) hideGhost();
+                if (!ta.value) { hideGhost(); lastRewrite = null; if (ctl) ctl.abort(); return; }
+                if ((ghost.dataset.kind === 'ready' || ghost.dataset.kind === 'rewrite') && !ghost.hidden && norm(ta.value) !== lastSrc) { hideGhost(); lastRewrite = null; }
                 timer = setTimeout(suggest, 900);
             });
             ta.addEventListener('keydown', e => {
+                if (e.key === 'Backspace' && lastRewrite && ta.selectionStart === ta.value.length && ta.value === (ghost.dataset.kind === 'rewrite' ? ta.value : ta.value)) {
+                    if (!ghost.hidden && ghost.dataset.kind === 'rewrite') { e.preventDefault(); undoRewrite(); return; }   // one Backspace right after = his words back
+                }
                 if (e.key === 'Backspace' && lastFix && ta.selectionStart === lastFix.at + lastFix.to.length + 1 && ta.value.slice(lastFix.at, lastFix.at + lastFix.to.length) === lastFix.to) {
                     e.preventDefault(); const f = lastFix; lastFix = null;
                     ta.setRangeText(f.from, f.at, f.at + f.to.length, 'end'); ta.setSelectionRange(f.at + f.from.length + 1, f.at + f.from.length + 1); hideGhost(); return;
                 }
-                if (e.key === 'Tab' && !e.shiftKey && ghost.dataset.kind === 'rewrite' && !ghost.hidden && ghost._sugg) { e.preventDefault(); acceptRewrite(); return; }
+                if (e.key === 'Tab' && !e.shiftKey && ghost.dataset.kind === 'ready' && !ghost.hidden && ghost._sugg) { e.preventDefault(); applyRewrite(ghost._sugg, ta.value); return; }
                 if (e.key === 'Escape' && !ghost.hidden) hideGhost();
-                if (e.key === 'Enter' && !e.shiftKey) { clearTimeout(timer); if (ctl) ctl.abort(); hideGhost(); }   // sending: nothing lands under an empty box
+                if (e.key === 'Enter' && !e.shiftKey) { clearTimeout(timer); if (ctl) ctl.abort(); hideGhost(); lastRewrite = null; }   // sending: nothing lands under an empty box
             });
-            $('#dc-chat-send') && $('#dc-chat-send').addEventListener('click', () => { clearTimeout(timer); if (ctl) ctl.abort(); hideGhost(); });
-            window.__dcLiveFix = w => fixFor(String(w || '').toLowerCase()) || null;   // test hook
+            $('#dc-chat-send') && $('#dc-chat-send').addEventListener('click', () => { clearTimeout(timer); if (ctl) ctl.abort(); hideGhost(); lastRewrite = null; });
+            window.__dcLiveFix = w => fixFor(String(w || '').toLowerCase()) || null;   // test hooks
+            window.__dcLiveApply = (out) => applyRewrite(out, ta.value);
         })();
         // remember the chat controls per device (enhance toggle, ping, target) - restored before the first render
         const PERSIST = { 'dc-chat-enhance': 'dc_enh_on', 'dc-chat-ping': 'dc_ping_on', 'dc-chat-target': 'dc_target' };
