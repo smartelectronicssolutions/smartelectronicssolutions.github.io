@@ -710,11 +710,29 @@
         .dc-gear { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: var(--dc-r-sm); padding: 3px 8px; cursor: pointer; font-size: calc(0.85rem * var(--dc-fs, 1)); }
         .dc-gear:hover, .dc-gear.open { color: var(--dc-purple); border-color: var(--dc-purple); }
         .dc-pop { position: absolute; top: calc(100% + 6px); left: 0; z-index: 5; background: var(--surface); border: 1px solid var(--border); border-radius: var(--dc-r-md); padding: 10px 12px;
-            display: flex; flex-direction: column; gap: 9px; min-width: 230px; box-shadow: 0 8px 24px var(--dc-shadow); font-size: calc(0.78rem * var(--dc-fs, 1)); }
+            display: flex; flex-direction: column; gap: 9px; min-width: 250px; box-shadow: 0 8px 24px var(--dc-shadow); font-size: calc(0.78rem * var(--dc-fs, 1)); }
         .dc-pop[hidden] { display: none; }   /* author display:flex would otherwise beat the UA [hidden] rule */
+        .dc-pop .dc-chk { white-space: nowrap; }   /* the ⋮⋮ handle took the slack: "🎨 theme" was breaking between the glyph and the word */
         .dc-pop .dc-btn.sm { padding: 4px 9px; font-size: calc(0.74rem * var(--dc-fs, 1)); align-self: flex-start; }
         .dc-pop .dc-size { font-family: var(--font-mono); font-size: calc(0.66rem * var(--dc-fs, 1)); opacity: .7; }
         .dc-pop input[type=number] { width: 3.6em; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: var(--dc-r-sm); padding: 2px 5px; font-size: calc(0.72rem * var(--dc-fs, 1)); font-family: var(--font-mono); }
+        /* PIN ROWS (2026-09-24, L: "drag out one of the things from in the gear out to the header area").
+           Every gear row carries a ⋮⋮ handle; drag it onto the top bar and the row itself MOVES there -
+           same element, same ids, same listeners, same guest/kd rules - drag it back onto ⚙ to return it.
+           A tap on the handle does the same without the drag. Per device (localStorage dc_pins). */
+        .dc-pin-h { margin-left: auto; padding: 0 3px; opacity: .4; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; font-size: calc(0.8rem * var(--dc-fs, 1)); line-height: 1; }
+        .dc-pin-h:hover { opacity: .9; }
+        .dc-prow { display: flex; align-items: center; gap: 6px; }
+        .dc-pop .dc-tab { align-self: flex-start; padding: 3px 6px; border-radius: 0; }
+        #dc-pins { display: inline-flex; align-items: center; gap: 8px; max-width: 48vw; overflow-x: auto; scrollbar-width: none; }
+        #dc-pins::-webkit-scrollbar { display: none; }
+        #dc-pins > * { white-space: nowrap; flex: 0 0 auto; }
+        #dc-pins .dc-pin-h { margin-left: 2px; }
+        #dc-pins .dc-btn.sm { padding: 3px 8px; font-size: calc(0.74rem * var(--dc-fs, 1)); }
+        #dc-pins .dc-tab { padding: 4px 8px; }
+        .dc-bar.dc-drop { outline: 2px dashed color-mix(in srgb, var(--dc-purple) 55%, transparent); outline-offset: -3px; }
+        .dc-gear.dc-drop { color: var(--dc-purple); border-color: var(--dc-purple); }
+        .dc-pin-ghost { position: fixed; z-index: 9999; pointer-events: none; padding: 4px 10px; border-radius: var(--dc-r-pill, 999px); background: var(--surface); border: 1px solid var(--dc-purple); color: var(--text); font-size: calc(0.76rem * var(--dc-fs, 1)); box-shadow: 0 6px 18px var(--dc-shadow); opacity: .92; transform: translate(-50%, -140%); white-space: nowrap; }
         .dc-bar .dc-sp { flex: 1; }
         .dc-pill { font-family: monospace; font-size: calc(0.68rem * var(--dc-fs, 1)); padding: 3px 9px; border-radius: var(--dc-r-lg);
             border: 1px solid var(--border); color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
@@ -1038,10 +1056,12 @@
                 <option value="local">🦙 Local Console</option>
             </select>
             <button class="dc-tab active" data-tab="ch">Chat</button>
-            <button class="dc-tab" data-tab="sys" title="account · daemon · routines · fleet">Sys</button>
             <span class="dc-menu">
                 <button id="dc-gear" class="dc-gear" title="chat options">⚙</button>
                 <div id="dc-gear-pop" class="dc-pop" hidden>
+                    <!-- Sys moved in here from the bar (2026-09-24, L: "move sys into gear, can say full system").
+                         Still a .dc-tab so the tab wiring below owns it; drag its ⋮⋮ onto the bar to have it back up there. -->
+                    <button class="dc-tab" id="dc-sys-tab" data-tab="sys" title="account · daemon · routines · fleet · insights">🖥 Full system</button>
                     <label class="dc-chk" title="polish the message with the enhancer (ollama + rules + memory recall) before it goes; also renders replies clean"><input type="checkbox" id="dc-chat-enhance"> ✨ enhance</label>
                     <label class="dc-chk" title="Telegram DM you when the reply lands"><input type="checkbox" id="dc-chat-ping"> ping on reply</label>
                     <label class="dc-chk" id="dc-pg-lbl" title="master switch: Telegram DMs from the console on job / routine completion (sent from the bot the daemon reports in meta)"><input type="checkbox" id="dc-pg-enabled" class="dc-switch"> 📣 Telegram pings</label>
@@ -1059,6 +1079,7 @@
                     <button class="dc-btn ghost sm" id="dc-wake" title="relaunch Droplet's terminal session on se (use when replies say claude has exited)">▲ wake Droplet</button>
                 </div>
             </span>
+            <span id="dc-pins"></span>   <!-- gear rows dragged up here live here (wirePins) -->
             <span class="dc-sp"></span>
             <span class="dc-pill" id="dc-daemon"><span class="d"></span>daemon</span>
             <span class="dc-pill" id="dc-droplet"><span class="d"></span>droplet</span>
@@ -1224,6 +1245,63 @@
             gearPop.addEventListener('click', e => e.stopPropagation());
             document.addEventListener('click', () => { if (!gearPop.hidden) { gearPop.hidden = true; gearBtn.classList.remove('open'); } });
         }
+        // PIN ROWS (2026-09-24, L: "drag out one of the things from in the gear out to the header area").
+        // The row element itself MOVES between #dc-gear-pop and #dc-pins, so its ids, change listeners
+        // and the guest/kd display rules all travel with it - nothing is cloned or re-wired. Pointer
+        // events rather than HTML5 dnd so a thumb on the phone can do it. ⋮⋮ onto the bar = pin, onto
+        // ⚙ / the open menu = unpin, a plain tap = toggle. Order inside the menu is restored on unpin.
+        (function wirePins() {
+            const pop = $('#dc-gear-pop'), pins = $('#dc-pins'), bar = document.querySelector('.dc-bar'), gear = $('#dc-gear');
+            if (!pop || !pins || !bar || !gear) return;
+            const rows = [];
+            [...pop.children].forEach((el, idx) => {
+                el.dataset.idx = idx;
+                if (el.classList.contains('dc-size')) return;                          // a readout, not a control
+                const ctl = el.id ? el : el.querySelector('[id]'); if (!ctl) return;
+                let row = el;
+                if (el.tagName === 'BUTTON') { row = document.createElement('span'); row.className = 'dc-prow'; row.dataset.idx = idx; pop.insertBefore(row, el); row.appendChild(el); }
+                row.dataset.pin = ctl.id;
+                const h = document.createElement('span'); h.className = 'dc-pin-h'; h.textContent = '⋮⋮';
+                h.title = 'drag onto the top bar to keep this up there (a tap does it too) - drag back to ⚙ to return it';
+                row.appendChild(h); rows.push(row); wireHandle(h, row);
+            });
+            const load = () => { try { return JSON.parse(localStorage.getItem('dc_pins') || '[]'); } catch (_) { return []; } };
+            const save = () => { try { localStorage.setItem('dc_pins', JSON.stringify([...pins.children].map(r => r.dataset.pin))); } catch (_) {} };
+            function setPinned(row, on) {
+                if (on) pins.appendChild(row);
+                else { const after = [...pop.children].find(c => +c.dataset.idx > +row.dataset.idx); pop.insertBefore(row, after || null); }
+                save();
+            }
+            function over(e) {
+                const el = document.elementFromPoint(e.clientX, e.clientY); if (!el) return '';
+                if (gear.contains(el) || pop.contains(el)) return 'gear';
+                return bar.contains(el) ? 'bar' : '';
+            }
+            function wireHandle(h, row) {
+                let ghost = null, moved = false, active = false, sx = 0, sy = 0;
+                h.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); });   // inside a <label>: must never toggle its checkbox
+                h.addEventListener('pointerdown', e => {
+                    e.preventDefault(); e.stopPropagation(); moved = false; active = true; sx = e.clientX; sy = e.clientY;
+                    try { h.setPointerCapture(e.pointerId); } catch (_) {}   // an `active` flag, not hasPointerCapture: capture can be refused (synthetic events, some webviews) and the drag must still work
+                });
+                h.addEventListener('pointermove', e => {
+                    if (!active) return;
+                    if (!moved && Math.hypot(e.clientX - sx, e.clientY - sy) < 6) return;
+                    if (!moved) { moved = true; ghost = document.createElement('div'); ghost.className = 'dc-pin-ghost'; ghost.textContent = row.textContent.replace('⋮⋮', '').trim().slice(0, 28); document.body.appendChild(ghost); }
+                    ghost.style.left = e.clientX + 'px'; ghost.style.top = e.clientY + 'px';
+                    const t = over(e); bar.classList.toggle('dc-drop', t === 'bar'); gear.classList.toggle('dc-drop', t === 'gear');
+                });
+                const end = e => {
+                    if (!active) return; active = false; try { h.releasePointerCapture(e.pointerId); } catch (_) {}
+                    bar.classList.remove('dc-drop'); gear.classList.remove('dc-drop'); if (ghost) { ghost.remove(); ghost = null; }
+                    const inBar = pins.contains(row);
+                    if (!moved) { setPinned(row, !inBar); return; }
+                    const t = over(e); if (t === 'bar' && !inBar) setPinned(row, true); else if (t === 'gear' && inBar) setPinned(row, false);
+                };
+                h.addEventListener('pointerup', end); h.addEventListener('pointercancel', end);
+            }
+            for (const id of load()) { const r = rows.find(x => x.dataset.pin === id); if (r) pins.appendChild(r); }
+        })();
         DC.chatTurns = {};
         // ENHANCE-RENDER: when ✨ enhance is on, show a clean conversational reply (no code fences / inline code).
         function cleanReply(s) {
@@ -2955,6 +3033,8 @@
             $('#dc-fl-panel').classList.toggle('active', t.dataset.tab === 'sys');
             $('#dc-in-panel') && $('#dc-in-panel').classList.toggle('active', t.dataset.tab === 'sys');
             if (t.dataset.tab === 'sys') renderInsights();   // reads the thread once, then caches
+            // Full system lives in the ⚙ menu now: picking it closes the menu (its own click never reaches document)
+            if (t.dataset.tab === 'sys') { const gp = $('#dc-gear-pop'); if (gp && !gp.hidden) { gp.hidden = true; $('#dc-gear').classList.remove('open'); } }
         });
         $('#dc-chat-send').onclick = sendChat;
         $('#dc-chat-in').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } });
