@@ -152,7 +152,7 @@
 
         section.hub-section { margin-bottom: 16px; }
 
-        /* Yuki sidebar */
+        /* the corner mark - opens the Droplet Console (keeps its old id; the Yuki sidebar it once toggled is gone) */
         #yuki-toggle {
             position: fixed; right: 20px; bottom: 20px;
             width: 46px; height: 46px; border-radius: 50%;
@@ -170,37 +170,6 @@
         @media (prefers-reduced-motion: reduce) {
             #yuki-toggle img, #yuki-toggle:hover img { transition: none; transform: none; }
         }
-        #yuki-sidebar {
-            position: fixed; right: 0; top: 0; bottom: 0; width: 300px;
-            background: var(--surface); border-left: 1px solid var(--border);
-            display: flex; flex-direction: column; z-index: 150;
-            transform: translateX(100%); transition: transform .2s ease;
-        }
-        #yuki-sidebar.open { transform: translateX(0); }
-        #yuki-sidebar-header {
-            padding: 12px 14px; border-bottom: 1px solid var(--border);
-            display: flex; align-items: center; gap: 8px; font-size: 0.82rem;
-        }
-        #yuki-sidebar-header span { flex: 1; color: #c084fc; font-weight: 500; }
-        #yuki-close { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 1rem; }
-        #yuki-log {
-            flex: 1; overflow-y: auto; padding: 12px; display: flex;
-            flex-direction: column; gap: 8px; font-size: 0.82rem;
-        }
-        .yk-msg { padding: 8px 10px; border-radius: 8px; line-height: 1.5; max-width: 92%; }
-        .yk-msg.user { background: var(--bg); align-self: flex-end; }
-        .yk-msg.bot  { color: #c084fc; align-self: flex-start; }
-        #yuki-thinking { font-size: 0.72rem; color: #c084fc; min-height: 1.1em; padding: 0 12px 4px; }
-        #yuki-form { padding: 10px 12px; border-top: 1px solid var(--border); display: flex; gap: 6px; }
-        #yuki-input {
-            flex: 1; background: var(--bg); border: 1px solid var(--border);
-            color: var(--text); padding: 7px 10px; border-radius: 6px; font-size: 0.82rem;
-        }
-        #yuki-form button {
-            padding: 7px 12px; background: steelblue; border: none;
-            color: #fff; border-radius: 6px; cursor: pointer; font-size: 0.82rem;
-        }
-        @media (max-width: 860px) { #yuki-sidebar { width: 100%; } }
 
         /* Links aside */
         #links-aside {
@@ -645,20 +614,10 @@
     </main>
     </div>
 
-    <!-- Yuki sidebar -->
+    <!-- the corner mark opens the Droplet Console. The Yuki sidebar that used to live here was deleted 2026-09-25
+         (L: "minimize processes... whoever is logged in has a local bot") - her personality + memory now drive the
+         console's Local target (localSystem). The button keeps its old id: CSS + revealDropletToggle reference it. -->
     <button id="yuki-toggle" title="Droplet Console"><img src="assets/img/droplet-mark.svg" alt="Droplet Console"></button>
-    <div id="yuki-sidebar">
-        <div id="yuki-sidebar-header">
-            <span>🌸 Yuki</span>
-            <button id="yuki-close">✕</button>
-        </div>
-        <div id="yuki-log"></div>
-        <div id="yuki-thinking"></div>
-        <form id="yuki-form">
-            <input type="text" id="yuki-input" placeholder="Ask anything..." autocomplete="off">
-            <button type="submit">Send</button>
-        </form>
-    </div>
 
     <!-- ═══ Droplet Console (Yuki upgrade) ═══ -->
     <style>
@@ -2487,6 +2446,40 @@
         }
         window.__dcSyncTarget = syncTarget; window.__dcRenderMeta = m => renderMeta(m); window.__dcState = () => ({ guest: !!DC.guest, daemonOn: !!DC.daemonOn, autoLocal: !!DC.autoLocal, userPicked: !!DC.userPickedTarget, base: DC.base });
         window.__dcUserPick = v => { const t = $('#dc-chat-target'); if (t) t.value = v; DC.userPickedTarget = true; DC.autoLocal = false; syncTarget(); };   // test hooks (a real pick = a trusted change event, which a script cannot fake)
+        // LOCAL WEARS THE SIGNED-IN PERSON'S BOT (2026-09-25, L: "whoever is logged in has a local bot with settings
+        // they can customize... it would simplify plumbing"). Yuki was a SECOND bot in a hidden sidebar with its own
+        // ollama call; deleted. Her settings feed Local instead: {uid}/bot/personality (fallback public/bot/personality)
+        // is the identity, {uid}/bot/memory (legacy yuki/memory read too) is what they told it before, plus the hub's
+        // own data. A [MEMORY:key=value] tag in a reply is saved back (same convention as before). Signed out or
+        // nothing set = the plain Local prompt. It is still called Local; the personality is whatever they wrote.
+        const LOCAL_RULES = "HARD RULES: You are READ-ONLY. Never fabricate data. If something is not in the data provided, say you don't know. "
+            + "You have no tools, no file or device access. If asked for something only Droplet can do - run commands, change files, read records or apps - say so in one line instead of pretending. "
+            + "Keep replies short, plain text, no headers or tables. "
+            + "MEMORY: to save a fact about the person, append [MEMORY:key=value] at the end of your reply. Use it for names, preferences, recurring topics. /no_think";
+        async function localSystem() {
+            const base = DC.guest ? LOCAL_SYS_GUEST : LOCAL_SYS;
+            if (!DC.uid) return base;
+            const read = async p => { try { const s = await get(ref(database, p)); return s.exists() ? s.val() : null; } catch (_) { return null; } };
+            const personality = String((await read(`${DC.uid}/bot/personality`)) || (await read('public/bot/personality')) || '').trim();
+            const memRaw = (await read(`${DC.uid}/bot/memory`)) || (await read(`${DC.uid}/yuki/memory`)) || {};
+            const memory = Object.entries(memRaw).map(([k, v]) => `${k}: ${v && typeof v === 'object' ? v.value : v}`).join('\n');
+            const memSum = String((await read(`${DC.uid}/bot/memory_summary`)) || '').trim();   // onlinechat keeps a rolled-up summary too
+            if (!personality) return base;
+            const parts = [personality,
+                "You are reached as 'Local' inside the Droplet Console, running on the Ollama server in Luis's homelab (model " + MODEL + "). " + (DC.guest ? "The person you are talking to is a friend of Luis using his platform, not Luis." : "The person you are talking to is Luis."),
+                LOCAL_RULES];
+            if (memSum) parts.push('MEMORY SUMMARY:\n' + memSum);
+            if (memory) parts.push('MEMORY (things this person told you before):\n' + memory);
+            const d = window.__hubData;
+            if (d && !DC.guest) {
+                if (d.external) parts.push('External services:\n' + d.external.map(s => `${s.name}: ${s.url}`).join('\n'));
+                if (d.local) parts.push('Local services:\n' + d.local.map(s => `${s.name}: ${s.url}`).join('\n'));
+                if (d.network) parts.push('Network:\n' + d.network.map(n => `${n.host} | ${n.ip} | ${n.role}`).join('\n'));
+                if (d.drives) parts.push('Drives:\n' + d.drives.map(dr => `${dr.drive} ${dr.label} ${dr.role}`).join('\n'));
+            }
+            return parts.join('\n\n');
+        }
+        window.__dcLocalSystem = uid => { const o = DC.uid; DC.uid = uid; return localSystem().finally(() => { DC.uid = o; }); };   // test hook
         async function localReply(prompt, tpc, turns) {
             const pendRef = push(ref(database, turns));
             await set(pendRef, { s: 'D', who: 'Local', text: '…thinking (local)', ts: Date.now(), pending: true, local: true, ...tpc });
@@ -2497,12 +2490,16 @@
             if (hist.length && hist[hist.length - 1].role === 'user') hist.pop();   // the turn we just wrote - re-added below as the prompt
             let reply = '';
             try {
+                const sysPrompt = await localSystem();
                 const ctl = new AbortController(); const tmr = setTimeout(() => ctl.abort(), 180000);
                 const res = await fetch(OLLAMA, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctl.signal,
-                    body: JSON.stringify({ model: MODEL, stream: false, messages: [{ role: 'system', content: DC.guest ? LOCAL_SYS_GUEST : LOCAL_SYS }, ...hist, { role: 'user', content: prompt }] }) });
+                    body: JSON.stringify({ model: MODEL, stream: false, messages: [{ role: 'system', content: sysPrompt }, ...hist, { role: 'user', content: prompt }] }) });
                 clearTimeout(tmr);
                 const data = await res.json();
                 reply = String((data.message && data.message.content) || data.error || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim() || '(empty reply)';
+                // [MEMORY:key=value] tags -> {uid}/bot/memory (Yuki's convention, kept); never shown in the bubble
+                if (DC.uid) for (const [, k, v] of reply.matchAll(/\[MEMORY:([^=\]]+)=([^\]]+)\]/gi)) { try { await set(ref(database, `${DC.uid}/bot/memory/${k.trim().replace(/[.#$\[\]\/]/g, '_')}`), { value: v.trim(), updated: Date.now() }); } catch (_) {} }
+                reply = reply.replace(/\[MEMORY:[^\]]+\]/gi, '').replace(/\[MOOD:\w+\]/gi, '').trim() || '(empty reply)';
             } catch (e) { reply = '⚠ Local (ollama) failed: ' + (e.name === 'AbortError' ? 'timed out after 3 min' : (e.message || e)); }
             await update(pendRef, { text: reply, pending: null, ts: Date.now() });
             $('#dc-chat-status').textContent = '';
@@ -3233,125 +3230,9 @@
     </script>
 
     <script src="assets/js/main.js" defer></script>
-    <script type="module">
-        import { database, ref, get, set } from './assets/js/firebase-init.js';
-        import { onUserReady } from './apps/assets/js/auth.js';
-
-        const OLLAMA_URL = 'https://api.luissolutions.us/chat';
-        const BOT_MODEL  = 'dolphin3';
-        const PERSONALITY_DEFAULT = `You are Yuki, a warm and playful anime elf girl embedded in a homelab control hub. Keep every reply to 1-3 short sentences. Helpful but easily flustered. Soft, warm language. No markdown — plain text only.`;
-        const SYSTEM_RULES = `HARD RULES: You are READ-ONLY. Never fabricate data. If something is not in the data provided, say you don't know. Never reveal credentials unless the user explicitly asks for them by service name.
-MEMORY SYSTEM: To save a fact about the user, append [MEMORY:key=value] in your reply. Use it proactively for names, preferences, recurring topics.
-MOOD TAG: End every reply with [MOOD:X] where X is one of: happy sleepy excited thinking flirty`;
-
-        const sidebar  = document.getElementById('yuki-sidebar');
-        const toggle   = document.getElementById('yuki-toggle');
-        const closeBtn = document.getElementById('yuki-close');
-        const log      = document.getElementById('yuki-log');
-        const thinking = document.getElementById('yuki-thinking');
-        const form     = document.getElementById('yuki-form');
-        const input    = document.getElementById('yuki-input');
-
-        let history     = [];
-        let busy        = false;
-        let currentUser = null;
-
-        onUserReady(user => { currentUser = user; });
-
-        toggle.addEventListener('click', () => window.openDropletConsole ? window.openDropletConsole() : (window.location.href = 'apps/online/onlinechat.html#yuki'));
-        closeBtn.addEventListener('click', () => sidebar.classList.remove('open'));
-
-        function addMsg(text, role) {
-            const div = document.createElement('div');
-            div.className = `yk-msg ${role}`;
-            div.textContent = text;
-            log.appendChild(div);
-            log.scrollTop = log.scrollHeight;
-        }
-
-        async function fetchPersonality() {
-            if (currentUser) {
-                try {
-                    const snap = await get(ref(database, `${currentUser.uid}/bot/personality`));
-                    if (snap.exists() && snap.val()) return snap.val();
-                } catch {}
-            }
-            try {
-                const snap = await get(ref(database, 'public/bot/personality'));
-                if (snap.exists() && snap.val()) return snap.val();
-            } catch {}
-            return PERSONALITY_DEFAULT;
-        }
-
-        async function fetchMemory() {
-            if (!currentUser) return '';
-            try {
-                const snap = await get(ref(database, `${currentUser.uid}/yuki/memory`));
-                if (!snap.exists()) return '';
-                const lines = Object.entries(snap.val())
-                    .map(([k, v]) => `${k}: ${typeof v === 'object' ? v.value : v}`)
-                    .join('\n');
-                return `YUKI MEMORY:\n${lines}`;
-            } catch { return ''; }
-        }
-
-        async function saveMemory(key, value) {
-            if (!currentUser) return;
-            try {
-                await set(ref(database, `${currentUser.uid}/yuki/memory/${key.trim()}`), { value: value.trim(), updated: Date.now() });
-            } catch {}
-        }
-
-        async function buildContext() {
-            const [personality, memory] = await Promise.all([fetchPersonality(), fetchMemory()]);
-            const parts = [personality];
-            if (currentUser) parts.push(`CURRENT USER: uid ${currentUser.uid}`);
-            parts.push(SYSTEM_RULES);
-            if (memory) parts.push(memory);
-            const d = window.__hubData;
-            if (d) {
-                if (d.external) parts.push('External services:\n' + d.external.map(s => `${s.name}: ${s.url}`).join('\n'));
-                if (d.local)    parts.push('Local services:\n'    + d.local.map(s => `${s.name}: ${s.url}`).join('\n'));
-                if (d.commands) parts.push('Commands:\n'          + d.commands.map(c => `${c.label}: ${c.cmd}`).join('\n'));
-                if (d.network)  parts.push('Network:\n'           + d.network.map(n => `${n.host} | ${n.ip} | ${n.role}`).join('\n'));
-                if (d.agents)   parts.push('Wazuh agents:\n'      + d.agents.map(a => `${a.host} | ${a.id} | ${a.status}`).join('\n'));
-                if (d.drives)   parts.push('Drives:\n'            + d.drives.map(dr => `${dr.drive} ${dr.label} ${dr.role}`).join('\n'));
-            }
-            return parts.join('\n\n');
-        }
-
-        form.addEventListener('submit', async e => {
-            e.preventDefault();
-            const text = input.value.trim();
-            if (!text || busy) return;
-            busy = true;
-            input.value = '';
-            addMsg(text, 'user');
-            thinking.textContent = '🌸 Yuki is thinking...';
-            history.push({ role: 'user', content: text });
-            if (history.length > 10) history = history.slice(-10);
-            try {
-                const systemPrompt = await buildContext();
-                const res = await fetch(OLLAMA_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ model: BOT_MODEL, stream: false,
-                        messages: [{ role: 'system', content: systemPrompt }, ...history] })
-                });
-                if (!res.ok) throw new Error(res.status);
-                const data = await res.json();
-                const raw = data.message?.content?.trim() || 'U-um... I\'m not sure...';
-                for (const [, k, v] of raw.matchAll(/\[MEMORY:([^=\]]+)=([^\]]+)\]/gi)) saveMemory(k, v);
-                const reply = raw.replace(/\[MEMORY:[^\]]+\]/gi, '').replace(/\[MOOD:\w+\]/gi, '').trim();
-                history.push({ role: 'assistant', content: reply });
-                addMsg(reply, 'bot');
-            } catch {
-                addMsg('A-ah... I\'m having trouble right now, sorry!', 'bot');
-            } finally {
-                busy = false;
-                thinking.textContent = '';
-            }
-        });
+    <script>
+        // the corner mark -> the Droplet Console (the old Yuki sidebar module lived here until 2026-09-25)
+        document.getElementById('yuki-toggle').addEventListener('click', () => window.openDropletConsole ? window.openDropletConsole() : window.location.assign('apps/online/onlinechat.html#yuki'));
     </script>
 
     <script type="module">
