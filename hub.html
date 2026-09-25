@@ -3378,6 +3378,9 @@
                 if (stable > full.length) stable = 0;
                 const at = stable, tailEnd = full.length, text = full.slice(at);
                 if (text.split(/\s+/).filter(Boolean).length < (minWords || 5)) return;
+                // never proofread a segment that ends MID-WORD unless Send is waiting: the model "finishes" the word ("recordi" ->
+                // "recording"), it lands, and the letters he types next glue on ("recordingng", L 2026-09-25 13:43)
+                if (!forceApply && !/[\s.,!?;:]$/.test(text)) return;
                 // ONE request in the air at a time. ollama runs requests one after another, and a request the page aborts keeps
                 // computing on the server - so firing one per pause piled them up, and Send's pass sat behind stale ones and
                 // missed its 3.5 s window (measured 2026-09-25: the same request answers in 0.9 s on an idle model). A pause
@@ -3413,7 +3416,14 @@
                     // of one (edit distance <= 2), is the model inventing - the prompt's shorthand examples leaked into L's text
                     // once ("S3 N1 dterm se kh comp fav"). More than one such word = throw the answer away.
                     const inW = (text.toLowerCase().match(/[a-z']+/g) || []); const inSet = new Set(inW);
-                    const invented = (out.toLowerCase().match(/[a-z']+/g) || []).filter(w => w.length > 1 && !inSet.has(w) && !inW.some(x => Math.abs(x.length - w.length) <= 2 && lev(x, w) <= 2));
+                    // a fix counts as HIS word if it is within edit distance of one of his words - 2 for short words, 3 from 7 letters
+                    // (transpositions cost 2 each) - or of two adjacent fragments joined ("g arepvious" -> "previous" was thrown away as
+                    // invented on 2026-09-25; the split was the typo)
+                    const joined = inW.slice(1).map((w, i) => inW[i] + w);
+                    const near = w => { const lim = w.length >= 7 ? 3 : 2; return inW.concat(joined).some(x => Math.abs(x.length - w.length) <= lim && lev(x, w) <= lim); };
+                    const invented = (out.toLowerCase().match(/[a-z']+/g) || []).filter(w => w.length > 1 && !inSet.has(w) && !near(w));
+                    // textspeak the model INTRODUCED ("you" -> "u" on 2026-09-25, from the "keep his shorthand" rule) is not a proofread
+                    if (/\b(u|r|ur|thx|pls|plz|k|2|4)\b/.test(out.toLowerCase()) && !/\b(u|r|ur|thx|pls|plz|k|2|4)\b/.test(text.toLowerCase())) { stable = tailEnd; enhLog('rewrite discarded (made it sloppier)', out.slice(0, 60)); return; }
                     const outWords = (out.toLowerCase().match(/[a-z']+/g) || []).length;
                     if (invented.length > 1 || (invented.length && invented.length > outWords * 0.2)) { stable = tailEnd; enhLog('rewrite discarded (invented words)', invented.join(' ')); return; }   // >1 new word, or 1 in a very short answer = not a proofread
                     // a proofread never DROPS words either (one fewer is a merged "a lot"/de-doubled "to to"; more is the model cutting his
