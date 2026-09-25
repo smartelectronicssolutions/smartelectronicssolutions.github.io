@@ -999,6 +999,14 @@
             combined["private__" + id] = Object.assign({}, article, { __id: id, __path: privatePath, __scope: "private" });
           });
         }
+        // ONE ROW PER ARTICLE (2026-09-25, L: "I don't want my list to double up"): the same id can live in
+        // public AND in my private node (a published copy of my own article). The private one is the master
+        // and is the row; it remembers that a public copy exists so the list can say so.
+        Object.keys(combined).forEach(function (key) {
+          if (key.indexOf("private__") !== 0) return;
+          var pub = "public__" + key.slice(9);
+          if (combined[pub]) { combined[key].__alsoPublic = true; delete combined[pub]; }
+        });
         allArticles = combined;
         renderList();
         if (initial) {
@@ -1082,7 +1090,7 @@
           if (!a || typeof a !== "object") return;
           var div = document.createElement("div");
           div.className = "entry-card";
-          var scopeLabel = a.__scope === "private" ? "Private" : "Public";
+          var scopeLabel = a.__scope === "private" ? (a.__alsoPublic ? "Private · Public copy" : "Private") : "Public";
           var cardDate = "";
           var dOpts = { month: 'short', day: 'numeric', year: 'numeric' };
           try {
