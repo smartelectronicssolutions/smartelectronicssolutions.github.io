@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Prompter</title>
+    <link rel="stylesheet" href="../assets/css/online.css">
+    <style>
+        /* PROMPTER (2026-09-25, L: "a script that highlights the words at roughly the pace you take the actions on screen,
+           so I can do one take"). One shot at a time, big, a moving highlight at a set words-per-minute. While it plays it
+           writes its position to {uid}/console/prompter/pos every 400 ms; Droplet reads that from se, does the shot's
+           action when the shot starts, and writes prompter/done when the action has landed - the ✓ on the right. */
+        html, body { height: 100%; }
+        body { margin: 0; background: #0b0d12; color: #e8ecf3; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; }
+        main { max-width: 900px; margin: 0 auto; padding: 10px 16px calc(24px + env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; min-height: 100%; box-sizing: border-box; }
+        .top { display: flex; align-items: center; gap: 10px; font-size: .8rem; color: #8b93a7; flex-wrap: wrap; }
+        .top .shot { font-weight: 700; color: #c084fc; font-size: 1rem; }
+        .top .done { margin-left: auto; font-size: 1rem; color: #4ea884; min-width: 1.4em; text-align: right; }
+        .do { font-size: .82rem; color: #8b93a7; margin: 6px 0 10px; border-left: 2px solid #c084fc; padding-left: 8px; }
+        .say { flex: 1; font-size: clamp(1.5rem, 4.6vw, 2.6rem); line-height: 1.45; letter-spacing: .01em; cursor: pointer; user-select: none; -webkit-user-select: none; }
+        .say span { padding: 0 .04em; border-radius: 4px; transition: background .08s, color .08s; }
+        .say span.cur { background: #c084fc; color: #0b0d12; }
+        .say span.past { color: #8b93a7; }
+        .next { margin-top: 12px; font-size: .95rem; color: #5c6478; }
+        .next b { color: #8b93a7; font-weight: 600; }
+        .bar { height: 3px; background: #1c2230; border-radius: 2px; margin: 10px 0 8px; overflow: hidden; }
+        .bar i { display: block; height: 100%; width: 0; background: #c084fc; transition: width .3s linear; }
+        .ctl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: .82rem; color: #8b93a7; }
+        .ctl button { background: #151a24; color: #e8ecf3; border: 1px solid #262d3d; border-radius: 8px; padding: 8px 14px; font: inherit; font-size: .9rem; cursor: pointer; }
+        .ctl button.pri { background: #c084fc; color: #0b0d12; border-color: #c084fc; font-weight: 700; }
+        .ctl input[type=range] { width: 120px; }
+        .ctl label { display: inline-flex; align-items: center; gap: 5px; }
+        .hint { font-size: .72rem; color: #5c6478; margin-top: 6px; }
+        .off { text-align: center; color: #8b93a7; margin-top: 30vh; }
+    </style>
+</head>
+
+<body>
+    <main>
+        <div class="top"><span class="shot" id="shotNo">shot –</span><span id="shotTitle"></span><span class="done" id="done" title="Droplet finished this shot's action"></span></div>
+        <div class="do" id="do"></div>
+        <div class="say" id="say" title="tap: play / pause"><div class="off">Sign in - the script loads from your account.</div></div>
+        <div class="next" id="next"></div>
+        <div class="bar"><i id="bar"></i></div>
+        <div class="ctl">
+            <button id="prev">◀</button>
+            <button class="pri" id="play">▶ play</button>
+            <button id="nextBtn">▶</button>
+            <label>speed <input type="range" id="wpm" min="90" max="200" step="5" value="140"> <span id="wpmv">140</span> wpm</label>
+            <label><input type="checkbox" id="hold" checked> wait for Droplet's ✓ before the next shot</label>
+        </div>
+        <div class="hint">space = play/pause · ← → = shots · ↑ ↓ = speed · tap the text to play/pause. Droplet does the action when a shot starts; the ✓ means it landed.</div>
+    </main>
+
+    <script type="module" src="../assets/js/auth.js"></script>
+    <script type="module">
+        import { getDatabase, ref, set, update, onValue, auth, onAuthStateChanged } from '../assets/js/firebase-init.js';
+        const database = getDatabase();
+        const $ = id => document.getElementById(id);
+        let base = null, script = [], shot = 0, word = 0, playing = false, timer = null, done = 0, lastWrite = 0;
+        const wpm = () => Number($('wpm').value) || 140;
+        const words = () => (script[shot] && String(script[shot].say || '').split(/\s+/).filter(Boolean)) || [];
+
+        function paint() {
+            const s = script[shot]; if (!s) { $('say').innerHTML = '<div class="off">No script yet - Droplet seeds it from the shot list.</div>'; return; }
+            $('shotNo').textContent = 'shot ' + (s.n != null ? s.n : shot + 1); $('shotTitle').textContent = s.title || '';
+            $('do').textContent = s.do ? 'Droplet: ' + s.do : '';
+            const ws = words();
+            $('say').innerHTML = ws.map((w, i) => `<span class="${i < word ? 'past' : i === word ? 'cur' : ''}">${w.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))}</span>`).join(' ');
+            const n = script[shot + 1]; $('next').innerHTML = n ? '<b>next:</b> ' + String(n.say || '').split(/\s+/).slice(0, 14).join(' ') + '…' : '<b>last shot</b>';
+            $('bar').style.width = ws.length ? Math.round(100 * word / ws.length) + '%' : '0';
+            $('done').textContent = done >= (s.n != null ? s.n : shot + 1) ? '✓' : '';
+            $('play').textContent = playing ? '⏸ pause' : '▶ play';
+        }
+        function writePos(force) {
+            if (!base) return; const now = Date.now(); if (!force && now - lastWrite < 400) return; lastWrite = now;
+            const s = script[shot] || {}; update(ref(database, `${base}/pos`), { shot: s.n != null ? s.n : shot + 1, word, playing, at: now, of: words().length }).catch(() => {});
+        }
+        function tick() {
+            const ws = words(); if (!ws.length) { pause(); return; }
+            if (word < ws.length - 1) { word++; paint(); writePos(); }
+            else {
+                // end of the shot: hold for Droplet's ✓ if asked, otherwise roll on
+                const s = script[shot]; const n = s.n != null ? s.n : shot + 1;
+                if ($('hold').checked && done < n) { paint(); writePos(true); return; }
+                if (shot < script.length - 1) { shot++; word = 0; paint(); writePos(true); } else pause();
+            }
+            // ms per word from wpm; a word ending a sentence gets a beat
+            const cur = ws[word] || ''; const ms = 60000 / wpm() * (/[.!?…]$/.test(cur) ? 1.8 : /[,;:]$/.test(cur) ? 1.3 : 1);
+            if (playing) timer = setTimeout(tick, ms);
+        }
+        function play() { if (playing) return; playing = true; paint(); writePos(true); timer = setTimeout(tick, 60000 / wpm()); }
+        function pause() { playing = false; clearTimeout(timer); timer = null; paint(); writePos(true); }
+        function go(d) { pause(); shot = Math.max(0, Math.min(script.length - 1, shot + d)); word = 0; paint(); writePos(true); }
+
+        $('play').onclick = () => playing ? pause() : play();
+        $('say').onclick = () => playing ? pause() : play();
+        $('prev').onclick = () => go(-1); $('nextBtn').onclick = () => go(1);
+        $('wpm').oninput = () => { $('wpmv').textContent = wpm(); if (base) update(ref(database, base), { wpm: wpm() }).catch(() => {}); };
+        document.addEventListener('keydown', e => {
+            if (e.target.tagName === 'INPUT') return;
+            if (e.code === 'Space') { e.preventDefault(); playing ? pause() : play(); }
+            else if (e.key === 'ArrowRight') go(1); else if (e.key === 'ArrowLeft') go(-1);
+            else if (e.key === 'ArrowUp') { $('wpm').value = Math.min(200, wpm() + 5); $('wpm').oninput(); }
+            else if (e.key === 'ArrowDown') { $('wpm').value = Math.max(90, wpm() - 5); $('wpm').oninput(); }
+        });
+
+        onAuthStateChanged(auth, user => {
+            if (!user) { base = null; paint(); return; }
+            base = `${user.uid}/console/prompter`;
+            onValue(ref(database, `${base}/script`), s => { const v = s.val(); script = Array.isArray(v) ? v.filter(Boolean) : Object.values(v || {}); shot = Math.min(shot, Math.max(0, script.length - 1)); paint(); });
+            onValue(ref(database, `${base}/done`), s => { done = Number(s.val()) || 0; paint();
+                // holding at the end of a shot and the ✓ just arrived: roll on
+                const cur = script[shot]; if (playing && cur && !timer && done >= (cur.n != null ? cur.n : shot + 1) && shot < script.length - 1) { shot++; word = 0; paint(); writePos(true); timer = setTimeout(tick, 60000 / wpm()); } });
+            onValue(ref(database, `${base}/wpm`), s => { const v = Number(s.val()); if (v && !playing) { $('wpm').value = v; $('wpmv').textContent = v; } });
+        });
+    </script>
+</body>
+
+</html>

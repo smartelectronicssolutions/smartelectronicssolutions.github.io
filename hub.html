@@ -3325,9 +3325,16 @@
                 if (ghost.dataset.kind === 'fix' && lastFix) { const f = lastFix; lastFix = null; neverAgain(f.from);   // undone on purpose: remember that
                     if (ta.value.slice(f.at, f.at + f.to.length) === f.to) ta.setRangeText(f.from, f.at, f.at + f.to.length, 'preserve'); hideGhost(); ta.focus(); }
             };
+            // warm the rewrite model on the first keystroke of a message (once per 10 min): a cold gemma2 is 5 s, warm 2 s,
+            // and the Send hold is 3.5 s - L's next message went out half-fixed because the model had gone cold
+            let warmedAt = 0;
+            const warm = () => { const now = Date.now(); if (now - warmedAt < 600000) return; warmedAt = now;
+                fetch(OLLAMA, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: LIVE_MODEL, stream: false, keep_alive: '30m', options: { num_predict: 1 }, messages: [{ role: 'user', content: 'ok' }] }) }).catch(() => {}); };
+            ta.addEventListener('focus', () => { if (on()) warm(); });
             ta.addEventListener('input', e => {
                 clearTimeout(timer);
                 if (!ta.value) { hideGhost(); lastRewrite = null; stable = 0; lastSrc = ''; if (ctl) ctl.abort(); return; }
+                if (ta.value.length === 1 && on()) warm();
                 if (ta.selectionStart < stable) stable = 0;                                     // he went back to edit rewritten text: start over from the top
                 if (ghost.dataset.kind === 'ready' && !ghost.hidden) hideGhost();
                 // a finished sentence (". " "! " "? ") goes to the model at once, while he types the next one -
