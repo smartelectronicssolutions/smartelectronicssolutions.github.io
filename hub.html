@@ -1153,6 +1153,9 @@
             applyGuest(u.uid !== HUB_OWNER_UID);
             DC.uid = u.uid; DC.base = `${u.uid}/console`;
             const acc = $('#dc-account'); if (acc) acc.textContent = 'signed in as ' + (u.email || '(no email)');
+            // the Local seat wears the person's bot name when they gave it one (L, 2026-09-25: "if there's a name put
+            // that in the dropdown, otherwise call it Local"). Async callback, so TARGET_NAMES is long initialised.
+            onValue(ref(database, `${DC.uid}/bot/name`), s => { setBotName(s.val()); });
             onValue(ref(database, `${DC.base}/memoryIndex`), s => { DC.memory = s.val() || []; });
             onValue(ref(database, `${DC.base}/meta`), s => renderMeta(s.val() || {}));
             onValue(ref(database, `${DC.base}/routines`), s => renderRoutines(s.val() || {}));
@@ -2485,7 +2488,7 @@
         window.__dcLocalSystem = uid => { const o = DC.uid; DC.uid = uid; return localSystem().finally(() => { DC.uid = o; }); };   // test hook
         async function localReply(prompt, tpc, turns) {
             const pendRef = push(ref(database, turns));
-            await set(pendRef, { s: 'D', who: 'Local', text: '…thinking (local)', ts: Date.now(), pending: true, local: true, ...tpc });
+            await set(pendRef, { s: 'D', who: DC.botWho || 'Local', text: '…thinking (local)', ts: Date.now(), pending: true, local: true, ...tpc });   // her name on the bubble when she has one
             $('#dc-chat-status').textContent = '🦙 local: ' + MODEL + '…';
             const topic = tpc.topic || '';
             const hist = Object.entries(DC.chatTurns || {}).filter(([k, t]) => t && !t.pending && t.text && (t.topic || '') === topic).sort((a, b) => (a[1].ts || 0) - (b[1].ts || 0)).slice(-12)
@@ -3131,7 +3134,16 @@
         // painted into the control as a background, and "💧 Droplet Console" next to the badge
         // was the same thing said twice.
         const TARGET_NAMES = { droplet: ['Droplet Console', 'Droplet'], compman: ['🤖 CompMan Console', '🤖 CompMan'], command: ['⌘ Command Console', '⌘ Command'], local: ['🦙 Local Console', '🦙 Local'] };
-        function targetLabel(v) { const n = TARGET_NAMES[v] || [v, v]; return DC.isPhone() ? n[1] : n[0]; }
+        function targetLabel(v) {
+            if (v === 'local' && DC.botName) return DC.isPhone() ? DC.botName : DC.botName + ' Console';   // "🌸 Yuki Console" instead of "🦙 Local Console"
+            const n = TARGET_NAMES[v] || [v, v]; return DC.isPhone() ? n[1] : n[0]; }
+        function setBotName(raw) {
+            const full = String(raw || '').replace(/[^\p{L}\p{N}\p{Emoji_Presentation}\p{Extended_Pictographic} '-]/gu, '').trim();
+            DC.botName = full || '';                                                                   // for the dropdown, emoji and all
+            DC.botWho = full.replace(/[^\p{L}\p{N} '-]/gu, '').trim() || '';                          // the bubble's name: just the word
+            try { relabelTargets(); } catch (_) {}
+        }
+        window.__dcSetBotName = setBotName;   // test hook
         function relabelTargets() { const t = $('#dc-chat-target'); if (!t) return;
             Array.from(t.options).forEach(o => { o.textContent = targetLabel(o.value); });
             t.classList.toggle('has-mark', t.value === 'droplet'); }
