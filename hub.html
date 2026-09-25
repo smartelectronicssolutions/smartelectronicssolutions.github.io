@@ -894,6 +894,13 @@
         .dc-bub .dc-choices { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
         .dc-bub .dc-choice { border: 1px solid var(--dc-green); color: var(--dc-green); background: color-mix(in srgb, var(--dc-green) 12%, transparent); border-radius: var(--dc-r-md); padding: 8px 14px; min-height: 36px; cursor: pointer; font-family: inherit; font-size: calc(0.88rem * var(--dc-fs, 1)); font-weight: 600; text-align: left; }
         .dc-bub .dc-choice:disabled { opacity: 0.45; cursor: default; }
+        /* ⤓ latest pill: floats over the chat log when scrolled away from the newest message */
+        .dc-latest { position: absolute; left: 50%; bottom: 84px; transform: translate(-50%, 12px); z-index: 5; opacity: 0; pointer-events: none;
+            transition: opacity .18s, transform .18s; border: 1px solid var(--dc-green); color: var(--dc-green); background: var(--dc-panel);
+            border-radius: 999px; padding: 7px 14px; font-family: inherit; font-size: calc(0.8rem * var(--dc-fs, 1)); font-weight: 600; box-shadow: 0 6px 18px var(--dc-shadow); cursor: pointer; }
+        .dc-latest.show { opacity: 1; pointer-events: auto; transform: translate(-50%, 0); }
+        .dc-chat.newest-first .dc-latest { bottom: auto; top: 58px; transform: translate(-50%, -12px); }
+        .dc-chat.newest-first .dc-latest.show { transform: translate(-50%, 0); }
         /* INTERNET DATA card (2026-09-24). Series colors validated with the dataviz checks per theme:
            dark on #111c2a = #2a78d6 / #d9531f (all pass), light on #d8dde4 = #1f5fb0 / #c9541f (all pass). */
         :root { --dv-down: #2a78d6; --dv-up: #d9531f; }
@@ -938,6 +945,8 @@
         .dc-bub.me { align-self: flex-end; background: var(--dc-me-bg); color: var(--dc-me-fg); border-bottom-right-radius: 4px; font-family: var(--font-mono); font-size: calc(0.84rem * var(--dc-fs, 1)); }
         .dc-bub.drop { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); color: var(--text); border-bottom-left-radius: 4px; }
         .dc-bub.drop.pending { opacity: 0.7; font-style: italic; }
+        .dc-bub .dc-wait { font-style: normal; font-family: monospace; font-size: calc(0.66rem * var(--dc-fs, 1)); color: var(--muted); margin-top: 6px; line-height: 1.5; word-break: break-word; }
+        .dc-bub .dc-wait:empty { display: none; }
         .dc-bub .ts { font-size: calc(0.64rem * var(--dc-fs, 1)); opacity: 0.72; margin-top: 4px; }   /* readable on a phone (L, 2026-09-24: "I need a timestamp on the messages") */
         /* "what did enhance turn it into?" - collapsible under your bubble when enhance changed the text */
         .dc-bub details.enh { margin-top: 6px; font-size: calc(0.74rem * var(--dc-fs, 1)); }
@@ -1253,7 +1262,10 @@
                 if (opts.length >= 2) choices = `<div class="dc-choices">${opts.map(([n, l]) => `<button type="button" class="dc-choice" data-n="${n}" title="answer the terminal's menu with ${n}">${n} · ${esc(l)}</button>`).join('')}</div>`;
             }
             // the stamp rides the name line too (L, 2026-09-24: "also after where it says Droplet or its name")
-            return { cls: `dc-bub ${me ? 'me' : 'drop'}${pend}`, html: `${editBtn}${favBtn}<span class="who">${who}${time ? ' · ' + time : ''}${tag}${tp}</span>${linkify(esc(body))}${choices}${snapBox}${enh}<div class="ts">${time}</div>` };
+            // WAIT LINE (2026-09-24, L: "when I'm waiting for something can it show how much token count then some
+            // other useful bit of info about backend"): a pending bubble carries a live line painted by paintWait().
+            const wait = pend ? `<div class="dc-wait" data-k="${esc(t.__k || '')}"></div>` : '';
+            return { cls: `dc-bub ${me ? 'me' : 'drop'}${pend}`, html: `${editBtn}${favBtn}<span class="who">${who}${time ? ' · ' + time : ''}${tag}${tp}</span>${linkify(esc(body))}${wait}${choices}${snapBox}${enh}<div class="ts">${time}</div>` };
         }
         // PERF: keyed incremental render - only turns whose content changed are re-built; the rest of the DOM is
         // untouched (the old version rebuilt all 120 bubbles as one innerHTML on every change, which stuttered on the phone).
@@ -1992,6 +2004,24 @@
            below the fold does not change scrollTop, so an untouched view still reads as unmoved,
            while a deliberate scroll reads as moved and is left alone.
            (2026-09-22, L: "newest first unchecked ... start me out scrolled to the bottom") */
+        // ⤓ LATEST pill (2026-09-24): whenever the log is scrolled away from its newest end, a small pill
+        // floats over the chat; one tap snaps to the latest message. Works whatever left you mid-thread.
+        function updateLatestPill(log, nf) {
+            const host = $('.dc-chat'); if (!host || !log) return;
+            let pill = host.querySelector('.dc-latest');
+            if (!pill) {
+                pill = document.createElement('button'); pill.type = 'button'; pill.className = 'dc-latest'; pill.textContent = '⤓ latest';
+                pill.onclick = () => { snapChatEnd(log, newestFirst()); };
+                host.appendChild(pill);
+            }
+            const away = nf ? log.scrollTop > 160 : (log.scrollHeight - log.scrollTop - log.clientHeight) > 160;
+            pill.classList.toggle('show', away && log.scrollHeight > log.clientHeight + 200);
+        }
+        (function wireLatestPill() {
+            const log = document.getElementById('dc-chat-log'); if (!log) return;
+            let t = 0;
+            log.addEventListener('scroll', () => { clearTimeout(t); t = setTimeout(() => updateLatestPill(log, newestFirst()), 120); }, { passive: true });
+        })();
         function snapChatEnd(log, nf) {
             if (!log) return;
             const put = () => { log.scrollTop = nf ? 0 : log.scrollHeight; return log.scrollTop; };
@@ -2000,6 +2030,12 @@
             requestAnimationFrame(() => DC.reSnap());
             setTimeout(() => DC.reSnap(), 90);
             setTimeout(() => DC.reSnap(), 400);
+            // a tab switch on a phone can still settle later (fonts, lazy images, the keyboard closing) -
+            // keep re-asserting for a second and a half while the view has not been touched (L, 2026-09-24:
+            // "when I scroll to a page can it get me to the latest message in view")
+            setTimeout(() => DC.reSnap(), 900);
+            setTimeout(() => DC.reSnap(), 1500);
+            updateLatestPill(log, nf);
         }
         // `load` does not bubble, so this listens in the capture phase. Snap frames decode long
         // after the 400ms re-assert, and each one moves the bottom down.
@@ -2216,7 +2252,25 @@
         // A pending "…thinking" bubble used to depend on the sender's in-page watcher: reload the page (or the
         // phone sleeps) mid-job and the daemon's reply landed in jobs/<id> but the bubble stayed "…thinking" forever.
         // Now every pending turn carries its jobId and gets re-watched on every render, so replies always land.
-        DC.pendWatch = {};
+        DC.pendWatch = {}; DC.pendJob = {};
+        // The wait line under a "…thinking" bubble: elapsed, what the daemon says the terminal is doing,
+        // today's output tokens, the Firebase run-rate, and which daemon/model is serving. Repainted every 5 s.
+        function fmtEl(ms) { const s = Math.max(0, Math.round(ms / 1000)); return s < 60 ? s + 's' : Math.floor(s / 60) + 'm ' + String(s % 60).padStart(2, '0') + 's'; }
+        function paintWait() {
+            const els = document.querySelectorAll('#dc-chat-log .dc-wait'); if (!els.length) return;
+            const u = DC.usage || {}, m = DC.lastMeta || {};
+            const tok = u.today && typeof u.today.out === 'number' ? fmtTok(u.today.out) + ' tokens out today' : '';
+            const fb = u.firebase && typeof u.firebase.perDayGB === 'number' ? 'Firebase ' + u.firebase.perDayGB.toFixed(2) + ' GB/day' : '';
+            const ver = (String(m.version || '').match(/^[\w-]+ [\d.]+/) || [''])[0];
+            const back = [ver, m.dropletState ? 'droplet ' + m.dropletState : '', m.tgBot && m.tgBot.username ? '@' + m.tgBot.username : ''].filter(Boolean).join(' · ');
+            els.forEach(el => {
+                const t = (DC.chatTurns || {})[el.dataset.k] || {}, j = DC.pendJob[el.dataset.k] || {};
+                const since = j.startedAt || t.ts || Date.now();
+                const parts = ['⏳ ' + fmtEl(Date.now() - since) + (j.startedAt ? '' : ' queued'), j.progress ? String(j.progress).slice(0, 90) : '', tok, fb, back].filter(Boolean);
+                el.textContent = parts.join(' · ');
+            });
+        }
+        setInterval(paintWait, 5000);
         function reconcilePending(obj) {
             for (const [k, t] of Object.entries(obj || {})) {
                 if (!t || t.s !== 'D' || !t.pending || !t.jobId || DC.pendWatch[k]) continue;
@@ -2224,6 +2278,7 @@
                 const jr = ref(database, `${DC.base}/jobs/${t.jobId}`), tr = ref(database, `${DC.base}/chat/turns/${k}`);
                 const unwatch = onValue(jr, async s => {
                     const j = s.val(); if (!j) return;
+                    DC.pendJob[k] = j; paintWait();   // the wait line: startedAt + the daemon's progress note
                     // CANCELLED: let go WITHOUT writing the turn back. `set()` on a deleted path
                     // recreates it, so the old code would have resurrected the very bubble he
                     // deleted to cancel - the cancel would have looked like it did nothing.
@@ -2510,6 +2565,7 @@
             if (age) { const m = Math.round((Date.now() - (Number(d.at) || 0)) / 60000); age.textContent = m < 1 ? 'live' : m < 60 ? m + ' min ago' : Math.round(m / 60) + ' h ago'; }
         }
         function renderUsage(u) {
+            DC.usage = u || null;   // the pending-bubble wait line reads today's tokens + the Firebase rate from here
             // usage fill on the chat input: today's output vs the 30-day peak day, 0-100%
             const inp = $('#dc-chat-in');
             if (inp) {
