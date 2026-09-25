@@ -760,6 +760,8 @@
         .dc-btn.ghost { background: transparent; color: var(--muted); border-color: var(--border); font-weight: 500; }
         .dc-btn.push { background: var(--dc-green); border-color: var(--dc-green); color: var(--dc-on-green); }
         .dc-chk { font-size: calc(0.78rem * var(--dc-fs, 1)); color: var(--muted); display: inline-flex; gap: 5px; align-items: center; cursor: pointer; }
+        /* a control the label still toggles but nobody sees (Top/Bottom): visually hidden, NOT display:none, so it stays a real checkbox */
+        .dc-chk input.dc-hide { position: absolute; opacity: 0; width: 0; height: 0; margin: 0; pointer-events: none; }
         .dc-status { font-family: monospace; font-size: calc(0.72rem * var(--dc-fs, 1)); color: var(--muted); margin-bottom: 8px; }
         .dc-status.dc-guest-note { color: var(--dc-amber); min-height: 0; margin: 2px 2px 6px; line-height: 1.35; }
         .dc-status.dc-guest-note[hidden] { display: none; }
@@ -1071,7 +1073,9 @@
                     <label class="dc-chk" id="dc-fs-lbl" title="text size of the chat log on this device. The tab bar and menus stay the same size.">🔤 Text<select id="dc-theme-fs" style="margin-left:6px;font:inherit"><option value="">Normal</option><option value="xl">Large</option></select></label>
                     <label class="dc-chk" id="dc-tts-lbl" title="which voice reads a reply aloud when you tap Play. Auto guesses from the text.">🗣<select id="dc-tts-lang" style="margin-left:6px;font:inherit;max-width:120px"><option value="auto">Auto</option><option value="en">English</option><option value="es">Español</option></select></label>
                     <label class="dc-chk" id="dc-model-lbl" title="switch the model of Droplet's running session. Sends /model to its terminal on its own line and posts back whatever the terminal says - including 'not found'. Use it when replies come back as 'you have reached your limit'.">🧠 model<select id="dc-model" style="margin-left:6px;font:inherit;max-width:120px"><option value="">switch to…</option><option value="opus">Opus</option><option value="sonnet">Sonnet</option><option value="haiku">Haiku</option><option value="fable">Fable</option><option value="default">default</option></select></label>
-                    <label class="dc-chk" title="newest messages at the top, input right under the strips"><input type="checkbox" id="dc-newest"> ⬆ Top</label>
+                    <!-- no box (L, 2026-09-24: "the top is basically turning to bottom when unchecked, no need for box, just have text change Top Bottom"):
+                         the checkbox stays in the DOM, visually hidden, so the label still flips it and every listener on #dc-newest is untouched; only the words change. -->
+                    <label class="dc-chk" id="dc-nf-lbl" title="where the newest message sits: Top = newest first, input under the strips; Bottom = oldest first, input at the bottom. Tap to flip."><input type="checkbox" id="dc-newest" class="dc-hide"><span id="dc-nf-txt">⬆ Top</span></label>
                     <label class="dc-chk" title="show the recent-ideas strip above the input (your open tickler items). Unticked hides it entirely - tapping its label only folds it."><input type="checkbox" id="dc-show-ideas" checked> 💡 Recent</label>
                     <label class="dc-chk" title="auto-archive the thread (summary to memory) once it passes this many thousand characters; 0 = never">auto-archive at <input type="number" id="dc-auto-arch" min="0" max="500" step="5">k</label>
                     <span class="dc-size" id="dc-thread-size" title="size of the live thread"></span>
@@ -3103,7 +3107,8 @@
         const psGlyph = document.querySelector('.dc-chat-input .ps'); if (psGlyph) psGlyph.onclick = () => { if (!(DC.acceptSugg && DC.acceptSugg())) $('#dc-chat-in').focus(); };
         // ⬆ newest-first toggle (persisted) - re-renders in place
         const nfBox = $('#dc-newest');
-        if (nfBox) { nfBox.checked = newestFirst(); nfBox.addEventListener('change', () => { try { localStorage.setItem('dc_newest_first', nfBox.checked ? '1' : '0'); } catch (_) {} DC.bubbleSig = {}; renderChat(DC.chatTurns || {}); }); }
+        const paintNf = () => { const t = $('#dc-nf-txt'); if (t) t.textContent = nfBox.checked ? '⬆ Top' : '⬇ Bottom'; };   // the row's words ARE the state (no box)
+        if (nfBox) { nfBox.checked = newestFirst(); paintNf(); nfBox.addEventListener('change', () => { try { localStorage.setItem('dc_newest_first', nfBox.checked ? '1' : '0'); } catch (_) {} paintNf(); DC.bubbleSig = {}; renderChat(DC.chatTurns || {}); }); }
         // auto-archive limit lives in Firebase (console/settings/autoArchiveChars) so the daemon enforces it; the box edits it
         const aaBox = $('#dc-auto-arch');
         if (aaBox) aaBox.addEventListener('change', () => { if (!DC.base) return; const k = Math.max(0, Math.round(Number(aaBox.value) || 0)); set(ref(database, `${DC.base}/settings/autoArchiveChars`), k * 1000); });
