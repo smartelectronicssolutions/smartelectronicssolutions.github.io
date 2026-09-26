@@ -516,7 +516,7 @@ function rebuild(){byLoc={};for(const it of ITEMS){if((it.qty||0)<1)continue;(by
   if($("storage").classList.contains("open")){renderArea();$("storBag").textContent=(byLoc.bag||[]).length;}
   if($("shop").classList.contains("open"))renderShop();
   if($("jobs").classList.contains("open"))renderJobs();}
-onValue(ref(db,BASE+"/inventory"),snap=>{const tree=snap.val()||{};const arr=[];
+onValue(ref(db,BASE+"/money/inventory"),snap=>{const tree=snap.val()||{};const arr=[];
   for(const cat in tree)for(const comp in tree[cat])for(const name in tree[cat][comp]){const v=tree[cat][comp][name]||{};
     const known=roomToLoc(v.room);const loc=v.location||known||(v.room?cslug(v.room):defaultLoc(comp));
     if(v.room&&!ZONEMETA[loc]&&!CLABEL[loc])CLABEL[loc]=v.room;
@@ -524,7 +524,7 @@ onValue(ref(db,BASE+"/inventory"),snap=>{const tree=snap.val()||{};const arr=[];
   ITEMS=arr;$("loading").style.display="none";rebuild();});
 function moveItem(it,newLoc){const base=`${it.cat}/${it.comp}/${it.name}`;it.loc=newLoc;const upd={[base+"/location"]:newLoc};
   if(newLoc!=="bag"){const lbl=locMeta(newLoc).label;it.room=lbl;upd[base+"/room"]=lbl;}   // sync the inventory-app 'room' field so the move shows there too
-  update(ref(db,BASE+"/inventory"),upd).catch(e=>console.warn(e));rebuild();}
+  update(ref(db,BASE+"/money/inventory"),upd).catch(e=>console.warn(e));rebuild();}
 // ===== economy (ledger-driven wallet, all on public/loadout/ledger) =====
 let BAL=0;
 onValue(ref(db,BASE+"/games/loadout/ledger"),snap=>{const v=snap.val();
@@ -534,7 +534,7 @@ onValue(ref(db,BASE+"/games/loadout/ledger"),snap=>{const v=snap.val();
   if($("shop").classList.contains("open"))renderShop();});
 // HUD money = real PROFIT (income - expense) from the logged-in account's ledger. READ-ONLY mirror: the game NEVER writes ledgerTx.
 let PROFIT=0;
-get(ref(db,BASE+"/ledgerTx")).then(snap=>{const y=snap.val()||{};let inc=0,exp=0;
+get(ref(db,BASE+"/money/ledger")).then(snap=>{const y=snap.val()||{};let inc=0,exp=0;
   for(const yr in y){const es=y[yr]||{};for(const k in es){const e=es[k]||{};const a=+e.amt||0;if(e.type==="income")inc+=a;else exp+=a;}}
   PROFIT=inc-exp;/* TEST MODE: HUD money shows the game wallet (BAL), not real profit - restore this when tying into finances */}).catch(()=>{});
 function ledgerAdd(amt,name){const id="tx"+Date.now().toString(36)+Math.floor(Math.random()*1e3).toString(36);
@@ -545,14 +545,14 @@ function buyItem(it){const price=itemPrice(it);
   if(price>0)ledgerAdd(-price,"Bought "+it.name);   // no price = free to take (2026-09-18)
   const path=it.cat+"/"+it.comp+"/"+it.name;const upd={};upd[path+"/quantity"]=(it.qty||0)+1;
   if(!it.loc||it.loc==="shop"||!byLoc[it.loc])upd[path+"/location"]=it.loc||"shelf";
-  update(ref(db,BASE+"/inventory"),upd).catch(()=>{});
+  update(ref(db,BASE+"/money/inventory"),upd).catch(()=>{});
   $("shopMsg").textContent=price>0?"Bought "+it.name+" for $"+money(price)+" ✓":"Took "+it.name+" (no price set - free) ✓";}
 // SELL (2026-09-18): half the shop price back into the game wallet, quantity -1. Only priced items you own.
 function money(p){return p>=1||p===0?p.toFixed(0):p.toFixed(2);}   // $25 / $0.25
 function sellPrice(it){return Math.round(itemPrice(it)*50)/100;}
 function sellItem(it){const q=it.qty||0,amt=sellPrice(it);if(q<1){$("shopMsg").textContent="You don't own a "+it.name;return;}
   if(amt>0)ledgerAdd(amt,"Sold "+it.name);
-  update(ref(db,BASE+"/inventory"),{[it.cat+"/"+it.comp+"/"+it.name+"/quantity"]:q-1}).catch(()=>{});
+  update(ref(db,BASE+"/money/inventory"),{[it.cat+"/"+it.comp+"/"+it.name+"/quantity"]:q-1}).catch(()=>{});
   $("shopMsg").textContent="Sold "+it.name+" for $"+money(amt)+" ✓";}
 
 // ---- room furniture (DB-backed) ----
@@ -1506,7 +1506,7 @@ function renderJobs(){$("jobFuel").textContent=Math.round(FUEL)+"%";$("jobMiles"
 function completeJob(id){const j=JOBS[id];if(!j)return;const need=Math.round(j.miles*FUEL_PER_MILE);
   if(FUEL<need||!(j.parts||[]).every(p=>haveQty(p.name)>=p.qty))return;
   const upd={};for(const p of (j.parts||[])){let n=p.qty;for(const it of ITEMS){if(it.name!==p.name||n<=0)continue;const t=Math.min(n,it.qty||0);if(t>0){it.qty-=t;n-=t;upd[it.cat+"/"+it.comp+"/"+it.name+"/quantity"]=it.qty;}}}
-  if(Object.keys(upd).length)update(ref(db,BASE+"/inventory"),upd).catch(()=>{});
+  if(Object.keys(upd).length)update(ref(db,BASE+"/money/inventory"),upd).catch(()=>{});
   set(ref(db,BASE+"/games/loadout/fuel"),Math.max(0,FUEL-need)).catch(()=>{});
   set(ref(db,BASE+"/games/loadout/miles"),MILES+j.miles).catch(()=>{});
   ledgerAdd(j.payout,"Job: "+j.site);
@@ -1567,7 +1567,7 @@ function openItemEdit(it){if(BASE==="public"){alert("Log in to edit your items."
   $("ie_err").textContent="";$("itemEdit").style.display="flex";}
 function closeItemEdit(){$("itemEdit").style.display="none";editItem=null;pendImgPath=null;}
 $("ie_upload").addEventListener("click",()=>$("ie_file").click());
-$("ie_file").addEventListener("change",async function(){const f=this.files&&this.files[0];if(!f||!editItem)return;$("ie_err").textContent="Uploading image…";try{const prior=pendImgPath||editItem._imgPath||"";const r=await uploadImage({file:f,basePath:BASE+"/inventory",name:($("ie_name").value||editItem.name||"item"),priorPath:prior});pendImgPath=r.path;$("ie_img").value=r.url;const pv=$("ie_prev");pv.src=r.url;pv.style.display="";$("ie_err").textContent="Image uploaded.";}catch(e){$("ie_err").textContent="Upload failed: "+((e&&e.message)||e);}this.value="";});
+$("ie_file").addEventListener("change",async function(){const f=this.files&&this.files[0];if(!f||!editItem)return;$("ie_err").textContent="Uploading image…";try{const prior=pendImgPath||editItem._imgPath||"";const r=await uploadImage({file:f,basePath:BASE+"/money/inventory",name:($("ie_name").value||editItem.name||"item"),priorPath:prior});pendImgPath=r.path;$("ie_img").value=r.url;const pv=$("ie_prev");pv.src=r.url;pv.style.display="";$("ie_err").textContent="Image uploaded.";}catch(e){$("ie_err").textContent="Upload failed: "+((e&&e.message)||e);}this.value="";});
 /* tap the item photo = fullscreen lightbox (edit stays on the Edit button) */
 (function(){const lb=document.createElement("div");lb.id="imgLightbox";
   lb.style.cssText="position:fixed;inset:0;z-index:4000;display:none;align-items:center;justify-content:center;background:rgba(4,6,8,.92);cursor:zoom-out";
@@ -1579,8 +1579,8 @@ $("ie_file").addEventListener("change",async function(){const f=this.files&&this
 $("dEdit").addEventListener("click",()=>{if(selItem)openItemEdit(selItem.it);});
 $("ie_cancel").addEventListener("click",closeItemEdit);
 $("itemEdit").addEventListener("click",e=>{if(e.target===$("itemEdit"))closeItemEdit();});
-$("ie_save").addEventListener("click",async()=>{if(!editItem)return;const it=editItem;const ncat=($("ie_cat").value||it.cat).trim(),ncomp=($("ie_comp").value||it.comp).trim(),nname=($("ie_name").value||it.name).trim();if(!ncat||!ncomp||!nname){$("ie_err").textContent="Name, Category and Container are required.";return;}const val=$("ie_room").value;const nimg=$("ie_img").value.trim();const fields={quantity:+$("ie_qty").value||0,price:$("ie_price").value.trim(),img:nimg,imgPath:(nimg?(pendImgPath||editItem._imgPath||null):null)};if(val){fields.location=val;fields.room=locMeta(val).label;}else if(it.loc==="bag"){fields.location="bag";}else{fields.location=null;fields.room=null;} /* "(auto)" must NOT eject a carried item from the backpack */$("ie_err").textContent="Saving…";try{const oldPath=it.cat+"/"+it.comp+"/"+it.name,newPath=ncat+"/"+ncomp+"/"+nname;if(newPath!==oldPath){const snap=await get(ref(db,BASE+"/inventory/"+oldPath));const data=Object.assign({},snap.val()||{},fields);await set(ref(db,BASE+"/inventory/"+newPath),data);await remove(ref(db,BASE+"/inventory/"+oldPath));}else{await update(ref(db,BASE+"/inventory/"+oldPath),fields);}closeItemEdit();}catch(e){$("ie_err").textContent="Save failed: "+((e&&e.message)||e);}});
-$("ie_del").addEventListener("click",async()=>{if(!editItem)return;if(!confirm('Delete "'+editItem.name+'" from your inventory?'))return;try{await remove(ref(db,BASE+"/inventory/"+editItem.cat+"/"+editItem.comp+"/"+editItem.name));closeItemEdit();}catch(e){$("ie_err").textContent="Delete failed: "+e;}});
+$("ie_save").addEventListener("click",async()=>{if(!editItem)return;const it=editItem;const ncat=($("ie_cat").value||it.cat).trim(),ncomp=($("ie_comp").value||it.comp).trim(),nname=($("ie_name").value||it.name).trim();if(!ncat||!ncomp||!nname){$("ie_err").textContent="Name, Category and Container are required.";return;}const val=$("ie_room").value;const nimg=$("ie_img").value.trim();const fields={quantity:+$("ie_qty").value||0,price:$("ie_price").value.trim(),img:nimg,imgPath:(nimg?(pendImgPath||editItem._imgPath||null):null)};if(val){fields.location=val;fields.room=locMeta(val).label;}else if(it.loc==="bag"){fields.location="bag";}else{fields.location=null;fields.room=null;} /* "(auto)" must NOT eject a carried item from the backpack */$("ie_err").textContent="Saving…";try{const oldPath=it.cat+"/"+it.comp+"/"+it.name,newPath=ncat+"/"+ncomp+"/"+nname;if(newPath!==oldPath){const snap=await get(ref(db,BASE+"/money/inventory/"+oldPath));const data=Object.assign({},snap.val()||{},fields);await set(ref(db,BASE+"/money/inventory/"+newPath),data);await remove(ref(db,BASE+"/money/inventory/"+oldPath));}else{await update(ref(db,BASE+"/money/inventory/"+oldPath),fields);}closeItemEdit();}catch(e){$("ie_err").textContent="Save failed: "+((e&&e.message)||e);}});
+$("ie_del").addEventListener("click",async()=>{if(!editItem)return;if(!confirm('Delete "'+editItem.name+'" from your inventory?'))return;try{await remove(ref(db,BASE+"/money/inventory/"+editItem.cat+"/"+editItem.comp+"/"+editItem.name));closeItemEdit();}catch(e){$("ie_err").textContent="Delete failed: "+e;}});
 $("ie_room").addEventListener("change",async function(){if(this.value!=="__new__")return;const cur=(editItem&&editItem.loc&&editItem.loc!=="bag")?editItem.loc:"";const name=(prompt("Name the new container:")||"").trim();if(!name){this.value=cur;return;}const key="c_"+name.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"").slice(0,20)+"_"+Date.now().toString(36).slice(-5);try{await set(ref(db,BASE+"/games/loadout/containers/"+key),{name:name.slice(0,40)});await set(ref(db,BASE+"/games/loadout/cplace/"+key),{area:"tray"});}catch(e){this.value=cur;$("ie_err").textContent="Couldn't create container.";return;}const op=document.createElement("option");op.value=key;op.textContent=name.slice(0,40);const nw=this.querySelector('option[value="__new__"]');this.insertBefore(op,nw);this.value=key;});
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function closePanel(){openPlace=undefined;$("overlay").classList.remove("open");}
