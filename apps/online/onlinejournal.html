@@ -556,17 +556,12 @@
               <button class="btn-outline" id="moveArticleBtn" type="button">Move Article</button>
               <button class="btn-outline" id="exportPdfBtn" type="button">Export as PDF</button>
               <button class="btn-outline" id="deleteArticleBtn" type="button">Delete Article</button>
-              <button class="btn-outline" id="shareArticleBtn" type="button">Share…</button>
+              <button class="btn-outline" id="shareArticleBtn" type="button">Share</button>
             </div>
-            <!-- SHARE (L, 2026-09-26: "share = make a copy in share, unshare = take the copy away"): a copy of the article
-                 goes to share/<their uid>/journal/<id>; unticking deletes it; re-saving refreshes the copy. -->
-            <div id="sharePanel" style="display:none;margin-top:12px;padding:12px;border:1px solid rgba(127,127,127,.35);border-radius:10px">
-              <strong>Share this article with</strong>
-              <div id="shareList" style="margin:8px 0"></div>
-              <button id="shareSaveBtn" type="button">Save sharing</button>
-              <button class="btn-outline" id="shareCloseBtn" type="button">Close</button>
-              <small id="shareStatus" style="margin-left:8px"></small>
-            </div>
+            <!-- SHARE (L, 2026-09-26: "don't put their UID part, have it in the same format it would be in the origin, a flag
+                 to have it identified"): Share puts the article, as it is, at share/journal/<id> with sharedBy/sharedByName;
+                 Unshare deletes it. Every signed-in user sees shared articles; only the sharer (or L) can change them. -->
+            <small id="shareStatus" style="display:block;margin-top:6px"></small>
           </div>
         </section>
 
@@ -1008,15 +1003,17 @@
           Object.entries(privateData).forEach(function ([id, article]) {
             combined["private__" + id] = Object.assign({}, article, { __id: id, __path: privatePath, __scope: "private" });
           });
-          // shared with me: copies others put in share/<me>/journal (read-only here - only the sender can change or remove them)
+          // share/journal: articles people shared, same shape as the origin + sharedBy. Mine are marked on my own row;
+          // other people's are their own read-only rows ("Shared by X").
           try {
-            var sharedPath = "share/" + currentUser.uid + "/journal";
+            var sharedPath = "share/journal";
             var sharedSnap = await get(ref(database, sharedPath));
             Object.entries(sharedSnap.exists() ? sharedSnap.val() : {}).forEach(function ([id, article]) {
-              if (article && typeof article === "object")
-                combined["shared__" + id] = Object.assign({}, article, { __id: id, __path: sharedPath, __scope: "shared" });
+              if (!article || typeof article !== "object") return;
+              if (article.sharedBy === currentUser.uid) { if (combined["private__" + id]) combined["private__" + id].__shared = true; return; }
+              combined["shared__" + id] = Object.assign({}, article, { __id: id, __path: sharedPath, __scope: "shared" });
             });
-          } catch (e) { console.warn("journal: shared-with-me not readable", e); }
+          } catch (e) { console.warn("journal: share/journal not readable", e); }
         }
         // ONE ROW PER ARTICLE (2026-09-25, L: "I don't want my list to double up"): the same id can live in
         // public AND in my private node (a published copy of my own article). The private one is the master
@@ -1111,7 +1108,7 @@
           var div = document.createElement("div");
           div.className = "entry-card";
           var scopeLabel = a.__scope === "shared" ? "Shared by " + (a.sharedByName || "someone")
-            : a.__scope === "private" ? (a.__alsoPublic ? "Private · Public copy" : "Private") : "Public";
+            : a.__scope === "private" ? (a.__alsoPublic ? "Private · Public copy" : "Private") + (a.__shared ? " · Shared" : "") : "Public";
           var cardDate = "";
           var dOpts = { month: 'short', day: 'numeric', year: 'numeric' };
           try {
@@ -1167,7 +1164,7 @@
       });
       articleSections.innerHTML = "";
       articleSections.innerHTML = renderArticleContent(a);
-      sharePanel.style.display = "none";
+      document.getElementById("shareStatus").textContent = "";
       if (currentUser && a.__scope !== "shared") {
         editArticleBtn.style.display = "inline-block";
         moveArticleBtn.style.display = "inline-block";
@@ -1180,6 +1177,7 @@
       }
       // share only your own private articles (a public one is already open to everyone; a shared copy isn't yours)
       shareArticleBtn.style.display = currentUser && a.__scope === "private" ? "inline-block" : "none";
+      shareArticleBtn.textContent = a.__shared ? "Unshare" : "Share";
     }
 
     /* ── delete / move ── */
@@ -1328,62 +1326,30 @@
     deleteArticleBtn.onclick = deleteArticle;
     moveArticleBtn.onclick = moveArticle;
 
-    /* ── share: a COPY in share/<recipient>/journal/<id>; unticked = the copy is deleted ── */
+    /* ── share: the article as it is at share/journal/<id> + sharedBy; Unshare deletes it; re-share refreshes it ── */
     const shareArticleBtn = document.getElementById("shareArticleBtn");
-    const sharePanel = document.getElementById("sharePanel");
-    let shareDir = null, shareWas = {};
-    async function shareDirectory() {
-      if (shareDir) return shareDir;
-      try { const snap = await get(ref(database, "share/directory")); shareDir = snap.exists() ? snap.val() : {}; } catch (e) { shareDir = {}; }
-      return shareDir;
-    }
-    function shareCopy(a) {
-      var o = {};
-      Object.keys(a).forEach(function (k) { if (k.indexOf("__") !== 0) o[k] = a[k]; });
-      return o;
-    }
-    async function openSharePanel(keepStatus) {
-      var a = allArticles[currentArticleId];
-      if (!currentUser || !a || a.__scope !== "private") return;
-      sharePanel.style.display = "block";
-      var list = document.getElementById("shareList"), st = document.getElementById("shareStatus");
-      list.innerHTML = "Loading…"; if (keepStatus !== true) st.textContent = "";
-      var dir = await shareDirectory(); shareWas = {};
-      var people = Object.entries(dir).filter(function ([uid]) { return uid !== currentUser.uid; })
-        .sort(function (x, y) { return String(x[1].name).localeCompare(String(y[1].name)); });
-      for (const [uid] of people) {
-        try { const snap = await get(ref(database, "share/" + uid + "/journal/" + a.__id)); shareWas[uid] = snap.exists(); }
-        catch (e) { shareWas[uid] = false; }   // not shared yet (a missing item is not readable by the sender)
-      }
-      list.innerHTML = people.map(function ([uid, p]) {
-        return '<label style="display:block;margin:4px 0"><input type="checkbox" data-uid="' + escapeHtml(uid) + '"' + (shareWas[uid] ? " checked" : "") + "> " +
-          escapeHtml(p.name || uid) + (shareWas[uid] ? ' <small style="opacity:.7">(shared)</small>' : "") + "</label>";
-      }).join("") || "Nobody to share with yet.";
-    }
-    async function saveSharing() {
+    async function toggleShare() {
       var a = allArticles[currentArticleId], st = document.getElementById("shareStatus");
-      if (!currentUser || !a) return;
-      var dir = await shareDirectory(), me = (dir[currentUser.uid] || {}).name || currentUser.email || "";
-      var added = 0, removed = 0, refreshed = 0;
-      st.textContent = "Saving…";
+      if (!currentUser || !a || a.__scope !== "private") return;
+      var path = "share/journal/" + a.__id;
       try {
-        for (const box of document.querySelectorAll("#shareList input[type=checkbox]")) {
-          var uid = box.dataset.uid, path = "share/" + uid + "/journal/" + a.__id;
-          if (box.checked) {
-            await set(ref(database, path), Object.assign(shareCopy(a), { sharedBy: currentUser.uid, sharedByName: me, sharedAt: Date.now() }));
-            if (shareWas[uid]) refreshed++; else added++;
-          } else if (shareWas[uid]) {
-            await remove(ref(database, path)); removed++;
-          }
+        if (a.__shared) {
+          if (!confirm('Unshare "' + (a.title || "this article") + '"? Everyone else stops seeing it.')) return;
+          await remove(ref(database, path));
+          a.__shared = false; st.textContent = "Unshared.";
+        } else {
+          var copy = {};
+          Object.keys(a).forEach(function (k) { if (k.indexOf("__") !== 0) copy[k] = a[k]; });
+          var name = "";
+          try { var d = await get(ref(database, "share/directory/" + currentUser.uid + "/name")); name = d.val() || ""; } catch (e) { }
+          await set(ref(database, path), Object.assign(copy, { sharedBy: currentUser.uid, sharedByName: name || currentUser.email || "", sharedAt: Date.now() }));
+          a.__shared = true; st.textContent = "Shared - every signed-in user can read it now. After edits, Unshare + Share to refresh their copy.";
         }
-        var parts = [added && added + " shared", refreshed && refreshed + " updated", removed && removed + " unshared"].filter(Boolean);
-        st.textContent = parts.length ? "Saved - " + parts.join(", ") : "Saved";
-        openSharePanel(true);
+        shareArticleBtn.textContent = a.__shared ? "Unshare" : "Share";
+        renderList();
       } catch (e) { st.textContent = "Not saved: " + (e.code || e.message || e); }
     }
-    shareArticleBtn.onclick = function () { openSharePanel(false); };
-    document.getElementById("shareSaveBtn").onclick = saveSharing;
-    document.getElementById("shareCloseBtn").onclick = function () { sharePanel.style.display = "none"; };
+    shareArticleBtn.onclick = toggleShare;
     document.getElementById("exportPdfBtn").onclick = exportPdf;
     renderSections();
 

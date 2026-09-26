@@ -52,20 +52,14 @@
       <button id="save-btn">💾</button>
       <button class="clear-button" id="delete-btn">❌</button>
       <button id="undo-btn">↩️</button>
-      <button id="share-btn" title="Share this note - a copy goes to the people you tick; untick to take it back">📤</button>
+      <button id="share-btn" title="Share this note (tap again to unshare)">📤</button>
       <label id="enc-lbl" title="Type your note, then type a secret word — a moment after you stop typing, the note auto-encrypts (AES-256) in place. Type the word again to open it. Empty word = plain note. Only the encrypted text is stored.">🔑 <input type="password" id="note-key" placeholder="secret word (auto-locks)" style="width:auto" autocomplete="off"></label>
       <span id="enc-status" style="font-size:.85em;opacity:.75;margin-left:6px"></span>
       <label for="autosave-checkbox" title="Off by default. When on, saves every 40s. Either way, closing the tab with unsaved changes will prompt you.">Auto-💾:</label>
       <input type="checkbox" id="autosave-checkbox">
-      <!-- SHARE (L, 2026-09-26): a copy of the SAVED note (as stored - an encrypted note stays encrypted, send the word
-           separately) goes to share/<their uid>/notes/<name>; untick = the copy is deleted; re-save = refreshed copy. -->
-      <div id="share-panel" style="display:none;margin:10px 0;padding:10px;border:1px solid rgba(127,127,127,.35);border-radius:10px">
-        <strong>Share "<span id="share-name"></span>" with</strong>
-        <div id="share-people" style="margin:8px 0"></div>
-        <button id="share-save" type="button">Save sharing</button>
-        <button id="share-close" type="button">Close</button>
-        <small id="share-status" style="margin-left:8px"></small>
-      </div>
+      <!-- SHARE (L, 2026-09-26: same format as the origin + a flag): 📤 puts the SAVED note as stored at share/notes/<name>
+           with sharedBy/sharedByName (an encrypted note stays encrypted); tap again to unshare. -->
+      <small id="share-status" style="display:block;margin:4px 0"></small>
       <section id="note-list"></section>
       <button id="resizeTextareaBtn">Expand</button>
       <button class="clear-button" id="clear-btn">Clear</button>
@@ -287,54 +281,30 @@
       }, 2000);
     };
 
-    // --- Share (2026-09-26): a copy of the saved note in share/<recipient>/notes/<name>; untick = the copy is deleted ---
-    let shareDir = null, shareWas = {};
-    const sharePanel = document.getElementById('share-panel');
-    async function shareDirectory() {
-      if (shareDir) return shareDir;
-      try { const snap = await get(ref(database, 'share/directory')); shareDir = snap.val() || {}; } catch (e) { shareDir = {}; }
-      return shareDir;
-    }
-    const noteKey = () => nameInput.value.trim();
-    async function openSharePanel(keepStatus) {
-      const st = document.getElementById('share-status'), people = document.getElementById('share-people');
+    // --- Share (2026-09-26): the saved note as stored at share/notes/<name> + sharedBy; tap again to unshare ---
+    let mineShared = {};
+    async function toggleShareNote() {
+      const st = document.getElementById('share-status');
       if (DATABASE_BASE_PATH === 'public') { alert('Sign in to share a note.'); return; }
-      const name = noteKey();
+      const name = nameInput.value.trim();
       if (!name) { alert('Open or save a note first.'); return; }
-      const saved = (await get(ref(database, `${DATABASE_BASE_PATH}/notes/${name}`))).val();
-      if (!saved) { alert('Save the note first - sharing sends the saved copy.'); return; }
-      sharePanel.style.display = 'block';
-      document.getElementById('share-name').textContent = name;
-      people.textContent = 'Loading…'; if (keepStatus !== true) st.textContent = '';
-      const dir = await shareDirectory(); shareWas = {};
-      const list = Object.entries(dir).filter(([uid]) => uid !== DATABASE_BASE_PATH).sort((a, b) => String(a[1].name).localeCompare(String(b[1].name)));
-      for (const [uid] of list) {
-        try { shareWas[uid] = (await get(ref(database, `share/${uid}/notes/${name}`))).exists(); } catch (e) { shareWas[uid] = false; }
-      }
-      people.innerHTML = list.map(([uid, p]) => `<label style="display:block;margin:3px 0"><input type="checkbox" data-uid="${uid}"${shareWas[uid] ? ' checked' : ''}> ${String(p.name || uid).replace(/[<>&]/g, '')}${shareWas[uid] ? ' <small style="opacity:.7">(shared)</small>' : ''}</label>`).join('') || 'Nobody to share with yet.';
-    }
-    async function saveSharing() {
-      const st = document.getElementById('share-status'), name = noteKey();
-      const saved = (await get(ref(database, `${DATABASE_BASE_PATH}/notes/${name}`))).val();
-      if (!saved) { st.textContent = 'Save the note first.'; return; }
-      const dir = await shareDirectory(), me = (dir[DATABASE_BASE_PATH] || {}).name || (auth.currentUser && auth.currentUser.email) || '';
-      let added = 0, refreshed = 0, removed = 0; st.textContent = 'Saving…';
+      const path = `share/notes/${name}`;
       try {
-        for (const box of document.querySelectorAll('#share-people input[type=checkbox]')) {
-          const uid = box.dataset.uid, path = `share/${uid}/notes/${name}`;
-          if (box.checked) {
-            await set(ref(database, path), { name: saved.name || name, note: saved.note, timestamp: saved.timestamp || new Date().toISOString(), sharedBy: DATABASE_BASE_PATH, sharedByName: me, sharedAt: Date.now() });
-            shareWas[uid] ? refreshed++ : added++;
-          } else if (shareWas[uid]) { await remove(ref(database, path)); removed++; }
+        const cur = (await get(ref(database, path))).val();
+        if (cur && cur.sharedBy === DATABASE_BASE_PATH) {
+          if (!confirm(`Unshare "${name}"?`)) return;
+          await remove(ref(database, path)); st.textContent = `"${name}" unshared.`; return;
         }
-        const parts = [added && `${added} shared`, refreshed && `${refreshed} updated`, removed && `${removed} unshared`].filter(Boolean);
-        st.textContent = parts.length ? `Saved - ${parts.join(', ')}` : 'Saved';
-        openSharePanel(true);
+        if (cur) { st.textContent = `Someone else already shares a note called "${name}" - rename yours to share it.`; return; }
+        const saved = (await get(ref(database, `${DATABASE_BASE_PATH}/notes/${name}`))).val();
+        if (!saved) { alert('Save the note first - sharing sends the saved copy.'); return; }
+        let me = '';
+        try { me = (await get(ref(database, `share/directory/${DATABASE_BASE_PATH}/name`))).val() || ''; } catch (e) { }
+        await set(ref(database, path), { ...saved, sharedBy: DATABASE_BASE_PATH, sharedByName: me || (auth.currentUser && auth.currentUser.email) || '', sharedAt: Date.now() });
+        st.textContent = `"${name}" shared - every signed-in user can read it${saved.enc || isEncrypted(saved.note) ? ' (it is encrypted - send the word separately)' : ''}. Tap 📤 again to unshare.`;
       } catch (e) { st.textContent = 'Not saved: ' + (e.code || e.message || e); }
     }
-    document.getElementById('share-btn').addEventListener('click', () => openSharePanel(false));
-    document.getElementById('share-save').addEventListener('click', saveSharing);
-    document.getElementById('share-close').addEventListener('click', () => { sharePanel.style.display = 'none'; });
+    document.getElementById('share-btn').addEventListener('click', toggleShareNote);
 
     const deleteNote = async () => {
       const nameToDelete = nameInput.value.trim();
@@ -397,14 +367,20 @@
       let own = {}, shared = {};
       const draw = () => {
         noteList.innerHTML = '';
-        const all = [...Object.values(own || {}), ...Object.values(shared || {}).map(n => ({ ...n, sharedByLabel: n.sharedByName || 'someone', __shared: true }))];
+        const all = [...Object.entries(own || {}).map(([k, n]) => mineShared[k] ? { ...n, __mineShared: true } : n),
+                     ...Object.values(shared || {}).map(n => ({ ...n, sharedByLabel: n.sharedByName || 'someone', __shared: true }))];
         if (!all.length) { noteList.innerHTML = '<li>No notes found</li>'; return; }
         all.sort((a, b) => new Date(b.timestamp || b.sharedAt) - new Date(a.timestamp || a.sharedAt)).forEach(note => createNoteListItem(note));
       };
       const unOwn = onValue(notesRef, snapshot => { own = snapshot.val() || {}; draw(); });
-      // shared with me: copies in share/<me>/notes (read-only; opening one loads it - saving makes it your own note)
+      // share/notes: notes people shared (same shape + sharedBy). Other people's show as "shared by X"; opening one
+      // loads it, and saving makes it your own note. Mine are tagged "shared" on my own row.
       const unShared = DATABASE_BASE_PATH !== 'public'
-        ? onValue(ref(database, `share/${DATABASE_BASE_PATH}/notes`), snap => { shared = snap.val() || {}; draw(); }, () => { })
+        ? onValue(ref(database, 'share/notes'), snap => {
+            const all = snap.val() || {}; shared = {}; mineShared = {};
+            for (const [k, n] of Object.entries(all)) { if (!n) continue; if (n.sharedBy === DATABASE_BASE_PATH) mineShared[k] = true; else shared[k] = n; }
+            draw();
+          }, () => { })
         : null;
       unsub = () => { unOwn(); if (unShared) unShared(); };
     };
@@ -424,6 +400,9 @@
       listItem.appendChild(nameSpan);
       listItem.appendChild(timestampSpan);
 
+      if (note.__mineShared) {
+        const t = document.createElement('span'); t.textContent = ' · shared'; t.style.cssText = 'font-weight:normal;font-size:0.8em;color:#4a90d9;margin-left:6px'; listItem.appendChild(t);
+      }
       if (note.sharedBy) {
         const shareTag = document.createElement('span');
         shareTag.textContent = ' · shared' + (note.sharedByLabel ? ' by ' + note.sharedByLabel : '');
