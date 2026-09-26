@@ -99,6 +99,10 @@
           <input id="serial-in" type="text" inputmode="numeric" autocomplete="off" placeholder="Serial" />
           <button id="scan-btn" class="big-btn">📷 Scan</button>
         </div>
+        <!-- Any code (L, 2026-09-26: "read any and all codes"): the reader already decodes QR, Data Matrix, Aztec, PDF417,
+             Code 128/39/93, EAN/UPC, ITF, Codabar - this switch shows WHATEVER was read (text + format) instead of
+             judging it as a sensor serial. For asset tags, MAC labels, carton codes. -->
+        <label class="muted" style="display:block;margin-top:8px"><input type="checkbox" id="free-scan" /> Any code - just show me what it says</label>
         <div id="reader" hidden></div>
       </div>
 
@@ -251,8 +255,21 @@
       if (kind === "hit") tone([1320, 1760], 90); else if (kind === "spare") tone([330], 400); else tone([440, 440], 150);
     }
 
+    // "Any code" mode: no serial judgement, no table needed - the decoded text, its format, and a copy button.
+    function showRaw(raw, res) {
+      const box = $("result");
+      const fmt = (res && res.result && res.result.format && res.result.format.formatName) || "";
+      box.innerHTML = `<div class="marklabel">${escapeHtml(fmt || "CODE")}</div>
+        <div class="raw" style="font-size:1.15rem;color:var(--textColor);margin-top:8px;user-select:all">${escapeHtml(raw)}</div>
+        <button id="copy-btn" class="big-btn" style="margin-top:10px">Copy</button>`;
+      $("copy-btn").onclick = () => { navigator.clipboard && navigator.clipboard.writeText(raw).then(() => { $("copy-btn").textContent = "Copied"; }).catch(() => { }); };
+      flash("hit");
+      logRecent(raw, null);
+    }
+
     function show(raw, fromScan) {
       const box = $("result");
+      if ($("free-scan").checked) return showRaw(raw, fromScan && fromScan.result ? fromScan : null);
       if (!total) {   // no table = every lookup would "miss" - say what's actually wrong instead
         box.innerHTML = `<div class="bad">Serial list not loaded</div>
           <div class="sub">Open this page once with signal (no login needed). After that it works offline.</div>`;
@@ -366,11 +383,11 @@
         r.hidden = false;
         scanner = new Html5Qrcode("reader");
         $("scan-btn").textContent = "■ Stop";
-        await scanner.start({ facingMode: "environment" }, { fps: 10, aspectRatio: 1.777, qrbox: (w, h) => ({ width: Math.floor(w * 0.8), height: Math.floor(h * 0.6) }) }, text => {
+        await scanner.start({ facingMode: "environment" }, { fps: 10, aspectRatio: 1.777, qrbox: (w, h) => ({ width: Math.floor(w * 0.8), height: Math.floor(h * 0.6) }) }, (text, res) => {
           const now = Date.now();
           if (text === lastRaw && now - lastAt < 2500) return;   // same label held in frame - don't re-fire
           lastRaw = text; lastAt = now;
-          show(text, true);
+          if ($("free-scan").checked) showRaw(text, res); else show(text, true);
         });
       } catch (e) {
         scanner = null; r.hidden = true; $("scan-btn").textContent = "📷 Scan";
