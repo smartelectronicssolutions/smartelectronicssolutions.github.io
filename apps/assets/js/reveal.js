@@ -5,13 +5,16 @@
      ids (20-39 letters+digits, e.g. a Firebase uid) and long tokens found in page text get wrapped in <span class="rv">.
    - Manual: add class="reveal" to frost a whole element; data-noreveal on an ancestor skips its subtree.
    - Hover clears it; on touch a tap clears it for 6 s (tap again to hide). Skips inputs, code, scripts, editable areas.
+   - v4 (2026-09-26, the database page's path box showed /<uid>): text fields (input / textarea / select) whose VALUE
+     matches get class rvf and are frosted whole until hover or focus - set by script (value setter hooked) or typed.
    - v3: content rendered later (Firebase lists) is frosted INSIDE the mutation callback - a microtask, before the next
      paint - so nothing is ever drawn clear first (v2 waited 300 ms and a clear frame got into the recordings). */
 (function () {
   if (window.__reveal) return;
   var css = document.createElement('style');
   css.textContent = '.rv,.reveal{filter:blur(5px);transition:filter .15s;cursor:pointer;user-select:none;-webkit-user-select:none}' +
-                    '.rv:hover,.reveal:hover,.rv.on,.reveal.on{filter:none;user-select:text;-webkit-user-select:text}';
+                    '.rv:hover,.reveal:hover,.rv.on,.reveal.on{filter:none;user-select:text;-webkit-user-select:text}' +
+                    '.rvf{filter:blur(5px);transition:filter .15s}.rvf:hover,.rvf:focus,.rvf.on{filter:none}';
   (document.head || document.documentElement).appendChild(css);
   var IP = '(?:25[0-5]|2[0-4]\\d|1?\\d?\\d)(?:\\.(?:25[0-5]|2[0-4]\\d|1?\\d?\\d)){3}(?:\\/\\d{1,2})?(?::\\d{2,5})?(?:->\\d{2,5})?(?:\\/(?:tcp|udp))?';
   var PARTS = [
@@ -66,6 +69,26 @@
     for (var i = 0; i < nodes.length; i++) count += frostText(nodes[i]);
     return count;
   }
+  // form fields: the value lives outside the text tree, so the whole field is frosted when its value matches
+  function field(el) {
+    if (!el || !el.classList || el.type === 'password' || el.type === 'hidden' || el.closest('[data-noreveal]')) return;
+    var v = el.tagName === 'SELECT' ? (el.selectedOptions && el.selectedOptions[0] ? el.selectedOptions[0].text : '') : el.value;
+    RX.lastIndex = 0; var hit = !!v && RX.test(v); RX.lastIndex = 0;
+    el.classList.toggle('rvf', hit);
+  }
+  function fields(root) {
+    if (!root || root.nodeType !== 1) return;
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(root.tagName)) return field(root);
+    if (root.tagName === 'OPTION') return field(root.closest('select'));
+    root.querySelectorAll('input, textarea, select').forEach(field);
+  }
+  [window.HTMLInputElement, window.HTMLTextAreaElement, window.HTMLSelectElement].forEach(function (C) {
+    var d = C && Object.getOwnPropertyDescriptor(C.prototype, 'value'); if (!d || !d.set) return;
+    Object.defineProperty(C.prototype, 'value', { configurable: true, enumerable: d.enumerable, get: d.get,
+      set: function (v) { d.set.call(this, v); try { field(this); } catch (e) {} } });
+  });
+  document.addEventListener('input', function (e) { field(e.target); }, true);
+  document.addEventListener('change', function (e) { field(e.target); }, true);
   document.addEventListener('click', function (e) {
     var el = e.target.closest && e.target.closest('.rv, .reveal');
     if (!el) return;
@@ -76,16 +99,16 @@
     for (var i = 0; i < muts.length; i++) {
       var m = muts[i];
       if (m.type === 'characterData') { if (m.target.parentNode) frost(m.target); continue; }
-      for (var j = 0; j < m.addedNodes.length; j++) { var a = m.addedNodes[j]; if (a.parentNode) frost(a); }
+      for (var j = 0; j < m.addedNodes.length; j++) { var a = m.addedNodes[j]; if (a.parentNode) { frost(a); fields(a); } }
     }
   }
   function start() {
-    frost(document.body);
+    frost(document.body); fields(document.body);
     new MutationObserver(onMutations).observe(document.body, { childList: true, subtree: true, characterData: true });
   }
   if (document.body) start(); else document.addEventListener('DOMContentLoaded', start);
   window.__reveal = {
-    frost: frost, rx: RX,
+    frost: frost, field: field, rx: RX,
     off: function () { document.querySelectorAll('.rv').forEach(function (s) { s.classList.add('on'); }); },
     on: function () { document.querySelectorAll('.rv').forEach(function (s) { s.classList.remove('on'); }); }
   };
