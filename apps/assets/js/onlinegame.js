@@ -23,7 +23,7 @@ export function createQuizModule({
     /* ================= PATHS ================= */
 
     function progressPath() {
-        return `${basePathGetter()}/gameData/progress`;
+        return `${basePathGetter()}/games/sim/progress`;
     }
 
     /* ================= LOAD PROGRESS ================= */
@@ -346,7 +346,7 @@ export function createMathModule({
 }) {
 
     function mathPath() {
-        return `${basePathGetter()}/gameData/mathProgress`;
+        return `${basePathGetter()}/games/sim/mathProgress`;
     }
 
     /* ================= MATH GAME ================= */

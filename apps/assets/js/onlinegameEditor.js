@@ -35,7 +35,7 @@ export function createRoomEditor({
     function open(roomName, roomsData, basePath) {
 
         currentRoom = roomName;
-        roomsRef = `${basePath}/gameData/rooms/${roomName}`;
+        roomsRef = `${basePath}/games/sim/rooms/${roomName}`;
 
         roomData = JSON.parse(JSON.stringify(roomsData[roomName]));
 
