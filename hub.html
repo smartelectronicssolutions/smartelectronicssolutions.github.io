@@ -2064,6 +2064,8 @@
             const BASE = ta.placeholder;          // the mechanical hint - what shows once he is typing
             const pool = () => {
                 const out = [], st = DC.dropletState;
+                const rs = replySuggFor(DC.topic);
+                if (rs) out.push({ show: '\u21a9 ' + rs, put: rs, reply: true });
                 if (st && st !== 'up' && !DC.kdaemon) out.push({ show: 'Droplet is ' + st + ' - tap the red dot to wake it', put: null });
                 const un = document.querySelectorAll('.dc-topic.unread').length;
                 if (un) out.push({ show: un + ' tab' + (un > 1 ? 's have' : ' has') + ' a reply you have not read', put: null });
@@ -2081,7 +2083,9 @@
             const ps = document.querySelector('.dc-chat-input .ps');
             // the cycle: the placeholder's prompt first (when there is one), then the \ud83d\udca1 recent ideas in their strip order
             const cycle = () => { const ideas = [...document.querySelectorAll('#dc-ideas .dc-idea')].map(c => c.dataset.t).filter(Boolean);
-                return [...(cur && cur.put ? [cur.put] : []), ...ideas.filter(t => !cur || t !== cur.put)]; };
+                const rs = replySuggFor(DC.topic);
+                const head = [...(rs ? [rs] : []), ...(cur && cur.put && cur.put !== rs ? [cur.put] : [])];
+                return [...head, ...ideas.filter(t => !head.includes(t))]; };
             const untouched = () => !!(put && ta.value === put.text);
             const paint = () => {
                 ta.placeholder = cur ? (cur.show + (cur.put && document.activeElement === ta ? '   \u21e5 Tab to use' : '')) : BASE;
@@ -2123,8 +2127,43 @@
             setInterval(tick, 7000);
             setTimeout(tick, 1200);
             window.__dcPlaceholderTick = tick;   // test hook
+            DC.placeholderFront = () => { if (ta.value || document.activeElement === ta) { paint(); return; } i = 0; tick(); };
         })();
         const FAV_TAB = '\u2605';
+        // SUGGESTED REPLY (2026-09-26, L: "I want one of the tab options to be some sort of suggestion of what I would reply
+        // to the last message with"). When the newest turn in the open tab is a finished Droplet reply, gemma2 (local, 0 Claude
+        // tokens) drafts the one line L would most likely send back; it becomes the FIRST Tab / caret option, shown as "↩ ...".
+        // One draft per reply (cached by turn key), one request at a time, and never while he is typing - ollama serves one
+        // request at a time, so the live proofreader must not queue behind this.
+        const REPLY_SYS = "You draft Luis's next chat message to Droplet, his AI assistant. Luis types short, casual, direct messages - "
+            + "examples: \"Yes\", \"Go with ep 1\", \"Link me\", \"Do 1 and 2 first\", \"Push\", \"What's still open?\". "
+            + "Read Droplet's last message. If it asks a yes/no question or offers to do something, answer it the way Luis most likely would "
+            + "(usually yes, or pick the option). If it offers numbered options, pick one by number. Otherwise write the natural follow-up. "
+            + "Output ONLY the message itself: one line, under 15 words, no quotes, no preamble.";
+        DC.replySugg = {};   // topic -> { k, text }
+        function replySuggFor(topic) { const r = (DC.replySugg || {})[topic || '']; return (r && r.text && r.k === DC.replyTailK) ? r.text : ''; }
+        let replyBusy = false;
+        async function draftReply(k, t, prevL) {
+            const topic = DC.topic || '';
+            if (replyBusy || (DC.replySugg[topic] && DC.replySugg[topic].k === k)) return;
+            const ta = $('#dc-chat-in'); if (ta && ta.value) return;            // he is typing - the proofreader owns the model
+            replyBusy = true; DC.replySugg[topic] = { k, text: '' };
+            try {
+                const last = String(t.text || '').replace(/```[\s\S]*?```/g, ' ').replace(/[*_`#>|]/g, '').replace(/\s+/g, ' ').trim().slice(-1500);
+                const ctx = prevL ? 'Luis had said: ' + String(prevL).slice(0, 300) + '\n' : '';
+                const res = await fetch(OLLAMA, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model: LIVE_MODEL, stream: false, keep_alive: '30m', options: { temperature: 0.2, num_predict: 40 },
+                        messages: [{ role: 'system', content: REPLY_SYS }, { role: 'user', content: ctx + "Droplet's last message:\n<<<\n" + last + '\n>>>\nLuis replies:' }] }) });
+                if (!res.ok) return;
+                const j = await res.json();
+                let out = String((j.message && j.message.content) || '').replace(/<think>[\s\S]*?<\/think>/gi, '').split('\n').map(x => x.trim()).filter(Boolean)[0] || '';
+                out = out.replace(/^(luis( replies)?:|reply:)\s*/i, '').replace(/^["“']|["”']$/g, '').trim();
+                if (!out || out.length > 120) return;
+                DC.replySugg[topic] = { k, text: out };
+                if (DC.placeholderFront) DC.placeholderFront();
+            } catch (_) { }
+            finally { replyBusy = false; }
+        }
         function renderChat(obj) {
             DC.chatTurns = obj;
             // THINKING LIGHT (2026-09-19): the send button breathes while any reply - in any tab - is still on its way.
@@ -2145,6 +2184,11 @@
             for (const k of Object.keys(obj)) if (obj[k]) obj[k].__k = k;
             const keys = Object.keys(obj).filter(k => favView || !DC.topic || (obj[k] && obj[k].topic === DC.topic));
             DC.lastLKey = keys.slice().reverse().find(k => obj[k] && obj[k].s === 'L') || '';
+            {   // suggested reply: only for a finished Droplet reply at the tail of a real tab (not the ★ view)
+                const tk = keys[keys.length - 1], tt = tk && obj[tk];
+                DC.replyTailK = (!favView && tt && tt.s === 'D' && !tt.pending && tt.text) ? tk : '';
+                if (DC.replyTailK) draftReply(tk, tt, DC.lastLKey && obj[DC.lastLKey] ? obj[DC.lastLKey].text : '');
+            }
             for (const k of keys) if (obj[k] && obj[k].s === 'L') obj[k].__last = (k === DC.lastLKey);
             // the TAIL turn (nothing after it in this view): only it may show menu buttons - an answered menu is
             // gone from the terminal, and a "1" sent later would just be a plain message (2026-09-24)
