@@ -556,6 +556,16 @@
               <button class="btn-outline" id="moveArticleBtn" type="button">Move Article</button>
               <button class="btn-outline" id="exportPdfBtn" type="button">Export as PDF</button>
               <button class="btn-outline" id="deleteArticleBtn" type="button">Delete Article</button>
+              <button class="btn-outline" id="shareArticleBtn" type="button">Share…</button>
+            </div>
+            <!-- SHARE (L, 2026-09-26: "share = make a copy in share, unshare = take the copy away"): a copy of the article
+                 goes to share/<their uid>/journal/<id>; unticking deletes it; re-saving refreshes the copy. -->
+            <div id="sharePanel" style="display:none;margin-top:12px;padding:12px;border:1px solid rgba(127,127,127,.35);border-radius:10px">
+              <strong>Share this article with</strong>
+              <div id="shareList" style="margin:8px 0"></div>
+              <button id="shareSaveBtn" type="button">Save sharing</button>
+              <button class="btn-outline" id="shareCloseBtn" type="button">Close</button>
+              <small id="shareStatus" style="margin-left:8px"></small>
             </div>
           </div>
         </section>
@@ -998,6 +1008,15 @@
           Object.entries(privateData).forEach(function ([id, article]) {
             combined["private__" + id] = Object.assign({}, article, { __id: id, __path: privatePath, __scope: "private" });
           });
+          // shared with me: copies others put in share/<me>/journal (read-only here - only the sender can change or remove them)
+          try {
+            var sharedPath = "share/" + currentUser.uid + "/journal";
+            var sharedSnap = await get(ref(database, sharedPath));
+            Object.entries(sharedSnap.exists() ? sharedSnap.val() : {}).forEach(function ([id, article]) {
+              if (article && typeof article === "object")
+                combined["shared__" + id] = Object.assign({}, article, { __id: id, __path: sharedPath, __scope: "shared" });
+            });
+          } catch (e) { console.warn("journal: shared-with-me not readable", e); }
         }
         // ONE ROW PER ARTICLE (2026-09-25, L: "I don't want my list to double up"): the same id can live in
         // public AND in my private node (a published copy of my own article). The private one is the master
@@ -1016,7 +1035,8 @@
             // resolve a raw article id against the prefixed keys (private first, then public)
             var key = allArticles[id] ? id
               : allArticles["private__" + id] ? "private__" + id
-              : allArticles["public__" + id] ? "public__" + id : null;
+              : allArticles["public__" + id] ? "public__" + id
+              : allArticles["shared__" + id] ? "shared__" + id : null;
             // idempotent: the bootstrap and the post-auth load both run this, and re-rendering
             // the same article would yank the reader back to the top mid-scroll
             if (key && currentArticleId !== key) renderArticle(key);
@@ -1090,7 +1110,8 @@
           if (!a || typeof a !== "object") return;
           var div = document.createElement("div");
           div.className = "entry-card";
-          var scopeLabel = a.__scope === "private" ? (a.__alsoPublic ? "Private · Public copy" : "Private") : "Public";
+          var scopeLabel = a.__scope === "shared" ? "Shared by " + (a.sharedByName || "someone")
+            : a.__scope === "private" ? (a.__alsoPublic ? "Private · Public copy" : "Private") : "Public";
           var cardDate = "";
           var dOpts = { month: 'short', day: 'numeric', year: 'numeric' };
           try {
@@ -1146,7 +1167,8 @@
       });
       articleSections.innerHTML = "";
       articleSections.innerHTML = renderArticleContent(a);
-      if (currentUser) {
+      sharePanel.style.display = "none";
+      if (currentUser && a.__scope !== "shared") {
         editArticleBtn.style.display = "inline-block";
         moveArticleBtn.style.display = "inline-block";
         deleteArticleBtn.style.display = "inline-block";
@@ -1156,6 +1178,8 @@
         moveArticleBtn.style.display = "none";
         deleteArticleBtn.style.display = "none";
       }
+      // share only your own private articles (a public one is already open to everyone; a shared copy isn't yours)
+      shareArticleBtn.style.display = currentUser && a.__scope === "private" ? "inline-block" : "none";
     }
 
     /* ── delete / move ── */
@@ -1303,6 +1327,63 @@
     };
     deleteArticleBtn.onclick = deleteArticle;
     moveArticleBtn.onclick = moveArticle;
+
+    /* ── share: a COPY in share/<recipient>/journal/<id>; unticked = the copy is deleted ── */
+    const shareArticleBtn = document.getElementById("shareArticleBtn");
+    const sharePanel = document.getElementById("sharePanel");
+    let shareDir = null, shareWas = {};
+    async function shareDirectory() {
+      if (shareDir) return shareDir;
+      try { const snap = await get(ref(database, "share/directory")); shareDir = snap.exists() ? snap.val() : {}; } catch (e) { shareDir = {}; }
+      return shareDir;
+    }
+    function shareCopy(a) {
+      var o = {};
+      Object.keys(a).forEach(function (k) { if (k.indexOf("__") !== 0) o[k] = a[k]; });
+      return o;
+    }
+    async function openSharePanel(keepStatus) {
+      var a = allArticles[currentArticleId];
+      if (!currentUser || !a || a.__scope !== "private") return;
+      sharePanel.style.display = "block";
+      var list = document.getElementById("shareList"), st = document.getElementById("shareStatus");
+      list.innerHTML = "Loading…"; if (keepStatus !== true) st.textContent = "";
+      var dir = await shareDirectory(); shareWas = {};
+      var people = Object.entries(dir).filter(function ([uid]) { return uid !== currentUser.uid; })
+        .sort(function (x, y) { return String(x[1].name).localeCompare(String(y[1].name)); });
+      for (const [uid] of people) {
+        try { const snap = await get(ref(database, "share/" + uid + "/journal/" + a.__id)); shareWas[uid] = snap.exists(); }
+        catch (e) { shareWas[uid] = false; }   // not shared yet (a missing item is not readable by the sender)
+      }
+      list.innerHTML = people.map(function ([uid, p]) {
+        return '<label style="display:block;margin:4px 0"><input type="checkbox" data-uid="' + escapeHtml(uid) + '"' + (shareWas[uid] ? " checked" : "") + "> " +
+          escapeHtml(p.name || uid) + (shareWas[uid] ? ' <small style="opacity:.7">(shared)</small>' : "") + "</label>";
+      }).join("") || "Nobody to share with yet.";
+    }
+    async function saveSharing() {
+      var a = allArticles[currentArticleId], st = document.getElementById("shareStatus");
+      if (!currentUser || !a) return;
+      var dir = await shareDirectory(), me = (dir[currentUser.uid] || {}).name || currentUser.email || "";
+      var added = 0, removed = 0, refreshed = 0;
+      st.textContent = "Saving…";
+      try {
+        for (const box of document.querySelectorAll("#shareList input[type=checkbox]")) {
+          var uid = box.dataset.uid, path = "share/" + uid + "/journal/" + a.__id;
+          if (box.checked) {
+            await set(ref(database, path), Object.assign(shareCopy(a), { sharedBy: currentUser.uid, sharedByName: me, sharedAt: Date.now() }));
+            if (shareWas[uid]) refreshed++; else added++;
+          } else if (shareWas[uid]) {
+            await remove(ref(database, path)); removed++;
+          }
+        }
+        var parts = [added && added + " shared", refreshed && refreshed + " updated", removed && removed + " unshared"].filter(Boolean);
+        st.textContent = parts.length ? "Saved - " + parts.join(", ") : "Saved";
+        openSharePanel(true);
+      } catch (e) { st.textContent = "Not saved: " + (e.code || e.message || e); }
+    }
+    shareArticleBtn.onclick = function () { openSharePanel(false); };
+    document.getElementById("shareSaveBtn").onclick = saveSharing;
+    document.getElementById("shareCloseBtn").onclick = function () { sharePanel.style.display = "none"; };
     document.getElementById("exportPdfBtn").onclick = exportPdf;
     renderSections();
 
