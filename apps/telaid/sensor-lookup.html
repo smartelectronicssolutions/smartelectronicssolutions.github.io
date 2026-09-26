@@ -134,7 +134,7 @@
   </main>
 
   <script type="module">
-    import { auth, database, ref, get, set, onAuthStateChanged } from "../assets/js/firebase-init.js";
+    import { auth, database, ref, get, set, update, onAuthStateChanged } from "../assets/js/firebase-init.js";
 
     // ── what this page reads ──
     const TELAID_UID = "SDN0vKPQ1qfN5vxkvhR3auVhDYq1";   // Telaid apps live under this uid by design
@@ -158,6 +158,28 @@
     const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (_) { } };
     let labeled = load(DONE_KEY, {});     // mark -> timestamp
     let recent = load(RECENT_KEY, []);    // [{t, raw, mark}]
+
+    // LABELS FOLLOW THE TASK, NOT THE PHONE (2026-09-26, L lost a day of ticks when the phone's page storage went):
+    // signed in as a publisher, every tick is mirrored to the sensor's own record - {owner}/tasks/<task>/sensorMeta/<mark>/labeledAt -
+    // and pulled back on load, both ways (cloud -> device, and device ticks the cloud doesn't have yet -> cloud).
+    let cloudOwner = null;
+    const canCloud = () => !!(cloudOwner && auth.currentUser && PUBLISHERS.includes(auth.currentUser.uid));
+    function cloudWrite(mark, ts) {
+      if (!canCloud()) return;
+      set(ref(database, `${cloudOwner}/tasks/${TASK}/sensorMeta/${mark}/labeledAt`), ts)
+        .catch(e => { $("source").textContent += ` · ⚠ label not saved to the task (${e.code || e.message})`; });
+    }
+    function mergeLabels(meta, owner, user) {
+      let down = 0; const up = {};
+      for (const [k, v] of Object.entries(meta || {})) {
+        if (v && v.labeledAt && !labeled[Number(k)]) { labeled[Number(k)] = v.labeledAt; down++; }
+      }
+      for (const m of Object.keys(labeled)) if (!(meta && meta[m] && meta[m].labeledAt)) up[`${m}/labeledAt`] = labeled[m];
+      if (down) { save(DONE_KEY, labeled); renderStats(); }
+      if (Object.keys(up).length && user && PUBLISHERS.includes(user.uid))
+        update(ref(database, `${owner}/tasks/${TASK}/sensorMeta`), up).then(() => { $("source").textContent += ` · ${Object.keys(up).length} label(s) saved to the task`; }).catch(() => { });
+      if (down) $("source").textContent += ` · ${down} label(s) restored from the task`;
+    }
 
     function buildTable(meta) {
       // RTDB hands sensorMeta back as a SPARSE ARRAY (hole at 0, marks start at 1) when keys are numeric.
@@ -198,10 +220,12 @@
       if (user) {
         for (const owner of [...new Set([user.uid, TELAID_UID])]) {
           try {
-            const t = buildTable((await get(ref(database, `${owner}/tasks/${TASK}/sensorMeta`))).val());
+            const meta = (await get(ref(database, `${owner}/tasks/${TASK}/sensorMeta`))).val();
+            const t = buildTable(meta);
             if (!Object.keys(t).length) { why.push(`${owner.slice(0, 6)}: no serials`); continue; }
             save(CACHE_KEY, { t, at: Date.now() });
             useTable(t, `pulled ${new Date().toLocaleString()} (from radar-tools)`);
+            cloudOwner = owner; mergeLabels(meta, owner, user);
             if (PUBLISHERS.includes(user.uid) && !sameTable(t, pub && pub.serials)) {
               try {
                 await set(ref(database, `public/sensorLookup/${TASK}`), { serials: t, count: Object.keys(t).length, updatedAt: Date.now(), source: `${owner}/tasks/${TASK}/sensorMeta` });
@@ -314,6 +338,7 @@
       labeled[mark] = Date.now();
       lastTicked = mark;
       save(DONE_KEY, labeled);
+      cloudWrite(mark, labeled[mark]);
       // only flip the big card's button if the card is showing THIS sensor
       const b = $("result").querySelector("#tick-btn");
       if (b && Number(b.dataset.mark) === Number(mark))
@@ -397,6 +422,7 @@
 
     $("undo-btn").addEventListener("click", () => {
       if (lastTicked == null) return;
+      cloudWrite(lastTicked, null);
       delete labeled[lastTicked]; save(DONE_KEY, labeled); lastTicked = null; renderStats();
     });
     $("export-btn").addEventListener("click", () => {
@@ -410,6 +436,7 @@
     let resetArmed = false;
     $("reset-btn").addEventListener("click", () => {
       if (!resetArmed) { resetArmed = true; $("reset-confirm").hidden = false; setTimeout(() => { resetArmed = false; $("reset-confirm").hidden = true; }, 4000); return; }
+      if (canCloud()) { const clr = {}; for (const m of Object.keys(labeled)) clr[`${m}/labeledAt`] = null; if (Object.keys(clr).length) update(ref(database, `${cloudOwner}/tasks/${TASK}/sensorMeta`), clr).catch(() => { }); }
       labeled = {}; save(DONE_KEY, labeled); lastTicked = null; resetArmed = false; $("reset-confirm").hidden = true; renderStats();
     });
     $("reload-btn").addEventListener("click", () => pull(auth.currentUser));
