@@ -57,7 +57,7 @@ if (registrationForm) {
 }
 
 async function saveUserData(userId, email, ipAddress) {
-    await set(ref(database, `${userId}/info`), { email, ipAddress });
+    await set(ref(database, `${userId}/profile`), { email, ipAddress });
 }
 
 async function getIP() {

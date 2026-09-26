@@ -563,7 +563,7 @@
         import { onUserReady } from '../assets/js/auth.js';
 
         const OLLAMA_URL = 'https://chat.luissolutions.us/chat';
-        // LLM model is Firebase-configurable: {uid}/bot/model, else public/bot/model,
+        // LLM model is Firebase-configurable: {uid}/chat/bot/model, else public/bot/model,
         // else this default. Swap models with a data flip — no deploy.
         let BOT_MODEL = 'dolphin3';
         let BOT_NAME = '🌸 Yuki';
@@ -773,7 +773,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
 
         function getMessagesPath() {
             return chatMode === 'internal' && currentUser
-                ? `${currentUser.uid}/aiChat`
+                ? `${currentUser.uid}/chat/history`
                 : 'public/messages';
         }
 
@@ -942,8 +942,8 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                 const memName = (BOT_NAME.replace(/^\S+\s+/, '') || BOT_NAME).toUpperCase();
                 // Load summary (dense consolidated facts) — preferred over the raw bag
                 const [summarySnap, rawSnap] = await Promise.all([
-                    get(ref(database, `${currentUser.uid}/bot/memory_summary`)),
-                    get(ref(database, `${currentUser.uid}/bot/memory`)),
+                    get(ref(database, `${currentUser.uid}/chat/bot/memory_summary`)),
+                    get(ref(database, `${currentUser.uid}/chat/bot/memory`)),
                 ]);
                 const summary = summarySnap.exists() ? (summarySnap.val() || '').toString().trim() : '';
                 let recentLines = '';
@@ -977,7 +977,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             if (!k) return;
             const val = String(value ?? '').trim().slice(0, 200);
             try {
-                await set(ref(database, `${currentUser.uid}/bot/memory/${k}`), { value: val, updated: Date.now() });
+                await set(ref(database, `${currentUser.uid}/chat/bot/memory/${k}`), { value: val, updated: Date.now() });
             } catch (e) { console.warn('Memory write failed:', e); }
         }
 
@@ -987,19 +987,19 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             if (!k) return;
             const val = String(value ?? '').trim().slice(0, 200);
             try {
-                await set(ref(database, `${currentUser.uid}/bot/traits/${k}`), { value: val, updated: Date.now() });
+                await set(ref(database, `${currentUser.uid}/chat/bot/traits/${k}`), { value: val, updated: Date.now() });
             } catch (e) { console.warn('Trait write failed:', e); }
         }
 
         async function fetchBotSchema() {
             if (currentUser) {
                 try {
-                    const snap = await get(ref(database, `${currentUser.uid}/bot/schema`));
+                    const snap = await get(ref(database, `${currentUser.uid}/chat/bot/schema`));
                     if (snap.exists() && snap.val()) return snap.val();
                 } catch { }
             }
             try {
-                const snap = await get(ref(database, 'public/bot/schema'));
+                const snap = await get(ref(database, 'public/chat/bot/schema'));
                 if (snap.exists() && snap.val()) return snap.val();
             } catch { }
             return SCHEMA_DEFAULT;
@@ -1009,11 +1009,11 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             let base = PERSONALITY_DEFAULT;
             if (currentUser) {
                 try {
-                    const snap = await get(ref(database, `${currentUser.uid}/bot/personality`));
+                    const snap = await get(ref(database, `${currentUser.uid}/chat/bot/personality`));
                     if (snap.exists() && snap.val()) base = snap.val();
                 } catch { }
                 try {
-                    const snap = await get(ref(database, `${currentUser.uid}/bot/traits`));
+                    const snap = await get(ref(database, `${currentUser.uid}/chat/bot/traits`));
                     if (snap.exists() && snap.val()) {
                         const lines = Object.entries(snap.val())
                             .map(([k, v]) => `${k}: ${typeof v === 'object' ? v.value : v}`)
@@ -1024,7 +1024,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                 return base;
             }
             try {
-                const snap = await get(ref(database, 'public/bot/personality'));
+                const snap = await get(ref(database, 'public/chat/bot/personality'));
                 if (snap.exists() && snap.val()) return snap.val();
             } catch { }
             return base;
@@ -1624,7 +1624,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
 
                     if (chatMode === 'internal' && currentUsername && msg.username === currentUsername) {
                         const tabId = sessionStorage.getItem('tab_id') || (() => { const id = Math.random().toString(36).slice(2); sessionStorage.setItem('tab_id', id); return id; })();
-                        const claimRef = ref(database, `${currentUser.uid}/bot/claims/${key}`);
+                        const claimRef = ref(database, `${currentUser.uid}/chat/bot/claims/${key}`);
                         runTransaction(claimRef, current => current !== null ? undefined : tabId)
                             .then(({ committed }) => {
                                 if (!committed) return;
@@ -1664,23 +1664,23 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                 currentUsername = user.displayName || user.email.split('@')[0];
                 try {
                     const [modelSnap, nameSnap, charSnap, negSnap, nsfwSnap, llmSnap] = await Promise.all([
-                        get(ref(database, `${user.uid}/bot/sdModel`)),
-                        get(ref(database, `${user.uid}/bot/name`)),
-                        get(ref(database, `${user.uid}/bot/charPrompt`)),
-                        get(ref(database, `${user.uid}/bot/negPrompt`)),
-                        get(ref(database, `${user.uid}/bot/nsfw`)),
-                        get(ref(database, `${user.uid}/bot/model`))
+                        get(ref(database, `${user.uid}/chat/bot/sdModel`)),
+                        get(ref(database, `${user.uid}/chat/bot/name`)),
+                        get(ref(database, `${user.uid}/chat/bot/charPrompt`)),
+                        get(ref(database, `${user.uid}/chat/bot/negPrompt`)),
+                        get(ref(database, `${user.uid}/chat/bot/nsfw`)),
+                        get(ref(database, `${user.uid}/chat/bot/model`))
                     ]);
                     if (modelSnap.exists() && modelSnap.val()) {
                         userSdModel = modelSnap.val();
                     } else {
-                        const pubSnap = await get(ref(database, 'public/bot/sdModel'));
+                        const pubSnap = await get(ref(database, 'public/chat/bot/sdModel'));
                         userSdModel = pubSnap.exists() && pubSnap.val() ? pubSnap.val() : null;
                     }
                     if (llmSnap.exists() && llmSnap.val()) {
                         BOT_MODEL = String(llmSnap.val());
                     } else {
-                        const pubModel = await get(ref(database, 'public/bot/model'));
+                        const pubModel = await get(ref(database, 'public/chat/bot/model'));
                         if (pubModel.exists() && pubModel.val()) BOT_MODEL = String(pubModel.val());
                     }
                     if (nameSnap.exists() && nameSnap.val()) BOT_NAME = nameSnap.val();
@@ -1761,12 +1761,12 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             const uid = currentUser.uid;
             try {
                 const [nameS, modelS, charS, negS, persS, nsfwS] = await Promise.all([
-                    get(ref(database, `${uid}/bot/name`)),
-                    get(ref(database, `${uid}/bot/sdModel`)),
-                    get(ref(database, `${uid}/bot/charPrompt`)),
-                    get(ref(database, `${uid}/bot/negPrompt`)),
-                    get(ref(database, `${uid}/bot/personality`)),
-                    get(ref(database, `${uid}/bot/nsfw`))
+                    get(ref(database, `${uid}/chat/bot/name`)),
+                    get(ref(database, `${uid}/chat/bot/sdModel`)),
+                    get(ref(database, `${uid}/chat/bot/charPrompt`)),
+                    get(ref(database, `${uid}/chat/bot/negPrompt`)),
+                    get(ref(database, `${uid}/chat/bot/personality`)),
+                    get(ref(database, `${uid}/chat/bot/nsfw`))
                 ]);
                 document.getElementById('prs-name').value        = nameS.val()  || '';
                 document.getElementById('prs-model').value       = modelS.val() || '';
@@ -1776,7 +1776,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                 document.getElementById('prs-nsfw').checked      = !!nsfwS.val();
                 // memory summary (separate load — non-blocking if it's missing)
                 try {
-                    const memSumS = await get(ref(database, `${uid}/bot/memory_summary`));
+                    const memSumS = await get(ref(database, `${uid}/chat/bot/memory_summary`));
                     document.getElementById('mem-summary').value = (memSumS.exists() && memSumS.val()) ? memSumS.val() : '';
                 } catch { /* leave placeholder */ }
             } catch (e) { console.warn('persona load error', e); }
@@ -1791,8 +1791,8 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             status.textContent = 'gathering memories...';
             try {
                 const [memS, traitS] = await Promise.all([
-                    get(ref(database, `${currentUser.uid}/bot/memory`)),
-                    get(ref(database, `${currentUser.uid}/bot/traits`)),
+                    get(ref(database, `${currentUser.uid}/chat/bot/memory`)),
+                    get(ref(database, `${currentUser.uid}/chat/bot/traits`)),
                 ]);
                 const memories = memS.exists() ? memS.val() : {};
                 const traits   = traitS.exists() ? traitS.val() : {};
@@ -1815,7 +1815,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                     btn.disabled = false;
                     return;
                 }
-                await set(ref(database, `${currentUser.uid}/bot/memory_summary`), j.summary);
+                await set(ref(database, `${currentUser.uid}/chat/bot/memory_summary`), j.summary);
                 out.value = j.summary;
                 status.textContent = `✓ saved (${j.chars} chars)`;
                 setTimeout(() => status.textContent = '', 4000);
@@ -1839,12 +1839,12 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             status.textContent = 'Saving…';
             try {
                 await Promise.all([
-                    set(ref(database, `${uid}/bot/name`),        name  || null),
-                    set(ref(database, `${uid}/bot/sdModel`),     model || null),
-                    set(ref(database, `${uid}/bot/charPrompt`),  char  || null),
-                    set(ref(database, `${uid}/bot/negPrompt`),   neg   || null),
-                    set(ref(database, `${uid}/bot/personality`), pers  || null),
-                    set(ref(database, `${uid}/bot/nsfw`),        nsfw)
+                    set(ref(database, `${uid}/chat/bot/name`),        name  || null),
+                    set(ref(database, `${uid}/chat/bot/sdModel`),     model || null),
+                    set(ref(database, `${uid}/chat/bot/charPrompt`),  char  || null),
+                    set(ref(database, `${uid}/chat/bot/negPrompt`),   neg   || null),
+                    set(ref(database, `${uid}/chat/bot/personality`), pers  || null),
+                    set(ref(database, `${uid}/chat/bot/nsfw`),        nsfw)
                 ]);
                 // apply live
                 if (name)  BOT_NAME       = name;
@@ -1937,8 +1937,8 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
         document.addEventListener('DOMContentLoaded', async () => {
             try {
                 const [nameSnap, pubModel] = await Promise.all([
-                    get(ref(database, 'public/bot/name')),
-                    get(ref(database, 'public/bot/model'))
+                    get(ref(database, 'public/chat/bot/name')),
+                    get(ref(database, 'public/chat/bot/model'))
                 ]);
                 if (nameSnap.exists() && nameSnap.val()) BOT_NAME = nameSnap.val();
                 if (pubModel.exists() && pubModel.val()) BOT_MODEL = String(pubModel.val());

@@ -1208,7 +1208,7 @@
             const acc = $('#dc-account'); if (acc) acc.textContent = 'signed in as ' + (u.email || '(no email)');
             // the Local seat wears the person's bot name when they gave it one (L, 2026-09-25: "if there's a name put
             // that in the dropdown, otherwise call it Local"). Async callback, so TARGET_NAMES is long initialised.
-            onValue(ref(database, `${DC.uid}/bot/name`), s => { setBotName(s.val()); });
+            onValue(ref(database, `${DC.uid}/chat/bot/name`), s => { setBotName(s.val()); });
             onValue(ref(database, `${DC.base}/autocorrect`), s => { DC.autocorrect = s.val() || {}; });   // {own: word->fix, learned: word->{to,n}, never: word->n} for the live autocorrect
             onValue(ref(database, `${DC.base}/memoryIndex`), s => { DC.memory = s.val() || []; });
             onValue(ref(database, `${DC.base}/meta`), s => renderMeta(s.val() || {}));
@@ -2248,11 +2248,11 @@
             const box = $('#dc-bot-mem'); if (!box) return;
             box.innerHTML = rows.map(([k, v]) => `<div class="dc-bot-mem" data-k="${attr(k)}"><b>${esc(k)}</b><span>${esc(String(v && typeof v === 'object' ? v.value : v))}</span><span class="x" title="forget this">✕</span></div>`).join('');
             box.querySelectorAll('.x').forEach(x => x.onclick = async () => { const row = x.parentElement, k = row.dataset.k;
-                try { await remove(ref(database, `${DC.uid}/bot/memory/${k}`)); row.remove(); botStatus('forgot ' + k); if (n) n.textContent = '(' + box.children.length + ')'; } catch (e) { botStatus('failed: ' + e.message); } });
+                try { await remove(ref(database, `${DC.uid}/chat/bot/memory/${k}`)); row.remove(); botStatus('forgot ' + k); if (n) n.textContent = '(' + box.children.length + ')'; } catch (e) { botStatus('failed: ' + e.message); } });
         }
         async function renderBotPanel() {
             if (!$('#dc-bot-panel') || !DC.uid) return;
-            const read = async p => { try { const s = await get(ref(database, `${DC.uid}/bot/${p}`)); return s.exists() ? s.val() : null; } catch (_) { return null; } };
+            const read = async p => { try { const s = await get(ref(database, `${DC.uid}/chat/bot/${p}`)); return s.exists() ? s.val() : null; } catch (_) { return null; } };
             const [name, pers, sum, mem] = await Promise.all([read('name'), read('personality'), read('memory_summary'), read('memory')]);
             $('#dc-bot-name').value = name || ''; $('#dc-bot-pers').value = pers || ''; $('#dc-bot-sum').value = sum || '';
             const h = $('#dc-bot-hdr'); if (h) h.textContent = name ? '· ' + name : '';
@@ -2262,18 +2262,18 @@
             const on = (id, fn) => { const el = $('#' + id); if (el) el.onclick = fn; };
             on('dc-bot-save', async () => { if (!DC.uid) return; try {
                 const name = $('#dc-bot-name').value.trim();
-                await set(ref(database, `${DC.uid}/bot/name`), name || null);
-                await set(ref(database, `${DC.uid}/bot/personality`), $('#dc-bot-pers').value.trim() || null);
+                await set(ref(database, `${DC.uid}/chat/bot/name`), name || null);
+                await set(ref(database, `${DC.uid}/chat/bot/personality`), $('#dc-bot-pers').value.trim() || null);
                 setBotName(name); const h = $('#dc-bot-hdr'); if (h) h.textContent = name ? '· ' + name : ''; botStatus('saved - Local uses it on the next message');
             } catch (e) { botStatus('failed: ' + e.message); } });
-            on('dc-bot-sum-save', async () => { if (!DC.uid) return; try { await set(ref(database, `${DC.uid}/bot/memory_summary`), $('#dc-bot-sum').value.trim() || null); botStatus('summary saved'); } catch (e) { botStatus('failed: ' + e.message); } });
+            on('dc-bot-sum-save', async () => { if (!DC.uid) return; try { await set(ref(database, `${DC.uid}/chat/bot/memory_summary`), $('#dc-bot-sum').value.trim() || null); botStatus('summary saved'); } catch (e) { botStatus('failed: ' + e.message); } });
             on('dc-bot-mem-add', async () => { if (!DC.uid) return; const k = memKey($('#dc-bot-mem-k').value), v = $('#dc-bot-mem-v').value.trim().slice(0, 200);
                 if (!k || !v) { botStatus('needs a key and a value'); return; }
-                try { await set(ref(database, `${DC.uid}/bot/memory/${k}`), { value: v, updated: Date.now() }); $('#dc-bot-mem-k').value = ''; $('#dc-bot-mem-v').value = '';
-                    const s = await get(ref(database, `${DC.uid}/bot/memory`)); paintBotMem(s.val() || {}); botStatus('remembered ' + k); } catch (e) { botStatus('failed: ' + e.message); } });
+                try { await set(ref(database, `${DC.uid}/chat/bot/memory/${k}`), { value: v, updated: Date.now() }); $('#dc-bot-mem-k').value = ''; $('#dc-bot-mem-v').value = '';
+                    const s = await get(ref(database, `${DC.uid}/chat/bot/memory`)); paintBotMem(s.val() || {}); botStatus('remembered ' + k); } catch (e) { botStatus('failed: ' + e.message); } });
             on('dc-bot-consolidate', async () => { if (!DC.uid) return; const b = $('#dc-bot-consolidate'); b.disabled = true; botStatus('consolidating on ' + MODEL + '…');
                 try {
-                    const [m, t] = await Promise.all([get(ref(database, `${DC.uid}/bot/memory`)), get(ref(database, `${DC.uid}/bot/traits`))]);
+                    const [m, t] = await Promise.all([get(ref(database, `${DC.uid}/chat/bot/memory`)), get(ref(database, `${DC.uid}/chat/bot/traits`))]);
                     const lines = Object.entries(m.val() || {}).map(([k, v]) => `${k}: ${v && typeof v === 'object' ? v.value : v}`).join('\n');
                     const tl = Object.entries(t.val() || {}).map(([k, v]) => `${k}: ${v && typeof v === 'object' ? v.value : v}`).join('\n');
                     if (!lines) { botStatus('no memories to consolidate yet'); return; }
@@ -2281,7 +2281,7 @@
                     const r = await fetch(OLLAMA, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: MODEL, stream: false, messages: [{ role: 'user', content: prompt + ' /no_think' }] }) });
                     const j = await r.json(); const out = String((j.message && j.message.content) || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
                     if (!out) throw new Error(j.error || 'empty reply');
-                    await set(ref(database, `${DC.uid}/bot/memory_summary`), out); $('#dc-bot-sum').value = out; botStatus('summary saved (' + out.length + ' chars)');
+                    await set(ref(database, `${DC.uid}/chat/bot/memory_summary`), out); $('#dc-bot-sum').value = out; botStatus('summary saved (' + out.length + ' chars)');
                 } catch (e) { botStatus('failed: ' + e.message); } finally { b.disabled = false; } });
         })();
         async function renderInsights() {
@@ -2578,8 +2578,8 @@
         window.__dcUserPick = v => { const t = $('#dc-chat-target'); if (t) t.value = v; DC.userPickedTarget = true; DC.autoLocal = false; syncTarget(); };   // test hooks (a real pick = a trusted change event, which a script cannot fake)
         // LOCAL WEARS THE SIGNED-IN PERSON'S BOT (2026-09-25, L: "whoever is logged in has a local bot with settings
         // they can customize... it would simplify plumbing"). Yuki was a SECOND bot in a hidden sidebar with its own
-        // ollama call; deleted. Her settings feed Local instead: {uid}/bot/personality (fallback public/bot/personality)
-        // is the identity, {uid}/bot/memory (legacy yuki/memory read too) is what they told it before, plus the hub's
+        // ollama call; deleted. Her settings feed Local instead: {uid}/chat/bot/personality (fallback public/bot/personality)
+        // is the identity, {uid}/chat/bot/memory (legacy yuki/memory read too) is what they told it before, plus the hub's
         // own data. A [MEMORY:key=value] tag in a reply is saved back (same convention as before). Signed out or
         // nothing set = the plain Local prompt. It is still called Local; the personality is whatever they wrote.
         const LOCAL_RULES = "HARD RULES: You are READ-ONLY. Never fabricate data. If something is not in the data provided, say you don't know. "
@@ -2591,12 +2591,12 @@
             if (!DC.uid) return base;
             const read = async p => { try { const s = await get(ref(database, p)); return s.exists() ? s.val() : null; } catch (_) { return null; } };
             // the personality text calls the character "bot" (onlinechat's placeholder); her name lives in bot/name
-            const botName = String((await read(`${DC.uid}/bot/name`)) || '').replace(/[^\p{L}\p{N} '-]/gu, '').trim();
-            let personality = String((await read(`${DC.uid}/bot/personality`)) || (await read('public/bot/personality')) || '').trim();
+            const botName = String((await read(`${DC.uid}/chat/bot/name`)) || '').replace(/[^\p{L}\p{N} '-]/gu, '').trim();
+            let personality = String((await read(`${DC.uid}/chat/bot/personality`)) || (await read('public/chat/bot/personality')) || '').trim();
             if (botName) personality = personality.replace(/@bot\b/g, '@' + botName).replace(/\bbot\b/g, botName);
-            const memRaw = (await read(`${DC.uid}/bot/memory`)) || (await read(`${DC.uid}/yuki/memory`)) || {};
+            const memRaw = (await read(`${DC.uid}/chat/bot/memory`)) || (await read(`${DC.uid}/yuki/memory`)) || {};
             const memory = Object.entries(memRaw).map(([k, v]) => `${k}: ${v && typeof v === 'object' ? v.value : v}`).join('\n');
-            const memSum = String((await read(`${DC.uid}/bot/memory_summary`)) || '').trim();   // onlinechat keeps a rolled-up summary too
+            const memSum = String((await read(`${DC.uid}/chat/bot/memory_summary`)) || '').trim();   // onlinechat keeps a rolled-up summary too
             if (!personality) return base;
             const parts = [personality,
                 "You are reached as 'Local' inside the Droplet Console on Luis's own server. " + (DC.guest ? "The person you are talking to is a friend of Luis using his platform, not Luis." : "The person you are talking to is Luis."),   // no model talk: her character never says she is an AI
@@ -2630,8 +2630,8 @@
                 clearTimeout(tmr);
                 const data = await res.json();
                 reply = String((data.message && data.message.content) || data.error || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim() || '(empty reply)';
-                // [MEMORY:key=value] tags -> {uid}/bot/memory (Yuki's convention, kept); never shown in the bubble
-                if (DC.uid) for (const [, k, v] of reply.matchAll(/\[MEMORY:([^=\]]+)=([^\]]+)\]/gi)) { try { await set(ref(database, `${DC.uid}/bot/memory/${k.trim().replace(/[.#$\[\]\/]/g, '_')}`), { value: v.trim(), updated: Date.now() }); } catch (_) {} }
+                // [MEMORY:key=value] tags -> {uid}/chat/bot/memory (Yuki's convention, kept); never shown in the bubble
+                if (DC.uid) for (const [, k, v] of reply.matchAll(/\[MEMORY:([^=\]]+)=([^\]]+)\]/gi)) { try { await set(ref(database, `${DC.uid}/chat/bot/memory/${k.trim().replace(/[.#$\[\]\/]/g, '_')}`), { value: v.trim(), updated: Date.now() }); } catch (_) {} }
                 reply = reply.replace(/\[MEMORY:[^\]]+\]/gi, '').replace(/\[MOOD:\w+\]/gi, '').trim() || '(empty reply)';
             } catch (e) { reply = '⚠ Local (ollama) failed: ' + (e.name === 'AbortError' ? 'timed out after 3 min' : (e.message || e)); }
             await update(pendRef, { text: reply, pending: null, ts: Date.now() });

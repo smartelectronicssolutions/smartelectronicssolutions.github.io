@@ -73,8 +73,8 @@
 
     function subscribe() {
       unsubs.forEach(u => { try { u(); } catch (_) {} }); unsubs = [];   // drop the old account's listeners before attaching new ones
-      unsubs.push(onValue(ref(database, `${basePath}/household/shopping`), snap => { currentItems = snap.val() || {}; render(); }));
-      unsubs.push(onValue(ref(database, `${basePath}/household/staples`), snap => { staples = snap.val() || {}; render(); }));
+      unsubs.push(onValue(ref(database, `${basePath}/home/household/shopping`), snap => { currentItems = snap.val() || {}; render(); }));
+      unsubs.push(onValue(ref(database, `${basePath}/home/household/staples`), snap => { staples = snap.val() || {}; render(); }));
     }
 
     function allStores() {
@@ -91,8 +91,8 @@
       const qty = document.getElementById('item-qty').value.trim();
       const store = canonStore(document.getElementById('item-store').value);
       if (!name) return;
-      if (view === 'staples') push(ref(database, `${basePath}/household/staples`), { name, qty, store, createdAt: Date.now() });
-      else push(ref(database, `${basePath}/household/shopping`), { name, qty, store, checked: false, addedAt: Date.now() });
+      if (view === 'staples') push(ref(database, `${basePath}/home/household/staples`), { name, qty, store, createdAt: Date.now() });
+      else push(ref(database, `${basePath}/home/household/shopping`), { name, qty, store, checked: false, addedAt: Date.now() });
       document.getElementById('item-name').value = '';
       document.getElementById('item-qty').value = '';
       document.getElementById('item-name').focus();        // the store stays filled in: adding several things for one store is the common case
@@ -118,7 +118,7 @@
       if (!confirm('Remove all bought items?')) return;
       const updates = {};
       Object.entries(currentItems).forEach(([id, item]) => { if (item.checked) updates[id] = null; });
-      if (Object.keys(updates).length) update(ref(database, `${basePath}/household/shopping`), updates);
+      if (Object.keys(updates).length) update(ref(database, `${basePath}/home/household/shopping`), updates);
     });
 
     // START A GROCERY RUN = a picker. Staples are STOCK LEVELS (what the house always keeps): the ones bought every run come
@@ -152,8 +152,8 @@
       const ids = [...pickList.querySelectorAll('input:checked:not(:disabled)')].map(cb => cb.dataset.id);
       const updates = {}; const now = Date.now();
       ids.forEach((id, i) => { const s = staples[id]; if (!s) return;
-        updates[push(ref(database, `${basePath}/household/shopping`)).key] = { name: s.name, qty: s.qty || '', store: s.store || '', checked: false, staple: true, addedAt: now + i }; });
-      if (Object.keys(updates).length) await update(ref(database, `${basePath}/household/shopping`), updates);
+        updates[push(ref(database, `${basePath}/home/household/shopping`)).key] = { name: s.name, qty: s.qty || '', store: s.store || '', checked: false, staple: true, addedAt: now + i }; });
+      if (Object.keys(updates).length) await update(ref(database, `${basePath}/home/household/shopping`), updates);
       pick.hidden = true;
       const st = document.getElementById('run-status'); st.textContent = `Grocery run started: ${ids.length} staple${ids.length === 1 ? '' : 's'} added to the list.`; st.hidden = false; clearTimeout(st._t); st._t = setTimeout(() => { st.hidden = true; }, 6000);
       if (view !== 'list') document.querySelector('.views button[data-view="list"]').click();
@@ -204,19 +204,19 @@
       const node = isList ? 'shopping' : 'staples';
       host.querySelectorAll('input[type=checkbox]').forEach(cb => {
         cb.addEventListener('change', () => {
-          update(ref(database, `${basePath}/household/shopping/${cb.dataset.id}`), { checked: cb.checked, checkedAt: cb.checked ? Date.now() : null });
+          update(ref(database, `${basePath}/home/household/shopping/${cb.dataset.id}`), { checked: cb.checked, checkedAt: cb.checked ? Date.now() : null });
         });
       });
       host.querySelectorAll('button.cad').forEach(b => {
-        b.addEventListener('click', () => { const cur = (staples[b.dataset.id] || {}).cadence || 'run'; update(ref(database, `${basePath}/household/staples/${b.dataset.id}`), { cadence: cur === 'run' ? 'asneeded' : 'run' }); });
+        b.addEventListener('click', () => { const cur = (staples[b.dataset.id] || {}).cadence || 'run'; update(ref(database, `${basePath}/home/household/staples/${b.dataset.id}`), { cadence: cur === 'run' ? 'asneeded' : 'run' }); });
       });
       host.querySelectorAll('select.mv').forEach(sel => {
-        sel.addEventListener('change', () => update(ref(database, `${basePath}/household/${node}/${sel.dataset.id}`), { store: sel.value === OTHER ? '' : sel.value }));
+        sel.addEventListener('change', () => update(ref(database, `${basePath}/home/household/${node}/${sel.dataset.id}`), { store: sel.value === OTHER ? '' : sel.value }));
       });
       host.querySelectorAll('button.del').forEach(btn => {
         btn.addEventListener('click', () => {
           if (confirm(isList ? 'Remove this item?' : 'Remove this staple? It will stop being added to future grocery runs.')) {
-            remove(ref(database, `${basePath}/household/${node}/${btn.dataset.id}`));
+            remove(ref(database, `${basePath}/home/household/${node}/${btn.dataset.id}`));
           }
         });
       });
