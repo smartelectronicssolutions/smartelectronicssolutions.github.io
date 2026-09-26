@@ -87,6 +87,7 @@
 
   <main id="mainApp">
     <div class="app-shell">
+      <div class="muted" id="site"></div>
       <div class="muted" id="source">Loading…</div>
 
       <!-- Result ABOVE the scanner (L, 2026-09-24): with the camera open the number has to be on screen
@@ -138,7 +139,13 @@
 
     // ── what this page reads ──
     const TELAID_UID = "SDN0vKPQ1qfN5vxkvhR3auVhDYq1";   // Telaid apps live under this uid by design
-    const TASK = new URLSearchParams(location.search).get("task") || "1789898400000"; // Walmart 54 canonical record
+    // WHICH JOB (2026-09-26, L: "how does it know what job we are on" / "it should work like the other stuff with the data nested
+    // as such"): the link's ?task= first (the crew link), else the site open in Radar Tools on this device (it stores the site's
+    // canonical task - the record that holds sensorMeta - under localStorage.sensorTask), else Walmart 54.
+    const Q_TASK = new URLSearchParams(location.search).get("task");
+    const LAST_SITE = (() => { try { return JSON.parse(localStorage.getItem("sensorTask")) || null; } catch (_) { return null; } })();
+    const TASK = Q_TASK || (LAST_SITE && LAST_SITE.task) || "1789898400000"; // Walmart 54 canonical record
+    let TASK_NAME = (!Q_TASK && LAST_SITE && LAST_SITE.task === TASK && LAST_SITE.name) || (TASK === "1789898400000" ? "Walmart #54 - Springdale" : "");
     const CACHE_KEY = `sensorLookup:${TASK}:table`;
     const DONE_KEY = `sensorLookup:${TASK}:labeled`;
     const RECENT_KEY = `sensorLookup:${TASK}:recent`;
@@ -208,11 +215,20 @@
     const PUBLISHERS = [TELAID_UID, "7cIh8rrhVNOjjj5CBDgb3IlqzEh2"];
     const sameTable = (a, b) => { const ka = Object.keys(a || {}), kb = Object.keys(b || {}); return ka.length === kb.length && ka.every(s => a[s] === b[s]); };
 
+    function renderSite() {
+      const crew = `${location.origin}${location.pathname}?task=${TASK}`;
+      $("site").innerHTML = `Job: <b>${escapeHtml(TASK_NAME || "task " + TASK)}</b> · ${Q_TASK ? "from the link" : LAST_SITE ? "the site open in Radar Tools" : "default"}`
+        + ` · <a href="./radar-tools.html">change</a> · <a href="#" id="crewLink">copy crew link</a>`;
+      $("crewLink").onclick = e => { e.preventDefault(); navigator.clipboard?.writeText(crew).then(() => { $("crewLink").textContent = "crew link copied"; }, () => prompt("Crew link:", crew)); };
+    }
+
     async function pull(user) {
       // One read per page load - never on a timer.
       const why = [];
       let pub = null;
       try { pub = (await get(ref(database, `public/sensorLookup/${TASK}`))).val(); } catch (e) { why.push(`public: ${e.code || e.message || e}`); }
+      if (!TASK_NAME && pub && pub.name) TASK_NAME = pub.name;
+      renderSite();
       if (pub && pub.serials && Object.keys(pub.serials).length) {
         save(CACHE_KEY, { t: pub.serials, at: Date.now() });
         useTable(pub.serials, `list updated ${new Date(pub.updatedAt || Date.now()).toLocaleString()}`);
@@ -228,7 +244,7 @@
             cloudOwner = owner; mergeLabels(meta, owner, user);
             if (PUBLISHERS.includes(user.uid) && !sameTable(t, pub && pub.serials)) {
               try {
-                await set(ref(database, `public/sensorLookup/${TASK}`), { serials: t, count: Object.keys(t).length, updatedAt: Date.now(), source: `${owner}/tasks/${TASK}/sensorMeta` });
+                await set(ref(database, `public/sensorLookup/${TASK}`), { serials: t, count: Object.keys(t).length, updatedAt: Date.now(), source: `${owner}/tasks/${TASK}/sensorMeta`, name: TASK_NAME || "" });
                 $("source").textContent += " · crew copy refreshed";
               } catch (e) { $("source").textContent += ` · ⚠ crew copy NOT refreshed (${e.code || e.message})`; }
             }
