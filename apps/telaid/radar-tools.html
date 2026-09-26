@@ -199,7 +199,7 @@
           <input id="scanInput" type="text" inputmode="numeric" autocomplete="off" placeholder="Serial" />
           <button id="scanBtn" type="button">📷 Scan</button>
         </div>
-        <label class="status-sub" style="display:block;margin-top:6px"><input type="checkbox" id="scanAnyCode" /> Any code - just show me what it says</label>
+        <label class="status-sub" style="display:none;margin-top:6px"><input type="checkbox" id="scanAnyCode" /> Any code </label>
         <div id="scanReader" hidden></div>
         <div style="margin-top:8px"><span id="scanCount">0 / 0 labeled</span> <button id="scanUndo" type="button" hidden>Undo last ✓</button></div>
         <div class="scan-bar"><div id="scanBarFill"></div></div>
@@ -3317,9 +3317,13 @@
       const scanEsc = (x) => String(x).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
       async function scanReload() {
         if (!$("scanSource") || !state.metaOwnerTaskId) return;
-        const meta = (await readOnce(sensorMetaBasePath()).catch(() => null)) || {};
-        scan.bySerial = new Map(); scan.labeled = {}; scan.last = null;
-        const rows = Array.isArray(meta) ? meta.map((v, i) => [String(i), v]) : Object.entries(meta);
+        let meta = {};
+        try { meta = (await readOnce(sensorMetaBasePath())) || {}; }
+        catch (e) { $("scanSource").textContent = "Couldn't read this site's serials: " + (e.code || e.message || e); return; }
+        scan.bySerial = new Map(); scan.labeled = {}; scan.last = null; scan.retried = false;
+        // RTDB hands numeric keys (1..241) back as a SPARSE ARRAY with a hole at 0 - Object.entries skips holes;
+        // the first version mapped over it and the hole crashed the loop, so Walmart 54 showed "no serials" (09-26)
+        const rows = Object.entries(meta);
         for (const [mark, v] of rows) {
           if (!v || typeof v !== "object") continue;
           const sn = String(v.serial || "").trim().replace(/^0+/, "");
@@ -3359,7 +3363,10 @@
           box.innerHTML = `<div class="lbl">${scanEsc(fmt || "CODE")}</div><div class="raw" style="font-size:1.1rem;opacity:1">${scanEsc(raw)}</div>`;
           scanFlash("hit"); return;
         }
-        if (!scan.bySerial.size) { box.innerHTML = `<div class="sub">No serials loaded for this site.</div>`; return; }
+        if (!scan.bySerial.size) {   // not loaded yet (or the load failed) - try once more before saying so
+          if (state.metaOwnerTaskId && !scan.retried) { scan.retried = true; scanReload().then(() => scanShow(raw, fmt)); return; }
+          box.innerHTML = `<div class="sub">No serials loaded for this site.</div>`; return;
+        }
         const serial = scanResolve(raw);
         if (!serial) {
           const noSerial = !/(^|\D)0{0,2}\d{5}(\D|$)/.test(String(raw).replace(/([0-9a-f]{2}[:-]){5}[0-9a-f]{2}/ig, ""));
