@@ -67,7 +67,7 @@ export function createQuizModule({
 
         select.innerHTML = `<option value="">-- Choose Topic --</option>`;
 
-        onValue(ref(database, 'share/questions'), snapshot => {
+        onValue(ref(database, 'public/questions'), snapshot => {
 
             const data = snapshot.val();
             if (!data) return;
@@ -111,7 +111,7 @@ export function createQuizModule({
 
         currentCategory = description;
 
-        onValue(ref(database, `share/questions/${description}`), snapshot => {
+        onValue(ref(database, `public/questions/${description}`), snapshot => {
 
             const data = snapshot.val();
             if (!data) return;

@@ -14,7 +14,7 @@ let handlersBound = false;
 
 function getUserPdfFolderPath() {
     const user = auth.currentUser;
-    return user ? `share/pdfs` : null;
+    return user ? `public/pdfs` : null;
 }
 
 // Re-query DOM elements each time to avoid stale/null refs

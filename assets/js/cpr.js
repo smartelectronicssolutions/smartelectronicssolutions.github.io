@@ -16,7 +16,7 @@ const defaultImageSrc = IMG_BASE + "default.png";
 
 function loadData() {
   const brand = document.querySelector('input[name="brand"]:checked').value;
-  const brandRef = ref(database, `share/devices/${brand}`);
+  const brandRef = ref(database, `public/devices/${brand}`);
   onValue(brandRef, (snapshot) => {
     const brandData = snapshot.val();
     modelSelect.innerHTML = "";
@@ -47,7 +47,7 @@ modelSelect.addEventListener("change", () => {
   const selectedModel = modelSelect.value;
   const modelRef = ref(
     database,
-    `share/devices/${brand}/${selectedModel}`,
+    `public/devices/${brand}/${selectedModel}`,
   );
   onValue(modelRef, (snapshot) => {
     const modelData = snapshot.val();

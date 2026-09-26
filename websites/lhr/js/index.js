@@ -11,9 +11,9 @@ const defaultImageSrc = 'img/default.png';
 
 function loadData() {
   const brand = document.querySelector('input[name="brand"]:checked').value;
-  // Data lives at share/devices/{Apple|Samsung|Other}/{model}: {img, repairs[]}
-  // (was share/devices/Phones/{brand}/{model}: {repair: price} — old flat schema)
-  const brandRef = ref(database, `share/devices/${brand}`);
+  // Data lives at public/devices/{Apple|Samsung|Other}/{model}: {img, repairs[]}
+  // (was public/devices/Phones/{brand}/{model}: {repair: price} — old flat schema)
+  const brandRef = ref(database, `public/devices/${brand}`);
 
   onValue(brandRef, (snapshot) => {
     const brandData = snapshot.val();
@@ -48,7 +48,7 @@ function loadData() {
 modelSelect.addEventListener('change', () => {
   const brand = document.querySelector('input[name="brand"]:checked').value;
   const selectedModel = modelSelect.value;
-  const modelRef = ref(database, `share/devices/${brand}/${selectedModel}`);
+  const modelRef = ref(database, `public/devices/${brand}/${selectedModel}`);
 
   onValue(modelRef, (snapshot) => {
     const modelData = snapshot.val();

@@ -1,7 +1,7 @@
 import { ref, database, onValue, set, get, remove } from "../../../assets/js/firebase-init.js";
 
-// New schema: share/devices/{brand}/{model}: { img: "filename.png", repairs: [{name, price}, ...] }
-// (was: share/devices/Phones/{brand}/{model}/{repair}: scalar price — flat tree)
+// New schema: public/devices/{brand}/{model}: { img: "filename.png", repairs: [{name, price}, ...] }
+// (was: public/devices/Phones/{brand}/{model}/{repair}: scalar price — flat tree)
 
 const inputFieldEl = document.getElementById("input-field");
 const repairFieldEl = document.getElementById("repair-field");
@@ -15,8 +15,8 @@ const exportButtonEl = document.getElementById("export-button");
 
 let selectedCategory = localStorage.getItem("selectedCategory") || "Apple";
 
-const brandPath = (brand) => `share/devices/${brand}`;
-const modelPath = (brand, model) => `share/devices/${brand}/${model}`;
+const brandPath = (brand) => `public/devices/${brand}`;
+const modelPath = (brand, model) => `public/devices/${brand}/${model}`;
 
 // ─── input sanitization ───
 const FORBIDDEN = ['$', '#', '[', ']', '/'];
