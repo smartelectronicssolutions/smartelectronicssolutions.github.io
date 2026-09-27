@@ -12,8 +12,11 @@ import {
     ref,
     push,
     update,
-    runTransaction
+    runTransaction,
+    set
 } from '../../apps/assets/js/firebase-init.js';
+// increment() is a write-only counter - the per-IP node is NOT readable by visitors any more (2026-09-27, see below)
+import { increment } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js';
 
 function normalizePage(href) {
     let pathname;
@@ -46,22 +49,12 @@ export async function updateVisitCount(ipAddress) {
         // Per-IP hit (push so concurrent writers never collide)
         await push(ref(db, `public/log/visits/${sip}/hits`), { time: now, url, page });
 
-        // Aggregate fields on the IP root — use transaction on the wrapper so we set
-        // firstSeen once and bump count atomically.
-        await runTransaction(ref(db, `public/log/visits/${sip}`), prev => {
-            const p = prev || {};
-            // Note: ...p already carries `hits` if it exists. Adding an explicit
-            // `hits: p.hits` line breaks the transaction on first visits because
-            // RTDB rejects returned objects with undefined property values.
-            return {
-                ...p,
-                ip,
-                firstSeen: p.firstSeen || now,
-                lastSeen:  now,
-                lastPage:  page,
-                count:     (p.count || 0) + 1,
-            };
-        });
+        // Aggregate fields WITHOUT reading (2026-09-27, Firebase egress fix 3): the old transaction on the IP root
+        // downloaded that visitor's whole hit history on every page view, and the log was world-readable (IPs).
+        // Now: write-only fields + a server-side increment; firstSeen is write-once in the rules (set fails quietly
+        // after the first visit). The log is readable by L only; the hub reads the rollup the daemon builds.
+        await update(ref(db, `public/log/visits/${sip}`), { ip, lastSeen: now, lastPage: page, count: increment(1) });
+        set(ref(db, `public/log/visits/${sip}/firstSeen`), now).catch(() => {});
 
         const el = document.getElementById('visit-counter');
         if (el && txGlobal.snapshot) el.textContent = ` | Visits: ${txGlobal.snapshot.val()}`;

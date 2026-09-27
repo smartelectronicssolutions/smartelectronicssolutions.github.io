@@ -79,7 +79,7 @@
          relative-import the shared visitLogger.js from luissolutions.github.io) -->
     <script type="module">
       import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-      import { getDatabase, ref, push, update, runTransaction } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+      import { getDatabase, ref, push, update, set, runTransaction, increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
       const app = initializeApp({
         apiKey: "AIzaSyCv2cQGWeXS-w7psrQiZD8dn4R7hStmY1o",
@@ -108,11 +108,9 @@
         try {
           await runTransaction(ref(db, 'public/log/visitCount'), n => (n || 0) + 1);
           await push(ref(db, `public/log/visits/${sip}/hits`), { time: now, url, page });
-          await runTransaction(ref(db, `public/log/visits/${sip}`), prev => {
-            const p = prev || {};
-            return { ...p, ip, firstSeen: p.firstSeen || now, lastSeen: now,
-                     lastPage: page, count: (p.count || 0) + 1, hits: p.hits };
-          });
+          // write-only (2026-09-27): the visits log is private now - no read-modify-write of the IP node
+          await update(ref(db, `public/log/visits/${sip}`), { ip, lastSeen: now, lastPage: page, count: increment(1) });
+          set(ref(db, `public/log/visits/${sip}/firstSeen`), now).catch(() => {});
         } catch (err) { console.error('Visit log error:', err); }
       })();
     </script>

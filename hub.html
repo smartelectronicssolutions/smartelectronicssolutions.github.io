@@ -4207,35 +4207,16 @@
                     if (s.exists()) document.getElementById('stat-total').textContent = s.val().toLocaleString();
                 }).catch(() => {});
 
-            get(ref(database, 'public/log/visits'))
+            // ROLLUP (2026-09-27, Firebase egress fix 3): the raw log (453 KB, every hit ever) is private to L now and
+            // the daemon publishes a ~60 KB summary every 15 min (ops/droplet-console/visits_rollup.py) - read that.
+            get(ref(database, `${user.uid}/hub/visitsRollup`))
                 .then(s => {
-                    const data = s.exists() ? s.val() : {};
-                    const entries = [];
-                    const ipMap   = {};
-                    const pageMap = {};
-
-                    // New schema: { sanitizedIp: { ip, name?, firstSeen, lastSeen, lastPage, count, hits: { pushId: {time, url, page} } } }
-                    for (const [sipKey, record] of Object.entries(data)) {
-                        if (!record || typeof record !== 'object') continue;
-                        const ip = record.ip || sipKey.replace(/-/g, '.');
-
-                        ipMap[ip] = {
-                            ip,
-                            name:      record.name || '',
-                            count:     record.count || 0,
-                            firstSeen: record.firstSeen || null,
-                            lastSeen:  record.lastSeen || null,
-                            lastPage:  record.lastPage || ''
-                        };
-
-                        const hits = record.hits || {};
-                        for (const h of Object.values(hits)) {
-                            if (!h) continue;
-                            entries.push({ ip, timestamp: h.time || null, url: h.url || '' });
-                            const pg = h.page || '—';
-                            if (pg && pg !== '—') pageMap[pg] = (pageMap[pg] || 0) + 1;
-                        }
-                    }
+                    const roll = s.exists() ? s.val() : {};
+                    const ipMap = {}, pageMap = {};
+                    for (const r of Object.values(roll.ips || {})) if (r && r.ip) ipMap[r.ip] = { name: '', count: 0, lastPage: '', ...r };
+                    for (const [pg, n] of (roll.pages || [])) pageMap[pg] = n;
+                    const entries = (roll.recent || []).map(([ip, timestamp, url]) => ({ ip, timestamp, url }));
+                    window._hubTimelineTotal = roll.totalHits || entries.length;
 
                     // Top IPs
                     const ipRows = Object.values(ipMap).sort((a, b) => b.count - a.count).slice(0, 15);
@@ -4294,7 +4275,7 @@
                     <span style="color:var(--muted);font-size:0.75rem;margin-left:10px">${e.timestamp ? new Date(e.timestamp).toLocaleString() : '—'}</span><br>
                     <span style="color:var(--muted);font-size:0.75rem;word-break:break-all">${escH(e.url)}</span>
                 </div>`).join('') + (entries.length > TIMELINE_MAX
-                ? `<div style="padding:8px 0;color:var(--muted);font-size:0.75rem;font-style:italic">showing ${TIMELINE_MAX} of ${entries.length.toLocaleString()} - filter by IP to find older visits</div>` : '');
+                ? `<div style="padding:8px 0;color:var(--muted);font-size:0.75rem;font-style:italic">showing ${TIMELINE_MAX} of the latest ${entries.length.toLocaleString()} (${(window._hubTimelineTotal || entries.length).toLocaleString()} logged) - filter by IP to search them</div>` : '');
         }
 
         document.getElementById('stat-ip-filter')?.addEventListener('input',  renderStatTimeline);
