@@ -1793,15 +1793,57 @@
                        || voices.find(v => pref[1].test(v.lang))
                        || voices.find(v => pref[2].test(v.lang))
                        || null;
-            DC.speakingKey = key; let left = chunks.length;
-            for (const c of chunks) {
-                const u = new SpeechSynthesisUtterance(c.trim()); if (voice) u.voice = voice; u.lang = voice ? voice.lang : (want === 'es' ? 'es-ES' : 'en-US'); u.rate = 1.0; u.pitch = 1.0;
-                u.onend = u.onerror = ev => { if (ev && ev.type === 'error' && ev.error && ev.error !== 'interrupted' && ev.error !== 'canceled') $('#dc-chat-status').textContent = 'speech: ' + ev.error + (ev.error === 'not-allowed' ? ' (the browser wants a real tap first)' : ''); if (--left <= 0 && DC.speakingKey === key) { DC.speakingKey = ''; onDone && onDone(); } };
-                speechSynthesis.speak(u);
-            }
+            const deviceSay = (list) => {   // the device's own voice - Spanish, and the fallback whenever se can't answer
+                DC.speakingKey = key; let left = list.length;
+                for (const c of list) {
+                    const u = new SpeechSynthesisUtterance(c.trim()); if (voice) u.voice = voice; u.lang = voice ? voice.lang : (want === 'es' ? 'es-ES' : 'en-US'); u.rate = 1.0; u.pitch = 1.0;
+                    u.onend = u.onerror = ev => { if (ev && ev.type === 'error' && ev.error && ev.error !== 'interrupted' && ev.error !== 'canceled') $('#dc-chat-status').textContent = 'speech: ' + ev.error + (ev.error === 'not-allowed' ? ' (the browser wants a real tap first)' : ''); if (--left <= 0 && DC.speakingKey === key) { DC.speakingKey = ''; onDone && onDone(); } };
+                    speechSynthesis.speak(u);
+                }
+            };
+            // KOKORO VOICE (2026-09-27, L: "can the page read be a better voice? maybe still a girl but like the script guy"):
+            // English goes to se's Kokoro (af_heart) through api.luissolutions.us/tts - same voice on every device.
+            if (want === 'en' && ttsEngine() === 'kokoro') { kokoroSay(chunks, key, onDone, deviceSay); return true; }
+            deviceSay(chunks);
             return true;
         }
-        function stopSpeak() { try { speechSynthesis.cancel(); } catch (_) {} DC.speakingKey = ''; }
+        const TTS_URL = 'https://api.luissolutions.us/tts';
+        const SILENT_MP3 = 'data:audio/mpeg;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//tQxAADB8AhSmxhIIEVCSiJrDCQBTcu3UrAIwUdkRgQbFAZC1CQEwTJ9mjRvBA4UOLD8nKVOWfh+UlK3z/177OXrfOdKl7pyn3Xf//WreyTRUoAWgBgkOAGbZHBgG1OF6zM82DWbZaUmMBptgQhGjsyYqc9ae9XFz280948NMBWInljyzsNRFLPWdnZGWrddDsjK1unuSrVN9jJsK8KuQtQCtMBjCEtImISdNKJOopIpBFpNSMbIHCSRpRR5iakjTiyzLhchUUBwCgyKiweBv/7UsQbg8isVNoMPMjAAAA0gAAABEVFGmgqK////9bP/6XCykxBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq';
+        function ttsEngine() { try { return localStorage.getItem('dc_tts_engine') || 'kokoro'; } catch (_) { return 'kokoro'; } }
+        DC.ttsGen = 0;
+        async function kokoroSay(chunks, key, onDone, fallback) {
+            const gen = ++DC.ttsGen; DC.speakingKey = key;
+            // iOS only lets audio start inside a tap: unlock ONE element now (still in the tap) and reuse it for every clip
+            const a = DC.ttsAudio || (DC.ttsAudio = new Audio());
+            try { a.src = SILENT_MP3; a.play().catch(() => {}); } catch (_) {}
+            // a few sentences per request: fewer round trips, still starts fast (the service caps a call at 600 chars)
+            const groups = []; let g = '';
+            for (const c of chunks) { if (g && (g + ' ' + c).length > 280) { groups.push(g); g = c.trim(); } else g = (g ? g + ' ' : '') + c.trim(); }
+            if (g) groups.push(g);
+            const fetchClip = async (text) => {
+                const tok = await (await import('./assets/js/firebase-init.js')).auth.currentUser?.getIdToken();
+                if (!tok) throw new Error('not signed in');
+                const r = await fetch(TTS_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Firebase-Token': tok }, body: JSON.stringify({ text, voice: 'af_heart' }) });
+                if (!r.ok) throw new Error('voice ' + r.status);
+                return URL.createObjectURL(await r.blob());
+            };
+            try {
+                let next = fetchClip(groups[0]);
+                for (let i = 0; i < groups.length; i++) {
+                    const url = await next;
+                    if (gen !== DC.ttsGen) { URL.revokeObjectURL(url); return; }        // stopped / another message started
+                    if (i + 1 < groups.length) next = fetchClip(groups[i + 1]);          // fetch ahead while this one plays
+                    await new Promise((res, rej) => { a.onended = res; a.onerror = () => rej(new Error('playback')); a.src = url; a.play().catch(rej); });
+                    URL.revokeObjectURL(url);
+                }
+                if (gen === DC.ttsGen && DC.speakingKey === key) { DC.speakingKey = ''; onDone && onDone(); }
+            } catch (e) {
+                if (gen !== DC.ttsGen) return;
+                $('#dc-chat-status').textContent = 'se voice unavailable - using the device voice';
+                fallback(chunks);                                                          // Read never goes silent
+            }
+        }
+        function stopSpeak() { try { speechSynthesis.cancel(); } catch (_) {} DC.ttsGen++; try { DC.ttsAudio && DC.ttsAudio.pause(); } catch (_) {} DC.speakingKey = ''; }
         // ⚡ SPEED READ (2026-09-24, L: "a speed reader option for message reading, the same methodology as the app I
         // have, maybe 2-3 words at a time because of the more complex character language used in chat").
         // Same method as onlinetext.html: RSVP groups at a WPM, lingering x1.6 after . ! ? and x1.3 after , ; :
