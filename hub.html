@@ -4933,6 +4933,11 @@
         #dc-peer-menu { position: absolute; z-index: 30; margin-top: 6px; min-width: 220px; background: var(--dc-panel, #111827); border: 1px solid var(--border); border-radius: 10px; padding: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
         .dc-peer-row { position: relative; display: block; width: 100%; text-align: left; background: none; border: 0; color: inherit; padding: 8px 10px; border-radius: 8px; cursor: pointer; font: inherit; }
         .dc-peer-row:hover { background: var(--dc-inset, rgba(255,255,255,.06)); }
+        /* SWIPE TO CLEAR (2026-09-27, L: "swipe to delete in the previous screen"): the row slides left over a red Clear button */
+        .pswipe { position: relative; overflow: hidden; border-radius: 8px; }
+        .pswipe > .dc-peer-row { background: var(--dc-panel, var(--bg)); transition: transform .18s; touch-action: pan-y; }
+        .pswipe.dragging > .dc-peer-row { transition: none; }
+        .pswipe > .pclr { position: absolute; top: 0; right: 0; bottom: 0; width: 84px; border: 0; background: #d9485f; color: #fff; font: inherit; font-size: .8rem; font-weight: 600; cursor: pointer; }
         .dc-peer-row small { display: block; opacity: .6; font-size: .72rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
         .dc-body.dc-split { flex-direction: row; gap: 12px; }
         .dc-body.dc-split > #dc-chat-panel { flex: 1 1 0; min-width: 0; }
@@ -4962,6 +4967,7 @@
         .pb.me { align-self: flex-end; background: var(--dc-me-bg, #3b2260); color: var(--dc-me-fg, #f3e8ff); }
         .pb.dp, #dc-peer .dc-bub.dp { background: rgba(56, 132, 220, .18); border: 1px solid rgba(96, 165, 250, .35); }   /* Droplet's lines in a shared tab */
         #dc-peer { position: relative; }   /* the shared message sheet (.dc-del) centres in the pane */
+        #dc-peer .psnap summary { cursor: pointer; font-weight: 600; } #dc-peer .psnap[open] summary { margin-bottom: 6px; }
         #dc-peer-log .dc-bub { max-width: 88%; }
         .pb .who { font-size: .7rem; opacity: .65; margin-bottom: 2px; }
         #dc-peer-form { display: flex; gap: 6px; padding-top: 6px; position: relative; }   /* relative: the shared emoji panel anchors here */
@@ -5065,11 +5071,11 @@
             html += `<button type="button" class="dc-peer-row" data-home="1">‹ cancel</button>`;
         } else {
             // 1. conversations, newest first
-            const convs = Object.entries(P.index).filter(([, x]) => x && x.ts).sort((a, b) => b[1].ts - a[1].ts);
+            const convs = Object.entries(P.index).filter(([, x]) => x && x.ts && x.ts > (x.clearedAt || 0)).sort((a, b) => b[1].ts - a[1].ts);   // cleared ones come back only with a newer message
             if (convs.length) {
                 html += H('Conversations');
                 html += convs.map(([t, x]) => { const tab = t.startsWith('tab-');
-                    return `<button type="button" class="dc-peer-row" ${tab ? `data-open="${esc(t)}" data-title="📺 ${esc(x.name)}"` : `data-u="${esc(x.with)}"`}>${tab ? '📺 ' : '💬 '}${esc(x.name || P.dir[x.with] || '?')}${unread(t) ? '<span class="dot"></span>' : ''}<span class="pago">${ago(x.ts)}</span><small>${esc(x.from === P.me ? 'you: ' : x.from === 'droplet' ? 'Droplet: ' : '')}${esc(x.last || '')}</small></button>`; }).join('');
+                    return `<div class="pswipe" data-conv="${esc(t)}"><button type="button" class="pclr" title="clear this conversation for you (they keep theirs)">🗑 Clear</button><button type="button" class="dc-peer-row" ${tab ? `data-open="${esc(t)}" data-title="📺 ${esc(x.name)}"` : `data-u="${esc(x.with)}"`}>${tab ? '📺 ' : '💬 '}${esc(x.name || P.dir[x.with] || '?')}${unread(t) ? '<span class="dot"></span>' : ''}<span class="pago">${ago(x.ts)}</span><small>${esc(x.from === P.me ? 'you: ' : x.from === 'droplet' ? 'Droplet: ' : '')}${esc(x.last || '')}</small></button></div>`; }).join('');
             }
             // 2. share this tab (owner)
             if (owner && topic && topic !== '★') {
@@ -5101,10 +5107,30 @@
         home.querySelectorAll('[data-share]').forEach(b => b.onclick = () => shareTab(b.dataset.share));
         home.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openThread(b.dataset.open, b.dataset.title || ('📺 # ' + curTopic())));
         home.querySelectorAll('[data-unshare]').forEach(b => b.onclick = () => unshareTab());
+        home.querySelectorAll('.pswipe').forEach(wireSwipe);
         home.querySelectorAll('[data-readall]').forEach(b => b.onclick = () => { for (const [t, x] of Object.entries(P.index)) if (x && x.ts) markSeen(t, x.ts); dots(); renderHome(); });
         const pc = $('#dc-peer-ping'); if (pc) pc.onchange = () => { P.pingOn = pc.checked; set(ref(database, `${P.me}/console/settings/peerPings`), pc.checked).catch(() => {}); };
     }
     const renderMenu = () => renderHome();   // older call sites
+
+    // CLEAR A CONVERSATION (2026-09-27, L: "how do I clear a conversation... if there are no texts it clears the conversation, as well
+    // as a swipe to delete"): clearing is for YOU - your inbox line gets clearedAt; older messages hide on your side, theirs stay, and
+    // the conversation comes back only when a newer message arrives. An empty conversation clears itself (renderMsgs).
+    async function clearConv(tid) {
+        try { await update(ref(database, `share/chatIndex/${P.me}/${tid}`), { clearedAt: Date.now() }); }
+        catch (e) { alert('Could not clear: ' + (e.code || e.message)); }
+    }
+    function wireSwipe(wrap) {
+        const row = wrap.querySelector('.dc-peer-row'), btn = wrap.querySelector('.pclr'); if (!row || !btn) return;
+        let x0 = null, dx = 0, open = false, moved = false;
+        const set = v => { row.style.transform = v ? `translateX(${v}px)` : ''; };
+        row.addEventListener('pointerdown', e => { x0 = e.clientX; dx = 0; moved = false; wrap.classList.add('dragging'); });
+        row.addEventListener('pointermove', e => { if (x0 === null) return; dx = Math.min(0, e.clientX - x0 + (open ? -84 : 0)); if (Math.abs(e.clientX - x0) > 6) moved = true; if (moved) set(Math.max(dx, -110)); });
+        const end = () => { if (x0 === null) return; x0 = null; wrap.classList.remove('dragging'); if (!moved) return; open = dx < -45; set(open ? -84 : 0); };
+        row.addEventListener('pointerup', end); row.addEventListener('pointercancel', end); row.addEventListener('pointerleave', end);
+        row.addEventListener('click', e => { if (moved || open) { e.stopImmediatePropagation(); e.preventDefault(); if (open && !moved) { open = false; set(0); } moved = false; } }, true);   // a swipe is not a tap
+        btn.onclick = () => clearConv(wrap.dataset.conv);
+    }
 
     async function shareTab(uid) {
         const topic = curTopic(), s = slug(topic); if (!s) return;
@@ -5127,11 +5153,25 @@
     // tab already shared with them. Inside a shared-tab view: back to the DM with them + stop sharing. Owner (L) only.
     function renderBar() {
         const bar = $('#dc-peer-bar'); if (!bar) return;
-        if (P.me !== OWNER || !P.open || !P.other || P.other === 'droplet') { bar.hidden = true; bar.innerHTML = ''; return; }
+        if (!P.open || !P.other || P.other === 'droplet') { bar.hidden = true; bar.innerHTML = ''; return; }
         const other = P.other, oname = P.dir[other] || 'them', topic = curTopic();
         const mine = Object.entries(P.shares || {}).filter(([, s]) => s && s.with === other);
         const b = (attrs, label, title) => `<button type="button" class="pbar-b" ${attrs} title="${esc(title || '')}">${label}</button>`;
         let html = '';
+        // TEXT SHARE (2026-09-27, L: "if another user has an attached daemon, they can share... maybe just put all the text into the
+        // chat as you share it, unshare pops it all out"): any member can drop a tab's conversation into this chat as one card; no
+        // daemon mirroring needed, so it works for Kev (Cairn) or anyone. Unshare removes the card. The owner keeps the LIVE share too.
+        const snapTopics = [...new Set(Object.values(lastMsgs || {}).filter(m => m && m.snap && m.from === P.me).map(m => m.snap.topic))];
+        if (!P.open.startsWith('tab-')) {
+            if (topic && topic !== '★' && !snapTopics.includes(topic)) html += b('data-snap="1"', `📋 Share text of # ${esc(topic)}`, `put this tab's conversation into your chat with ${oname} as one card`);
+            for (const tp of snapTopics) html += b(`data-unsnap="${esc(tp)}"`, `✕ Unshare text # ${esc(tp)}`, 'take that card back out of this chat');
+        }
+        if (P.me !== OWNER) {
+            bar.innerHTML = html; bar.hidden = !html;
+            bar.querySelectorAll('[data-snap]').forEach(x => x.onclick = () => shareText(other));
+            bar.querySelectorAll('[data-unsnap]').forEach(x => x.onclick = () => unshareText(x.dataset.unsnap));
+            return;
+        }
         if (P.open.startsWith('tab-')) {
             const cur = mine.find(([, s]) => s.tid === P.open);
             html += b('data-dm="1"', `💬 Chat with ${esc(oname)}`, 'back to your conversation with them');
@@ -5150,6 +5190,30 @@
         bar.querySelectorAll('[data-sharecur]').forEach(x => x.onclick = () => shareTab(other));
         bar.querySelectorAll('[data-view]').forEach(x => x.onclick = () => openThread(x.dataset.view, `📺 # ${x.dataset.t} - shared with ${oname}`, other));
         bar.querySelectorAll('[data-stop]').forEach(x => x.onclick = () => unshareTab(x.dataset.stop));
+        bar.querySelectorAll('[data-snap]').forEach(x => x.onclick = () => shareText(other));
+        bar.querySelectorAll('[data-unsnap]').forEach(x => x.onclick = () => unshareText(x.dataset.unsnap));
+    }
+
+    async function shareText(other) {
+        const topic = curTopic(); if (!topic || !P.open) return;
+        const turns = (await get(query(ref(database, `${P.me}/console/chat/turns`), limitToLast(300)))).val() || {};
+        const lines = Object.keys(turns).sort().map(k => turns[k]).filter(t => t && t.topic === topic && t.text && !t.pending)
+            .map(t => `${t.s === 'L' ? P.myName : (t.who || 'Droplet')}: ${String(t.text).trim()}`);
+        if (!lines.length) { alert(`# ${topic} has no messages to share yet.`); return; }
+        const full = lines.join('\n\n'), id = 'snap' + Date.now(), parts = [];
+        for (let i = 0; i < full.length; i += 3800) parts.push(full.slice(i, i + 3800));   // the message rule caps text at 4000
+        try {
+            for (let i = 0; i < parts.length; i++)
+                await push(ref(database, `share/chat/${P.open}/messages`), { from: P.me, name: P.myName, text: parts[i], ts: Date.now() + i, snap: { id, topic, part: i + 1, of: parts.length, lines: lines.length } });
+            const last = `📋 shared # ${topic} (${lines.length} messages)`, ts = Date.now() + parts.length;
+            await update(ref(database, `share/chatIndex/${P.me}/${P.open}`), { with: other, name: P.dir[other] || '', last, ts, from: P.me });
+            await update(ref(database, `share/chatIndex/${other}/${P.open}`), { with: P.me, name: P.myName, last, ts, from: P.me });
+        } catch (e) { alert('Could not share: ' + (e.code || e.message)); }
+    }
+    async function unshareText(topic) {
+        if (!confirm(`Take the # ${topic} text back out of this chat?`)) return;
+        try { for (const [k, m] of Object.entries(lastMsgs || {})) if (m && m.snap && m.from === P.me && m.snap.topic === topic) await set(ref(database, `share/chat/${P.open}/messages/${k}`), null); }
+        catch (e) { alert('Could not unshare: ' + (e.code || e.message)); }
     }
 
     async function unshareTab(key) {
@@ -5208,14 +5272,23 @@
         const log = $('#dc-peer-log'); if (!log) return;
         lastMsgs = msgs;
         const nf = newestFirst(); $('#dc-peer') && $('#dc-peer').classList.toggle('nf', nf);
-        const asc = Object.keys(msgs).sort().map(k => msgs[k] && { ...msgs[k], __k: k }).filter(m => m && m.text);
+        const cleared = (P.index[P.open] || {}).clearedAt || 0;
+        const asc0 = Object.keys(msgs).sort().map(k => msgs[k] && { ...msgs[k], __k: k }).filter(m => m && m.text && (m.ts || 0) > cleared);
+        const asc = [], seenSnap = {};
+        for (const m of asc0) {   // a text share arrives in parts (4000-char cap per message): fold them into one card
+            if (m.snap) { const g = seenSnap[m.snap.id]; if (g) { g.text += m.text; continue; } seenSnap[m.snap.id] = { ...m }; asc.push(seenSnap[m.snap.id]); }
+            else asc.push(m);
+        }
+        const mine = P.index[P.open];
+        if (!asc.length && mine && mine.ts > cleared) clearConv(P.open);   // nothing left to read = the conversation is cleared (L)
         const list = nf ? asc.slice().reverse() : asc;
         const S = window.__dcShared || {}, lk = S.linkify || (x => x), stamp = S.fmtStamp || (t => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
         const lastMine = [...asc].reverse().find(m => m.from === P.me);
         log.innerHTML = list.length ? list.map(m => { const me = m.from === P.me, tm = stamp(m.ts);
             const who = me ? 'You' : m.from === 'droplet' ? '💧 Droplet' : (m.name || P.dir[m.from] || 'them');
             const edit = me && lastMine && m.__k === lastMine.__k ? '<button type="button" class="dc-edit" title="edit this message">✎</button>' : '';
-            return `<div class="dc-bub ${me ? 'me' : 'drop'}${m.from === 'droplet' ? ' dp' : ''}" data-k="${esc(m.__k)}">${edit}<span class="who">${esc(who)} · ${tm}${m.edited ? ' · ✎ edited' : ''}</span>${lk(esc(m.text))}<div class="ts">${tm}</div></div>`; }).join('')
+            const body = m.snap ? `<details class="psnap"><summary>📋 # ${esc(m.snap.topic)} · ${m.snap.lines} messages (tap to read)</summary>${lk(esc(m.text))}</details>` : lk(esc(m.text));
+            return `<div class="dc-bub ${me ? 'me' : 'drop'}${m.from === 'droplet' ? ' dp' : ''}" data-k="${esc(m.__k)}">${m.snap ? '' : edit}<span class="who">${esc(who)} · ${tm}${m.edited ? ' · ✎ edited' : ''}</span>${body}<div class="ts">${tm}</div></div>`; }).join('')
             : `<div style="opacity:.6;text-align:center;padding:10px">Say hi to ${esc(P.dir[P.other] || 'them')} 👋 - only the two of you can see this.</div>`;
         log.scrollTop = nf ? 0 : log.scrollHeight;
         // SAME AS THE CONSOLE (L, 2026-09-27: "mirror the style into the messages with other users"): ✎ on your newest message
@@ -5251,8 +5324,8 @@
         try {
             await push(ref(database, `share/chat/${tid}/messages`), { from: P.me, name: P.myName, text, ts });
             const tab = tid.startsWith('tab-'), prevMine = P.index[tid] || {};
-            await set(ref(database, `share/chatIndex/${P.me}/${tid}`), { with: other, name: tab ? (prevMine.name || P.dir[other] || '') : (P.dir[other] || ''), last: text.slice(0, 90), ts, from: P.me, ...(tab ? { kind: 'tab' } : {}) });
-            await set(ref(database, `share/chatIndex/${other}/${tid}`), { with: P.me, name: tab && P.me === OWNER ? `${P.myName} · shared tab` : P.myName, last: text.slice(0, 90), ts, from: P.me, ...(tab ? { kind: 'tab' } : {}) });
+            await update(ref(database, `share/chatIndex/${P.me}/${tid}`), { with: other, name: tab ? (prevMine.name || P.dir[other] || '') : (P.dir[other] || ''), last: text.slice(0, 90), ts, from: P.me, ...(tab ? { kind: 'tab' } : {}) });
+            await update(ref(database, `share/chatIndex/${other}/${tid}`), { with: P.me, name: tab && P.me === OWNER ? `${P.myName} · shared tab` : P.myName, last: text.slice(0, 90), ts, from: P.me, ...(tab ? { kind: 'tab' } : {}) });
         } catch (e) { box.value = text; alert('Not sent: ' + (e.code || e.message)); }
     }
 
