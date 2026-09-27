@@ -1076,9 +1076,10 @@
                 <!-- CompMan target REMOVED 2026-09-25 (L: "comp can go from here - from the chat app, not tel"):
                      2 replies in ~1,600 since 09-11; Telegram is his face. The daemon's target=compman path stays. -->
                 <option value="local">🦙 Local Console</option>
-                <!-- YUKI ON DUTY (2026-09-27, L: "Continue with Yuki"): the daemon runs yuki_duty.py on se - a local, READ-ONLY stand-in
-                     for when Droplet is out: answers from the guides (recall engine) + status looks, cites its source, never acts. -->
-                <option value="yuki">🩵 Yuki on duty</option>
+                <!-- ONE YUKI (2026-09-27, L: "I don't want 2 separate Yukis, can it be made to just be one"): the "Yuki on duty" entry is
+                     gone. 🦙 Local (labelled with the bot's name) IS Yuki: on L's login with the daemon up, her sends go to se as a
+                     target='yuki' job (yuki_duty.py - her persona + memory from chat/bot, plus the read-only guides + status tools);
+                     guests, or se down, get the in-page localReply as before. -->
             </select>
             <button class="dc-tab active" data-tab="ch">Chat</button>
             <span id="dc-pins"></span>   <!-- gear rows dragged up here live here (wirePins); the gear itself sits AFTER them (L, 2026-09-25: "move the gear to the right, after the six dots") -->
@@ -2748,7 +2749,7 @@
 
         // unified send: target (Droplet / CompMan / Command) + optional inline enhance + ping.
         // This is the chat doing everything the Workbench + terminal do, from one box.
-        const CHAT_WHO = { droplet: 'Droplet', compman: 'CompMan', command: 'se', local: 'Local', yuki: 'Yuki (on duty)' };
+        const CHAT_WHO = { droplet: 'Droplet', compman: 'CompMan', command: 'se', local: 'Local', yuki: 'Yuki' };
         // 🦙 LOCAL (2026-09-18): the fallback when Droplet is down. Page -> se Ollama (same proxy as the enhancer) with the last
         // turns of this tab as history; the answer is written into the thread as a 'Local' bubble. No tools, no memory beyond the tab.
         const LOCAL_SYS = "You are Local, the fallback assistant inside Luis's Droplet Console, running on the Ollama server in his homelab (model " + MODEL + ") for when Droplet (Claude) is unavailable. "
@@ -2915,7 +2916,7 @@
             if (enhOn && window.__dcLiveFlush) { const st = $('#dc-chat-status'); if (st) st.textContent = '✨ finishing…'; try { await window.__dcLiveFlush(3500); } catch (_) {} raw = ta.value.trim(); if (st && st.textContent === '✨ finishing…') st.textContent = ''; if (!raw) return; }
             if (enhOn && window.__dcTidy) { raw = window.__dcTidy(raw); ta.value = raw; }
             const wantPing = !!($('#dc-chat-ping') && $('#dc-chat-ping').checked);
-            const who = CHAT_WHO[target] || 'Droplet';
+            const who = target === 'local' ? (DC.botWho || 'Local') : (CHAT_WHO[target] || 'Droplet');
             // ⌘ Command (2026-09-16, pick D): every run needs a live YubiKey code; the daemon verifies it, one use per code
             let ykCode = '';
             if (target === 'command') {
@@ -2990,13 +2991,15 @@
                 // 🦙 no job, no daemon - and NOT awaited (L, 2026-09-25: "when it is thinking on local and I switch back
                 // to droplet I can't post until local is done"): the reply lands in its own pending bubble whenever
                 // ollama answers, exactly like a Droplet job; the box is yours again the moment it is queued.
-                if (target === 'local') { localReply(prompt, tpc, turns).catch(() => {}); send.disabled = false; ta.focus(); return; }
+                // one Yuki: L's own login + se up -> the same Yuki runs on se with her tools (job target 'yuki'); else the page answers
+                const jobTarget = target === 'local' && !DC.guest && DC.daemonOn ? 'yuki' : target;
+                if (target === 'local' && jobTarget === 'local') { localReply(prompt, tpc, turns).catch(() => {}); send.disabled = false; ta.focus(); return; }
                 const jref = push(ref(database, `${DC.base}/jobs`));
                 const pendRef = push(ref(database, turns));
                 await set(pendRef, { s: 'D', who, text: '…thinking', ts: Date.now(), pending: true, jobId: jref.key, ...tpc });   // jobId => reconcilePending fills it even after a reload
                 const job = target === 'command'
                     ? { kind: 'command', command: raw, code: ykCode, chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing }
-                    : { kind: 'prompt', target, rough: raw, enhanced: prompt, chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing,
+                    : { kind: 'prompt', target: jobTarget, rough: raw, enhanced: prompt, chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing,
                         enhance: !!(enhOn && DC.kdaemon), lturn: lref.key, ...tpc, ...(editTurn ? { edited: true } : {}) };   // kdaemon: enhance server-side + which turn to annotate
                 await set(jref, job);
                 try { await update(lref, { jobId: jref.key }); } catch (_) {}   // lets a later delete blank the job text as well
@@ -3759,6 +3762,7 @@
         for (const [id, key] of Object.entries(PERSIST)) {
             const el = document.getElementById(id); if (!el) continue;
             let v = null; try { v = localStorage.getItem(key); } catch (_) {}
+            if (key === 'dc_target' && v === 'yuki') v = 'local';   // the old "Yuki on duty" pick = the one Yuki now
             if (v !== null) { if (el.type === 'checkbox') el.checked = v === '1'; else el.value = v; }
             el.addEventListener('change', () => { try { localStorage.setItem(key, el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value); } catch (_) {} });
         }
@@ -3808,7 +3812,7 @@
         // droplet has no emoji here on purpose: when it is the selected target the real mark is
         // painted into the control as a background, and "💧 Droplet Console" next to the badge
         // was the same thing said twice.
-        const TARGET_NAMES = { droplet: ['Droplet Console', 'Droplet'], compman: ['🤖 CompMan Console', '🤖 CompMan'], command: ['⌘ Command Console', '⌘ Command'], local: ['🦙 Local Console', '🦙 Local'], yuki: ['🩵 Yuki on duty', '🩵 Yuki'] };
+        const TARGET_NAMES = { droplet: ['Droplet Console', 'Droplet'], compman: ['🤖 CompMan Console', '🤖 CompMan'], command: ['⌘ Command Console', '⌘ Command'], local: ['🦙 Local Console', '🦙 Local'] };
         function targetLabel(v) {
             if (v === 'local' && DC.botName) return DC.isPhone() ? DC.botName : DC.botName + ' Console';   // "🌸 Yuki Console" instead of "🦙 Local Console"
             const n = TARGET_NAMES[v] || [v, v]; return DC.isPhone() ? n[1] : n[0]; }
@@ -3839,6 +3843,12 @@
         const nfBox = $('#dc-newest');
         const paintNf = () => { const t = $('#dc-nf-txt'); if (t) t.textContent = nfBox.checked ? '⬆ Top' : '⬇ Bottom'; };   // the row's words ARE the state (no box)
         if (nfBox) { nfBox.checked = newestFirst(); paintNf(); nfBox.addEventListener('change', () => { try { localStorage.setItem('dc_newest_first', nfBox.checked ? '1' : '0'); } catch (_) {} paintNf(); DC.bubbleSig = {}; renderChat(DC.chatTurns || {}); }); }
+        // TAP-PROOF (2026-09-27, L: "top bottom isn't working"): the row flipped a hidden checkbox through the label's native
+        // behaviour, which the phone doesn't reliably do for a 0-size, pointer-events:none input. The row now flips it itself.
+        { const nfLbl = $('#dc-nf-lbl'); if (nfLbl && nfBox) nfLbl.addEventListener('click', e => {
+            if (e.target.closest && e.target.closest('.dc-pin-h')) return;          // the ⋮⋮ drag handle keeps its own job
+            e.preventDefault(); nfBox.checked = !nfBox.checked; nfBox.dispatchEvent(new Event('change'));
+        }); }
         // auto-archive limit lives in Firebase (console/settings/autoArchiveChars) so the daemon enforces it; the box edits it
         const aaBox = $('#dc-auto-arch');
         if (aaBox) aaBox.addEventListener('change', () => { if (!DC.base) return; const k = Math.max(0, Math.round(Number(aaBox.value) || 0)); set(ref(database, `${DC.base}/settings/autoArchiveChars`), k * 1000); });
@@ -4100,7 +4110,6 @@
                 { drive: 'E:\\', label: 'ACTIVE',   role: '4TB SSD — OneDrive, containers, VMs' },
                 { drive: 'F:\\', label: 'WD_BLACK', role: '4.5TB USB HDD — cold mirror' },
                 { drive: 'G:\\', label: '2TBOS',    role: '4TB NVMe (990 EVO Plus) — parked' },
-                { drive: 'H:\\', label: '500ssd',   role: '1TB SSD (Fanxiang) — spare' },
             ],
         };
 
@@ -4884,6 +4893,313 @@
             }
         };
     })();
+    </script>
+
+    <!-- MEMBER CHAT (2026-09-27, L: "more like a chat app among the other members of the firebase ... open a window to Kevin then
+         split the bottom into 2 sections, one for the other member, one for our chat"). Phase 1 = person-to-person threads.
+         Data: share/chat/<uidA_uidB> {members, names, kind, createdAt, messages/<push>{from,name,text,ts}} + share/chatIndex/<uid>/<thread>
+         (inbox line: unread dots). Rules: only a thread's members read it; a member posts as THEMSELF, append-only; the rest of share/
+         stays as it was. Members = share/directory (the Notes share list). Nothing typed here ever reaches the daemon.
+         A separate module on purpose: it imports Firebase itself, so an error here can't take the console down with it. -->
+    <style>
+        #dc-peer-btn { position: relative; background: none; border: 1px solid var(--border); color: inherit; border-radius: 8px; padding: 2px 8px; cursor: pointer; font-size: 1rem; }
+        #dc-peer-btn.flash { animation: dcPeerFlash 1s ease-in-out infinite; }
+        @keyframes dcPeerFlash { 0%, 100% { background: transparent; border-color: var(--border); box-shadow: none; }
+                                 50% { background: rgba(240, 80, 110, .35); border-color: #f0506e; box-shadow: 0 0 10px rgba(240, 80, 110, .7); } }
+        @media (prefers-reduced-motion: reduce) { #dc-peer-btn.flash { animation: none; background: rgba(240, 80, 110, .35); border-color: #f0506e; } }
+        #dc-peer-btn .dot, .dc-peer-row .dot { position: absolute; top: -3px; right: -3px; width: 9px; height: 9px; border-radius: 50%; background: #f0506e; }
+        #dc-peer-menu { position: absolute; z-index: 30; margin-top: 6px; min-width: 220px; background: var(--dc-panel, #111827); border: 1px solid var(--border); border-radius: 10px; padding: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+        .dc-peer-row { position: relative; display: block; width: 100%; text-align: left; background: none; border: 0; color: inherit; padding: 8px 10px; border-radius: 8px; cursor: pointer; font: inherit; }
+        .dc-peer-row:hover { background: var(--dc-inset, rgba(255,255,255,.06)); }
+        .dc-peer-row small { display: block; opacity: .6; font-size: .72rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
+        .dc-body.dc-split { flex-direction: row; gap: 12px; }
+        .dc-body.dc-split > #dc-chat-panel { flex: 1 1 0; min-width: 0; }
+        #dc-peer { display: none; flex: 1 1 0; min-width: 0; min-height: 0; flex-direction: column; border-left: 1px solid var(--border); padding-left: 12px; }
+        .dc-body.dc-split > #dc-peer { display: flex; }
+        @media (max-width: 760px) {
+            .dc-body.dc-split { flex-direction: column; }
+            .dc-body.dc-split > #dc-peer { border-left: 0; border-top: 1px solid var(--border); padding: 8px 0 0; flex: 0 0 46%; }
+        }
+        #dc-peer-head { display: flex; align-items: center; gap: 8px; font-weight: 600; padding: 2px 0 6px; }
+        #dc-peer-home { flex: 1; overflow-y: auto; overflow-x: hidden; min-height: 0; padding-bottom: 8px; }
+        #dc-peer.nf #dc-peer-head { order: 0; } #dc-peer.nf #dc-peer-form { order: 1; padding: 0 0 6px; } #dc-peer.nf #dc-peer-log { order: 2; }   /* Top mode: box above, newest first */
+        #dc-peer-home[hidden], #dc-peer-log[hidden], #dc-peer-form[hidden], #dc-peer-back[hidden], #dc-peer-bar[hidden] { display: none !important; }
+        #dc-peer-bar { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 0 8px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+        .pbar-b { font: inherit; font-size: .78rem; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--dc-inset, rgba(255,255,255,.05)); color: inherit; cursor: pointer; }
+        .pbar-b:hover { border-color: var(--dc-purple, #a78bfa); }
+        .pbar-note { font-size: .75rem; opacity: .6; align-self: center; }
+        #dc-peer.nf #dc-peer-bar { order: 0; }   /* display:flex beats [hidden] otherwise */
+        #dc-peer-home .ph { font-size: .66rem; text-transform: uppercase; letter-spacing: .12em; opacity: .55; margin: 14px 10px 4px; }
+        #dc-peer-home .ph:first-child { margin-top: 4px; }
+        #dc-peer-home .pnote { font-size: .78rem; opacity: .65; padding: 6px 10px; line-height: 1.4; }
+        .dc-peer-row .pago { float: right; font-size: .7rem; opacity: .5; margin-left: 8px; }
+        #dc-peer-back { font-size: 1.3rem !important; line-height: 1; padding: 0 4px; }
+        #dc-peer-head .sp { flex: 1; } #dc-peer-head button { background: none; border: 0; color: inherit; cursor: pointer; font-size: 1rem; }
+        #dc-peer-log { flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 8px; padding: 6px 2px; min-height: 0; }
+        .pb { max-width: 85%; padding: 7px 11px; border-radius: 12px; background: var(--dc-inset, rgba(255,255,255,.07)); white-space: pre-wrap; word-break: break-word; align-self: flex-start; }
+        .pb.me { align-self: flex-end; background: var(--dc-me-bg, #3b2260); color: var(--dc-me-fg, #f3e8ff); }
+        .pb.dp { background: rgba(56, 132, 220, .18); border: 1px solid rgba(96, 165, 250, .35); }   /* Droplet's lines in a shared tab */
+        .pb .who { font-size: .7rem; opacity: .65; margin-bottom: 2px; }
+        #dc-peer-form { display: flex; gap: 6px; padding-top: 6px; }
+        #dc-peer-in { flex: 1; resize: none; font: inherit; border-radius: 8px; border: 1px solid var(--border); background: var(--dc-inset, transparent); color: inherit; padding: 6px 8px; }
+        #dc-peer-form button { border-radius: 8px; border: 0; padding: 0 12px; background: var(--dc-purple, #7c3aed); color: #fff; cursor: pointer; }
+    </style>
+    <script type="module">
+    import { database, ref, onValue, push, set, get, query, limitToLast, auth, onAuthStateChanged } from './assets/js/firebase-init.js';
+    const $ = s => document.querySelector(s);
+    const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+    const tidFor = (a, b) => [a, b].sort().join('_');
+    const seen = tid => { try { return +localStorage.getItem('dc_peer_seen_' + tid) || 0; } catch (_) { return 0; } };
+    const markSeen = (tid, ts) => { try { localStorage.setItem('dc_peer_seen_' + tid, String(ts || Date.now())); } catch (_) {} };
+    const P = { me: null, myName: '', dir: {}, open: null, other: null, unsub: null, index: {} };
+    const OWNER = '7cIh8rrhVNOjjj5CBDgb3IlqzEh2';   // Luis: the only account whose console (and daemon) a tab can be shared FROM
+
+    function build() {
+        const bar = $('#dc-console .dc-bar'), body = $('#dc-console .dc-body');
+        if (!bar || !body || $('#dc-peer-btn')) return;
+        const btn = document.createElement('button');
+        btn.id = 'dc-peer-btn'; btn.type = 'button'; btn.title = 'chat with members'; btn.innerHTML = '👥<span class="dot" hidden></span>';
+        bar.insertBefore(btn, bar.querySelector('.dc-sp'));
+        // 👥 opens the SIDE PANE itself (L, 2026-09-27: "when I click the icon have it open the pane and have the options in there -
+        // make it more options for that part"): a People home (conversations, members, share this tab, shared with me, settings)
+        // and a conversation view with ‹ back to the home.
+        btn.onclick = e => { e.stopPropagation(); const split = $('#dc-console .dc-body').classList.contains('dc-split'); if (split && !P.open) closePeer(); else showHome(); };
+        const pane = document.createElement('div'); pane.id = 'dc-peer';
+        pane.innerHTML = `<div id="dc-peer-head"><button type="button" id="dc-peer-back" title="back to People" hidden>‹</button><span id="dc-peer-name"></span><span class="sp"></span><button type="button" id="dc-peer-x" title="close the pane">✕</button></div>
+            <div id="dc-peer-bar" hidden></div>
+            <div id="dc-peer-home"></div>
+            <div id="dc-peer-log" hidden></div>
+            <form id="dc-peer-form" hidden><textarea id="dc-peer-in" rows="2" placeholder="message…  (Enter sends)"></textarea><button type="submit">▲</button></form>`;
+        body.appendChild(pane);
+        $('#dc-peer-x').onclick = closePeer;
+        $('#dc-peer-back').onclick = () => showHome();
+        $('#dc-peer-form').onsubmit = e => { e.preventDefault(); send(); };
+        $('#dc-peer-in').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+    }
+
+    function unread(tid) { const x = P.index[tid]; return !!(x && x.from !== P.me && x.ts > seen(tid) && tid !== P.open); }
+    // FLASH (2026-09-27, L: "can I get flashing on the icon with new messages"): 👥 pulses while anything is unread, and the
+    // browser tab title blinks "💬 New message" when the page is in the background.
+    let titleTimer = null, baseTitle = document.title;
+    function dots() {
+        const any = Object.keys(P.index).some(unread);
+        const d = $('#dc-peer-btn .dot'); if (d) d.hidden = !any;
+        const b = $('#dc-peer-btn'); if (b) b.classList.toggle('flash', any);
+        if (any && document.hidden && !titleTimer) { let on = false; titleTimer = setInterval(() => { on = !on; document.title = on ? '💬 New message' : baseTitle; }, 1000); }
+        if ((!any || !document.hidden) && titleTimer) { clearInterval(titleTimer); titleTimer = null; document.title = baseTitle; }
+    }
+    document.getElementById('dc-newest')?.addEventListener('change', () => { if (P.open) renderMsgs(lastMsgs); });   // flip live
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && titleTimer) { clearInterval(titleTimer); titleTimer = null; document.title = baseTitle; } });
+
+    // ---- phase 2: SHARED TABS (L: "share a current tab - he can't input to get answers but he can see it, we can chat in there, one
+    // log with bubbles defining who is talking, me the only one with influence on my system daemon"). The daemon mirrors L's lines +
+    // Droplet's replies into share/chat/<tid> (kind 'tab'); the guest's lines reach Droplet only as labelled DATA (share_tab.py).
+    const slug = t => String(t || '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+    const curTopic = () => { try { return localStorage.getItem('dc_topic') || ''; } catch (_) { return ''; } };
+    P.shares = {};
+
+    const H = t => `<div class="ph">${t}</div>`;
+    const ago = ts => { if (!ts) return ''; const m = Math.round((Date.now() - ts) / 60000); return m < 1 ? 'now' : m < 60 ? m + 'm' : m < 1440 ? Math.round(m / 60) + 'h' : Math.round(m / 1440) + 'd'; };
+    function showHome(mode) {
+        if (P.unsub) { P.unsub(); P.unsub = null; }
+        P.open = null; P.other = null;
+        $('#dc-console .dc-body').classList.add('dc-split');
+        $('#dc-peer-home').hidden = false; $('#dc-peer-log').hidden = true; $('#dc-peer-form').hidden = true; $('#dc-peer-back').hidden = true;
+        $('#dc-peer-name').textContent = mode === 'pick' ? '📺 Share a tab' : '👥 People';
+        renderHome(mode); dots();
+    }
+    function renderHome(mode) {
+        const home = $('#dc-peer-home'); if (!home || home.hidden) return;
+        const topic = curTopic(), owner = P.me === OWNER, sh = topic && P.shares[slug(topic)];
+        const others = Object.entries(P.dir).filter(([u]) => u !== P.me).sort((a, b) => a[1].localeCompare(b[1]));
+        let html = '';
+        if (mode === 'pick') {
+            html += `<div class="pnote">Share <b># ${esc(topic)}</b> with… They watch it live and can chat in it. Only you drive Droplet; their lines reach it as data, never as instructions.</div>`;
+            html += others.map(([u, n]) => `<button type="button" class="dc-peer-row" data-share="${esc(u)}">📺 ${esc(n)}</button>`).join('');
+            html += `<button type="button" class="dc-peer-row" data-home="1">‹ cancel</button>`;
+        } else {
+            // 1. conversations, newest first
+            const convs = Object.entries(P.index).filter(([, x]) => x && x.ts).sort((a, b) => b[1].ts - a[1].ts);
+            if (convs.length) {
+                html += H('Conversations');
+                html += convs.map(([t, x]) => { const tab = t.startsWith('tab-');
+                    return `<button type="button" class="dc-peer-row" ${tab ? `data-open="${esc(t)}" data-title="📺 ${esc(x.name)}"` : `data-u="${esc(x.with)}"`}>${tab ? '📺 ' : '💬 '}${esc(x.name || P.dir[x.with] || '?')}${unread(t) ? '<span class="dot"></span>' : ''}<span class="pago">${ago(x.ts)}</span><small>${esc(x.from === P.me ? 'you: ' : x.from === 'droplet' ? 'Droplet: ' : '')}${esc(x.last || '')}</small></button>`; }).join('');
+            }
+            // 2. share this tab (owner)
+            if (owner && topic && topic !== '★') {
+                html += H(`This tab · # ${esc(topic)}`);
+                html += sh ? `<button type="button" class="dc-peer-row" data-open="${esc(sh.tid)}" data-title="📺 # ${esc(topic)} - shared with ${esc(sh.name)}">📺 Open the shared view<small>shared with ${esc(sh.name)} since ${new Date(sh.since).toLocaleString([], { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</small></button>
+                              <button type="button" class="dc-peer-row" data-unshare="1">⏹ Stop sharing # ${esc(topic)}</button>`
+                           : `<button type="button" class="dc-peer-row" data-pick="1">📺 Share this tab…<small>someone watches it live + chats; only you drive Droplet</small></button>`;
+            }
+            // 3. everything L currently shares (any tab)
+            const allShares = Object.values(P.shares || {});
+            if (owner && allShares.length) {
+                html += H('Shared tabs');
+                html += allShares.map(s => `<button type="button" class="dc-peer-row" data-open="${esc(s.tid)}" data-title="📺 # ${esc(s.topic)} - shared with ${esc(s.name)}">📺 # ${esc(s.topic)} → ${esc(s.name)}</button>`).join('');
+            }
+            // 4. members: start a chat
+            html += H('Members');
+            html += others.length ? others.map(([u, n]) => `<button type="button" class="dc-peer-row" data-u="${esc(u)}">💬 ${esc(n)}</button>`).join('')
+                : '<div class="pnote">No members in the list yet.</div>';
+            // 5. settings
+            html += H('Settings');
+            html += `<label class="dc-peer-row" style="cursor:pointer"><input type="checkbox" id="dc-peer-ping" ${P.pingOn !== false ? 'checked' : ''}> 📣 Telegram ping when someone writes<small>via the console bot; the ⚙ Telegram pings switch still wins</small></label>`;
+            html += `<button type="button" class="dc-peer-row" data-readall="1">✓ Mark everything read</button>`;
+            html += `<div class="pnote">Members come from the share list (the same one Notes uses). Chats are private to the people in them; nothing typed here reaches the daemon.</div>`;
+        }
+        home.innerHTML = html;
+        home.querySelectorAll('[data-u]').forEach(b => b.onclick = () => openPeer(b.dataset.u));
+        home.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => showHome('pick'));
+        home.querySelectorAll('[data-home]').forEach(b => b.onclick = () => showHome());
+        home.querySelectorAll('[data-share]').forEach(b => b.onclick = () => shareTab(b.dataset.share));
+        home.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openThread(b.dataset.open, b.dataset.title || ('📺 # ' + curTopic())));
+        home.querySelectorAll('[data-unshare]').forEach(b => b.onclick = () => unshareTab());
+        home.querySelectorAll('[data-readall]').forEach(b => b.onclick = () => { for (const [t, x] of Object.entries(P.index)) if (x && x.ts) markSeen(t, x.ts); dots(); renderHome(); });
+        const pc = $('#dc-peer-ping'); if (pc) pc.onchange = () => { P.pingOn = pc.checked; set(ref(database, `${P.me}/console/settings/peerPings`), pc.checked).catch(() => {}); };
+    }
+    const renderMenu = () => renderHome();   // older call sites
+
+    async function shareTab(uid) {
+        const topic = curTopic(), s = slug(topic); if (!s) return;
+        const tid = `tab-${s}-${[P.me, uid].sort().join('_')}`, now = Date.now(), name = P.dir[uid] || uid.slice(0, 6);
+        try {
+            await set(ref(database, `share/chat/${tid}`), { members: { [P.me]: true, [uid]: true }, names: { [P.me]: P.myName, [uid]: name },
+                kind: 'tab', topic, owner: P.me, createdAt: now });
+            // seed with the tab's last few exchanges so they walk into context, not a blank page
+            const turns = (await get(query(ref(database, `${P.me}/console/chat/turns`), limitToLast(80)))).val() || {};
+            const seed = Object.keys(turns).sort().map(k => turns[k]).filter(t => t && t.topic === topic && t.text && !t.pending).slice(-6);
+            for (const t of seed) await push(ref(database, `share/chat/${tid}/messages`), { from: t.s === 'L' ? P.me : 'droplet', name: t.s === 'L' ? P.myName : 'Droplet', text: String(t.text).slice(0, 4000), ts: Number(t.ts) || now });
+            await set(ref(database, `${P.me}/console/shares/${s}`), { tid, with: uid, name, topic, since: now, guestSeen: now });
+            await set(ref(database, `share/chatIndex/${uid}/${tid}`), { with: P.me, name: `${P.myName} · shared: ${topic}`, last: `${P.myName} shared # ${topic} with you`, ts: now, from: P.me, kind: 'tab' });
+            openThread(tid, `📺 # ${topic} - shared with ${name}`);
+        } catch (e) { alert('Could not share: ' + (e.code || e.message)); }
+    }
+
+    // CHAT BAR (2026-09-27, L: "have the share as an option in a user chat, perhaps on a top bar with options share, unshare etc."):
+    // under the name in a conversation. DM with someone: share the current tab with THEM / open / unshare, + chips for any other
+    // tab already shared with them. Inside a shared-tab view: back to the DM with them + stop sharing. Owner (L) only.
+    function renderBar() {
+        const bar = $('#dc-peer-bar'); if (!bar) return;
+        if (P.me !== OWNER || !P.open || !P.other || P.other === 'droplet') { bar.hidden = true; bar.innerHTML = ''; return; }
+        const other = P.other, oname = P.dir[other] || 'them', topic = curTopic();
+        const mine = Object.entries(P.shares || {}).filter(([, s]) => s && s.with === other);
+        const b = (attrs, label, title) => `<button type="button" class="pbar-b" ${attrs} title="${esc(title || '')}">${label}</button>`;
+        let html = '';
+        if (P.open.startsWith('tab-')) {
+            const cur = mine.find(([, s]) => s.tid === P.open);
+            html += b('data-dm="1"', `💬 Chat with ${esc(oname)}`, 'back to your conversation with them');
+            if (cur) html += b(`data-stop="${esc(cur[0])}"`, '⏹ Stop sharing', `stop sharing # ${cur[1].topic}`);
+        } else {
+            const sh = topic && P.shares[slug(topic)];
+            if (topic && topic !== '★') {
+                if (sh && sh.with === other) html += b(`data-view="${esc(sh.tid)}" data-t="${esc(topic)}"`, `📺 Open # ${esc(topic)}`, 'the shared view of this tab') + b(`data-stop="${esc(slug(topic))}"`, `⏹ Unshare # ${esc(topic)}`, 'close their view + delete the shared log');
+                else if (sh) html += `<span class="pbar-note"># ${esc(topic)} is shared with ${esc(sh.name)}</span>`;
+                else html += b('data-sharecur="1"', `📺 Share # ${esc(topic)}`, `${oname} watches this tab live + can chat; only you drive Droplet`);
+            }
+            for (const [k, s] of mine) if (!topic || s.topic !== topic) html += b(`data-view="${esc(s.tid)}" data-t="${esc(s.topic)}"`, `📺 # ${esc(s.topic)}`, 'a tab you share with them');
+        }
+        bar.innerHTML = html; bar.hidden = !html;
+        bar.querySelectorAll('[data-dm]').forEach(x => x.onclick = () => openPeer(other));
+        bar.querySelectorAll('[data-sharecur]').forEach(x => x.onclick = () => shareTab(other));
+        bar.querySelectorAll('[data-view]').forEach(x => x.onclick = () => openThread(x.dataset.view, `📺 # ${x.dataset.t} - shared with ${oname}`, other));
+        bar.querySelectorAll('[data-stop]').forEach(x => x.onclick = () => unshareTab(x.dataset.stop));
+    }
+
+    async function unshareTab(key) {
+        const s = key || slug(curTopic()), sh = P.shares[s]; if (!sh) return;
+        const topic = sh.topic || curTopic();
+        if (!confirm(`Stop sharing # ${topic} with ${sh.name}? Their view of it closes and the shared log is deleted.`)) return;
+        try {
+            await set(ref(database, `share/chatIndex/${sh.with}/${sh.tid}`), null);
+            await set(ref(database, `${P.me}/console/shares/${s}`), null);
+            await set(ref(database, `share/chat/${sh.tid}`), null);
+            if (P.open === sh.tid) openPeer(sh.with);   // back to the conversation with them, not a closed pane
+        } catch (e) { alert('Could not stop sharing: ' + (e.code || e.message)); }
+    }
+
+    async function openPeer(uid) {
+        if (P.unsub) { P.unsub(); P.unsub = null; }
+        const tid = tidFor(P.me, uid);
+        let exists = false;
+        try { exists = (await get(ref(database, `share/chat/${tid}/members`))).exists(); } catch (_) { exists = false; }   // not a member yet = no read = treat as new
+        if (!exists) {
+            try {
+                await set(ref(database, `share/chat/${tid}/members`), { [P.me]: true, [uid]: true });
+                await set(ref(database, `share/chat/${tid}/names`), { [P.me]: P.myName, [uid]: P.dir[uid] || uid.slice(0, 6) });
+                await set(ref(database, `share/chat/${tid}/kind`), 'dm');
+                await set(ref(database, `share/chat/${tid}/createdAt`), Date.now());
+            } catch (e) { alert('Could not open the chat: ' + (e.code || e.message)); return; }
+        }
+        openThread(tid, '💬 ' + (P.dir[uid] || uid.slice(0, 6)), uid);
+    }
+
+    function openThread(tid, title, other) {
+        if (P.unsub) { P.unsub(); P.unsub = null; }
+        if (!other) {   // shared tab: the other side is the guest (owner view) or the owner (guest view)
+            const mine = Object.values(P.shares).find(x => x.tid === tid);
+            other = mine ? mine.with : ((P.index[tid] || {}).with || OWNER);
+        }
+        P.open = tid; P.other = other;
+        $('#dc-peer-home').hidden = true; $('#dc-peer-log').hidden = false; $('#dc-peer-form').hidden = false; $('#dc-peer-back').hidden = false;
+        $('#dc-peer-name').textContent = title;
+        renderBar();
+        $('#dc-peer-in').placeholder = tid.startsWith('tab-') ? 'chat here (only the console box talks to Droplet)…' : 'message…  (Enter sends)';
+        $('#dc-console .dc-body').classList.add('dc-split');
+        $('#dc-peer-log').innerHTML = '<div style="opacity:.6;text-align:center;padding:10px">loading…</div>';
+        P.unsub = onValue(query(ref(database, `share/chat/${tid}/messages`), limitToLast(100)), s => renderMsgs(s.val() || {}),
+            e => { $('#dc-peer-log').innerHTML = `<div style="opacity:.7;padding:10px">Can't read this chat: ${esc(e.code || e.message)}</div>`; });
+        dots(); setTimeout(() => $('#dc-peer-in') && $('#dc-peer-in').focus(), 50);
+    }
+
+    // TOP / BOTTOM (2026-09-27, L: "top bottom work on messages to other users?"): the pane follows the same ⚙ setting as the
+    // Droplet chat - Top = box above, newest first; Bottom = box below, newest last.
+    const newestFirst = () => { try { return localStorage.getItem('dc_newest_first') === '1'; } catch (_) { return false; } };
+    let lastMsgs = {};
+    function renderMsgs(msgs) {
+        const log = $('#dc-peer-log'); if (!log) return;
+        lastMsgs = msgs;
+        const nf = newestFirst(); $('#dc-peer') && $('#dc-peer').classList.toggle('nf', nf);
+        const asc = Object.keys(msgs).sort().map(k => msgs[k]).filter(m => m && m.text);
+        const list = nf ? asc.slice().reverse() : asc;
+        log.innerHTML = list.length ? list.map(m => `<div class="pb ${m.from === P.me ? 'me' : m.from === 'droplet' ? 'dp' : ''}"><div class="who">${esc(m.from === P.me ? 'you' : m.from === 'droplet' ? '💧 Droplet' : (m.name || P.dir[m.from] || 'them'))} · ${new Date(m.ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</div>${esc(m.text)}</div>`).join('')
+            : `<div style="opacity:.6;text-align:center;padding:10px">Say hi to ${esc(P.dir[P.other] || 'them')} 👋 - only the two of you can see this.</div>`;
+        log.scrollTop = nf ? 0 : log.scrollHeight;
+        if (asc.length) markSeen(P.open, asc[asc.length - 1].ts);
+        dots();
+    }
+
+    async function send() {
+        const box = $('#dc-peer-in'), text = box.value.trim();
+        if (!text || !P.open) return;
+        box.value = '';
+        const ts = Date.now(), tid = P.open, other = P.other;
+        try {
+            await push(ref(database, `share/chat/${tid}/messages`), { from: P.me, name: P.myName, text, ts });
+            const tab = tid.startsWith('tab-'), prevMine = P.index[tid] || {};
+            await set(ref(database, `share/chatIndex/${P.me}/${tid}`), { with: other, name: tab ? (prevMine.name || P.dir[other] || '') : (P.dir[other] || ''), last: text.slice(0, 90), ts, from: P.me, ...(tab ? { kind: 'tab' } : {}) });
+            await set(ref(database, `share/chatIndex/${other}/${tid}`), { with: P.me, name: tab && P.me === OWNER ? `${P.myName} · shared tab` : P.myName, last: text.slice(0, 90), ts, from: P.me, ...(tab ? { kind: 'tab' } : {}) });
+        } catch (e) { box.value = text; alert('Not sent: ' + (e.code || e.message)); }
+    }
+
+    function closePeer() {
+        if (P.unsub) { P.unsub(); P.unsub = null; }
+        P.open = null; P.other = null;
+        $('#dc-console .dc-body').classList.remove('dc-split');
+        dots();
+    }
+
+    onAuthStateChanged(auth, async u => {
+        if (!u || P.me) return;
+        P.me = u.uid;
+        try { const d = (await get(ref(database, 'share/directory'))).val() || {}; for (const [k, v] of Object.entries(d)) P.dir[k] = (v && v.name) || k.slice(0, 6); } catch (_) {}
+        P.myName = P.dir[P.me] || (u.email || '').split('@')[0] || 'me';
+        build();
+        onValue(ref(database, `share/chatIndex/${P.me}`), s => { P.index = s.val() || {}; dots(); if (!P.open) renderHome(); }, () => {});
+        get(ref(database, `${P.me}/console/settings/peerPings`)).then(s => { P.pingOn = s.val() !== false; }).catch(() => {});
+        if (P.me === OWNER) onValue(ref(database, `${P.me}/console/shares`), s => { P.shares = s.val() || {}; if (P.open) renderBar(); else renderHome(); }, () => {});
+    });
+    window.__dcPeer = P;   // test hook
     </script>
 
     <script src="apps/assets/js/reveal.js?v=4" defer></script>
