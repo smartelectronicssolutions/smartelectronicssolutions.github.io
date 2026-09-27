@@ -47,15 +47,19 @@
         <label for="notes">Notes</label>
         <textarea name="notes" id="note" cols="30" rows="10"></textarea>
       </form>
-      <button id="copy-btn">📰</button>
-      <button id="paste-btn">📋</button>
-      <button id="save-btn">💾</button>
-      <button class="clear-button" id="delete-btn">❌</button>
-      <button id="undo-btn">↩️</button>
-      <button id="share-btn" title="Share this note (tap again to unshare)">📤</button>
-      <label id="enc-lbl" title="Type your note, then type a secret word — a moment after you stop typing, the note auto-encrypts (AES-256) in place. Type the word again to open it. Empty word = plain note. Only the encrypted text is stored.">🔑 <input type="password" id="note-key" placeholder="secret word (auto-locks)" style="width:auto" autocomplete="off"></label>
+      <!-- WORDS, NOT JUST EMOJIS (L, 2026-09-26) -->
+      <button id="copy-btn" title="Copy the note text">📰 Copy</button>
+      <button id="paste-btn" title="Paste into the note">📋 Paste</button>
+      <button id="save-btn" title="Save this note">💾 Save</button>
+      <!-- PRIVATE / PUBLIC (L, 2026-09-26: "the notes app should work like the journals with saving - public and private, depending
+           on who's logged in; I can switch a note if public. Share is just to other users via the share node"). -->
+      <button id="scope-btn" type="button" title="Where this note is saved. On a saved note, tapping it MOVES the note.">🔒 Private</button>
+      <button class="clear-button" id="delete-btn" title="Delete this note">❌ Delete</button>
+      <button id="undo-btn" title="Undo the last change">↩️ Undo</button>
+      <button id="share-btn" title="Share this note with the other users (tap again to unshare)">📤 Share</button>
+      <label id="enc-lbl" title="Type your note, then type a secret word — a moment after you stop typing, the note auto-encrypts (AES-256) in place. Type the word again to open it. Empty word = plain note. Only the encrypted text is stored.">🔑 Lock word <input type="password" id="note-key" placeholder="secret word (auto-locks)" style="width:auto" autocomplete="off"></label>
       <span id="enc-status" style="font-size:.85em;opacity:.75;margin-left:6px"></span>
-      <label for="autosave-checkbox" title="Off by default. When on, saves every 40s. Either way, closing the tab with unsaved changes will prompt you.">Auto-💾:</label>
+      <label for="autosave-checkbox" title="Off by default. When on, saves every 40s. Either way, closing the tab with unsaved changes will prompt you.">Auto-save:</label>
       <input type="checkbox" id="autosave-checkbox">
       <!-- SHARE (L, 2026-09-26: same format as the origin + a flag): 📤 puts the SAVED note as stored at share/notes/<name>
            with sharedBy/sharedByName (an encrypted note stays encrypted); tap again to unshare. -->
@@ -75,6 +79,15 @@
     let deletedNotes = [];
     let autoSaveInterval;
     let DATABASE_BASE_PATH = 'public';
+    let curScope = 'public';   // 'private' ({uid}/notes) | 'public' (public/notes) - the loaded note's home, or where a new note goes
+    const signedIn = () => DATABASE_BASE_PATH !== 'public';
+    const notesRoot = scope => (scope === 'private' && signedIn()) ? DATABASE_BASE_PATH : 'public';
+    function paintScope() {
+      const b = document.getElementById('scope-btn'); if (!b) return;
+      if (!signedIn()) { curScope = 'public'; b.textContent = '🌐 Public'; b.disabled = true; b.title = 'Signed out: notes are public. Sign in for private notes.'; return; }
+      b.disabled = false;
+      b.textContent = curScope === 'public' ? '🌐 Public' : '🔒 Private';
+    }
     let unsub = null;
     let dirty = false;         // unsaved edits present? -> prompt on tab close (autosave is OFF by default)
 
@@ -164,7 +177,10 @@
       try {
         const snap = await get(ref(database, `public/sharedNotes/${id}`));
         const n = snap.val();
-        if (!n) { alert('That shared note was not found (it may have been removed).'); return; }
+        document.getElementById('share-status').textContent = n ? '🔗 Shared note - type the word in 🔑 Lock word to open it.' : 'That shared note was not found - it may have been unshared.';
+        for (const b of ['save-btn', 'share-btn', 'delete-btn', 'autosave-checkbox']) { const e = document.getElementById(b); if (e) e.style.display = 'none'; }
+        const al = document.querySelector('label[for="autosave-checkbox"]'); if (al) al.style.display = 'none';
+        if (!n) return;
         nameInput.value = n.name || '(shared note)';
         lastWord = ''; dirty = false;
         if (isEncrypted(n.note)) { lockedBlob = n.note; clearText = null; revealed = false; renderNote(); }
@@ -174,6 +190,7 @@
 
     onAuthStateChanged(auth, (user) => {
       DATABASE_BASE_PATH = user ? `${user.uid}` : 'public';
+      curScope = user ? 'private' : 'public'; paintScope();
       populateNoteList();
     });
 
@@ -244,7 +261,7 @@
       }
 
       try {
-        const notesRef = ref(database, `${DATABASE_BASE_PATH}/notes/${nameToSave}`);
+        const notesRef = ref(database, `${notesRoot(curScope)}/notes/${nameToSave}`);
         const snapshot = await get(notesRef);
         const existingNote = snapshot.val();
         const rec = { name: nameToSave, note: noteToSave, timestamp, enc: encFlag };
@@ -296,15 +313,29 @@
           await remove(ref(database, path)); st.textContent = `"${name}" unshared.`; return;
         }
         if (cur) { st.textContent = `Someone else already shares a note called "${name}" - rename yours to share it.`; return; }
-        const saved = (await get(ref(database, `${DATABASE_BASE_PATH}/notes/${name}`))).val();
+        const saved = (await get(ref(database, `${notesRoot(curScope)}/notes/${name}`))).val();
         if (!saved) { alert('Save the note first - sharing sends the saved copy.'); return; }
         let me = '';
         try { me = (await get(ref(database, `share/directory/${DATABASE_BASE_PATH}/name`))).val() || ''; } catch (e) { }
         await set(ref(database, path), { ...saved, sharedBy: DATABASE_BASE_PATH, sharedByName: me || (auth.currentUser && auth.currentUser.email) || '', sharedAt: Date.now() });
-        st.textContent = `"${name}" shared - every signed-in user can read it${saved.enc || isEncrypted(saved.note) ? ' (it is encrypted - send the word separately)' : ''}. Tap 📤 again to unshare.`;
+        st.textContent = `"${name}" shared with the other users${saved.enc || isEncrypted(saved.note) ? ' (it is locked - send the word separately)' : ''}. Tap 📤 Share again to unshare.`;
       } catch (e) { st.textContent = 'Not saved: ' + (e.code || e.message || e); }
     }
     document.getElementById('share-btn').addEventListener('click', toggleShareNote);
+    document.getElementById('scope-btn').addEventListener('click', async () => {
+      if (!signedIn()) return;
+      const to = curScope === 'public' ? 'private' : 'public', name = nameInput.value.trim(), st = document.getElementById('share-status');
+      const here = name ? (await get(ref(database, `${notesRoot(curScope)}/notes/${name}`))).val() : null;
+      if (!here) { curScope = to; paintScope(); st.textContent = `New notes will save as ${to === 'public' ? 'Public (anyone can see it in the list)' : 'Private (only you)'}.`; return; }
+      if (to === 'public' && !isEncrypted(here.note) && !confirm(`Make "${name}" public? It is not locked, so anyone who opens Notes can read it.`)) return;
+      const there = (await get(ref(database, `${notesRoot(to)}/notes/${name}`))).val();
+      if (there && !confirm(`A ${to} note called "${name}" already exists. Replace it?`)) return;
+      try {
+        await set(ref(database, `${notesRoot(to)}/notes/${name}`), { ...here, timestamp: new Date().toISOString() });
+        await remove(ref(database, `${notesRoot(curScope)}/notes/${name}`));
+        curScope = to; paintScope(); st.textContent = `"${name}" moved to ${to === 'public' ? 'Public' : 'Private'}.`;
+      } catch (e) { st.textContent = 'Not moved: ' + (e.code || e.message || e); }
+    });
 
     const deleteNote = async () => {
       const nameToDelete = nameInput.value.trim();
@@ -317,7 +348,7 @@
         }
 
         try {
-          const notesRef = ref(database, `${DATABASE_BASE_PATH}/notes`);
+          const notesRef = ref(database, `${notesRoot(curScope)}/notes`);
           const snapshot = await get(notesRef);
           const notes = snapshot.val();
 
@@ -326,7 +357,7 @@
             if (noteId) {
               const deletedNote = notes[noteId];
               storeDeletedNote(deletedNote.name, deletedNote.note);
-              await set(ref(database, `${DATABASE_BASE_PATH}/notes/${noteId}`), null);
+              await set(ref(database, `${notesRoot(curScope)}/notes/${noteId}`), null);
               clearNoteInputs();
               console.log(`Deleted the note with name: ${nameToDelete}`);
             } else {
@@ -364,15 +395,18 @@
         unsub = null;
       }
       const notesRef = ref(database, `${DATABASE_BASE_PATH}/notes`);
-      let own = {}, shared = {};
+      let own = {}, shared = {}, pub = {};
       const draw = () => {
         noteList.innerHTML = '';
-        const all = [...Object.entries(own || {}).map(([k, n]) => mineShared[k] ? { ...n, __mineShared: true } : n),
-                     ...Object.values(shared || {}).map(n => ({ ...n, sharedByLabel: n.sharedByName || 'someone', __shared: true }))];
+        const mine = signedIn() ? Object.entries(own || {}).map(([k, n]) => ({ ...(mineShared[k] ? { ...n, __mineShared: true } : n), __scope: 'private' })) : [];
+        const all = [...mine,
+                     ...Object.values(pub || {}).filter(n => n && n.name).map(n => ({ ...n, __scope: 'public' })),
+                     ...Object.values(shared || {}).map(n => ({ ...n, sharedByLabel: n.sharedByName || 'someone', __shared: true, __scope: 'shared' }))];
         if (!all.length) { noteList.innerHTML = '<li>No notes found</li>'; return; }
         all.sort((a, b) => new Date(b.timestamp || b.sharedAt) - new Date(a.timestamp || a.sharedAt)).forEach(note => createNoteListItem(note));
       };
-      const unOwn = onValue(notesRef, snapshot => { own = snapshot.val() || {}; draw(); });
+      const unOwn = signedIn() ? onValue(notesRef, snapshot => { own = snapshot.val() || {}; draw(); }) : () => {};
+      const unPub = onValue(ref(database, 'public/notes'), snapshot => { pub = snapshot.val() || {}; draw(); }, () => { });
       // share/notes: notes people shared (same shape + sharedBy). Other people's show as "shared by X"; opening one
       // loads it, and saving makes it your own note. Mine are tagged "shared" on my own row.
       const unShared = DATABASE_BASE_PATH !== 'public'
@@ -382,7 +416,7 @@
             draw();
           }, () => { })
         : null;
-      unsub = () => { unOwn(); if (unShared) unShared(); };
+      unsub = () => { unOwn(); unPub(); if (unShared) unShared(); };
     };
 
     const createNoteListItem = (note) => {
@@ -399,6 +433,12 @@
 
       listItem.appendChild(nameSpan);
       listItem.appendChild(timestampSpan);
+      if (note.__scope === 'private' || note.__scope === 'public') {
+        const sc = document.createElement('span');
+        sc.textContent = note.__scope === 'public' ? ' · Public' : ' · Private';
+        sc.style.cssText = 'font-weight:normal;font-size:0.8em;margin-left:6px;opacity:.75';
+        listItem.appendChild(sc);
+      }
 
       if (note.__mineShared) {
         const t = document.createElement('span'); t.textContent = ' · shared'; t.style.cssText = 'font-weight:normal;font-size:0.8em;color:#4a90d9;margin-left:6px'; listItem.appendChild(t);
@@ -420,6 +460,7 @@
 
       listItem.addEventListener('click', () => {
         nameInput.value = note.name;
+        curScope = note.__scope === 'public' ? 'public' : (signedIn() ? 'private' : 'public'); paintScope();
         lastWord = '';
         if (isEncrypted(note.note)) {
           lockedBlob = note.note; clearText = null; revealed = false;   // encrypted: shows cipher until the word is typed

@@ -216,7 +216,7 @@
             background: #0002; cursor: zoom-in; }
         .dc-snaps figcaption { font-size: 0.66rem; color: var(--muted); margin-top: 2px; }
         .dc-snaps .miss { font-size: 0.7rem; color: var(--muted); grid-column: 1 / -1; }
-        .dc-snapfull { position: fixed; inset: 0; background: #000c; z-index: 999; display: flex;
+        .dc-snapfull { position: fixed; inset: 0; background: #000c; z-index: 5000; /* above the console (2000) - at 999 it opened BEHIND it (L 2026-09-26: 'nothing happens when I click the image') */ display: flex;
             align-items: center; justify-content: center; cursor: zoom-out; }
         .dc-snapfull img { max-width: 96vw; max-height: 94vh; border-radius: 8px; }
         /* THEME (2026-09-20, L): per-device look. Accent overrides the global var so every
@@ -858,6 +858,8 @@
            property: renderIdeas sets box.hidden on every tickler refresh, so a shared flag would be
            overwritten the next time the data changed. This one cannot be. */
         #dc-console.no-ideas .dc-ideas { display: none !important; }
+        #dc-console.no-emoji .dc-emoji-btn, #dc-console.no-emoji .dc-emoji { display: none !important; }   /* gear: 🙂 Emoji off (L, 2026-09-27) */
+        #dc-console.no-emoji .dc-wpm { right: 40px; }
         /* rotation: iOS Safari inflates text when the layout width changes (its "text size adjustment") unless told not to */
         html, body { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
         /* phone rules apply in landscape too (a phone on its side is ~390 px tall, so max-height catches it) */
@@ -995,6 +997,22 @@
         .dc-stat-pill:empty { display: none; }
         .dc-chat.newest-first .dc-stat-pill { margin: 0; }
         .dc-chat-input .dc-btn.push { align-self: stretch; padding: 0 18px; font-size: calc(1.1rem * var(--dc-fs, 1)); }
+        /* EMOJI PICKER (2026-09-26): a button beside the box; the panel floats ABOVE the input (absolute - nothing moves), recent
+           picks first, then categories. Tap = insert at the caret, panel stays open for more; outside tap / Esc / the button closes. */
+        .dc-emoji-btn { align-self: stretch; background: none; border: 1px solid var(--border); border-radius: var(--dc-r-md); padding: 0 9px; font-size: calc(1.15rem * var(--dc-fs, 1)); cursor: pointer; line-height: 1; filter: grayscale(.35); transition: filter .15s, border-color .15s; }
+        .dc-emoji-btn:hover, .dc-emoji-btn.on { filter: none; border-color: var(--dc-purple); }
+        .dc-emoji { position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 20; width: min(360px, calc(100vw - 32px)); max-height: 300px; overflow-y: auto; overscroll-behavior: contain;
+            background: var(--surface); border: 1px solid var(--dc-purple); border-radius: var(--dc-r-md); box-shadow: 0 8px 24px var(--dc-shadow); padding: 6px 8px 8px; }
+        .dc-chat.newest-first .dc-emoji { bottom: auto; top: calc(100% - 4px); }   /* box at the top: open downward */
+        .dc-emoji .cat { font-size: .68rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 6px 2px 2px; }
+        .dc-emoji .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(36px, 1fr)); }
+        .dc-emoji .grid button { background: none; border: 0; border-radius: 8px; font-size: 1.35rem; line-height: 1; padding: 6px 0; cursor: pointer; }
+        .dc-emoji .dc-emoji-q { position: sticky; top: -6px; z-index: 1; width: 100%; box-sizing: border-box; margin: -6px 0 2px; padding: 7px 9px; background: var(--surface);
+            border: 0; border-bottom: 1px solid var(--border); color: var(--text); font: inherit; font-size: .85rem; }
+        .dc-emoji .dc-emoji-q:focus { outline: none; border-bottom-color: var(--dc-purple); }
+        .dc-emoji .dc-emoji-info { position: sticky; bottom: -8px; margin: 6px -8px -8px; padding: 6px 10px; background: var(--surface); border-top: 1px solid var(--border);
+            font-size: .78rem; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .dc-emoji .grid button:hover, .dc-emoji .grid button:focus-visible { background: var(--dc-purple-soft, rgba(192,132,252,.18)); outline: none; }
         .dc-rt { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px; min-width: 0; overflow: hidden; }
         .dc-rt .hd { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
         .dc-rt .nm { font-weight: 600; flex: 1; min-width: 0; overflow-wrap: anywhere; }
@@ -1058,6 +1076,9 @@
                 <!-- CompMan target REMOVED 2026-09-25 (L: "comp can go from here - from the chat app, not tel"):
                      2 replies in ~1,600 since 09-11; Telegram is his face. The daemon's target=compman path stays. -->
                 <option value="local">🦙 Local Console</option>
+                <!-- YUKI ON DUTY (2026-09-27, L: "Continue with Yuki"): the daemon runs yuki_duty.py on se - a local, READ-ONLY stand-in
+                     for when Droplet is out: answers from the guides (recall engine) + status looks, cites its source, never acts. -->
+                <option value="yuki">🩵 Yuki on duty</option>
             </select>
             <button class="dc-tab active" data-tab="ch">Chat</button>
             <span id="dc-pins"></span>   <!-- gear rows dragged up here live here (wirePins); the gear itself sits AFTER them (L, 2026-09-25: "move the gear to the right, after the six dots") -->
@@ -1080,6 +1101,7 @@
                          the checkbox stays in the DOM, visually hidden, so the label still flips it and every listener on #dc-newest is untouched; only the words change. -->
                     <label class="dc-chk" id="dc-nf-lbl" title="where the newest message sits: Top = newest first, input under the strips; Bottom = oldest first, input at the bottom. Tap to flip."><input type="checkbox" id="dc-newest" class="dc-hide"><span id="dc-nf-txt">⬆ Top</span></label>
                     <label class="dc-chk" title="show the recent-ideas strip above the input (your open tickler items). Unticked hides it entirely - tapping its label only folds it."><input type="checkbox" id="dc-show-ideas" checked> 💡 Recent</label>
+                    <label class="dc-chk" title="show the 🙂 emoji button in the message box (remembered on this device)"><input type="checkbox" id="dc-show-emoji" checked> 🙂 Emoji</label>
                     <label class="dc-chk" title="auto-archive the thread (summary to memory) once it passes this many thousand characters; 0 = never">Auto-archive at <input type="number" id="dc-auto-arch" min="0" max="500" step="5">k</label>
                     <span class="dc-size" id="dc-thread-size" title="size of the live thread"></span>
                     <button class="dc-btn ghost sm" id="dc-chat-clear" title="Archive this thread to Droplet's memory (with an ollama summary) and start fresh">📎 New thread</button>
@@ -1103,6 +1125,8 @@
                     <div class="dc-chat-input">
                         <span class="ps" role="button" tabindex="-1" title="tap to put the cursor here">❯</span>
                         <textarea id="dc-chat-in" rows="2" placeholder="type here…  (Enter sends · Shift+Enter newline)"></textarea>
+                        <button type="button" class="dc-emoji-btn" id="dc-emoji-btn" title="emoji" aria-label="emoji picker">🙂</button>
+                        <div id="dc-emoji" class="dc-emoji" hidden></div>   <!-- emoji picker (L, 2026-09-26: "I want to be able to select emojis") -->
                         <button class="dc-btn push" id="dc-chat-send">▲</button>
                         <div id="dc-ghost" class="dc-ghost" hidden></div>   <!-- live enhance chip: floats on the box's top edge, never takes layout space; tap = undo -->
                         <span id="dc-wpm" class="dc-wpm" hidden></span>       <!-- live typing speed, lower-right of the box (L, 2026-09-25) -->
@@ -1217,6 +1241,7 @@
             onValue(ref(database, `${DC.base}/fleet`), s => renderFleet(s.val() || {}));
             onValue(ref(database, `${DC.base}/usage`), s => renderUsage(s.val() || {}));
             onValue(ref(database, `${DC.base}/data`), s => renderData(s.val() || null));   // wan-meter, ~1 KB every 2 min
+            onValue(ref(database, `${DC.base}/drives`), s => { window.__drivesScan = s.val() || {}; window.__paintDrives && window.__paintDrives(); });   // drive_scan.py, ~2 KB/drive, nightly
             onValue(ref(database, `${DC.base}/settings/autoArchiveChars`), s => { DC.autoArchiveChars = Number(s.val() || 0); const b = $('#dc-auto-arch'); if (b && document.activeElement !== b) b.value = Math.round(DC.autoArchiveChars / 1000); updateThreadSize(DC.chatTurns || {}); });
             onValue(query(ref(database, `${DC.base}/chat/turns`), limitToLast(120)), s => renderChat(s.val() || {}));
             onValue(ref(database, `${DC.base}/chat/topics`), s => { DC.topicList = s.val() || {}; renderTopics(); });
@@ -2129,6 +2154,96 @@
             window.__dcPlaceholderTick = tick;   // test hook
             DC.placeholderFront = () => { if (ta.value || document.activeElement === ta) { paint(); return; } i = 0; tick(); };
         })();
+        // EMOJI PICKER (2026-09-26, L: "I want to be able to select emojis"). Inserted with execCommand('insertText') so it is a
+        // real keystroke to the box: the enhancer, the draft and undo all see it like typing. Recents = localStorage (per device).
+        (function wireEmoji() {
+            const btn = $('#dc-emoji-btn'), pan = $('#dc-emoji'), ta = $('#dc-chat-in'); if (!btn || !pan || !ta) return;
+            // emoji|name, space separated (names = what the hover line says; "_" = space)
+            const CATS = [
+                ['Faces', '😀|grinning 😃|big_smile 😄|smiling_eyes 😁|beaming 😆|laughing 😅|sweat_smile 🤣|rolling_laughing 😂|tears_of_joy 🙂|slight_smile 😉|wink 😊|blush 😇|halo 🥰|hearts_face 😍|heart_eyes 😘|blow_a_kiss 😋|yum 😜|winking_tongue 🤪|zany 🤔|thinking 🤨|raised_eyebrow 😐|neutral 😑|expressionless 😶|no_mouth 🙄|eye_roll 😏|smirk 😬|grimace 😌|relieved 😴|sleeping 🤤|drooling 😷|mask 🤒|sick 🤯|mind_blown 🥳|party 😎|cool 🤓|nerd 🧐|monocle 😕|confused 😟|worried 😮|open_mouth 😲|astonished 😳|flushed 🥺|pleading 😢|crying 😭|sobbing 😱|screaming 😖|confounded 😣|persevering 😞|disappointed 😓|downcast_sweat 😩|weary 😫|tired 🥱|yawn 😤|huffing 😡|angry 🤬|cursing 💀|skull 🤡|clown 👻|ghost 👽|alien 🤖|robot 😺|cat_smile'],
+                ['Hands & people', '👍|thumbs_up 👎|thumbs_down 👌|ok ✌️|peace 🤞|fingers_crossed 🤟|love_you 🤘|rock_on 🤙|call_me 👈|point_left 👉|point_right 👆|point_up 👇|point_down ☝️|index_up ✋|raised_hand 🖐️|hand_splayed 👋|wave 🤚|back_of_hand 👏|clap 🙌|raised_hands 🤝|handshake 🙏|please_/_thanks 💪|flex 🫡|salute 🤷|shrug 🤦|facepalm 🙋|hand_raised 🧠|brain 👀|eyes 👁️|eye 🫶|heart_hands'],
+                ['Hearts & marks', '❤️|red_heart 🧡|orange_heart 💛|yellow_heart 💚|green_heart 💙|blue_heart 💜|purple_heart 🖤|black_heart 🤍|white_heart 💔|broken_heart ❣️|heart_exclamation 💕|two_hearts ✅|done ☑️|checked_box ✔️|check ❌|no_/_cross ❎|cross_box ⚠️|warning ⛔|no_entry 🚫|prohibited ❓|question ❗|exclamation ‼️|double_exclamation ⁉️|what?! 💯|hundred 🔥|fire ✨|sparkles ⭐|star 🌟|glowing_star 💥|boom 💤|zzz 💬|speech 💭|thought 🔔|bell_/_reminder 📌|pin 📍|location 🎯|target 🏁|finish 🚩|flag ➡️|right ⬅️|left ⬆️|up ⬇️|down 🔄|repeat_/_refresh ⏳|in_progress ⌛|done_waiting ⏰|alarm'],
+                ['Work & tools', '🛠️|tools 🔧|wrench 🔨|hammer ⚙️|gear_/_settings 🔩|nut_and_bolt 🪛|screwdriver 🧰|toolbox 💻|laptop 🖥️|desktop ⌨️|keyboard 🖱️|mouse 📱|phone 📞|call 🔌|plug 🔋|battery 💾|save 📀|disc 🖨️|printer 📷|camera 📹|video_camera 📡|antenna 🛰️|satellite 🧪|test_tube 🔬|microscope 📦|package 📋|clipboard 📝|memo 📄|page 📑|tabs 📊|bar_chart 📈|trending_up 📉|trending_down 🗂️|dividers 📁|folder 🗓️|calendar 📅|date ✉️|envelope 📧|email 📨|incoming 🔑|key 🔒|locked 🔓|unlocked 🏷️|tag_/_label 🧾|receipt'],
+                ['Money & home', '💵|cash 💰|money_bag 💳|card 🏦|bank 🪙|coin ⛽|gas 🛒|groceries 🛍️|shopping 🏠|home 🏡|house_with_garden 🏢|office 🏗️|construction 🍽️|eating_out ☕|coffee 🍔|burger 🍕|pizza 🌮|taco 🍺|beer 🎮|gaming 👾|games_/_arcade 🎬|movies 🎵|music 📺|tv 🚗|car 🛻|truck 🚚|delivery ✈️|travel 🅿️|parking 🧹|cleaning 🧺|laundry 🛏️|bed 🐶|dog 🐱|cat 🌱|plant 🌧️|rain ☀️|sun 🌙|night ❄️|cold'],
+            ].map(([n, l]) => [n, l.split(' ').map(x => { const i = x.indexOf('|'); return [x.slice(0, i), x.slice(i + 1).replace(/_/g, ' ')]; })]);
+            const NAME = Object.fromEntries(CATS.flatMap(([, l]) => l));
+            let recent = []; try { recent = JSON.parse(localStorage.getItem('dc_emoji_recent') || '[]'); } catch (_) { recent = []; }
+            // HOVER DETAILS (2026-09-26, L: "incorporate hover over text for details"): every emoji has a name; hovering (or
+            // keyboard focus, or a tap on the phone) fills the info line pinned to the panel's bottom. Ledger emojis also say
+            // what they mean in the finance taxonomy (taxonomy.js tagLabel - loaded lazily on first open, never at module eval).
+            let TAX = null;
+            const grid = list => '<div class="grid">' + list.map(e => `<button type="button" data-e="${e}" title="${NAME[e] || e}" aria-label="${NAME[e] || e}">${e}</button>`).join('') + '</div>';
+            // SEARCH (2026-09-26, L: "Ctrl F with that search applicable"): a box at the top of the panel filters by name, by
+            // category, and by ledger meaning (taxonomy label + its sub-suggestions: "coffee" finds 🍽, "fuel" finds ⛽). Enter =
+            // insert the first hit. Opened by the 🙂 button only; Ctrl+F stays the browser's text find everywhere (L).
+            const body = () => (recent.length ? '<div class="cat">Recent</div>' + grid(recent) : '')
+                + CATS.map(([n, l]) => `<div class="cat">${n}</div>` + grid(l.map(x => x[0]))).join('');
+            const draw = () => { pan.innerHTML = '<input id="dc-emoji-q" class="dc-emoji-q" type="search" placeholder="search emoji… (name, or a ledger word like gas, coffee)" autocomplete="off" data-1p-ignore>'
+                + '<div id="dc-emoji-body">' + body() + '</div>'
+                + '<div class="dc-emoji-info" id="dc-emoji-info">hover an emoji for details</div>'; };
+            const ALIAS = { '⛽': 'fuel gasoline pump', '🛒': 'grocery food store', '🍽️': 'food restaurant dinner lunch', '☕': 'cafe dunkin', '🍔': 'fast food',
+                '🚗': 'auto vehicle', '🛻': 'pickup ram', '🅿️': 'park', '💵': 'money dollar', '💰': 'money rich', '💳': 'credit subscription', '🏦': 'finance loan',
+                '✅': 'yes check ok complete', '❌': 'x wrong fail', '⚠️': 'caution alert', '🔥': 'hot lit', '👍': 'like good yes', '👎': 'bad dislike',
+                '😂': 'lol funny', '🤣': 'lol funny', '❤️': 'love', '🙏': 'thank you', '💯': 'perfect', '🎉': 'party', '🛠️': 'fix repair work', '📦': 'box shipping',
+                '📅': 'schedule', '🗓️': 'schedule', '⏰': 'time clock reminder', '🔑': 'password login', '🏠': 'house rent', '🎮': 'games xbox', '📞': 'phone mint' };
+            const words = em => { let w = (NAME[em] || '') + ' ' + (ALIAS[em] || '') + ' ' + (CATS.find(([, l]) => l.some(x => x[0] === em)) || [''])[0];
+                if (TAX && TAX.isSpendingTag(em)) w += ' ' + TAX.tagLabel(em) + ' ' + (TAX.subSuggestions(em) || []).join(' ') + ' ledger';
+                return w.toLowerCase(); };
+            let hits = [];
+            const filter = q => { const el = $('#dc-emoji-body'); if (!el) return; q = q.trim().toLowerCase();
+                if (!q) { hits = []; el.innerHTML = body(); return; }
+                const all = CATS.flatMap(([, l]) => l.map(x => x[0]));
+                const terms = q.split(/\s+/);
+                hits = all.filter(e => { const w = words(e); return terms.every(t => w.includes(t)); });
+                el.innerHTML = hits.length ? '<div class="cat">' + hits.length + ' match' + (hits.length > 1 ? 'es' : '') + ' · Enter = first</div>' + grid(hits)
+                    : '<div class="cat">no match</div>';
+                if (hits[0]) info(hits[0]); else { const i = $('#dc-emoji-info'); if (i) i.textContent = 'no emoji for “' + q + '”'; } };
+            const info = em => { const el = $('#dc-emoji-info'); if (!el) return;
+                const led = TAX && TAX.isSpendingTag(em) ? ' · ledger: ' + TAX.tagLabel(em) + (TAX.normTag(em) === TAX.GAS_TAG ? ' (the gas app reads it)' : '') : '';
+                el.textContent = em + '  ' + (NAME[em] || '') + led; };
+            pan.addEventListener('pointerover', e => { const b = e.target.closest('button[data-e]'); if (b) info(b.dataset.e); });
+            pan.addEventListener('focusin', e => { const b = e.target.closest('button[data-e]'); if (b) info(b.dataset.e); });
+            let saved = null;   // the caret when the panel opened (a tap on the phone blurs the box)
+            const open = v => { pan.hidden = !v; btn.classList.toggle('on', v); if (v) { saved = [ta.selectionStart, ta.selectionEnd]; draw();
+                if (!TAX) import('./apps/assets/js/taxonomy.js').then(m => { TAX = m; }).catch(() => {}); } };
+            btn.addEventListener('pointerdown', e => e.preventDefault());   // keep the box focused on desktop
+            btn.addEventListener('click', () => open(pan.hidden));
+            pan.addEventListener('pointerdown', e => { if (!e.target.closest('#dc-emoji-q')) e.preventDefault(); });   // the search box may take focus
+            pan.addEventListener('input', e => { if (e.target.id === 'dc-emoji-q') filter(e.target.value); });
+            pan.addEventListener('keydown', e => {
+                if (e.target.id !== 'dc-emoji-q') return;
+                if (e.key === 'Enter') { e.preventDefault(); if (hits[0]) insert(hits[0]); }
+                else if (e.key === 'Escape' && e.target.value) { e.preventDefault(); e.stopPropagation(); e.target.value = ''; filter(''); }
+            });
+            // (Ctrl+F is NOT taken over - L 2026-09-26: "Ctrl F should be for searching text, not for the emoji thing")
+            pan.addEventListener('click', e => {
+                const b = e.target.closest('button[data-e]'); if (!b) return; insert(b.dataset.e);
+            });
+            function insert(em) { info(em);
+                ta.focus(); if (saved && document.activeElement === ta) { try { ta.setSelectionRange(saved[0], saved[1]); } catch (_) {} }
+                if (!document.execCommand('insertText', false, em)) {   // fallback: splice by hand, caret after the emoji
+                    const a = ta.selectionStart, z = ta.selectionEnd; ta.value = ta.value.slice(0, a) + em + ta.value.slice(z);
+                    ta.setSelectionRange(a + em.length, a + em.length); ta.dispatchEvent(new Event('input', { bubbles: true })); }
+                saved = [ta.selectionStart, ta.selectionEnd];
+                recent = [em, ...recent.filter(x => x !== em)].slice(0, 16);
+                try { localStorage.setItem('dc_emoji_recent', JSON.stringify(recent)); } catch (_) {}
+            }
+            document.addEventListener('pointerdown', e => { if (!pan.hidden && !pan.contains(e.target) && e.target !== btn) open(false); });
+            btn.title = 'emoji (search at the top)';
+            document.addEventListener('keydown', e => { if (e.key === 'Escape' && !pan.hidden) open(false); });
+        })();
+        // BOX-EDGE ANCHORS (2026-09-26, L: "now that we have the emoji icon, we need to move the wpm"): the wpm readout and the
+        // enhance chip used fixed right offsets (72px / 66px) that assumed ONLY the send button beside the box; the emoji button pushed
+        // the box's edge in and the wpm landed inside the emoji button. Now both are placed from the textarea's REAL right edge,
+        // re-measured whenever the box or its row changes size (theme text size, phone/desk, buttons added later).
+        (function anchorToBox() {
+            const ta = $('#dc-chat-in'), wrap = $('.dc-chat-input'), wpm = $('#dc-wpm'), ghost = $('#dc-ghost'); if (!ta || !wrap) return;
+            const place = () => { const gap = Math.round(wrap.getBoundingClientRect().right - ta.getBoundingClientRect().right);
+                if (gap < 0 || gap > 400) return;
+                if (wpm) wpm.style.right = (gap + 10) + 'px';
+                if (ghost) ghost.style.right = (gap + 8) + 'px'; };
+            place(); try { const ro = new ResizeObserver(place); ro.observe(ta); ro.observe(wrap); } catch (_) { addEventListener('resize', place); }
+        })();
         const FAV_TAB = '\u2605';
         // SUGGESTED REPLY (2026-09-26, L: "I want one of the tab options to be some sort of suggestion of what I would reply
         // to the last message with"). When the newest turn in the open tab is a finished Droplet reply, gemma2 (local, 0 Claude
@@ -2398,11 +2513,18 @@
         // Fills every .dc-snaps placeholder exactly once. Cached by snap id, because
         // renderChat runs on every incoming turn and these are ~110 KB a set.
         DC.snapCache = DC.snapCache || {};
+        // The built box is kept too (L, 2026-09-27: "are the images slowing down the chat app?"): renderChat rewrites the
+        // log's HTML on every turn, which made every image set re-create and re-DECODE its <img>s (a 5 MB GIF, 896x1344
+        // stills) - heavy on the phone. Now each set is built once and the SAME node is moved back in: no re-decode.
+        DC.snapEls = DC.snapEls || {};
         async function fillSnaps() {
             for (const el of document.querySelectorAll('.dc-snaps[data-snap]')) {
                 const id = el.dataset.snap;
                 if (!id || el.dataset.done) continue;
+                const built = DC.snapEls[id];
+                if (built && built !== el) { el.replaceWith(built); continue; }
                 el.dataset.done = '1';
+                DC.snapEls[id] = el;
                 try {
                     const cached = DC.snapCache[id] || (await get(ref(database, `${DC.base}/snaps/${id}`))).val();
                     if (!cached) { el.innerHTML = '<span class="miss">frames expired</span>'; continue; }
@@ -2410,11 +2532,11 @@
                     const shots = cached.shots || [];
                     const missing = cached.missing || [];
                     el.innerHTML = shots.map(sh =>
-                        `<figure><img src="${esc(sh.jpg)}" alt="${esc(sh.name)}" loading="lazy">` +
+                        `<figure><img src="${esc(sh.jpg)}" alt="${esc(sh.name)}" loading="lazy" decoding="async">` +
                         `<figcaption>${esc(sh.name)}</figcaption></figure>`).join('') +
                         (missing.length ? `<div class="miss">not answering: ${esc(missing.join(', '))}</div>` : '');
                 } catch (e) {
-                    el.dataset.done = '';                       // let the next render retry
+                    el.dataset.done = ''; delete DC.snapEls[id];   // let the next render retry
                     el.innerHTML = '<span class="miss">could not load frames</span>';
                 }
             }
@@ -2584,7 +2706,7 @@
 
         // unified send: target (Droplet / CompMan / Command) + optional inline enhance + ping.
         // This is the chat doing everything the Workbench + terminal do, from one box.
-        const CHAT_WHO = { droplet: 'Droplet', compman: 'CompMan', command: 'se', local: 'Local' };
+        const CHAT_WHO = { droplet: 'Droplet', compman: 'CompMan', command: 'se', local: 'Local', yuki: 'Yuki (on duty)' };
         // 🦙 LOCAL (2026-09-18): the fallback when Droplet is down. Page -> se Ollama (same proxy as the enhancer) with the last
         // turns of this tab as history; the answer is written into the thread as a 'Local' bubble. No tools, no memory beyond the tab.
         const LOCAL_SYS = "You are Local, the fallback assistant inside Luis's Droplet Console, running on the Ollama server in his homelab (model " + MODEL + ") for when Droplet (Claude) is unavailable. "
@@ -2731,7 +2853,17 @@
         })(0);
         setTimeout(outboxPaint, 1500);
 
-        async function sendChat() {
+        // ONE SEND AT A TIME (2026-09-26, L: "there's some double posting happening"). sendChat waits up to 3.5 s for the proofreader's
+        // pass on the last sentence ("finishing..."); a second Enter / tap during that wait started a SECOND sendChat, both awaited the
+        // same flush and both posted the moment it landed - three pairs today, 9-10 ms apart. The guard holds every extra call until the
+        // first one has taken the text out of the box; by then the box is empty (or holds a NEW message), so nothing doubles.
+        var sendChatBusy = null;   // var, not let: a call before this line runs must not hit the TDZ (module-eval scar)
+        function sendChat() {
+            if (sendChatBusy) { const st = $('#dc-chat-status'); if (st && !st.textContent) st.textContent = '\u2728 finishing\u2026'; return sendChatBusy; }
+            sendChatBusy = sendChatOnce().finally(() => { sendChatBusy = null; });
+            return sendChatBusy;
+        }
+        async function sendChatOnce() {
             const ta = $('#dc-chat-in'); let raw = ta.value.trim();
             if (!raw || !DC.base) return;
             const target = ($('#dc-chat-target') && $('#dc-chat-target').value) || 'droplet';
@@ -2751,6 +2883,11 @@
             // disabled only while enhancing + queueing; once the bubble is "…thinking" you can send the next one.
             // Each send owns its own pending bubble + job, so concurrent replies never overwrite each other.
             const send = $('#dc-chat-send'); send.disabled = true;
+            // CLEAR AT ONCE (2026-09-26, L: "the queued up messages made me click the same message multiple times"): the box used to
+            // empty only AFTER Firebase confirmed the turn - on a weak phone signal that is seconds, the text sat there looking unsent,
+            // and each extra tap sent another copy (3 at 23:03, 1.2 s apart). Now it empties the moment Send is taken; the text comes
+            // back only if the send really failed AND could not be queued. (An edit keeps its own clear below.)
+            if (!DC.editKey) { ta.value = ''; ta.dispatchEvent(new Event('input', { bubbles: true })); const st0 = $('#dc-chat-status'); if (st0 && !st0.textContent) st0.textContent = 'sending…'; }
             const turns = `${DC.base}/chat/turns`;
             try {
                 const editKey = DC.editKey || ''; const editTurn = editKey ? (DC.chatTurns || {})[editKey] : null;
@@ -2798,7 +2935,7 @@
                         }
                     } catch (_) {}
                 }
-                ta.value = '';
+                if (editTurn) ta.value = '';   // a normal send already emptied the box at the start - clearing again here would eat what he typed since
                 let prompt = raw, note = '';
                 if (enhOn && DC.kdaemon) {
                     note = '✨ enhance by your daemon';       // their ollama, server-side; it writes `enhanced` onto this turn
@@ -2838,6 +2975,7 @@
                 $('#dc-chat-status').textContent = queued
                     ? '⏸ no signal - queued, it sends when you are back (' + outboxRead().length + ' waiting)'
                     : '⚠ send failed: ' + (e.message || e);
+                if (!queued && !ta.value) ta.value = raw;   // not sent and not queued: give the words back
                 send.disabled = false;
             }
         }
@@ -3605,6 +3743,15 @@
             const held = ta.value; ta.value = '/model ' + v;
             sendChat().then(() => { if (held) ta.value = held; });
         }); }
+        { const se = $('#dc-show-emoji'); if (se) {   // same pattern as Recent: per-device, remembered
+            const on = (() => { try { return localStorage.getItem('dc_show_emoji') !== '0'; } catch (_) { return true; } })();
+            se.checked = on; $('#dc-console').classList.toggle('no-emoji', !on);
+            se.addEventListener('change', () => {
+                $('#dc-console').classList.toggle('no-emoji', !se.checked);
+                if (!se.checked) { const pk = $('#dc-emoji'); if (pk) pk.hidden = true; }
+                try { localStorage.setItem('dc_show_emoji', se.checked ? '1' : '0'); } catch (_) {}
+            });
+        } }
         { const si = $('#dc-show-ideas'); if (si) {
             const on = (() => { try { return localStorage.getItem('dc_show_ideas') !== '0'; } catch (_) { return true; } })();
             si.checked = on; $('#dc-console').classList.toggle('no-ideas', !on);
@@ -3619,7 +3766,7 @@
         // droplet has no emoji here on purpose: when it is the selected target the real mark is
         // painted into the control as a background, and "💧 Droplet Console" next to the badge
         // was the same thing said twice.
-        const TARGET_NAMES = { droplet: ['Droplet Console', 'Droplet'], compman: ['🤖 CompMan Console', '🤖 CompMan'], command: ['⌘ Command Console', '⌘ Command'], local: ['🦙 Local Console', '🦙 Local'] };
+        const TARGET_NAMES = { droplet: ['Droplet Console', 'Droplet'], compman: ['🤖 CompMan Console', '🤖 CompMan'], command: ['⌘ Command Console', '⌘ Command'], local: ['🦙 Local Console', '🦙 Local'], yuki: ['🩵 Yuki on duty', '🩵 Yuki'] };
         function targetLabel(v) {
             if (v === 'local' && DC.botName) return DC.isPhone() ? DC.botName : DC.botName + ' Console';   // "🌸 Yuki Console" instead of "🦙 Local Console"
             const n = TARGET_NAMES[v] || [v, v]; return DC.isPhone() ? n[1] : n[0]; }
@@ -3844,7 +3991,7 @@
             if (d.network)     renderTable('net-rows', d.network, ['host', 'ip', 'os', 'role']);
             if (d.credentials) renderCreds(d.credentials);
             if (d.agents)      renderTable('agent-rows', d.agents, ['host', 'id', 'status']);
-            if (d.drives)      renderTable('drive-rows', d.drives, ['drive', 'label', 'role']);
+            if (d.drives)      { renderTable('drive-rows', d.drives, ['drive', 'label', 'role']); window.__paintDrives && window.__paintDrives(); }
         }
 
         /* ── Default seed data ── */
@@ -4085,12 +4232,18 @@
                 return;
             }
 
-            container.innerHTML = entries.map(e => `
+            // Cap the rendered rows (L, 2026-09-27: "new lag in the chat"): every visit ever logged was rendered - ~3.3k rows,
+            // 16.5k of the hub's 18k DOM nodes, growing daily - and every console re-render/scroll paid for them. The filter
+            // still searches ALL entries; only the newest TIMELINE_MAX matches are drawn.
+            const TIMELINE_MAX = 150;
+            const shown = entries.slice(0, TIMELINE_MAX);
+            container.innerHTML = shown.map(e => `
                 <div style="padding:7px 0;border-bottom:1px solid #15273d;line-height:1.6">
                     <span style="color:#7dd3fc">${escH(e.ip)}</span>
                     <span style="color:var(--muted);font-size:0.75rem;margin-left:10px">${e.timestamp ? new Date(e.timestamp).toLocaleString() : '—'}</span><br>
                     <span style="color:var(--muted);font-size:0.75rem;word-break:break-all">${escH(e.url)}</span>
-                </div>`).join('');
+                </div>`).join('') + (entries.length > TIMELINE_MAX
+                ? `<div style="padding:8px 0;color:var(--muted);font-size:0.75rem;font-style:italic">showing ${TIMELINE_MAX} of ${entries.length.toLocaleString()} - filter by IP to find older visits</div>` : '');
         }
 
         document.getElementById('stat-ip-filter')?.addEventListener('input',  renderStatTimeline);
@@ -4588,6 +4741,109 @@
         setInterval(pollStatus, 15000);
     })();
     </script>
+    <!-- Server Drives: what's ON each drive (L, 2026-09-26: "a more in-depth screen of files on that drive if you click on it,
+         or a pie chart that shows up on hover of usage by type"). Data = drive_scan.py on se -> {uid}/console/drives/<letter>.
+         Hover a scanned row = pie by type; click = the detail panel (pie + types + biggest folders) under the row. -->
+    <style>
+        #drive-rows tr.dv-scanned { cursor: pointer; }
+        #drive-rows tr.dv-scanned:hover td { background: rgba(125,211,252,0.06); }
+        .dv-bar { height: 6px; border-radius: 3px; background: #15273d; overflow: hidden; margin-top: 4px; }
+        .dv-bar i { display: block; height: 100%; background: #7dd3fc; }
+        .dv-pie { width: 120px; height: 120px; border-radius: 50%; flex: none; }
+        .dv-legend { display: block !important; list-style: none; margin: 0; padding: 0; font-size: 0.8rem; min-width: 0; }
+        .dv-legend li { display: flex !important; width: 100%; margin: 0; gap: 6px; align-items: center; padding: 1px 0; white-space: nowrap; }
+        .dv-legend b { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+        .dv-legend span { overflow: hidden; text-overflow: ellipsis; }
+        .dv-legend em { margin-left: auto; padding-left: 10px; font-style: normal; color: var(--muted); }
+        #dv-tip { position: fixed; z-index: 4000; display: none; gap: 14px; align-items: center; padding: 12px 14px; border-radius: 10px;
+                  background: rgba(15,23,42,0.97); border: 1px solid #1e3a5f; box-shadow: 0 8px 24px rgba(0,0,0,0.45); pointer-events: none; max-width: min(420px, calc(100vw - 32px)); }
+        .dv-detail td { background: rgba(0,0,0,0.18); }
+        .dv-panel { display: flex; flex-wrap: wrap; gap: 18px; padding: 8px 2px; }
+        .dv-panel h4 { margin: 0 0 6px; font-size: 0.78rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+        .dv-panel .dv-col { flex: 1 1 200px; min-width: 0; }
+        .dv-meta { font-size: 0.76rem; color: var(--muted); margin-top: 6px; }
+    </style>
+    <script>
+    (function () {
+        const COLORS = { 'Video': '#f472b6', 'Images': '#fbbf24', 'Audio': '#a78bfa', 'Archives': '#fb923c', 'Disk images & VMs': '#60a5fa',
+                         'Games & ROMs': '#4ade80', 'AI models': '#f87171', 'Code & docs': '#2dd4bf', 'Apps & system': '#94a3b8', 'Other': '#64748b', 'Not scanned yet': '#1e3a5f', 'Free': '#334155' };
+        const gb = b => b >= 1e12 ? (b / 1e12).toFixed(2) + ' TB' : b >= 1e9 ? (b / 1e9).toFixed(b >= 1e11 ? 0 : 1) + ' GB' : Math.round(b / 1e6) + ' MB';
+        const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+        const letterOf = tr => ((tr.cells[0] || {}).textContent || '').trim().charAt(0).toUpperCase();
+        // slices: every type + the drive's free space, so the pie reads as "the whole drive"
+        function slices(r) {
+            let s = Object.entries(r.byType || {}).map(([k, v]) => [k.replace(/ and /g, ' & '), v]);   // the scanner writes & as 'and'
+            let counted = s.reduce((a, [, v]) => a + v, 0);
+            // listed sizes can exceed what the disk holds (OneDrive online-only files, sparse VM disks, hard links):
+            // then show the types in proportion to the REAL used space, so the pie still adds up to the drive
+            if (!r.scanning && counted > r.used * 1.02) { const k = r.used / counted; s = s.map(([n, v]) => [n, v * k]); counted = r.used; r.__scaled = true; }
+            if (r.scanning) s.push(['Not scanned yet', Math.max(0, r.used - counted)]);   // walk still running: the rest of used is just 'pending'
+            else if (r.used > counted * 1.02) s.push(['Other', r.used - counted]);   // system files / what the walk couldn't open
+            s.push(['Free', r.free]);
+            const merged = {}; s.forEach(([k, v]) => merged[k] = (merged[k] || 0) + v);
+            return Object.entries(merged).filter(([k, v]) => v > 0 && k !== 'Free').sort((a, b) => b[1] - a[1]).concat(merged.Free > 0 ? [['Free', merged.Free]] : []);
+        }
+        function pie(r) {
+            const sl = slices(r), tot = sl.reduce((a, [, v]) => a + v, 0) || 1; let at = 0;
+            const stops = sl.map(([k, v]) => { const a = at; at += v / tot * 360; return `${COLORS[k] || '#64748b'} ${a}deg ${at}deg`; });
+            return `<div class="dv-pie" style="background:conic-gradient(${stops.join(',')})"></div>`;
+        }
+        const legend = r => '<ul class="dv-legend">' + slices(r).filter(([, v]) => v >= r.total * 0.002).map(([k, v]) =>
+            `<li><b style="background:${COLORS[k] || '#64748b'}"></b><span>${esc(k)}</span><em>${gb(v)}</em></li>`).join('') + '</ul>';
+        const ago = t => { const m = Math.round((Date.now() - t) / 60000); return m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago'; };
+
+        let tip;
+        function showTip(tr, e) {
+            const r = (window.__drivesScan || {})[letterOf(tr)]; if (!r || tr.classList.contains('dv-open')) return hideTip();
+            tip = tip || Object.assign(document.body.appendChild(document.createElement('div')), { id: 'dv-tip' });
+            tip.innerHTML = pie(r) + '<div>' + (r.scanning ? `<div class="dv-meta" style="margin:0 0 6px">scanning… ${(r.files || 0).toLocaleString()} files so far</div>` : '') + legend(r) + '</div>'; tip.style.display = 'flex';
+            const w = tip.offsetWidth, h = tip.offsetHeight;
+            tip.style.left = Math.max(16, Math.min(e.clientX + 16, innerWidth - w - 16)) + 'px';
+            tip.style.top = Math.max(16, Math.min(e.clientY + 16, innerHeight - h - 16)) + 'px';
+        }
+        function hideTip() { if (tip) tip.style.display = 'none'; }
+
+        function toggle(tr) {
+            hideTip();
+            const open = tr.nextElementSibling && tr.nextElementSibling.classList.contains('dv-detail');
+            document.querySelectorAll('#drive-rows .dv-detail').forEach(x => x.remove());
+            document.querySelectorAll('#drive-rows .dv-open').forEach(x => x.classList.remove('dv-open'));
+            if (open) return;
+            const r = (window.__drivesScan || {})[letterOf(tr)]; if (!r) return;
+            const top = (r.top || []).map(([n, v]) => `<li><b style="background:#7dd3fc;opacity:${Math.max(0.25, v / ((r.top[0] || [0, 1])[1] || 1))}"></b><span title="${esc(n)}">${esc(n)}</span><em>${gb(v)}</em></li>`).join('');
+            const d = document.createElement('tr'); d.className = 'dv-detail';
+            d.innerHTML = `<td colspan="${tr.cells.length}"><div class="dv-panel">
+                <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">${pie(r)}<div>
+                  <div style="font-size:1rem"><b>${esc(r.letter)}:</b> ${gb(r.used)} used of ${gb(r.total)}</div>
+                  <div class="dv-bar" style="width:180px"><i style="width:${(r.used / r.total * 100).toFixed(1)}%"></i></div>
+                  <div class="dv-meta">${gb(r.free)} free · ${(r.files || 0).toLocaleString()} files</div></div></div>
+                <div class="dv-col"><h4>By type</h4>${legend(r)}</div>
+                <div class="dv-col"><h4>Biggest folders</h4><ul class="dv-legend">${top}</ul></div>
+              </div><div class="dv-meta">${r.scanning ? 'Scanning now - fills in every 20 s' : 'Scanned ' + (r.scannedAt ? ago(r.scannedAt) + ' (' + r.secs + 's)' : '-')} · used/free live ${r.liveAt ? ago(r.liveAt) : ''}${r.note ? ' · ' + esc(r.note) : ''}${r.__scaled ? ' · file sizes add up to more than the disk holds (cloud-only files, sparse VM disks), so types are shown in proportion' : ''}</div></td>`;
+            tr.after(d); tr.classList.add('dv-open');
+        }
+
+        window.__paintDrives = function () {
+            const tb = document.getElementById('drive-rows'); if (!tb) return;
+            const scan = window.__drivesScan || {};
+            tb.querySelectorAll('tr:not(.dv-detail)').forEach(tr => {
+                const r = scan[letterOf(tr)], role = tr.cells[2]; if (!role) return;
+                role.querySelector('.dv-bar') && role.querySelector('.dv-bar').remove();
+                tr.classList.toggle('dv-scanned', !!r);
+                if (r) { const b = document.createElement('div'); b.className = 'dv-bar'; b.title = `${gb(r.used)} of ${gb(r.total)} used`;
+                         b.innerHTML = `<i style="width:${(r.used / r.total * 100).toFixed(1)}%"></i>`; role.appendChild(b); tr.title = 'Hover: usage by type · click: details'; }
+            });
+            const o = tb.querySelector('tr.dv-open'); if (o) { toggle(o); toggle(o); }   // an open panel follows the live data
+            if (!tb.__dvWired) {
+                tb.__dvWired = true;
+                tb.addEventListener('mousemove', e => { const tr = e.target.closest('tr.dv-scanned'); tr ? showTip(tr, e) : hideTip(); });
+                tb.addEventListener('mouseleave', hideTip);
+                tb.addEventListener('click', e => { const tr = e.target.closest('tr.dv-scanned'); if (tr) toggle(tr); });
+            }
+        };
+    })();
+    </script>
+
     <script src="apps/assets/js/reveal.js?v=4" defer></script>
 </body>
 </html>
