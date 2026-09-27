@@ -246,7 +246,7 @@
            behind into a smooth field, so a busy photo cannot fight the words. color-mix keeps
            the theme tokens in charge, and a browser without it falls back to today's solid. */
         .dc-chat.dc-bg .dc-bub.drop {
-            background: color-mix(in srgb, var(--surface) var(--dc-bub-op, 70%), transparent);
+            background: color-mix(in srgb, var(--dc-dp-bg, var(--surface)) var(--dc-bub-op, 70%), transparent);
             -webkit-backdrop-filter: blur(7px); backdrop-filter: blur(7px);
         }
                 /* the message box, same glass as the bubbles. background-COLOR only: the usage
@@ -926,6 +926,9 @@
         .dc-bub.me { align-self: flex-end; background: var(--dc-me-bg); color: var(--dc-me-fg); border-bottom-right-radius: 4px; font-family: var(--font-mono); font-size: calc(0.84rem * var(--dc-fs, 1)); }
         .dc-bub.drop { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); color: var(--text); border-bottom-left-radius: 4px; }
         .dc-bub.drop.pending { opacity: 0.7; font-style: italic; }
+        .dc-bub.drop.guest, .dc-chat.dc-bg .dc-bub.drop.guest { background: rgba(148, 163, 184, .16); border: 1px dashed rgba(148, 163, 184, .55); }   /* someone you shared this tab with */
+        .dc-bub.owner { border-left: 3px solid var(--dc-purple); }                                                /* the tab owner, when you are the guest */
+        .dc-topic.remote { border-style: dashed; }
         .dc-bub .dc-wait { font-style: normal; font-family: monospace; font-size: calc(0.66rem * var(--dc-fs, 1)); color: var(--muted); margin-top: 6px; line-height: 1.5; word-break: break-word; }
         .dc-bub .dc-wait:empty { display: none; }
         .dc-bub .ts { font-size: calc(0.64rem * var(--dc-fs, 1)); opacity: 0.72; margin-top: 4px; }   /* readable on a phone (L, 2026-09-24: "I need a timestamp on the messages") */
@@ -1043,7 +1046,9 @@
         html #dc-console.s-slim .pb { max-width: 100%; padding: 4px 8px; border-radius: 3px; line-height: 1.4; }
         html #dc-console.s-slim #dc-chat-in, html #dc-console.s-slim #dc-peer-in { padding: 4px 6px; }
         /* your own bubble colours (System > Look > Bubbles) */
-        #dc-console .dc-bub.drop, #dc-console .pb:not(.me):not(.dp) { background: var(--dc-dp-bg, var(--surface)); color: var(--dc-dp-fg, var(--text)); }
+        /* NOT #dc-console-scoped (2026-09-27, L: "some different styling in the chat boxes"): the id made this outrank the glass
+           style below, so with a background image replies went solid while your bubbles stayed glass. */
+        .dc-bub.drop, .pb:not(.me):not(.dp) { background: var(--dc-dp-bg, var(--surface)); color: var(--dc-dp-fg, var(--text)); }
         #dc-console .pb.me { background: var(--dc-me-bg); color: var(--dc-me-fg); }
         /* the Look panel */
         #dc-look-panel .lk-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 9px; }
@@ -1195,6 +1200,7 @@
     </div>
     <script type="module">
         import { database, ref, onValue, push, set, update, remove, get, query, limitToLast } from './assets/js/firebase-init.js';
+        import { orderByChild, equalTo } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js';   // shared-tab (guest) reads
         import { onUserReady } from './apps/assets/js/auth.js';
 
         const OLLAMA = 'https://api.luissolutions.us/chat';
@@ -1264,7 +1270,7 @@
             onValue(ref(database, `${DC.base}/data`), s => renderData(s.val() || null));   // wan-meter, ~1 KB every 2 min
             onValue(ref(database, `${DC.base}/drives`), s => { window.__drivesScan = s.val() || {}; window.__paintDrives && window.__paintDrives(); });   // drive_scan.py, ~2 KB/drive, nightly
             onValue(ref(database, `${DC.base}/settings/autoArchiveChars`), s => { DC.autoArchiveChars = Number(s.val() || 0); const b = $('#dc-auto-arch'); if (b && document.activeElement !== b) b.value = Math.round(DC.autoArchiveChars / 1000); updateThreadSize(DC.chatTurns || {}); });
-            onValue(query(ref(database, `${DC.base}/chat/turns`), limitToLast(120)), s => renderChat(s.val() || {}));
+            onValue(query(ref(database, `${DC.base}/chat/turns`), limitToLast(120)), s => { DC.ownTurns = s.val() || {}; if (!DC.remote) renderChat(DC.ownTurns); });
             onValue(ref(database, `${DC.base}/chat/topics`), s => { DC.topicList = s.val() || {}; renderTopics(); });
             onValue(ref(database, `${DC.base}/chat/favorites`), s => { DC.favs = s.val() || {}; renderChat(DC.chatTurns || {}); });
             onValue(query(ref(database, `${DC.uid}/todos`), limitToLast(80)), s => renderIdeas(s.val() || {}));
@@ -1438,8 +1444,9 @@
             return d.toLocaleDateString([], opts) + ', ' + tm;
         }
         function bubbleHtml(t, clean) {
-            const me = t.s === 'L';
-            const who = me ? 'You' : (t.who || 'Droplet');
+            const R = DC.remote;
+            const me = R ? (t.s === 'G' && t.guest === DC.uid) : t.s === 'L';
+            const who = me ? 'You' : t.s === 'G' ? esc(t.who || 'guest') : (t.s === 'L' && R) ? esc(R.name || 'owner') : (t.who || 'Droplet');
             const time = t.ts ? fmtStamp(t.ts) : '';
             const pend = (!me && t.pending) ? ' pending' : '';
             const body = (!me && clean && !t.pending) ? cleanReply(t.text || '') : (t.text || '');
@@ -1464,7 +1471,7 @@
             // WAIT LINE (2026-09-24, L: "when I'm waiting for something can it show how much token count then some
             // other useful bit of info about backend"): a pending bubble carries a live line painted by paintWait().
             const wait = pend ? `<div class="dc-wait" data-k="${esc(t.__k || '')}"></div>` : '';
-            return { cls: `dc-bub ${me ? 'me' : 'drop'}${pend}`, html: `${editBtn}${favBtn}<span class="who">${who}${time ? ' · ' + time : ''}${tag}${tp}</span>${linkify(esc(body))}${wait}${choices}${snapBox}${enh}<div class="ts">${time}</div>` };
+            return { cls: `dc-bub ${me ? 'me' : 'drop'}${pend}${t.s === 'G' && !me ? ' guest' : ''}${R && t.s === 'L' ? ' owner' : ''}`, html: `${editBtn}${favBtn}<span class="who">${who}${time ? ' · ' + time : ''}${tag}${tp}</span>${linkify(esc(body))}${wait}${choices}${snapBox}${enh}<div class="ts">${time}</div>` };
         }
         // PERF: keyed incremental render - only turns whose content changed are re-built; the rest of the DOM is
         // untouched (the old version rebuilt all 120 bubbles as one innerHTML on every change, which stuttered on the phone).
@@ -1474,7 +1481,29 @@
         DC.isPhone = () => { try { return window.matchMedia('(max-width: 640px), (max-height: 480px)').matches; } catch (_) { return false; } };
         try { DC.topic = localStorage.getItem('dc_topic') || ''; } catch (_) { DC.topic = ''; }
         const topicKey = n => String(n || '').replace(/[.#$\[\]\/]/g, '_');
-        function setTopic(n) { const bar0 = $('#dc-topics'); if (bar0) bar0.classList.remove('open'); DC.topic = n || ''; try { localStorage.setItem('dc_topic', DC.topic); } catch (_) {} DC.bubbleSig = {}; const l = $('#dc-chat-log'); if (l) l.innerHTML = ''; renderChat(DC.chatTurns || {}); }
+        function setTopic(n) { exitRemote(); const bar0 = $('#dc-topics'); if (bar0) bar0.classList.remove('open'); DC.topic = n || ''; try { localStorage.setItem('dc_topic', DC.topic); } catch (_) {} DC.bubbleSig = {}; const l = $('#dc-chat-log'); if (l) l.innerHTML = ''; renderChat(DC.ownTurns || DC.chatTurns || {});
+            window.dispatchEvent(new CustomEvent('dc-topic', { detail: DC.topic })); }   // the 👥 pane's Share bar follows the tab you are on (L 2026-09-27: swiping tabs did not change it)
+        // SHARED TABS, ONE SHARE (2026-09-27, L: "share = bring Kev into my tab chat; unshare takes him out; he shares and I see his
+        // tab"): the owner's {owner}/console/guests/<topic>/<me> lets me read THAT tab (rules: a query pinned to the one topic) and
+        // add my own lines to it (s:'G'). Here the console shows it like any tab: a 📺 chip, the live conversation, my box writes into it.
+        DC.remote = null;
+        function enterRemote(r) {
+            if (!r || !r.owner || !r.topic) return;
+            exitRemote();
+            DC.remote = r; DC.bubbleSig = {}; const l = $('#dc-chat-log'); if (l) l.innerHTML = '<div style="color:var(--muted);font-size:.85rem;text-align:center;margin-top:20px">opening ' + esc(r.name || '') + ' · # ' + esc(r.topic) + '…</div>';
+            DC.remoteUnsub = onValue(query(ref(database, `${r.owner}/console/chat/turns`), orderByChild('topic'), equalTo(r.topic), limitToLast(200)),
+                sn => { if (DC.remote === r) renderChat(sn.val() || {}); },
+                () => { if (DC.remote === r) { exitRemote(); $('#dc-chat-status').textContent = `# ${r.topic} isn't shared with you any more`; renderChat(DC.ownTurns || {}); } });
+            renderTopics();
+        }
+        function exitRemote() {
+            if (!DC.remote) return;
+            try { DC.remoteUnsub && DC.remoteUnsub(); } catch (_) {}
+            DC.remote = null; DC.remoteUnsub = null; DC.bubbleSig = {}; const l = $('#dc-chat-log'); if (l) l.innerHTML = '';
+        }
+        window.__dcEnterRemote = r => { if (typeof openDropletConsole === 'function') { try { openDropletConsole(); } catch (_) {} } enterRemote(r); };
+        window.__dcExitRemote = () => { exitRemote(); renderChat(DC.ownTurns || {}); };
+        window.__dcSetTopic = n => setTopic(n);
         // RENAME A TAB (2026-09-19, L). The piece that never existed: carry the messages.
         // One multi-path update rewrites `topic` on every turn under the old name, then the
         // topic node is recreated under the new one and the old is removed. Renaming onto an
@@ -1585,7 +1614,7 @@
         function renderTopics() {
             const bar = $('#dc-topics'); if (!bar) return;
             if (bar.querySelector('.dc-topic-in')) return;   // a name is being typed - do not rebuild under the keyboard
-            const turns = Object.values(DC.chatTurns || {}); const counts = {};
+            const turns = Object.values(DC.ownTurns || DC.chatTurns || {}); const counts = {};
             for (const t of turns) if (t && t.topic) counts[t.topic] = (counts[t.topic] || 0) + 1;
             // which tabs are still waiting on a reply - same 30-min cutoff as the send button,
             // so one orphaned pending bubble cannot leave a tab breathing forever.
@@ -1604,7 +1633,7 @@
             bar.innerHTML = '';
             const chip = (label, name, n) => { const b = document.createElement('button'); b.type = 'button';
                 const waiting = name === '' ? pendAny : !!pend[name];
-                b.className = 'dc-topic' + (DC.topic === name ? ' on' : '') + (waiting ? ' thinking' : '');
+                b.className = 'dc-topic' + (!DC.remote && DC.topic === name ? ' on' : '') + (waiting ? ' thinking' : '');
                 if (waiting) b.title = 'a reply is on its way in this tab';
                 b.innerHTML = esc(label) + `<span class="n">${n}</span>`;
                 if (DC._unread && DC._unread[name || ''] && name !== DC.topic) b.classList.add('unread');
@@ -1625,7 +1654,12 @@
                         confirmTabDelete(nm, n); };
                     c.appendChild(x); }
                 bar.appendChild(c); }
-            const nf = Object.keys(DC.favs || {}).length; const fc = document.createElement('button'); fc.type = 'button'; fc.className = 'dc-topic fav' + (DC.topic === FAV_TAB ? ' on' : '');
+            for (const r of (window.__dcRemoteTabs || [])) {   // tabs other people share with me
+                const b = document.createElement('button'); b.type = 'button';
+                b.className = 'dc-topic remote' + (DC.remote && DC.remote.owner === r.owner && DC.remote.topic === r.topic ? ' on' : '');
+                b.innerHTML = '📺 ' + esc(r.name || '?') + ' · # ' + esc(r.topic); b.title = `${r.name}'s tab, shared with you - you can read it and write in it`;
+                b.onclick = () => enterRemote(r); bar.appendChild(b); }
+            const nf = Object.keys(DC.favs || {}).length; const fc = document.createElement('button'); fc.type = 'button'; fc.className = 'dc-topic fav' + (!DC.remote && DC.topic === FAV_TAB ? ' on' : '');
             fc.innerHTML = FAV_TAB + `<span class="n">${nf}</span>`; fc.title = 'favorites - replies you starred, kept even after New thread'; fc.onclick = () => setTopic(FAV_TAB); bar.appendChild(fc);
             const add = document.createElement('button'); add.type = 'button'; add.className = 'dc-topic'; add.textContent = '+ topic'; add.title = 'new topic tab - same chat, just a label to keep ideas apart';
             add.onclick = () => { const inp = document.createElement('input'); inp.className = 'dc-topic-in'; inp.placeholder = 'topic name'; inp.maxLength = 24; add.replaceWith(inp); inp.focus();
@@ -2042,7 +2076,10 @@
             log.addEventListener('click', e => {
                 const el = e.target.closest && e.target.closest('[data-k]'); if (!el) { n = 0; return; }
                 const now = Date.now(); n = (el.dataset.k === lastK && now - lastT < 700) ? n + 1 : 1; lastK = el.dataset.k; lastT = now;
-                if (n >= 3) { n = 0; confirmDelete(el.dataset.k); }
+                if (n >= 3) { n = 0;
+                    if (DC.remote) { const R = DC.remote, k = el.dataset.k, t = (DC.chatTurns || {})[k] || {};
+                        confirmDelete(k, { host: $('.dc-chat'), text: t.text, onDelete: t.guest === DC.uid ? () => set(ref(database, `${R.owner}/console/chat/turns/${k}`), null) : null }); }
+                    else confirmDelete(el.dataset.k); }
             });
         })();
         window.__dcConfirmDelete = confirmDelete;   // test hook
@@ -2069,6 +2106,7 @@
             b.closest('.dc-choices').querySelectorAll('.dc-choice').forEach(x => { x.disabled = true; });
         }, true);
         window.__dcRenderChat = renderChat;   // test hook
+        window.__dcRenderTopics = () => { try { renderTopics(); } catch (_) {} };
         // SAME OPTIONS IN MEMBER CHATS (2026-09-27, L: "we should get all the same options and all that should work the same with
         // whoever I'm talking with"): the 👥 pane uses these instead of its own copies.
         window.__dcShared = { speak: (t, k, d) => speakText(t, k, d), stop: () => stopSpeak(), speakingKey: () => DC.speakingKey,
@@ -2355,12 +2393,13 @@
             finally { replyBusy = false; }
         }
         function renderChat(obj) {
+            const R = DC.remote;
             DC.chatTurns = obj;
             // THINKING LIGHT (2026-09-19): the send button breathes while any reply - in any tab - is still on its way.
             // Pending bubbles older than 30 min are ignored so one orphaned bubble cannot leave it pulsing forever.
             const thinking = Object.values(obj || {}).some(t => t && t.pending && Date.now() - (t.ts || 0) < 30 * 60 * 1000);
             const sb = $('#dc-chat-send'); if (sb) { sb.classList.toggle('thinking', thinking); sb.title = thinking ? 'a reply is on its way - you can still send' : ''; }
-            {   // unread state is computed from the FULL turn set before the bar is drawn
+            if (!R) {   // unread state is computed from the FULL turn set before the bar is drawn
                 const u = unreadTopics(obj);
                 DC._unread = u.unread;
                 const cur = DC.topic || '';
@@ -2372,12 +2411,12 @@
             const favView = DC.topic === FAV_TAB;
             if (favView) { const f = DC.favs || {}; obj = Object.fromEntries(Object.keys(f).sort((a, b) => (f[a].ts || 0) - (f[b].ts || 0)).map(k => [k, f[k]])); }   // ★ view: the saved favorites, oldest first
             for (const k of Object.keys(obj)) if (obj[k]) obj[k].__k = k;
-            const keys = Object.keys(obj).filter(k => favView || !DC.topic || (obj[k] && obj[k].topic === DC.topic));
+            const keys = Object.keys(obj).filter(k => R || favView || !DC.topic || (obj[k] && obj[k].topic === DC.topic));
             DC.lastLKey = keys.slice().reverse().find(k => obj[k] && obj[k].s === 'L') || '';
             {   // suggested reply: only for a finished Droplet reply at the tail of a real tab (not the ★ view)
                 const tk = keys[keys.length - 1], tt = tk && obj[tk];
                 DC.replyTailK = (!favView && tt && tt.s === 'D' && !tt.pending && tt.text) ? tk : '';
-                if (DC.replyTailK) draftReply(tk, tt, DC.lastLKey && obj[DC.lastLKey] ? obj[DC.lastLKey].text : '');
+                if (DC.replyTailK && !R) draftReply(tk, tt, DC.lastLKey && obj[DC.lastLKey] ? obj[DC.lastLKey].text : '');
             }
             for (const k of keys) if (obj[k] && obj[k].s === 'L') obj[k].__last = (k === DC.lastLKey);
             // the TAIL turn (nothing after it in this view): only it may show menu buttons - an answered menu is
@@ -2386,6 +2425,7 @@
             if (keys.length && obj[keys[keys.length - 1]]) obj[keys[keys.length - 1]].__tail = true;
             const nf = newestFirst();
             $('.dc-chat') && $('.dc-chat').classList.toggle('newest-first', nf);
+            if (!keys.length && R) { log.innerHTML = '<div style="color:var(--muted);font-size:0.85rem;text-align:center;margin-top:20px">Nothing in ' + esc(R.name || '') + ' · # ' + esc(R.topic) + ' yet. What you send lands in their tab.</div>'; DC.bubbleSig = {}; return; }
             if (!keys.length) { log.innerHTML = '<div style="color:var(--muted);font-size:0.85rem;text-align:center;margin-top:20px">' + (favView ? 'No favorites yet. Tap the star on a reply to keep it here.' : DC.topic ? 'Nothing under # ' + esc(DC.topic) + ' yet. What you send now lands here and in All.' : (DC.guest && ($('#dc-chat-target') || {}).value === 'local') ? 'No turns yet. Say something - the Local assistant answers here.' : 'No turns yet. Say something to Droplet.') + '</div>'; DC.bubbleSig = {}; updateThreadSize(obj); reconcilePending(obj); return; }
             const clean = !!($('#dc-chat-enhance') && $('#dc-chat-enhance').checked);
             const order = nf ? keys.slice().reverse() : keys;
@@ -2405,8 +2445,9 @@
             }
             // snap to the newest end only when the visible turns or the tab changed - a star toggle, an edit or a
             // reply landing in an existing bubble keeps your scroll position (2026-09-18)
-            const rsig = DC.topic + '|' + nf + '|' + order.join(',');
+            const rsig = (R ? R.owner + '/' + R.topic : DC.topic) + '|' + nf + '|' + order.join(',');
             if (DC.renderSig !== rsig) { snapChatEnd(log, nf); DC.renderSig = rsig; }
+            if (R) return;   // remote: nothing below is mine to update
             updateThreadSize(obj);
             fillSnaps();
             reconcilePending(obj);
@@ -2965,6 +3006,12 @@
         async function sendChatOnce() {
             const ta = $('#dc-chat-in'); let raw = ta.value.trim();
             if (!raw || !DC.base) return;
+            if (DC.remote) {
+                const R = DC.remote, myName = (window.__dcPeer && window.__dcPeer.myName) || 'guest';
+                try { await push(ref(database, `${R.owner}/console/chat/turns`), { s: 'G', guest: DC.uid, who: myName, text: raw.slice(0, 4000), ts: Date.now(), topic: R.topic }); ta.value = ''; ta.focus(); }
+                catch (e) { $('#dc-chat-status').textContent = '⚠ not sent: ' + (e.code || e.message); }
+                return;
+            }
             const target = ($('#dc-chat-target') && $('#dc-chat-target').value) || 'droplet';
             const enhOn = !!($('#dc-chat-enhance') && $('#dc-chat-enhance').checked) && target !== 'command' && !raw.startsWith('/');   // a slash command is for the TUI - enhancing it into prose would destroy it
             // the last sentence rarely gets its rewrite before Send (L's test: "rtyping", "to to" went out raw) - hold the
@@ -4972,14 +5019,12 @@
         .pb .who { font-size: .7rem; opacity: .65; margin-bottom: 2px; }
         #dc-peer-form { display: flex; gap: 6px; padding-top: 6px; position: relative; }   /* relative: the shared emoji panel anchors here */
         #dc-peer.nf #dc-peer-form .dc-emoji { bottom: auto; top: calc(100% - 4px); }
-        #dc-peer-form .dc-emoji-btn { background: none !important; padding: 0 4px !important; font-size: 1.1rem; }
         .pb { cursor: pointer; } .pb a { color: inherit; text-decoration: underline; }
         .pb .pacts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
         .pb .pacts button { font: inherit; font-size: .74rem; padding: 3px 9px; border-radius: 999px; border: 1px solid currentColor; background: transparent; color: inherit; opacity: .85; cursor: pointer; }
         .pb .ed { opacity: .55; font-size: .68rem; }
         #dc-peer-in.editing { outline: 2px solid var(--dc-amber, #f59e0b); }
-        #dc-peer-in { flex: 1; resize: none; font: inherit; border-radius: 8px; border: 1px solid var(--border); background: var(--dc-inset, transparent); color: inherit; padding: 6px 8px; }
-        #dc-peer-form button { border-radius: 8px; border: 0; padding: 0 12px; background: var(--dc-purple, #7c3aed); color: #fff; cursor: pointer; }
+        #dc-peer-form.dc-chat-input { padding-top: 6px; }   /* the box itself = the console's .dc-chat-input (same textarea, ❯, ▲) */
     </style>
     <script type="module">
     import { database, ref, onValue, push, set, get, update, query, limitToLast, auth, onAuthStateChanged } from './assets/js/firebase-init.js';
@@ -4989,6 +5034,24 @@
     const seen = tid => { try { return +localStorage.getItem('dc_peer_seen_' + tid) || 0; } catch (_) { return 0; } };
     const markSeen = (tid, ts) => { try { localStorage.setItem('dc_peer_seen_' + tid, String(ts || Date.now())); } catch (_) {} };
     const P = { me: null, myName: '', dir: {}, open: null, other: null, unsub: null, index: {} };
+    // POP-UP ALERTS (2026-09-27, L: "I sent a message to Kev and he said there was no notification on his end"): the daemon only
+    // Telegrams L; everyone else gets a browser notification while the hub is open (per device, opt-in in People > Settings).
+    const popOn = () => { try { return localStorage.getItem('dc_peer_pop') === '1'; } catch (_) { return false; } };
+    let popSeen = null;
+    function popNew(idx) {
+        const fresh = Object.entries(idx || {}).filter(([, x]) => x && x.ts);
+        if (popSeen === null) { popSeen = Object.fromEntries(fresh.map(([t, x]) => [t, x.ts])); return; }   // first read = baseline, no burst
+        for (const [t, x] of fresh) {
+            if (x.ts <= (popSeen[t] || 0)) continue;
+            popSeen[t] = x.ts;
+            if (x.from === P.me || !popOn() || !('Notification' in window) || Notification.permission !== 'granted') continue;
+            if (!document.hidden && P.open === t) continue;   // already looking at it
+            try {
+                const n = new Notification('💬 ' + (x.name || P.dir[x.with] || 'New message'), { body: String(x.last || '').slice(0, 140), tag: t });
+                n.onclick = () => { window.focus(); if (typeof window.openDropletConsole === 'function') window.openDropletConsole(); if (t.startsWith('tab-')) openTabRow(t); else if (x.with) openPeer(x.with); n.close(); };
+            } catch (_) {}
+        }
+    }
     const OWNER = '7cIh8rrhVNOjjj5CBDgb3IlqzEh2';   // Luis: the only account whose console (and daemon) a tab can be shared FROM
 
     function build() {
@@ -5006,7 +5069,7 @@
             <div id="dc-peer-bar" hidden></div>
             <div id="dc-peer-home"></div>
             <div id="dc-peer-log" hidden></div>
-            <form id="dc-peer-form" hidden><textarea id="dc-peer-in" rows="2" placeholder="message…  (Enter sends)"></textarea><button type="button" class="dc-emoji-btn" id="dc-peer-emoji" title="emoji (search at the top)" aria-label="emoji picker">🙂</button><button type="submit">▲</button></form>`;
+            <form id="dc-peer-form" class="dc-chat-input" hidden><span class="ps" aria-hidden="true">❯</span><textarea id="dc-peer-in" rows="2" placeholder="message…  (Enter sends)"></textarea><button type="button" class="dc-emoji-btn" id="dc-peer-emoji" title="emoji (search at the top)" aria-label="emoji picker">🙂</button><button type="submit" class="dc-btn push">▲</button></form>`;   // SAME box as the Droplet chat (L 2026-09-27: "the chat boxes still look different")
         body.appendChild(pane);
         $('#dc-peer-x').onclick = closePeer;
         $('#dc-peer-back').onclick = () => showHome();
@@ -5041,6 +5104,7 @@
         if ((!any || !document.hidden) && titleTimer) { clearInterval(titleTimer); titleTimer = null; document.title = baseTitle; }
     }
     document.getElementById('dc-newest')?.addEventListener('change', () => { if (P.open) renderMsgs(lastMsgs); });   // flip live
+    window.addEventListener('dc-topic', () => { if (!document.getElementById('dc-peer')) return; if (P.open) renderBar(); else renderHome(); });   // tab switched (tap or swipe) -> Share # <this tab>
     document.addEventListener('visibilitychange', () => { if (!document.hidden && titleTimer) { clearInterval(titleTimer); titleTimer = null; document.title = baseTitle; } });
 
     // ---- phase 2: SHARED TABS (L: "share a current tab - he can't input to get answers but he can see it, we can chat in there, one
@@ -5066,7 +5130,7 @@
         const others = Object.entries(P.dir).filter(([u]) => u !== P.me).sort((a, b) => a[1].localeCompare(b[1]));
         let html = '';
         if (mode === 'pick') {
-            html += `<div class="pnote">Share <b># ${esc(topic)}</b> with… They watch it live and can chat in it. Only you drive Droplet; their lines reach it as data, never as instructions.</div>`;
+            html += `<div class="pnote">Bring someone into <b># ${esc(topic)}</b>: they see the whole tab live and can write in it. Only you drive Droplet; their lines reach it as data, never as instructions.</div>`;
             html += others.map(([u, n]) => `<button type="button" class="dc-peer-row" data-share="${esc(u)}">📺 ${esc(n)}</button>`).join('');
             html += `<button type="button" class="dc-peer-row" data-home="1">‹ cancel</button>`;
         } else {
@@ -5078,15 +5142,15 @@
                     return `<div class="pswipe" data-conv="${esc(t)}"><button type="button" class="pclr" title="clear this conversation for you (they keep theirs)">🗑 Clear</button><button type="button" class="dc-peer-row" ${tab ? `data-open="${esc(t)}" data-title="📺 ${esc(x.name)}"` : `data-u="${esc(x.with)}"`}>${tab ? '📺 ' : '💬 '}${esc(x.name || P.dir[x.with] || '?')}${unread(t) ? '<span class="dot"></span>' : ''}<span class="pago">${ago(x.ts)}</span><small>${esc(x.from === P.me ? 'you: ' : x.from === 'droplet' ? 'Droplet: ' : '')}${esc(x.last || '')}</small></button></div>`; }).join('');
             }
             // 2. share this tab (owner)
-            if (owner && topic && topic !== '★') {
+            if (topic && topic !== '★') {
                 html += H(`This tab · # ${esc(topic)}`);
-                html += sh ? `<button type="button" class="dc-peer-row" data-open="${esc(sh.tid)}" data-title="📺 # ${esc(topic)} - shared with ${esc(sh.name)}">📺 Open the shared view<small>shared with ${esc(sh.name)} since ${new Date(sh.since).toLocaleString([], { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</small></button>
+                html += sh ? `<div class="pnote">📺 ${esc(sh.name)} is in this tab since ${new Date(sh.since).toLocaleString([], { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })} - they see it live and can write in it.</div>
                               <button type="button" class="dc-peer-row" data-unshare="1">⏹ Stop sharing # ${esc(topic)}</button>`
-                           : `<button type="button" class="dc-peer-row" data-pick="1">📺 Share this tab…<small>someone watches it live + chats; only you drive Droplet</small></button>`;
+                           : `<button type="button" class="dc-peer-row" data-pick="1">📺 Share this tab…<small>bring someone into it: they see it live + can write; only you drive Droplet</small></button>`;
             }
             // 3. everything L currently shares (any tab)
             const allShares = Object.values(P.shares || {});
-            if (owner && allShares.length) {
+            if (allShares.length) {
                 html += H('Shared tabs');
                 html += allShares.map(s => `<button type="button" class="dc-peer-row" data-open="${esc(s.tid)}" data-title="📺 # ${esc(s.topic)} - shared with ${esc(s.name)}">📺 # ${esc(s.topic)} → ${esc(s.name)}</button>`).join('');
             }
@@ -5097,6 +5161,8 @@
             // 5. settings
             html += H('Settings');
             html += `<label class="dc-peer-row" style="cursor:pointer"><input type="checkbox" id="dc-peer-ping" ${P.pingOn !== false ? 'checked' : ''}> 📣 Telegram ping when someone writes<small>via the console bot; the ⚙ Telegram pings switch still wins</small></label>`;
+            const np = ('Notification' in window) ? Notification.permission : 'unsupported';
+            html += `<label class="dc-peer-row" style="cursor:pointer"><input type="checkbox" id="dc-peer-pop" ${popOn() && np === 'granted' ? 'checked' : ''} ${np === 'unsupported' || np === 'denied' ? 'disabled' : ''}> 🔔 Pop-up alerts on this device<small>${np === 'denied' ? 'blocked in this browser - allow notifications for luissolutions.us in the site settings' : np === 'unsupported' ? 'this browser has no notifications' : 'a system pop-up when someone writes, while the hub is open (even minimised)'}</small></label>`;
             html += `<button type="button" class="dc-peer-row" data-readall="1">✓ Mark everything read</button>`;
             html += `<div class="pnote">Members come from the share list (the same one Notes uses). Chats are private to the people in them; nothing typed here reaches the daemon.</div>`;
         }
@@ -5105,10 +5171,15 @@
         home.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => showHome('pick'));
         home.querySelectorAll('[data-home]').forEach(b => b.onclick = () => showHome());
         home.querySelectorAll('[data-share]').forEach(b => b.onclick = () => shareTab(b.dataset.share));
-        home.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openThread(b.dataset.open, b.dataset.title || ('📺 # ' + curTopic())));
+        home.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openTabRow(b.dataset.open));
         home.querySelectorAll('[data-unshare]').forEach(b => b.onclick = () => unshareTab());
         home.querySelectorAll('.pswipe').forEach(wireSwipe);
         home.querySelectorAll('[data-readall]').forEach(b => b.onclick = () => { for (const [t, x] of Object.entries(P.index)) if (x && x.ts) markSeen(t, x.ts); dots(); renderHome(); });
+        const pp = $('#dc-peer-pop'); if (pp) pp.onchange = async () => {
+            if (pp.checked && Notification.permission !== 'granted') { const r = await Notification.requestPermission(); if (r !== 'granted') { pp.checked = false; renderHome(); return; } }
+            try { localStorage.setItem('dc_peer_pop', pp.checked ? '1' : '0'); } catch (_) {}
+            if (pp.checked) try { new Notification('🔔 Alerts on', { body: 'New messages will pop up here while the hub is open.' }); } catch (_) {}
+        };
         const pc = $('#dc-peer-ping'); if (pc) pc.onchange = () => { P.pingOn = pc.checked; set(ref(database, `${P.me}/console/settings/peerPings`), pc.checked).catch(() => {}); };
     }
     const renderMenu = () => renderHome();   // older call sites
@@ -5132,20 +5203,34 @@
         btn.onclick = () => clearConv(wrap.dataset.conv);
     }
 
+    // ONE SHARE (2026-09-27, L: "share = bring Kev into my tab chat, unshare takes him out"): {me}/console/guests/<topic>/<uid> lets
+    // them read THIS tab (rules: a query pinned to the topic) and write their own lines into it. The share/chat thread is kept only
+    // as the invitation record (their inbox line needs it); nothing is copied any more.
     async function shareTab(uid) {
-        const topic = curTopic(), s = slug(topic); if (!s) return;
+        const topic = curTopic(), s = slug(topic); if (!s || topic === '★') return;
+        if (/[.#$\[\]\/]/.test(topic)) { alert('This tab name has a character Firebase keys cannot hold (. # $ [ ] /) - rename the tab to share it.'); return; }
         const tid = `tab-${s}-${[P.me, uid].sort().join('_')}`, now = Date.now(), name = P.dir[uid] || uid.slice(0, 6);
         try {
+            await set(ref(database, `${P.me}/console/guests/${topic}/${uid}`), { name, since: now });
             await set(ref(database, `share/chat/${tid}`), { members: { [P.me]: true, [uid]: true }, names: { [P.me]: P.myName, [uid]: name },
                 kind: 'tab', topic, owner: P.me, createdAt: now });
-            // seed with the tab's last few exchanges so they walk into context, not a blank page
-            const turns = (await get(query(ref(database, `${P.me}/console/chat/turns`), limitToLast(80)))).val() || {};
-            const seed = Object.keys(turns).sort().map(k => turns[k]).filter(t => t && t.topic === topic && t.text && !t.pending).slice(-6);
-            for (const t of seed) await push(ref(database, `share/chat/${tid}/messages`), { from: t.s === 'L' ? P.me : 'droplet', name: t.s === 'L' ? P.myName : 'Droplet', text: String(t.text).slice(0, 4000), ts: Number(t.ts) || now });
-            await set(ref(database, `${P.me}/console/shares/${s}`), { tid, with: uid, name, topic, since: now, guestSeen: now });
-            await set(ref(database, `share/chatIndex/${uid}/${tid}`), { with: P.me, name: `${P.myName} · shared: ${topic}`, last: `${P.myName} shared # ${topic} with you`, ts: now, from: P.me, kind: 'tab' });
-            openThread(tid, `📺 # ${topic} - shared with ${name}`);
+            await set(ref(database, `${P.me}/console/shares/${s}`), { tid, with: uid, name, topic, since: now, mode: 'guest' });
+            await set(ref(database, `share/chatIndex/${uid}/${tid}`), { with: P.me, name: `${P.myName} · # ${topic}`, last: `${P.myName} shared # ${topic} with you`, ts: now, from: P.me, kind: 'tab', topic, owner: P.me });
+            renderBar(); renderHome();
+            const st = document.getElementById('dc-chat-status'); if (st) st.textContent = `📺 ${name} is in # ${topic} now - they see it live and can write in it`;
         } catch (e) { alert('Could not share: ' + (e.code || e.message)); }
+    }
+    // a 📺 row: my own shared tab -> go to it; a tab shared WITH me -> open it in the console
+    function openTabRow(tid) {
+        const mine = Object.values(P.shares || {}).find(x => x && x.tid === tid), x = P.index[tid] || {};
+        if (mine) { closePeer(); window.__dcSetTopic && window.__dcSetTopic(mine.topic); return; }
+        if (x.owner && x.topic) { markSeen(tid, x.ts); closePeer(); window.__dcEnterRemote && window.__dcEnterRemote({ owner: x.owner, topic: x.topic, name: P.dir[x.owner] || (x.name || '').split(' · ')[0] }); return; }
+        openThread(tid, '📺 ' + (x.name || 'shared tab'));   // an old-style share (before 2026-09-27)
+    }
+    function publishRemoteTabs() {
+        window.__dcRemoteTabs = Object.entries(P.index || {}).filter(([t, x]) => x && x.kind === 'tab' && x.owner && x.owner !== P.me && x.topic)
+            .map(([t, x]) => ({ tid: t, owner: x.owner, topic: x.topic, name: P.dir[x.owner] || (x.name || '').split(' · ')[0] }));
+        window.__dcRenderTopics && window.__dcRenderTopics();
     }
 
     // CHAT BAR (2026-09-27, L: "have the share as an option in a user chat, perhaps on a top bar with options share, unshare etc."):
@@ -5158,18 +5243,16 @@
         const mine = Object.entries(P.shares || {}).filter(([, s]) => s && s.with === other);
         const b = (attrs, label, title) => `<button type="button" class="pbar-b" ${attrs} title="${esc(title || '')}">${label}</button>`;
         let html = '';
-        // TEXT SHARE (2026-09-27, L: "if another user has an attached daemon, they can share... maybe just put all the text into the
-        // chat as you share it, unshare pops it all out"): any member can drop a tab's conversation into this chat as one card; no
-        // daemon mirroring needed, so it works for Kev (Cairn) or anyone. Unshare removes the card. The owner keeps the LIVE share too.
-        const snapTopics = [...new Set(Object.values(lastMsgs || {}).filter(m => m && m.snap && m.from === P.me).map(m => m.snap.topic))];
-        if (!P.open.startsWith('tab-')) {
-            if (topic && topic !== '★' && !snapTopics.includes(topic)) html += b('data-snap="1"', `📋 Share text of # ${esc(topic)}`, `put this tab's conversation into your chat with ${oname} as one card`);
-            for (const tp of snapTopics) html += b(`data-unsnap="${esc(tp)}"`, `✕ Unshare text # ${esc(tp)}`, 'take that card back out of this chat');
-        }
-        if (P.me !== OWNER) {
+        if (P.me !== OWNER && !P.open.startsWith('tab-')) {   // any member can share a tab (their Droplet / Cairn keeps driving it)
+            const sh = topic && P.shares[slug(topic)];
+            if (topic && topic !== '★') {
+                if (sh && sh.with === other) html += b(`data-stop="${esc(slug(topic))}"`, `⏹ Unshare # ${esc(topic)}`, `take ${oname} out of this tab`);
+                else if (sh) html += `<span class="pbar-note"># ${esc(topic)} is shared with ${esc(sh.name)}</span>`;
+                else html += b('data-sharecur="1"', `📺 Share # ${esc(topic)}`, `${oname} joins this tab: sees it live + can write in it`);
+            }
             bar.innerHTML = html; bar.hidden = !html;
-            bar.querySelectorAll('[data-snap]').forEach(x => x.onclick = () => shareText(other));
-            bar.querySelectorAll('[data-unsnap]').forEach(x => x.onclick = () => unshareText(x.dataset.unsnap));
+            bar.querySelectorAll('[data-sharecur]').forEach(x => x.onclick = () => shareTab(other));
+            bar.querySelectorAll('[data-stop]').forEach(x => x.onclick = () => unshareTab(x.dataset.stop));
             return;
         }
         if (P.open.startsWith('tab-')) {
@@ -5179,52 +5262,31 @@
         } else {
             const sh = topic && P.shares[slug(topic)];
             if (topic && topic !== '★') {
-                if (sh && sh.with === other) html += b(`data-view="${esc(sh.tid)}" data-t="${esc(topic)}"`, `📺 Open # ${esc(topic)}`, 'the shared view of this tab') + b(`data-stop="${esc(slug(topic))}"`, `⏹ Unshare # ${esc(topic)}`, 'close their view + delete the shared log');
+                if (sh && sh.with === other) html += `<span class="pbar-note">📺 ${esc(oname)} is in # ${esc(topic)}</span>` + b(`data-stop="${esc(slug(topic))}"`, `⏹ Unshare # ${esc(topic)}`, `take ${oname} out of this tab`);
                 else if (sh) html += `<span class="pbar-note"># ${esc(topic)} is shared with ${esc(sh.name)}</span>`;
-                else html += b('data-sharecur="1"', `📺 Share # ${esc(topic)}`, `${oname} watches this tab live + can chat; only you drive Droplet`);
+                else html += b('data-sharecur="1"', `📺 Share # ${esc(topic)}`, `${oname} joins this tab: sees it live + can write in it; only you drive Droplet`);
             }
             for (const [k, s] of mine) if (!topic || s.topic !== topic) html += b(`data-view="${esc(s.tid)}" data-t="${esc(s.topic)}"`, `📺 # ${esc(s.topic)}`, 'a tab you share with them');
         }
         bar.innerHTML = html; bar.hidden = !html;
         bar.querySelectorAll('[data-dm]').forEach(x => x.onclick = () => openPeer(other));
         bar.querySelectorAll('[data-sharecur]').forEach(x => x.onclick = () => shareTab(other));
-        bar.querySelectorAll('[data-view]').forEach(x => x.onclick = () => openThread(x.dataset.view, `📺 # ${x.dataset.t} - shared with ${oname}`, other));
+        bar.querySelectorAll('[data-view]').forEach(x => x.onclick = () => openTabRow(x.dataset.view));
         bar.querySelectorAll('[data-stop]').forEach(x => x.onclick = () => unshareTab(x.dataset.stop));
-        bar.querySelectorAll('[data-snap]').forEach(x => x.onclick = () => shareText(other));
-        bar.querySelectorAll('[data-unsnap]').forEach(x => x.onclick = () => unshareText(x.dataset.unsnap));
     }
 
-    async function shareText(other) {
-        const topic = curTopic(); if (!topic || !P.open) return;
-        const turns = (await get(query(ref(database, `${P.me}/console/chat/turns`), limitToLast(300)))).val() || {};
-        const lines = Object.keys(turns).sort().map(k => turns[k]).filter(t => t && t.topic === topic && t.text && !t.pending)
-            .map(t => `${t.s === 'L' ? P.myName : (t.who || 'Droplet')}: ${String(t.text).trim()}`);
-        if (!lines.length) { alert(`# ${topic} has no messages to share yet.`); return; }
-        const full = lines.join('\n\n'), id = 'snap' + Date.now(), parts = [];
-        for (let i = 0; i < full.length; i += 3800) parts.push(full.slice(i, i + 3800));   // the message rule caps text at 4000
-        try {
-            for (let i = 0; i < parts.length; i++)
-                await push(ref(database, `share/chat/${P.open}/messages`), { from: P.me, name: P.myName, text: parts[i], ts: Date.now() + i, snap: { id, topic, part: i + 1, of: parts.length, lines: lines.length } });
-            const last = `📋 shared # ${topic} (${lines.length} messages)`, ts = Date.now() + parts.length;
-            await update(ref(database, `share/chatIndex/${P.me}/${P.open}`), { with: other, name: P.dir[other] || '', last, ts, from: P.me });
-            await update(ref(database, `share/chatIndex/${other}/${P.open}`), { with: P.me, name: P.myName, last, ts, from: P.me });
-        } catch (e) { alert('Could not share: ' + (e.code || e.message)); }
-    }
-    async function unshareText(topic) {
-        if (!confirm(`Take the # ${topic} text back out of this chat?`)) return;
-        try { for (const [k, m] of Object.entries(lastMsgs || {})) if (m && m.snap && m.from === P.me && m.snap.topic === topic) await set(ref(database, `share/chat/${P.open}/messages/${k}`), null); }
-        catch (e) { alert('Could not unshare: ' + (e.code || e.message)); }
-    }
 
     async function unshareTab(key) {
         const s = key || slug(curTopic()), sh = P.shares[s]; if (!sh) return;
         const topic = sh.topic || curTopic();
-        if (!confirm(`Stop sharing # ${topic} with ${sh.name}? Their view of it closes and the shared log is deleted.`)) return;
+        if (!confirm(`Take ${sh.name} out of # ${topic}? The tab disappears from their console; their lines stay in yours.`)) return;
         try {
+            await set(ref(database, `${P.me}/console/guests/${topic}/${sh.with}`), null);
             await set(ref(database, `share/chatIndex/${sh.with}/${sh.tid}`), null);
             await set(ref(database, `${P.me}/console/shares/${s}`), null);
             await set(ref(database, `share/chat/${sh.tid}`), null);
             if (P.open === sh.tid) openPeer(sh.with);   // back to the conversation with them, not a closed pane
+            renderBar(); renderHome();
         } catch (e) { alert('Could not stop sharing: ' + (e.code || e.message)); }
     }
 
@@ -5342,9 +5404,9 @@
         try { const d = (await get(ref(database, 'share/directory'))).val() || {}; for (const [k, v] of Object.entries(d)) P.dir[k] = (v && v.name) || k.slice(0, 6); } catch (_) {}
         P.myName = P.dir[P.me] || (u.email || '').split('@')[0] || 'me';
         build();
-        onValue(ref(database, `share/chatIndex/${P.me}`), s => { P.index = s.val() || {}; dots(); if (!P.open) renderHome(); }, () => {});
+        onValue(ref(database, `share/chatIndex/${P.me}`), s => { P.index = s.val() || {}; popNew(P.index); dots(); publishRemoteTabs(); if (!P.open) renderHome(); }, () => {});
         get(ref(database, `${P.me}/console/settings/peerPings`)).then(s => { P.pingOn = s.val() !== false; }).catch(() => {});
-        if (P.me === OWNER) onValue(ref(database, `${P.me}/console/shares`), s => { P.shares = s.val() || {}; if (P.open) renderBar(); else renderHome(); }, () => {});
+        onValue(ref(database, `${P.me}/console/shares`), s => { P.shares = s.val() || {}; if (P.open) renderBar(); else renderHome(); }, () => {});
     });
     window.__dcPeer = P;   // test hook
     </script>
