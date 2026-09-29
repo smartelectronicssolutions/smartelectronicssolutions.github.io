@@ -1811,6 +1811,20 @@
                 stepTopic(dx < 0 ? 1 : -1); }, { passive: true });
             log.addEventListener('touchcancel', () => { ok = false; }, { passive: true });
         })();
+        // SWIPE THE TAB PILL TOO (2026-09-29, L: "a sideways swipe on the currently showing tab in mobile to cycle through"):
+        // the Chat pill in the bar shows "# topic" on a phone - swiping it left/right steps topics exactly like swiping the log.
+        (function wirePillSwipe() {
+            const pill = document.querySelector('.dc-tab[data-tab="ch"]'); if (!pill) return;
+            pill.style.touchAction = 'pan-y';
+            let sx = 0, sy = 0, st = 0, ok = false, swiped = false;
+            pill.addEventListener('touchstart', e => { ok = e.touches.length === 1; swiped = false; if (ok) { sx = e.touches[0].clientX; sy = e.touches[0].clientY; st = Date.now(); } }, { passive: true });
+            pill.addEventListener('touchend', e => { if (!ok) return; ok = false; const t = e.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy;
+                if (Date.now() - st > 700 || Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+                if (!pill.classList.contains('active')) pill.click(); swiped = true;   // from System, a swipe on the pill lands in Chat first
+                stepTopic(dx < 0 ? 1 : -1); }, { passive: true });
+            pill.addEventListener('click', e => { if (swiped) { swiped = false; e.stopImmediatePropagation(); e.preventDefault(); } }, true);   // the tap that ends a swipe is not a tap
+            pill.addEventListener('touchcancel', () => { ok = false; }, { passive: true });
+        })();
         // EDIT YOUR LAST MESSAGE: ✎ loads it into the box; ▲ becomes ↻; sending replaces the text and re-sends it flagged `edited`.
         function setEditMode(key) {
             DC.editKey = key || ''; const ta = $('#dc-chat-in'), wrap = $('.dc-chat-input'), send = $('#dc-chat-send'), st = $('#dc-chat-status');
