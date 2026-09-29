@@ -1710,8 +1710,16 @@
             bar.appendChild(add);
             const cl = document.createElement('button'); cl.type = 'button'; cl.className = 'dc-topic dc-topic-close'; cl.textContent = '✕ close'; cl.title = 'close the console';
             cl.onclick = () => { bar.classList.remove('open'); closeConsole(); }; bar.appendChild(cl);
-            const on = bar.querySelector('.dc-topic.on');   // keep the active chip visible in the scrolling strip
-            if (on) { const l = on.offsetLeft - 8, r = on.offsetLeft + on.offsetWidth + 8; if (l < bar.scrollLeft) bar.scrollLeft = l; else if (r > bar.scrollLeft + bar.clientWidth) bar.scrollLeft = r - bar.clientWidth; }
+            snapTopicChip(false);
+        }
+        // SNAP (2026-09-29, L: "the tab listing will be away from the currently open one, make them snap to view"): center the
+        // active chip in the strip. The old keep-visible used offsetLeft while the phone strip was still hidden (0 width) - so it
+        // never moved; this measures on screen, and runs again when the strip opens and after a swipe.
+        function snapTopicChip(smooth) {
+            setTimeout(() => { const bar = $('#dc-topics'); const on = bar && bar.querySelector('.dc-topic.on'); if (!on || !bar.clientWidth) return;
+                const br = bar.getBoundingClientRect(), cr = on.getBoundingClientRect();
+                const want = bar.scrollLeft + (cr.left - br.left) - (bar.clientWidth - cr.width) / 2;
+                bar.scrollTo({ left: Math.max(0, want), behavior: smooth ? 'smooth' : 'auto' }); }, 0);   // a timer, not rAF: rAF waits for a painted frame
         }
         // SWIPE (mobile): left = next tab, right = previous tab. Horizontal, quick and clearly not a scroll - otherwise ignored.
         // the label that flashes after a swipe: topic name, position, and the console's close X (the bar has no X on a phone)
@@ -1750,7 +1758,7 @@
             if (DC.swipeN < 3) return false;
             DC.swipeN = 0; return true;
         }
-        function openTopicBar() { const b = $('#dc-topics'); if (b) b.classList.add('open'); }
+        function openTopicBar() { const b = $('#dc-topics'); if (b) b.classList.add('open'); snapTopicChip(false); }
         function stepTopic(dir) {
             const order = DC.topicOrder || [''];
             const i = Math.max(0, order.indexOf(DC.topic || ''));
@@ -2260,7 +2268,7 @@
         // phone: the Chat tab is the topic label. Tapping it while Chat is already showing opens/closes the strip (pick or add a topic).
         (function wireChatTabToggle() { const ct = document.querySelector('.dc-tab[data-tab="ch"]'); if (!ct) return; let was = false;
             ct.addEventListener('pointerdown', () => { was = ct.classList.contains('active'); });
-            ct.addEventListener('click', () => { if (was && DC.isPhone()) { const b = $('#dc-topics'); if (b) b.classList.toggle('open'); } }); })();
+            ct.addEventListener('click', () => { if (was && DC.isPhone()) { const b = $('#dc-topics'); if (b) { b.classList.toggle('open'); snapTopicChip(false); } } }); })();
         // ROTATING PLACEHOLDER + TAB TO ACCEPT (2026-09-20, L: "suggested text in the chat box when
         // empty", then "can I press tab to enter suggestion").
         // Every line must be TRUE RIGHT NOW - a suggestion that lies is worse than an empty box - so each
