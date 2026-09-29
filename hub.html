@@ -5107,7 +5107,9 @@
             .dc-body.dc-split { flex-direction: column; }
             .dc-body.dc-split > #dc-peer { border-left: 0; border-top: 1px solid var(--border); padding: 8px 0 0; flex: 0 0 46%; }
         }
-        #dc-peer-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; font-weight: 600; padding: 2px 0 6px; }
+        #dc-peer-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; font-weight: 600; padding: 2px 0 6px; touch-action: none; }
+        .dc-body.dc-split.pfull > #dc-chat-panel { display: none; }   /* swipe up on the pane head = the pane covers the console chat; X backs out */
+        .dc-body.dc-split.pfull > #dc-peer { flex: 1 1 auto; border: 0; padding-left: 0; padding-top: 0; }
         #dc-peer-head #dc-peer-bar { padding: 0; margin: 0; border: 0; flex: 0 1 auto; min-width: 0; font-weight: 400; }   /* Share sits beside the name; wraps under it when it can't fit (L 2026-09-28) */
         .ph.ph-c { cursor: pointer; user-select: none; display: flex; align-items: center; justify-content: space-between; }
         .ph.ph-c .chev { transition: transform .15s; opacity: .7; }
@@ -5188,7 +5190,18 @@
             <div id="dc-peer-log" class="dc-chat-log" hidden></div>
             <form id="dc-peer-form" class="dc-chat-input" hidden><span class="ps" aria-hidden="true">❯</span><textarea id="dc-peer-in" rows="2" placeholder="message…  (Enter sends)"></textarea><button type="button" class="dc-emoji-btn" id="dc-peer-emoji" title="emoji (search at the top)" aria-label="emoji picker">🙂</button><button type="submit" class="dc-btn push">▲</button></form>`;   // SAME box as the Droplet chat (L 2026-09-27: "the chat boxes still look different")
         body.appendChild(pane);
-        $('#dc-peer-x').onclick = closePeer;
+        const body0 = () => $('#dc-console .dc-body');
+        $('#dc-peer-x').onclick = () => { if (body0().classList.contains('pfull')) body0().classList.remove('pfull'); else closePeer(); };   // full cover: X = back to the split
+        (function wirePeerCover() {   // swipe up on the pane's head = cover the console chat; swipe down = back
+            const head = $('#dc-peer-head'); let sy = null, sx = 0;
+            head.addEventListener('pointerdown', e => { if (e.target.closest('button, textarea, input, a')) return; sy = e.clientY; sx = e.clientX; });
+            head.addEventListener('pointerup', e => {
+                if (sy == null) return; const dy = e.clientY - sy, dx = Math.abs(e.clientX - sx); sy = null;
+                if (dx > Math.abs(dy)) return;
+                if (dy < -36) body0().classList.add('pfull'); else if (dy > 36) body0().classList.remove('pfull');
+            });
+            head.addEventListener('pointercancel', () => { sy = null; });
+        })();
         $('#dc-peer-back').onclick = () => showHome();
         $('#dc-peer-form').onsubmit = e => { e.preventDefault(); send(); };
         $('#dc-peer-in').addEventListener('keydown', e => {
@@ -5552,7 +5565,7 @@
     function closePeer() {
         if (P.unsub) { P.unsub(); P.unsub = null; }
         P.open = null; P.other = null;
-        $('#dc-console .dc-body').classList.remove('dc-split');
+        $('#dc-console .dc-body').classList.remove('dc-split', 'pfull');
         dots();
     }
 
