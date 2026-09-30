@@ -707,8 +707,9 @@
                     alert('Input text is too long! Please shorten it.');
                     return;
                 }
-                const encrypted = scrambleText(inputText.value.trim(), key.value.trim());
-                outputText.value = encrypted;
+                aesEncrypt(inputText.value.trim(), key.value.trim())
+                    .then(enc => { outputText.value = enc; })
+                    .catch(err => { alert('Encryption failed.'); console.error(err); });
             });
 
             decryptBtn.addEventListener('click', () => {
@@ -716,13 +717,14 @@
                     alert('Please enter a key!');
                     return;
                 }
-                try {
-                    const decrypted = unscrambleText(inputText.value.trim(), key.value.trim());
-                    outputText.value = decrypted;
-                } catch (error) {
-                    alert('Error: Unable to decrypt. Please check your input and key.');
-                    console.error(error);
-                }
+                const src = inputText.value.trim(), k = key.value.trim();
+                // AGCM1 = real AES (2026-09-30). Anything else = text from the old XOR scrambler, still readable.
+                const run = src.startsWith(AES_PREFIX) ? aesDecrypt(src, k) : Promise.resolve(unscrambleText(src, k));
+                run.then(dec => { outputText.value = dec; })
+                    .catch(error => {
+                        alert('Error: Unable to decrypt. Wrong key, or the text was changed.');
+                        console.error(error);
+                    });
             });
 
             clearBtn.addEventListener('click', () => {
@@ -734,6 +736,32 @@
             copyInputBtn.addEventListener('click', () => copyToClipboard(inputText.value));
             copyOutputBtn.addEventListener('click', () => copyToClipboard(outputText.value));
             saveOutputBtn.addEventListener('click', () => saveToFile(outputText.value, 'output.txt'));
+
+            // ---- AES-256-GCM with a PBKDF2 key (2026-09-30, L: fix the weak Encrypt). The SAME engine and blob
+            // format as onlinenotes.html + testbed/encryption.html + ops mailbox.py, so text encrypted here opens
+            // there too: "AGCM1.<saltB64>.<ivB64>.<cipherB64>", key = PBKDF2-SHA256(key, salt, 210000).
+            // The old repeating-key XOR below stays for DECRYPTING older output only.
+            const AES_PREFIX = 'AGCM1.';
+            const _b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+            const _unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+            async function _aesKey(password, salt) {
+                const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+                return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 210000, hash: 'SHA-256' },
+                    km, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+            }
+            async function aesEncrypt(plaintext, password) {
+                const salt = crypto.getRandomValues(new Uint8Array(16));
+                const iv = crypto.getRandomValues(new Uint8Array(12));
+                const k = await _aesKey(password, salt);
+                const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, k, new TextEncoder().encode(plaintext));
+                return AES_PREFIX + _b64(salt) + '.' + _b64(iv) + '.' + _b64(ct);
+            }
+            async function aesDecrypt(blob, password) {
+                const [, saltB, ivB, ctB] = blob.split('.');
+                const k = await _aesKey(password, _unb64(saltB));
+                const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: _unb64(ivB) }, k, _unb64(ctB));
+                return new TextDecoder().decode(pt);
+            }
 
             function scrambleText(text, key) {
                 if (!text || !key) return '';
