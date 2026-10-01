@@ -1176,8 +1176,16 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             return `hsl(${hue}, 45%, 38%)`;
         }
 
+        // QUEUE, NOT DROP (2026-10-01, L: "it thinks and then no more messages get processed while it's working"):
+        // messages sent while the bot was busy used to be silently DROPPED (`if (botBusy) return`). Now they wait in
+        // line and run in order as soon as the current answer is done - ollama serves one request at a time anyway.
+        const botQueue = [];
         async function askBot(username, question) {
-            if (botBusy) return;
+            if (botBusy) {
+                botQueue.push([username, question]);
+                botTyping.textContent = BOT_NAME + ' is busy - ' + botQueue.length + ' message' + (botQueue.length > 1 ? 's' : '') + ' in line...';
+                return;
+            }
             botBusy = true;
             botTyping.textContent = BOT_NAME + ' thinking...';
 
@@ -1295,6 +1303,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             } finally {
                 botBusy = false;
                 botTyping.textContent = '';
+                if (botQueue.length) { const [u, q] = botQueue.shift(); setTimeout(() => askBot(u, q), 50); }   // next in line
             }
         }
 
