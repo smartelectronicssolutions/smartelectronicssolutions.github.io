@@ -241,6 +241,20 @@
       }
     };
 
+    // SHARE SYNC (2026-10-01, L: "make it sync"): saving a note I have shared also refreshes my share/notes copy, so the
+    // others see the new version live. One-way (me -> them): only when the share entry is mine (rules enforce it too);
+    // a same-named note someone else shares is never touched. Encrypted stays encrypted (rec.note is the cipher).
+    const syncShare = async (name, rec) => {
+      if (DATABASE_BASE_PATH === 'public') return;
+      try {
+        const sref = ref(database, `share/notes/${name}`);
+        const cur = (await get(sref)).val();
+        if (!cur || cur.sharedBy !== DATABASE_BASE_PATH) return;
+        await set(sref, { ...rec, sharedBy: cur.sharedBy, sharedByName: cur.sharedByName || '', sharedAt: cur.sharedAt || Date.now(), sharedUpdatedAt: Date.now() });
+        const st = document.getElementById('share-status'); if (st) st.textContent = `Shared copy of "${name}" updated.`;
+      } catch (e) { console.warn('share sync failed:', e); }
+    };
+
     const saveNote = async (silent = false) => {
       const nameToSave = nameInput.value.trim();
       const saveBtn = document.getElementById('save-btn');
@@ -269,6 +283,7 @@
 
         if (!existingNote || new Date(timestamp) > new Date(existingNote.timestamp)) {
           await set(notesRef, rec);
+          await syncShare(nameToSave, rec);
           console.log('Note saved successfully');
           updateSaveButton(saveBtn);
         } else {
@@ -277,6 +292,7 @@
           );
           if (userChoice) {
             await set(notesRef, rec);
+          await syncShare(nameToSave, rec);
             console.log('Note overwritten by user choice');
             updateSaveButton(saveBtn);
           } else {
@@ -294,7 +310,7 @@
       button.textContent = 'Saved';
       button.style.backgroundColor = 'lightblue';
       setTimeout(() => {
-        button.textContent = '💾';
+        button.textContent = '💾 Save';
         button.style.backgroundColor = '';
       }, 2000);
     };
