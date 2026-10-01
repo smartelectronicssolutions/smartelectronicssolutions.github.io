@@ -2481,9 +2481,38 @@
             } catch (_) { }
             finally { replyBusy = false; }
         }
+        // REPLY BUZZ (2026-10-01, L: "add a notification to the app like a vibration"): when a Droplet reply LANDS
+        // (a D turn goes from pending -> done, or arrives done) after the first paint, buzz + a soft two-note chime.
+        // navigator.vibrate works on Android; iPhone Safari has no vibration API at all, so the chime is the iPhone
+        // signal (audio is unlocked by his own send tap). Off switch: localStorage 'dc-buzz' = 'off'.
+        function replyBuzz() {
+            try { if (localStorage.getItem('dc-buzz') === 'off') return; } catch (_) { }
+            try { if (navigator.vibrate) navigator.vibrate([90, 60, 140]); } catch (_) { }
+            try {
+                const C = window.AudioContext || window.webkitAudioContext; if (!C) return;
+                const ac = DC.buzzCtx || (DC.buzzCtx = new C()); if (ac.state === 'suspended') ac.resume();
+                [[880, 0], [1320, 0.13]].forEach(([f, t]) => {
+                    const o = ac.createOscillator(), g = ac.createGain(), at = ac.currentTime + t;
+                    o.type = 'sine'; o.frequency.value = f; g.gain.setValueAtTime(0.0001, at);
+                    g.gain.exponentialRampToValueAtTime(0.18, at + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, at + 0.22);
+                    o.connect(g); g.connect(ac.destination); o.start(at); o.stop(at + 0.25);
+                });
+            } catch (_) { }
+        }
+        // unlock audio on the first tap anywhere (iOS needs a user gesture before any sound)
+        document.addEventListener('pointerdown', () => { try { const C = window.AudioContext || window.webkitAudioContext; if (C && !DC.buzzCtx) DC.buzzCtx = new C(); if (DC.buzzCtx && DC.buzzCtx.state === 'suspended') DC.buzzCtx.resume(); } catch (_) { } }, { once: true, passive: true });
+        function checkReplyLanded(obj) {
+            const done = DC.doneD || (DC.doneD = null);
+            const now = new Set(Object.keys(obj || {}).filter(k => obj[k] && obj[k].s === 'D' && !obj[k].pending && obj[k].text));
+            if (DC.doneD === null) { DC.doneD = now; return; }           // first paint: just remember, no buzz for history
+            let landed = false; for (const k of now) if (!DC.doneD.has(k)) { landed = true; break; }
+            DC.doneD = now;
+            if (landed) replyBuzz();
+        }
         function renderChat(obj) {
             const R = DC.remote;
             DC.chatTurns = obj;
+            if (!R) checkReplyLanded(obj);
             // THINKING LIGHT (2026-09-19): the send button breathes while any reply - in any tab - is still on its way.
             // Pending bubbles older than 30 min are ignored so one orphaned bubble cannot leave it pulsing forever.
             const thinking = Object.values(obj || {}).some(t => t && t.pending && Date.now() - (t.ts || 0) < 30 * 60 * 1000);
