@@ -1947,6 +1947,37 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             listenForMessages();
         });
     </script>
+    <script>
+    // SWIPE TABS (2026-10-01, L: "swipe left and right ... move to the different tabs, like the Droplet console"):
+    // a sideways swipe on the chat (or the Persona panel) steps to the next/previous VISIBLE tab - same feel as the hub.
+    // Guards (copied from the console): a mostly-horizontal, quick swipe only; ignored while you're typing a message
+    // (so a message can't land in another tab); ignored when the swipe starts on a horizontally scrollable thing
+    // (wide images / code), so scrolling those still works.
+    (function wireChatSwipe() {
+        const tabs = () => [...document.querySelectorAll('.chat-tab')].filter(b => b.style.display !== 'none' && !b.disabled);
+        const scrollsX = el => { for (; el && el !== document.body; el = el.parentElement) { if (el.scrollWidth > el.clientWidth + 4 && /(auto|scroll)/.test(getComputedStyle(el).overflowX)) return true; } return false; };
+        function step(dir) {
+            const inp = document.getElementById('message-input');
+            if (inp && inp.value.trim()) { inp.style.outline = '2px solid var(--accent, #4a90c4)'; setTimeout(() => { inp.style.outline = ''; }, 600); return; }
+            const list = tabs(); if (list.length < 2) return;
+            const i = Math.max(0, list.findIndex(b => b.classList.contains('active')));
+            const next = list[(i + dir + list.length) % list.length];
+            if (next) next.click();
+        }
+        ['chat-window', 'persona-panel'].forEach(id => {
+            const el = document.getElementById(id); if (!el) return;
+            let sx = 0, sy = 0, st = 0, ok = false;
+            el.addEventListener('touchstart', e => { ok = e.touches.length === 1 && !scrollsX(e.target); if (ok) { sx = e.touches[0].clientX; sy = e.touches[0].clientY; st = Date.now(); } }, { passive: true });
+            el.addEventListener('touchend', e => {
+                if (!ok) return; ok = false;
+                const t = e.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy;
+                if (Date.now() - st > 700 || Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 2) return;
+                step(dx < 0 ? 1 : -1);
+            }, { passive: true });
+            el.addEventListener('touchcancel', () => { ok = false; }, { passive: true });
+        });
+    })();
+    </script>
     <script src="../assets/js/reveal.js?v=4" defer></script>
 </body>
 
