@@ -1767,6 +1767,16 @@
         }
         function openTopicBar() { const b = $('#dc-topics'); if (b) b.classList.add('open'); snapTopicChip(false); }
         function stepTopic(dir) {
+            // COMPOSE LOCK (2026-10-01, L: "if I'm finalizing a message don't let me swipe tabs, so it doesn't move which tab
+            // it posts in"): a swipe while the box has text is ignored, with a hint. Tapping a tab on purpose still works.
+            { const ta = $('#dc-chat-in');
+              if (ta && ta.value.trim()) {
+                  const st = $('#dc-chat-status');
+                  if (st) { const was = st.textContent; st.textContent = '✋ Writing in #' + (DC.topic || 'All') + ' - send or clear it to swipe tabs';
+                            clearTimeout(DC.lockHintT); DC.lockHintT = setTimeout(() => { if (st.textContent.startsWith('✋')) st.textContent = was; }, 2200); }
+                  ta.style.outline = '2px solid var(--accent)'; setTimeout(() => { ta.style.outline = ''; }, 600);
+                  return;
+              } }
             const order = DC.topicOrder || [''];
             const i = Math.max(0, order.indexOf(DC.topic || ''));
             const third = noteSwipe();
@@ -2592,6 +2602,9 @@
                 pill.onclick = () => { snapChatEnd(log, newestFirst()); };
                 host.appendChild(pill);
             }
+            // newest-first: the pill sat at a fixed top:58px - right ON the input box. Pin it just under the box instead,
+            // at the top edge of the log (L 2026-10-01: "I want it under the input text box, not right on top").
+            pill.style.top = nf ? (log.offsetTop + 8) + 'px' : '';
             const away = nf ? log.scrollTop > 160 : (log.scrollHeight - log.scrollTop - log.clientHeight) > 160;
             pill.classList.toggle('show', away && log.scrollHeight > log.clientHeight + 200);
         }
