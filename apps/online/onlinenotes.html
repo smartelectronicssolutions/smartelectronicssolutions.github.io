@@ -198,7 +198,7 @@
       document.getElementById('copy-btn').addEventListener('click', copyNote);
       document.getElementById('paste-btn').addEventListener('click', pasteNote);
       document.getElementById('save-btn').addEventListener('click', () => saveNote());
-      document.getElementById('delete-btn').addEventListener('click', deleteNote);
+      document.getElementById('delete-btn').addEventListener('click', () => deleteNote());
       document.getElementById('clear-btn').addEventListener('click', clearNoteInputs);
       document.getElementById('undo-btn').addEventListener('click', undoDelete);
       // LIVE, no buttons: typing the 🔑 word auto-converts after a short pause (scheduleWord -> wordSettled).
@@ -337,10 +337,16 @@
       } catch (e) { st.textContent = 'Not moved: ' + (e.code || e.message || e); }
     });
 
-    const deleteNote = async () => {
-      const nameToDelete = nameInput.value.trim();
+    // Delete (2026-10-01, L: "there's no way I see to delete a note"): the toolbar ❌ only worked on the note loaded in the
+    // editor and failed SILENTLY otherwise (console.log). Now: every own note in the list has its own 🗑, and the toolbar
+    // button says what's wrong instead of doing nothing.
+    const deleteNote = async (nameArg, scopeArg) => {
+      const nameToDelete = (typeof nameArg === 'string' ? nameArg : nameInput.value).trim();
+      const scope = scopeArg || curScope;
+      const loadedHere = nameToDelete === nameInput.value.trim();
 
-      if (nameToDelete) {
+      if (!nameToDelete) { alert('Open a note first (tap it in the list), or use the 🗑 next to a note.'); return; }
+      {
         const userConfirmed = confirm(`Are you sure you want to delete the note with name: ${nameToDelete}?`);
         if (!userConfirmed) {
           console.log('Note deletion cancelled.');
@@ -348,7 +354,7 @@
         }
 
         try {
-          const notesRef = ref(database, `${notesRoot(curScope)}/notes`);
+          const notesRef = ref(database, `${notesRoot(scope)}/notes`);
           const snapshot = await get(notesRef);
           const notes = snapshot.val();
 
@@ -357,21 +363,19 @@
             if (noteId) {
               const deletedNote = notes[noteId];
               storeDeletedNote(deletedNote.name, deletedNote.note);
-              await set(ref(database, `${notesRoot(curScope)}/notes/${noteId}`), null);
-              clearNoteInputs();
+              await set(ref(database, `${notesRoot(scope)}/notes/${noteId}`), null);
+              if (loadedHere) clearNoteInputs();
               console.log(`Deleted the note with name: ${nameToDelete}`);
             } else {
-              console.log('Note not found.');
+              alert(`No saved note named "${nameToDelete}" here - it may be unsaved, or in the other (Private/Public) list.`);
             }
           } else {
-            console.log('No notes available.');
+            alert('No saved notes here to delete.');
           }
         } catch (err) {
           console.error('Failed to delete note:', err);
           alert('Failed to delete the note. Please try again.');
         }
-      } else {
-        console.log('Please enter the name of the note to delete.');
       }
     };
 
@@ -456,6 +460,15 @@
         lockTag.title = 'Encrypted — set the matching key to read';
         lockTag.style.marginLeft = '6px';
         listItem.appendChild(lockTag);
+      }
+
+      // 🗑 on my own notes (private + public). Notes others shared with me are theirs - no delete here.
+      if (note.__scope === 'private' || (note.__scope === 'public' && !note.sharedBy)) {
+        const del = document.createElement('button');
+        del.type = 'button'; del.textContent = '🗑'; del.title = 'Delete this note';
+        del.style.cssText = 'float:right;padding:0 8px;margin-left:8px;background:transparent;border:none;cursor:pointer;font-size:1.05em';
+        del.addEventListener('click', ev => { ev.stopPropagation(); deleteNote(note.name, note.__scope === 'public' ? 'public' : 'private'); });
+        listItem.insertBefore(del, listItem.firstChild);
       }
 
       listItem.addEventListener('click', () => {
