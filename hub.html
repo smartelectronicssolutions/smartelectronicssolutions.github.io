@@ -1787,10 +1787,13 @@
         function stepTopic(dir) {
             // COMPOSE LOCK (2026-10-01, L: "if I'm finalizing a message don't let me swipe tabs, so it doesn't move which tab
             // it posts in"): a swipe while the box has text is ignored, with a hint. Tapping a tab on purpose still works.
+            // PUSH THROUGH (2026-10-01, L: "if I keep trying, have it eventually allow a swipe"): the 3rd swipe in a row
+            // within 2.5 s goes through - the draft rides along to the new tab. One stray swipe still can't move it.
             { const ta = $('#dc-chat-in');
-              if (ta && ta.value.trim()) {
+              const now = Date.now(); DC.lockN = (now - (DC.lockT || 0) < 2500) ? (DC.lockN || 0) + 1 : 1; DC.lockT = now;
+              if (ta && ta.value.trim() && DC.lockN < 3) {
                   const st = $('#dc-chat-status');
-                  if (st) { const was = st.textContent; st.textContent = '✋ Writing in #' + (DC.topic || 'All') + ' - send or clear it to swipe tabs';
+                  if (st) { const was = st.textContent; st.textContent = '✋ Writing in #' + (DC.topic || 'All') + ' - swipe ' + (3 - DC.lockN) + ' more to move it';
                             clearTimeout(DC.lockHintT); DC.lockHintT = setTimeout(() => { if (st.textContent.startsWith('✋')) st.textContent = was; }, 2200); }
                   ta.style.outline = '2px solid var(--accent)'; setTimeout(() => { ta.style.outline = ''; }, 600);
                   return;
