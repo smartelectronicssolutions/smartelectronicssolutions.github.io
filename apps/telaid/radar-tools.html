@@ -1061,6 +1061,17 @@
           reader.readAsDataURL(blob);
         });
 
+      // Device number from an upload's file name: <prefix>_<NN>-<serial>[_n].jpg.
+      // 3-DIGIT FIX (2026-10-01, L: "the missing images count isn't updating when I get them"):
+      // the old /(?:^|_)(\d{2})-/ only read 2-digit numbers, so on a 241-sensor site every photo
+      // for device 100+ (Walmart 54's 175-185 = all uploads so far) was never counted.
+      function sensorNumOf(name) {
+        const prefix = sanitize(state.currentCustomerName || state.currentProjectName || state.currentProject || "");
+        const rest = prefix && name.startsWith(prefix + "_") ? name.slice(prefix.length + 1) : null;
+        const m = rest !== null ? rest.match(/^(\d{1,4})-/) : name.match(/(?:^|_)(\d{2,4})-/);
+        return m ? parseInt(m[1], 10) : 0;
+      }
+
       async function updateGallery() {
         if (!state.currentProject) return;
 
@@ -1134,11 +1145,8 @@
           const countMap = {};
 
           items.forEach((item) => {
-            const match = item.name.match(/(?:^|_)(\d{2})-/);
-            if (match) {
-              const idx = parseInt(match[1], 10);
-              countMap[idx] = (countMap[idx] || 0) + 1;
-            }
+            const idx = sensorNumOf(item.name);
+            if (idx) countMap[idx] = (countMap[idx] || 0) + 1;
           });
 
           // Nothing to check against means a BLANK section, which reads as broken. Say why.
@@ -1241,9 +1249,8 @@
               state.currentProject,
           );
 
-          const matchCount = existing.filter((item) =>
-            item.name.startsWith(`${prefix}_${paddedNum}`),
-          ).length;
+          // exact device number - startsWith("_10") also matched 100-109
+          const matchCount = existing.filter((item) => sensorNumOf(item.name) === Number(num)).length;
           if (matchCount >= CONFIG.SENSOR_IMAGE_COUNT_REQUIRED) {
             const proceed = confirm(
               `Sensor ${paddedNum} already has ${CONFIG.SENSOR_IMAGE_COUNT_REQUIRED} uploads. Upload another?`,
