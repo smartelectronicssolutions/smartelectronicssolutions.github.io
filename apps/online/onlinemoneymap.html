@@ -194,6 +194,8 @@
     // ---- drawing (ported from the Louverse code map) ----
     const cv = $("map"), cx = cv.getContext("2d");
     let view = { s: 1, ox: 0, oy: 0, dpr: 1 }, base = null, sky = null;
+    let raf = 0; const requestDraw = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; draw(); }); };   // one draw per frame while moving
+    let scrollAcc = 0, scrollRaf = 0; const scrollPage = dy => { scrollAcc += dy; if (!scrollRaf) scrollRaf = requestAnimationFrame(() => { scrollRaf = 0; window.scrollBy(0, scrollAcc); scrollAcc = 0; }); };
     function fit() {
       const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
       cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
@@ -311,7 +313,7 @@
     // ---- zoom / pan / tap (Louverse rules: two fingers, middle button or shift-drag always move the map) ----
     let drag = null, pinch = null, moved = false, mid = null; const ptr = new Map();
     function zoomAt(px, py, f) { if (!base) return; const ns = Math.max(base.s * 0.8, Math.min(base.s * 160, view.s * f)); f = ns / view.s;
-      view.ox = px - (px - view.ox) * f; view.oy = py - (py - view.oy) * f; view.s = ns; draw(); }
+      view.ox = px - (px - view.ox) * f; view.oy = py - (py - view.oy) * f; view.s = ns; requestDraw(); }
     const toC = e => { const r = cv.getBoundingClientRect(), d = view.dpr || 1; return [(e.clientX - r.left) * d, (e.clientY - r.top) * d]; };
     function hitAt(mx, my) { const dpr = view.dpr || 1, zoom = base ? view.s / base.s : 1, br = 3.2 * view.s; let best = -1, bd = Infinity;
       V.forEach((v, i) => { const [x, y] = P(v), reach = Math.max(22 * dpr, br > 30 * dpr ? Math.min(br, 150 * dpr) : Math.min(26, v.rad * Math.sqrt(zoom)) * dpr + 6 * dpr), d = (x - mx) ** 2 + (y - my) ** 2; if (d < reach ** 2 && d < bd) { bd = d; best = i; } });
@@ -335,8 +337,8 @@
         if (mid) { view.ox += m[0] - mid[0]; view.oy += m[1] - mid[1]; } zoomAt(m[0], m[1], d / pinch); pinch = d; mid = m; moved = true; }
       else if (drag) { const dx = p[0] - drag[0], dy = p[1] - drag[1];
         if (e.pointerType === "touch") {   // one finger = scroll the page by hand (touch-action none), never the map
-          if (Math.abs(dx) + Math.abs(dy) > 6) moved = true; const d = view.dpr || 1, now = performance.now(); window.scrollBy(0, -dy / d); fling.v = (-dy / d) / Math.max(1, now - fling.t); fling.t = now; drag = p; return; }
-        if (Math.abs(dx) + Math.abs(dy) > 6) moved = true; if (!moved) return; view.ox += dx; view.oy += dy; drag = p; draw(); } });
+          if (Math.abs(dx) + Math.abs(dy) > 6) moved = true; const d = view.dpr || 1, now = performance.now(); scrollPage(-dy / d); fling.v = (-dy / d) / Math.max(1, now - fling.t); fling.t = now; drag = p; return; }
+        if (Math.abs(dx) + Math.abs(dy) > 6) moved = true; if (!moved) return; view.ox += dx; view.oy += dy; drag = p; requestDraw(); } });
     const up = e => { ptr.delete(e.pointerId); if (ptr.size < 2) { pinch = null; mid = null; drag = ptr.size ? [...ptr.values()][0] : null; }
       if (!ptr.size && e.pointerType === "touch" && moved && performance.now() - fling.t < 80) glide(); };
     cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);

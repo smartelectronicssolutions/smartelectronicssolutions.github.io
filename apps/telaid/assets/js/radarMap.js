@@ -56,6 +56,13 @@ body.rm-embed-page header.top-actions { display: none !important; }
 .rmap #rm-legend { order: -2; } .rmap .hint { order: -1; }
 .rmap #rm-job { width: 100% !important; max-width: 640px; margin: 0 !important; font-size: 1rem; padding: 8px; }
 .rmap.embed #rm-jobrow { display: none !important; }
+/* SLIDERS (L 2026-10-02 "maybe have a slider on bottom and right"): a native range along the bottom (left-right) and one
+   up the right edge (up-down). One finger on either moves the map, no gesture fight; they mirror pinch/drag, and only
+   show once the map is bigger than its box. The vertical one is a horizontal range turned 90 degrees. */
+.rmap .mapwrap .rm-sl { position: absolute; margin: 0 !important; padding: 0; height: 16px; box-shadow: none !important; background: transparent; z-index: 2; opacity: .9; touch-action: none; }
+.rmap .mapwrap .rm-sl[hidden] { display: none !important; }
+.rmap .mapwrap .rm-slx { left: 8px; bottom: 4px; width: calc(100% - 40px) !important; }
+.rmap .mapwrap .rm-sly { top: 8px; left: calc(100% - 6px); width: var(--rm-slh, 300px) !important; transform: rotate(90deg); transform-origin: left top; }
 .rmap.embed #rm-map { height: min(62vh, 560px); }`;
 function injectCss() {
   if (document.getElementById("rmap-css")) return;
@@ -81,9 +88,11 @@ const TEMPLATE = `<div class="app-shell">
         <span style="flex:1"></span>
         <input id="rm-find" type="text" inputmode="numeric" placeholder="Sensor #" autocomplete="off" />
       </div>
-      <div class="mapwrap"><canvas id="rm-map" aria-label="Floor map of every sensor"></canvas></div>
+      <div class="mapwrap"><canvas id="rm-map" aria-label="Floor map of every sensor"></canvas>
+        <input type="range" id="rm-slx" class="rm-sl rm-slx" min="0" max="1000" value="0" aria-label="Move the map left or right" hidden />
+        <input type="range" id="rm-sly" class="rm-sl rm-sly" min="0" max="1000" value="0" aria-label="Move the map up or down" hidden /></div>
       <div class="legend" id="rm-legend"></div>
-      <div class="muted hint">Pinch, or Shift + scroll, to zoom · two fingers (any direction) or a mouse drag move the map, one finger scrolls the page · tap a sensor or cabinet for its photos · hold one ~half a second, then drag, to move it · double-tap to reset the view. Numbers appear as you zoom in.</div>
+      <div class="muted hint">Pinch, or Shift + scroll, to zoom · two fingers (any direction), the edge sliders, or a mouse drag move the map; one finger on the map scrolls the page · tap a sensor or cabinet for its photos · hold one ~half a second, then drag, to move it · double-tap to reset the view. Numbers appear as you zoom in.</div>
       <div class="card" id="rm-info"><span class="muted">Tap a sensor to see its details.</span></div>
     </div>`;
 
@@ -128,7 +137,7 @@ export function mountRadarMap(root, opts = {}) {
       if (!user) { $("source").textContent = "Sign in to load the site."; return; }
       if (!TASK) { $("source").textContent = "Open a site above and its map shows here."; $("stats").innerHTML = ""; $("hubs").innerHTML = ""; return; }
       S = []; sel = -1; selHub = null; B = null; for (const k in HUBPH) delete HUBPH[k]; PHOTOS = "loading";
-      PLAN = null; planImg = null; planDark = null; $("plan").hidden = true;
+      PLAN = null; planImg = null; planDark = null; planFast = null; $("plan").hidden = true;
       $("source").textContent = "Loading...";
       const { owner, task, meta } = await loadJob(user, TASK);
       if (!meta) { $("source").textContent = "No sensor data found for this job."; return; }
@@ -216,9 +225,16 @@ export function mountRadarMap(root, opts = {}) {
     const rotXY = (x, y) => ROT === 90 ? [-y, x] : ROT === 180 ? [-x, -y] : ROT === 270 ? [y, -x] : [x, y];
     const X = s => layout === "wiring" ? s.wx : rotXY(s.x, s.y)[0], Y = s => layout === "wiring" ? s.wy : rotXY(s.x, s.y)[1];
     let view = { s: 1, ox: 0, oy: 0, dpr: 1 }, base = null, B = null;
+    // SMOOTH (L 2026-10-02 "it's very stuttery now"): pointer events arrive faster than the iPad can paint the floor plan,
+    // so moves only ASK for a frame (one draw per animation frame), the plan is drawn from a small cached copy while a
+    // finger is down (full-res again on release), and the 241 number labels wait until the move ends.
+    let raf = 0; const requestDraw = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; draw(); }); };
+    let scrollAcc = 0, scrollRaf = 0; const scrollPage = dy => { scrollAcc += dy; if (!scrollRaf) scrollRaf = requestAnimationFrame(() => { scrollRaf = 0; window.scrollBy(0, scrollAcc); scrollAcc = 0; }); };
+    let planFast = null;   // {light, c}
     function fit() {
       const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
       cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
+      $("sly").style.setProperty("--rm-slh", Math.max(60, r.height - 40) + "px");
       if (!S.length) return draw();
       const xs = S.map(X), ys = S.map(Y);
       B = { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
@@ -246,7 +262,7 @@ export function mountRadarMap(root, opts = {}) {
       for (const s of S) { const [x, y] = P(s); if (x < -20 || y < -20 || x > cv.width + 20 || y > cv.height + 20) continue;
         cx.fillStyle = colorOf(s); cx.beginPath(); cx.arc(x, y, r, 0, 6.283); cx.fill();
         if (s.photos) { cx.strokeStyle = "#ffffff"; cx.lineWidth = 1.6 * dpr; cx.beginPath(); cx.arc(x, y, r + 2.5 * dpr, 0, 6.283); cx.stroke(); } }
-      if (zoom >= 2.2) {
+      if (zoom >= 2.2 && !ptr.size) {   // number labels wait until the move ends (fillText x241 is what the iPad trips on)
         cx.font = `600 ${11 * dpr}px system-ui, sans-serif`; cx.fillStyle = css("--textColor") || "#e5e7eb";
         for (const s of S) { const [x, y] = P(s); if (x > 0 && y > 0 && x < cv.width && y < cv.height) cx.fillText(String(s.m), x + r + 2 * dpr, y + 4 * dpr); }
       }
@@ -254,6 +270,7 @@ export function mountRadarMap(root, opts = {}) {
         for (const i of HL) { const [x, y] = P(S[i]); cx.beginPath(); cx.arc(x, y, r + 4 * dpr, 0, 6.283); cx.stroke(); } }
       if (sel >= 0) { const s = S[sel], [x, y] = P(s); cx.strokeStyle = css("--textColor") || "#fff"; cx.lineWidth = 2.5 * dpr;
         cx.beginPath(); cx.arc(x, y, r + 5 * dpr, 0, 6.283); cx.stroke(); }
+      syncSliders();
       if (layout === "wiring") return;
       // scale bar
       const ft = zoom > 3 ? 10 : 50, w = ft * view.s;
@@ -276,6 +293,19 @@ export function mountRadarMap(root, opts = {}) {
         cx.fillStyle = css("--textColor") || "#e5e7eb"; cx.font = `600 ${10 * dpr}px system-ui, sans-serif`; cx.fillText(hubLabel(h), x, y - half - 4 * dpr); }
       cx.textAlign = "start";
     }
+    // sliders <-> view. t = 0: the map's left (top) edge at the box edge; t = 1: its right (bottom) edge there.
+    let slHeld = null;
+    function slExtent() { return B ? [(B.x1 - B.x0) * view.s - cv.width, (B.y1 - B.y0) * view.s - cv.height] : [0, 0]; }
+    function syncSliders() {
+      if (!B || !base) return; const [ex, ey] = slExtent(), sx = $("slx"), sy = $("sly");
+      sx.hidden = ex <= 1; sy.hidden = ey <= 1;
+      if (ex > 1 && slHeld !== "x") sx.value = Math.round(Math.max(0, Math.min(1, -view.ox / ex)) * 1000);
+      if (ey > 1 && slHeld !== "y") sy.value = Math.round(Math.max(0, Math.min(1, -view.oy / ey)) * 1000);
+    }
+    for (const [id, axis] of [["slx", "x"], ["sly", "y"]]) { const el = $(id);
+      el.addEventListener("pointerdown", () => { slHeld = axis; }); el.addEventListener("pointerup", () => { slHeld = null; }); el.addEventListener("pointercancel", () => { slHeld = null; });
+      el.addEventListener("input", () => { const [ex, ey] = slExtent(), t = Number(el.value) / 1000;
+        if (axis === "x") { if (ex > 1) view.ox = -t * ex; } else { if (ey > 1) view.oy = -t * ey; } requestDraw(); }); }
     function drawPlan() {
       const p = PLAN, light = document.documentElement.classList.contains("light");
       const sc = (u, v) => { const [rx, ry] = rotXY(p.x0 + u / p.k, p.y0 - v / p.k); return [view.ox + (rx - B.x0) * view.s, view.oy + (B.y1 - ry) * view.s]; };
@@ -286,8 +316,23 @@ export function mountRadarMap(root, opts = {}) {
           g.drawImage(planImg, 0, 0); const d = g.getImageData(0, 0, o.width, o.height), a = d.data; for (let i = 0; i < a.length; i += 4) { a[i] = 255 - a[i]; a[i + 1] = 255 - a[i + 1]; a[i + 2] = 255 - a[i + 2]; }
           g.putImageData(d, 0, 0); planDark = o; }
         im = planDark; }
+      if (ptr.size) {   // moving: draw a small cached copy (long side 1400 px) instead of the full 1800x2366 sheet
+        if (!planFast || planFast.light !== light) { const k = 1400 / Math.max(im.width || im.naturalWidth, im.height || im.naturalHeight), o = document.createElement("canvas");
+          o.width = Math.round((im.width || im.naturalWidth) * k); o.height = Math.round((im.height || im.naturalHeight) * k); o.getContext("2d").drawImage(im, 0, 0, o.width, o.height); planFast = { light, c: o }; }
+        im = planFast.c; }
+      const W = im.width || im.naturalWidth, H = im.height || im.naturalHeight;
+      // ONLY THE VISIBLE PIECE (the "won't load" / "stuttery" freeze, 2026-10-02): drawing the whole sheet through a big
+      // zoom transform made the browser rasterize the entire scaled image (hundreds of megapixels at 6x) and hang the
+      // tab for a minute. Invert the transform, find which part of the image covers the canvas, and draw just that.
+      const a = (bx - ax) / W, b = (by - ay) / W, c = (cx2 - ax) / H, d = (cy2 - ay) / H, e = ax, f = ay, det = a * d - b * c;
+      if (!det) return;
+      const inv = (X, Y) => [(d * (X - e) - c * (Y - f)) / det, (a * (Y - f) - b * (X - e)) / det];
+      const cs = [inv(0, 0), inv(cv.width, 0), inv(0, cv.height), inv(cv.width, cv.height)];
+      let su = Math.min(...cs.map(q => q[0])), sv = Math.min(...cs.map(q => q[1])), eu = Math.max(...cs.map(q => q[0])), ev = Math.max(...cs.map(q => q[1]));
+      su = Math.max(0, Math.floor(su) - 2); sv = Math.max(0, Math.floor(sv) - 2); eu = Math.min(W, Math.ceil(eu) + 2); ev = Math.min(H, Math.ceil(ev) + 2);
+      if (eu <= su || ev <= sv) return;
       cx.save(); cx.globalAlpha = planMode === "full" ? (light ? 0.95 : 0.85) : (light ? 0.45 : 0.4); cx.globalCompositeOperation = light ? "multiply" : "screen";
-      cx.setTransform((bx - ax) / p.w, (by - ay) / p.w, (cx2 - ax) / p.h, (cy2 - ay) / p.h, ax, ay); cx.drawImage(im, 0, 0); cx.restore();
+      cx.setTransform(a, b, c, d, e, f); cx.drawImage(im, su, sv, eu - su, ev - sv, su, sv, eu - su, ev - sv); cx.restore();
       cx.setTransform(1, 0, 0, 1, 0, 0);
     }
     function planLabel() { $("plan").innerHTML = "&#128506; Plan: " + planMode; }
@@ -428,7 +473,7 @@ export function mountRadarMap(root, opts = {}) {
     }
     const toC = e => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * view.dpr, (e.clientY - r.top) * view.dpr]; };
     function zoomAt(px, py, f) { if (!base) return; const ns = Math.max(base.s * .7, Math.min(base.s * 30, view.s * f)); f = ns / view.s;
-      view.ox = px - (px - view.ox) * f; view.oy = py - (py - view.oy) * f; view.s = ns; draw(); }
+      view.ox = px - (px - view.ox) * f; view.oy = py - (py - view.oy) * f; view.s = ns; requestDraw(); }
     // L 2026-10-02: a plain wheel scrolls the PAGE; Shift + wheel (or Ctrl, i.e. trackpad pinch) zooms the map.
     cv.addEventListener("wheel", e => { if (!e.shiftKey && !e.ctrlKey) return; e.preventDefault(); const [x, y] = toC(e);
       zoomAt(x, y, Math.exp(-(e.deltaY || e.deltaX) * 0.0015)); }, { passive: false });
@@ -453,14 +498,14 @@ export function mountRadarMap(root, opts = {}) {
       else if (drag) { const dx = p[0] - drag[0], dy = p[1] - drag[1];
         if (e.pointerType === "touch" && !mov) {   // one finger = scroll the page, never the map (and never start a grab)
           if (Math.abs(dx) + Math.abs(dy) > 6) { moved = true; clearTimeout(press); press = null; }
-          const d = view.dpr || 1, now = performance.now(); window.scrollBy(0, -dy / d); fling.v = (-dy / d) / Math.max(1, now - fling.t); fling.t = now; drag = p; return; }
+          const d = view.dpr || 1, now = performance.now(); scrollPage(-dy / d); fling.v = (-dy / d) / Math.max(1, now - fling.t); fling.t = now; drag = p; return; }
         if (mov) { const [fx, fy] = unrot(dx / view.s, -dy / view.s);   // screen y down -> plan y up
           if (mov.kind === "sensor") { S[mov.i].x += fx; S[mov.i].y += fy; } else { TABLES.hubs[mov.h][0] += fx; TABLES.hubs[mov.h][1] += fy; }
-          drag = p; draw(); return; }
+          drag = p; requestDraw(); return; }
         if (Math.abs(dx) + Math.abs(dy) > 6) { moved = true; clearTimeout(press); press = null; }
-        view.ox += dx; view.oy += dy; drag = p; draw(); } });
+        view.ox += dx; view.oy += dy; drag = p; requestDraw(); } });
     const up = e => { ptr.delete(e.pointerId); clearTimeout(press); press = null; if (ptr.size < 2) pinch = null;
-      if (!ptr.size) { drag = null; if (mov) endMove(); else if (e.pointerType === "touch" && moved && performance.now() - fling.t < 80) glide(); } };
+      if (!ptr.size) { drag = null; if (mov) endMove(); else if (e.pointerType === "touch" && moved && performance.now() - fling.t < 80) glide(); requestDraw(); } };   // full-quality frame once the fingers lift
     cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
     cv.addEventListener("dblclick", () => { if (base) { view = Object.assign({}, base); draw(); } });
     cv.addEventListener("click", e => { if (moved) { moved = false; return; }
