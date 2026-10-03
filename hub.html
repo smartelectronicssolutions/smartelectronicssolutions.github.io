@@ -879,6 +879,7 @@
             .dc-ideas { padding: 6px 2px 6px; gap: 6px; }
             .dc-idea { font-size: calc(0.78rem * var(--dc-fs, 1)); padding: 4px 9px; }
             .dc-chat-input textarea { font-size: calc(16px * var(--dc-fs, 1)); }   /* 16px stops iOS from zooming the page on focus */
+            #dc-peer-word, #dc-peer-home input[type="text"], #dc-peer-home input[type="password"], #dc-peer-home input[type="search"] { font-size: 16px; }   /* same rule for the pane's fields - the 🔑 Chat word box at .85rem made iOS zoom the whole page ("shows the page wide", L 2026-10-03) */
         }
         .dc-bub { max-width: 84%; min-width: 9em; padding: 9px 13px; border-radius: var(--dc-r-lg); font-size: calc(0.9rem * var(--dc-fs, 1)); line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; }   /* min-width: a one-word reply keeps its header on one line */
         /* the message body is not a button any more - only the ✎ is (2026-09-25) */
@@ -5334,7 +5335,7 @@
     const isE2EThread = tid => E2E.on && !!tid && !String(tid).startsWith('tab-');
     async function openMsg(k, m) { if (!m || !m.enc) return m; if (E2E.plain.has(k)) return { ...m, text: E2E.plain.get(k) };
         const sec = readSecret(m); let text;   // no word entered, or the wrong one = the blob itself, as it sits in Firebase
-        if (sec == null) text = '🔒 ' + m.text; else { try { text = await decText(sec, m.text); } catch (_) { text = '🔒 ' + m.text; } }
+        if (sec == null) text = m.text; else { try { text = await decText(sec, m.text); } catch (_) { text = m.text; } }   // can't open = the scrambled blob, nothing else (L 2026-10-03)
         E2E.plain.set(k, text); return { ...m, text }; }
     window.__dcE2E = { E2E, encText, decText, secretFor, isE2EThread };   // test hook
 
@@ -5676,7 +5677,7 @@
         if (need.length) Promise.all(need.map(([k, m]) => openMsg(k, m))).then(() => { if (lastMsgs === msgs) renderMsgs(msgs); });
         const nf = newestFirst(); $('#dc-peer') && $('#dc-peer').classList.toggle('nf', nf);
         const cleared = (P.index[P.open] || {}).clearedAt || 0;
-        const asc0 = Object.keys(msgs).sort().map(k => msgs[k] && { ...msgs[k], text: msgs[k].enc ? (E2E.plain.get(k) ?? '🔒 …') : msgs[k].text, __k: k }).filter(m => m && m.text && (m.ts || 0) > cleared);
+        const asc0 = Object.keys(msgs).sort().map(k => msgs[k] && { ...msgs[k], text: msgs[k].enc ? (E2E.plain.get(k) ?? msgs[k].text) : msgs[k].text, __k: k }).filter(m => m && m.text && (m.ts || 0) > cleared);
         const asc = [], seenSnap = {};
         for (const m of asc0) {   // a text share arrives in parts (4000-char cap per message): fold them into one card
             if (m.snap) { const g = seenSnap[m.snap.id]; if (g) { g.text += m.text; continue; } seenSnap[m.snap.id] = { ...m }; asc.push(seenSnap[m.snap.id]); }
@@ -5728,7 +5729,7 @@
         box.value = '';
         const ts = Date.now(), tid = P.open, other = P.other;
         try {
-            const e2e = isE2EThread(tid), stored = e2e ? await encText(sendSecret(), text) : text, preview = e2e ? '🔒 message' : text.slice(0, 90);   // E2E: the thread holds a blob, the inbox line says nothing
+            const e2e = isE2EThread(tid), stored = e2e ? await encText(sendSecret(), text) : text, preview = e2e ? stored.slice(0, 40) : text.slice(0, 90);   // E2E: the thread holds a blob, the inbox line says nothing
             await push(ref(database, `share/chat/${tid}/messages`), { from: P.me, name: P.myName, text: stored, ...(e2e ? { enc: encMode() } : {}), ts });
             const tab = tid.startsWith('tab-'), prevMine = P.index[tid] || {};
             await update(ref(database, `share/chatIndex/${P.me}/${tid}`), { with: other, name: tab ? (prevMine.name || P.dir[other] || '') : (P.dir[other] || ''), last: preview, ts, from: P.me, ...(tab ? { kind: 'tab' } : {}) });
