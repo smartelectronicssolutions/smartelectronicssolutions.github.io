@@ -9,7 +9,7 @@
 // /MDF, /IDF1..IDF6 (site photos). History: floor map, photos/add/run complete, wiring view, IDF photos (all 2026-10-02).
 import { onAuthStateChanged } from "../../../assets/js/firebase-init.js";
 import { auth, HUBS, hubLabel, esc, fmtFt, clean, loadJob, sensorRows, patchSensor, listSites, listPhotos, photoUrl,
-  sensorMarkOf, photoPrefix, uploadSensorPhoto, uploadHubPhoto, deletePhoto, tablesFor, zoneOf, idfOf, loadFloorPlan, saveHubPos } from "./telaid-data.js?v=1003a";
+  sensorMarkOf, photoPrefix, uploadSensorPhoto, uploadHubPhoto, deletePhoto, watchJob, tablesFor, zoneOf, idfOf, loadFloorPlan, saveHubPos } from "./telaid-data.js?v=1003b";
 import { openPhotoViewer } from "../../../assets/js/photoviewer.js?v=20261003a";
 import { mountCanvasView } from "../../../assets/js/canvasview.js?v=20261003a";
 
@@ -112,6 +112,7 @@ export function mountRadarMap(root, opts = {}) {
     const HUBPH = {};   // "MDF"/"IDF3" -> [storage refs]
     let selHub = null, HL = new Set();   // HL = sensors matching what's typed in the Sensor # box (live)
     let loadGen = 0, PHOTOS = "loading";  // photos arrive after the map; "loading" | "ok" | "failed" (can't reach Storage)
+    let stopWatch = null;   // LIVE: the RTDB listeners for the open site (watchJob) - stopped on every site switch
     // FLOOR PLAN under the dots (L 2026-10-02): the key-map drawing, fitted to the sensor coordinates (telaid-data
     // loadFloorPlan). Light theme = the drawing multiplied over the map; dark theme = an inverted copy screened on.
     let PLAN = null, planImg = null, planDark = null, planMode = "dim";
@@ -158,6 +159,12 @@ export function mountRadarMap(root, opts = {}) {
       // firebasestorage.googleapis.com, listAll retried for ~2 min before failing and the whole map waited on it).
       // The map draws first; photo counts/rings fill in when Storage answers, or the source line says it couldn't.
       const gen = ++loadGen; PHOTOS = "loading";
+      // LIVE (L 2026-10-03 "I have to refresh the page to get any new pictures"): every upload - from this map, another
+      // device or the checklist - stamps tasks/<id>/photosAt; sensorMeta edits (run complete, labeled, serial, moves) arrive
+      // the same way. Re-list only the folder that changed and merge the meta in place, so the view never jumps.
+      if (stopWatch) stopWatch();
+      stopWatch = watchJob(owner, TASK, { onPhotos: v => { if (gen === loadGen) refreshPhotos(v.sub); },
+        onMeta: meta => { if (gen === loadGen) mergeMeta(meta); } });
       loadFloorPlan(owner, TASK).then(p => { if (gen !== loadGen || !p) return; PLAN = p;
         const im = new Image(); im.onload = () => { planImg = im; planDark = null; $("plan").hidden = false; planLabel(); draw(); }; im.src = p.img; }).catch(() => {});
       const sensorsP = listPhotos(owner, task, "sensors").then(items => { if (gen !== loadGen) return;
@@ -170,6 +177,25 @@ export function mountRadarMap(root, opts = {}) {
         if (sel >= 0) show(sel); else if (selHub) showHub(selHub); });
     }
 
+    async function refreshPhotos(sub) {   // one folder re-listed after a photosAt stamp (sensors, or MDF / IDFn)
+      const gen = loadGen;
+      try {
+        if (sub === "sensors") { const items = await listPhotos(OWNER, TASKREC, "sensors"); if (gen !== loadGen) return;
+          S.forEach(s => { s.photos = 0; s.items = []; });
+          for (const it of items) { const s = S.find(x => x.m === sensorMarkOf(it.name, TASKREC)); if (s) { s.photos++; s.items.push(it); } }
+          PHOTOS = "ok"; renderStats(); draw(); if (sel >= 0) show(sel); }
+        else if (HUBS.includes(sub)) { const items = await listPhotos(OWNER, TASKREC, sub); if (gen !== loadGen) return;
+          HUBPH[sub] = items; renderHubs(); if (selHub === sub) showHub(sub); }
+      } catch (_) {}
+    }
+    function mergeMeta(meta) {   // sensorMeta changed somewhere: update the rows in place (flags, serial, as-built spot)
+      if (cvw.held) return;   // mid-drag here - the next change re-syncs
+      let n = 0;
+      for (const r of sensorRows(meta)) { const s = S.find(x => x.m === r.m); if (!s) continue; n++;
+        Object.assign(s, { serial: r.serial, labeledAt: r.labeledAt, runDoneAt: r.runDoneAt, updatedAt: r.updatedAt, pos: r.pos, plan: [r.x, r.y] });
+        s.x = r.pos ? r.pos.x : r.x; s.y = r.pos ? r.pos.y : r.y; }
+      if (!n) return; renderStats(); draw(); if (sel >= 0) show(sel); else if (selHub) showHub(selHub);
+    }
     function renderStats() {
       const lab = S.filter(s => s.labeledAt).length, ph2 = S.filter(s => s.photos >= 2).length, ph0 = S.filter(s => !s.photos).length,
         runs = S.filter(s => s.runDoneAt).length;
@@ -399,7 +425,7 @@ export function mountRadarMap(root, opts = {}) {
         await patchSensor(OWNER, TASK, s.m, { serial, updatedAt: Date.now() }).catch(() => {}); s.serial = serial; }
       const st = $("upState"), inp = $("addPhoto"); if (st) st.textContent = "Uploading..."; if (inp) inp.disabled = true;   // one at a time (sensor-83 scar)
       try {
-        s.items.push(await uploadSensorPhoto({ owner: OWNER, task: TASKREC, mark: s.m, serial, file, bar: !$("mark") || $("mark").checked })); s.photos++;
+        s.items.push(await uploadSensorPhoto({ owner: OWNER, task: TASKREC, id: TASK, mark: s.m, serial, file, bar: !$("mark") || $("mark").checked })); s.photos++;
         renderStats(); show(sel);
       } catch (e) { if (st) st.textContent = ""; if (inp) { inp.disabled = false; inp.value = ""; } alert("Upload failed: " + (e.code || e.message || e)); }
     }
@@ -426,7 +452,7 @@ export function mountRadarMap(root, opts = {}) {
       if (!file || !OWNER) return;
       const st = $("upState"), inp = $("addHubPhoto"); if (st) st.textContent = "Uploading..."; if (inp) inp.disabled = true;
       try {
-        (HUBPH[h] = HUBPH[h] || []).push(await uploadHubPhoto({ owner: OWNER, task: TASKREC, hub: h, file, bar: !$("mark") || $("mark").checked }));
+        (HUBPH[h] = HUBPH[h] || []).push(await uploadHubPhoto({ owner: OWNER, task: TASKREC, id: TASK, hub: h, file, bar: !$("mark") || $("mark").checked }));
         renderHubs(); showHub(h);
       } catch (e) { if (st) st.textContent = ""; if (inp) { inp.disabled = false; inp.value = ""; } alert("Upload failed: " + (e.code || e.message || e)); }
     }

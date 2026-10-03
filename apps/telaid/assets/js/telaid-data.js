@@ -11,7 +11,7 @@
 // One row per SITE: many job records share a customer+project (one per night); the canonical id is the EARLIEST
 // record, picked exactly the way radar-tools' resolveMetaOwnerTaskId() does, so checklist, map and photos agree.
 // Migration plan: radarMap.js uses this now; radar-tools / sensor-lookup / dashboard move over a section at a time.
-import { auth, database, storage, ref, get, update, storageRef, listAll, uploadBytes, getDownloadURL, deleteObject, onAuthStateChanged }
+import { auth, database, storage, ref, get, set, update, onValue, storageRef, listAll, uploadBytes, getDownloadURL, deleteObject, onAuthStateChanged }
   from "../../../assets/js/firebase-init.js";
 import { resizeImg, stampImg } from "../../../assets/js/imgupload.js?v=20261003a";
 
@@ -124,13 +124,14 @@ export async function uniqueName(dir, name) {
  *  asked for a free name, both got the base name, the second overwrote the first). Resize + stamp run at once; the
  *  name check + upload wait for the folder's previous upload to land. */
 const uploadQueue = {};
-export async function uploadPhoto({ owner, task, sub, file, name, label }) {
+export async function uploadPhoto({ owner, task, sub, file, name, label, id }) {
   let blob = await resizeImage(file, 2048);
   if (label) blob = await addLabelBar(blob, label);
   const dir = imagesDir(owner, task, sub);
   const turn = (uploadQueue[dir] || Promise.resolve()).then(async () => {
     const fn = await uniqueName(dir, name), r = storageRef(storage, `${dir}/${fn}`);
     await uploadBytes(r, blob, { contentType: "image/jpeg" });
+    if (id) set(ref(database, photosAtPath(owner, id)), { at: Date.now(), sub, name: fn }).catch(() => {});   // LIVE marker - see watchJob
     return r;
   });
   uploadQueue[dir] = turn.catch(() => {});
@@ -138,14 +139,26 @@ export async function uploadPhoto({ owner, task, sub, file, name, label }) {
 }
 /** Delete a photo by its Storage ref (the viewer's Delete button). */
 export const deletePhoto = item => deleteObject(item);
+// LIVE (L 2026-10-03: "can the reading of info that's been modified in the map be immediate? I have to refresh the page
+// to get any new pictures"): Storage has no change feed, so every upload (map, checklist, any device) stamps
+// {owner}/tasks/<id>/photosAt = {at, sub, name}; sensorMeta edits (run complete, labeled, serial, moves) are RTDB already.
+// watchJob() subscribes to both - push, not polling (the poll-loop scar) - and hands back a stop() for the next site
+// switch. The first value of each listener is history, not news, so it is skipped.
+export const photosAtPath = (owner, taskId) => `${owner}/tasks/${taskId}/photosAt`;
+export function watchJob(owner, taskId, { onPhotos, onMeta } = {}) {
+  let firstP = true, firstM = true;
+  const u1 = onValue(ref(database, photosAtPath(owner, taskId)), snap => { if (firstP) { firstP = false; return; } const v = snap.val(); if (v && onPhotos) onPhotos(v); }, () => {});
+  const u2 = onValue(ref(database, sensorMetaPath(owner, taskId)), snap => { if (firstM) { firstM = false; return; } if (onMeta) onMeta(snap.val() || {}); }, () => {});
+  return () => { u1(); u2(); };
+}
 /** A device photo for sensor <mark>: "<prefix>_NN-serial.jpg", bar "<customer> NN - serial". */
-export const uploadSensorPhoto = ({ owner, task, mark, serial, file, bar = true }) => { const nn = String(mark).padStart(2, "0");
-  return uploadPhoto({ owner, task, sub: "sensors", file, name: `${photoPrefix(task)}_${nn}-${clean(serial)}.jpg`,
+export const uploadSensorPhoto = ({ owner, task, mark, serial, file, bar = true, id }) => { const nn = String(mark).padStart(2, "0");
+  return uploadPhoto({ owner, task, id, sub: "sensors", file, name: `${photoPrefix(task)}_${nn}-${clean(serial)}.jpg`,
     label: bar ? `${String(task?.customerName || task?.project || "").trim()} ${nn} - ${clean(serial)}` : null }); };
 /** A site photo for MDF / IDFn: "YYYY_MM_DD_<prefix>_<hub>.jpg", bar "<customer> IDF n". */
-export const uploadHubPhoto = ({ owner, task, hub, file, bar = true }) => { const d = new Date(),
+export const uploadHubPhoto = ({ owner, task, hub, file, bar = true, id }) => { const d = new Date(),
   stamp = `${d.getFullYear()}_${String(d.getMonth() + 1).padStart(2, "0")}_${String(d.getDate()).padStart(2, "0")}`;
-  return uploadPhoto({ owner, task, sub: hub, file, name: `${stamp}_${photoPrefix(task)}_${hub}.jpg`,
+  return uploadPhoto({ owner, task, id, sub: hub, file, name: `${stamp}_${photoPrefix(task)}_${hub}.jpg`,
     label: bar ? `${String(task?.customerName || task?.project || "").trim()} ${hubLabel(hub)}` : null }); };
 
 // ---------- the SITE PLAN: {owner}/tasks/<canonical>/siteTables = {zones, idf, switches, maxPerSwitch} ----------
