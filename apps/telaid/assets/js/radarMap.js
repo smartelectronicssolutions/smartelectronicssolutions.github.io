@@ -9,7 +9,7 @@
 // /MDF, /IDF1..IDF6 (site photos). History: floor map, photos/add/run complete, wiring view, IDF photos (all 2026-10-02).
 import { onAuthStateChanged } from "../../../assets/js/firebase-init.js";
 import { auth, HUBS, hubLabel, esc, fmtFt, clean, loadJob, sensorRows, patchSensor, listSites, listPhotos, photoUrl,
-  sensorMarkOf, photoPrefix, uploadSensorPhoto, uploadHubPhoto, deletePhoto, watchJob, tablesFor, zoneOf, idfOf, loadFloorPlan, saveHubPos } from "./telaid-data.js?v=1003b";
+  sensorMarkOf, photoPrefix, uploadSensorPhoto, uploadHubPhoto, deletePhoto, watchJob, tablesFor, zoneOf, idfOf, loadFloorPlan, saveHubPos } from "./telaid-data.js?v=1003c";
 import { openPhotoViewer } from "../../../assets/js/photoviewer.js?v=20261003a";
 import { mountCanvasView } from "../../../assets/js/canvasview.js?v=20261003a";
 
@@ -127,6 +127,7 @@ export function mountRadarMap(root, opts = {}) {
     let S = [];            // {m, serial, x, y, z, idf, zone, photos, items, labeledAt, runDoneAt, sw, port, wx, wy}
     let mode = "idf", sel = -1, layout = "floor";
     let OWNER = null, TASKREC = {};      // set by load(); used by the card's actions
+    const RO = () => OWNER === "share";   // a shared copy (share/tasks/<id>): look, don't touch
     function renderHubs() {
       $("hubs").innerHTML = '<span class="muted">Photos:</span>' + HUBS.map(h => { const n = (HUBPH[h] || []).length,
         c = h === "MDF" ? "#475569" : (IDF_COL[h.slice(3)] || "#64748b");
@@ -157,7 +158,7 @@ export function mountRadarMap(root, opts = {}) {
       S.forEach(s => { if (s.pos) { s.x = s.pos.x; s.y = s.pos.y; } });   // hold-to-move override (as built) wins over the plan
       if (TABLES) { assignSwitches(); wiringLayout(); }
       OWNER = owner; TASKREC = task;
-      const line = `${task.customerName || "Job " + TASK} \u00b7 ${S.length} sensors \u00b7 loaded ${new Date().toLocaleTimeString()}${TABLES ? ` \u00b7 site plan: ${TABLES.from}` : ""}`;
+      const line = `${task.customerName || "Job " + TASK} \u00b7 ${S.length} sensors \u00b7 loaded ${new Date().toLocaleTimeString()}${TABLES ? ` \u00b7 site plan: ${TABLES.from}` : ""}${RO() ? ` \u00b7 shared copy by ${task.sharedByName || "?"} (read-only)` : ""}`;
       $("source").textContent = line + " \u00b7 photos loading\u2026";
       renderHubs(); renderStats(); fit(false);
       // PHOTOS IN THE BACKGROUND (L 2026-10-03, "did you freeze?": on a network that could not resolve
@@ -273,7 +274,7 @@ export function mountRadarMap(root, opts = {}) {
         return best >= 0 ? { kind: "sensor", i: best } : null; },
       // HOLD-TO-MOVE (L 2026-10-02 "hold 'em and move each object around"): hold a sensor / cabinet ~0.5 s = drag it (floor
       // view only; the new spot is saved as sensorMeta/<mark>/pos or siteTables/hubs); hold empty floor = pan the map.
-      hold: (t, e) => e.button !== 0 ? null : !t ? "pan" : layout === "floor" ? "drag" : null,
+      hold: (t, e) => e.button !== 0 ? null : !t ? "pan" : layout === "floor" && !RO() ? "drag" : null,
       onDrag: (t, fx, fy) => { const [ux, uy] = unrot(fx, fy);   // screen delta -> plan feet, through the inverse of the rotate
         if (t.kind === "sensor") { S[t.i].x += ux; S[t.i].y += uy; } else { TABLES.hubs[t.h][0] += ux; TABLES.hubs[t.h][1] += uy; } },
       onDragEnd: t => endMove(t),
@@ -413,8 +414,12 @@ export function mountRadarMap(root, opts = {}) {
           else { renderHubs(); if (selHub && HUBPH[selHub] === items) showHub(selHub); } } }); });
       await Promise.all(items.map(async (it, k) => { try { const u = urls[k] = await photoUrl(it); links[k].firstChild.src = u; links[k].firstChild.alt = it.name; } catch (_) {} }));
     }
+    function readOnlyCard() {   // a shared copy: drop the actions, say why
+      $("info").querySelector(".acts")?.remove(); const n = $("info").querySelector(".note");
+      if (n) n.textContent = `Shared copy (read-only) - photos and flags are the sharer's, as of ${TASKREC.sharedAt ? new Date(TASKREC.sharedAt).toLocaleString() : "the last share"}.`;
+    }
     async function setFlag(field, on) {
-      const s = S[sel]; if (!s || !OWNER) return;
+      const s = S[sel]; if (!s || !OWNER || RO()) return;
       const ts = on ? Date.now() : null, btn = $(field === "runDoneAt" ? "runBtn" : "labBtn"); if (btn) btn.disabled = true;
       try { await patchSensor(OWNER, TASK, s.m, { [field]: ts }); s[field] = ts; renderStats(); show(sel); }
       catch (e) { alert("Couldn't save: " + (e.code || e.message || e)); if (btn) btn.disabled = false; }
@@ -423,7 +428,7 @@ export function mountRadarMap(root, opts = {}) {
     // picker (no capture=), 2048 px JPEG, "<customer> NN - serial" bar unless unticked, <prefix>_NN-serial.jpg into the
     // job's sensors folder, a confirm once the sensor already has its 2 photos.
     async function addPhoto(file) {
-      const s = S[sel]; if (!s || !file || !OWNER) return;
+      const s = S[sel]; if (!s || !file || !OWNER || RO()) return;
       if (s.photos >= 2 && !confirm(`Sensor ${String(s.m).padStart(2, "0")} already has ${s.photos} photos. Upload another?`)) { if ($("addPhoto")) $("addPhoto").value = ""; return; }
       let serial = clean(s.serial);
       if (!serial) { serial = clean(prompt(`Sensor #${s.m} has no serial yet. Serial number:`) || ""); if (!serial) return;
@@ -450,11 +455,11 @@ export function mountRadarMap(root, opts = {}) {
           <span class="muted" id="rm-upState"></span>
         </div>
         <div class="note">Saved to the job's ${h} folder with a "${esc(String(TASKREC.customerName || "").trim())} ${hubLabel(h)}" bar.</div>`;
-      $("addHubPhoto").onchange = e => addHubPhoto(h, e.target.files[0]);
+      if (RO()) readOnlyCard(); else $("addHubPhoto").onchange = e => addHubPhoto(h, e.target.files[0]);
       thumbs(items); draw();
     }
     async function addHubPhoto(h, file) {
-      if (!file || !OWNER) return;
+      if (!file || !OWNER || RO()) return;
       const st = $("upState"), inp = $("addHubPhoto"); if (st) st.textContent = "Uploading..."; if (inp) inp.disabled = true;
       try {
         (HUBPH[h] = HUBPH[h] || []).push(await uploadHubPhoto({ owner: OWNER, task: TASKREC, id: TASK, hub: h, file, bar: !$("mark") || $("mark").checked }));
@@ -482,10 +487,12 @@ export function mountRadarMap(root, opts = {}) {
           <span class="muted" id="rm-upState"></span>
         </div>
         <div class="note">Photos save like radar-tools: "${esc(photoPrefix(TASKREC))}_${String(s.m).padStart(2, "0")}-${esc(s.serial || "serial")}.jpg" with the label bar.</div>`;
-      $("addPhoto").onchange = e => addPhoto(e.target.files[0]);
-      $("runBtn").onclick = () => setFlag("runDoneAt", !s.runDoneAt);
-      $("labBtn").onclick = () => setFlag("labeledAt", !s.labeledAt);
-      if ($("resetPos")) $("resetPos").onclick = () => resetPos(i);
+      if (RO()) readOnlyCard(); else {
+        $("addPhoto").onchange = e => addPhoto(e.target.files[0]);
+        $("runBtn").onclick = () => setFlag("runDoneAt", !s.runDoneAt);
+        $("labBtn").onclick = () => setFlag("labeledAt", !s.labeledAt);
+        if ($("resetPos")) $("resetPos").onclick = () => resetPos(i);
+      }
       thumbs(s);
       draw();
     }

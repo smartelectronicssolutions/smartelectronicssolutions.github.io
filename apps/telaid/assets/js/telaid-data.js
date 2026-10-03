@@ -39,7 +39,13 @@ export const fmtFt = v => v == null ? "-" : `${Math.trunc(v)}'-${(Math.abs(v % 1
 
 // ---------- reads ----------
 export async function readOnce(path) { const s = await get(ref(database, path)); return s.exists() ? s.val() : null; }
-export const ownersFor = user => [...new Set([user?.uid, TELAID_UID].filter(Boolean))];
+// SHARE (L 2026-10-03 "when I press share I just want a mirror of what's there, to the share branch"): the Jobs app's
+// Share button mirrors a job into share/tasks/<id> (origin shape + sharedBy/sharedByName/sharedAt), share/tasks_plans/<id>
+// and share/photos/<project>/<sub> = [{name, url}] download links. Any signed-in account reads share/*, so it is the LAST
+// tree these tools look in - ?task=<id> then works for anyone. A shared copy is read-only here (no uploads, flags, moves).
+export const SHARE_ROOT = "share";
+export const isShared = owner => owner === SHARE_ROOT;
+export const ownersFor = user => [...new Set([user?.uid, TELAID_UID, SHARE_ROOT].filter(Boolean))];
 
 /** All job records visible to this user: {owner, tasks} from the first tree that has any. */
 export async function loadTasks(user) {
@@ -106,8 +112,10 @@ export function sensorMarkOf(name, task) {
   return m ? parseInt(m[1], 10) : 0;
 }
 /** Storage refs in a job folder (one list call). Throws on a network failure - callers decide how to show it. */
-export const listPhotos = async (owner, task, sub) => (await listAll(storageRef(storage, imagesDir(owner, task, sub)))).items;
-export const photoUrl = item => getDownloadURL(item);
+export const listPhotos = async (owner, task, sub) => isShared(owner)
+  ? Object.values((await readOnce(`${SHARE_ROOT}/photos/${projectFolder(task)}/${sub}`)) || {}).filter(x => x && x.url).map(x => ({ name: x.name, url: x.url, shared: true }))   // the mirror's links
+  : (await listAll(storageRef(storage, imagesDir(owner, task, sub)))).items;
+export const photoUrl = item => item.url ? Promise.resolve(item.url) : getDownloadURL(item);
 
 // PHOTO RULES live in ONE place now: apps/assets/js/imgupload.js (resizeImg / stampImg / unstampImg - the jobs app's
 // numbers: 2048 wide, JPEG, strip max(40, width/22)). L 2026-10-03: "can all this code be placed in one place? ideally
@@ -125,6 +133,7 @@ export async function uniqueName(dir, name) {
  *  name check + upload wait for the folder's previous upload to land. */
 const uploadQueue = {};
 export async function uploadPhoto({ owner, task, sub, file, name, label, id }) {
+  if (isShared(owner)) throw new Error("This is a shared copy (read-only).");
   let blob = await resizeImage(file, 2048);
   if (label) blob = await addLabelBar(blob, label);
   const dir = imagesDir(owner, task, sub);
@@ -138,7 +147,7 @@ export async function uploadPhoto({ owner, task, sub, file, name, label, id }) {
   return turn;
 }
 /** Delete a photo by its Storage ref (the viewer's Delete button). */
-export const deletePhoto = item => deleteObject(item);
+export const deletePhoto = item => item.shared ? Promise.reject(new Error("Shared copy - read-only.")) : deleteObject(item);
 // LIVE (L 2026-10-03: "can the reading of info that's been modified in the map be immediate? I have to refresh the page
 // to get any new pictures"): Storage has no change feed, so every upload (map, checklist, any device) stamps
 // {owner}/tasks/<id>/photosAt = {at, sub, name}; sensorMeta edits (run complete, labeled, serial, moves) are RTDB already.

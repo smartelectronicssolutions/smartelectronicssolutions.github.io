@@ -91,8 +91,8 @@
       <div class="notes-column-input"><textarea id="taskNotes" placeholder="Notes"></textarea></div>
       <button id="updateTaskBtn" style="display:none">Update Task</button>
       <div class="ctrl-row" style="margin-top:8px">
-        <button id="shareJobBtn" title="Copy this whole job (all visits, devices, notes, images) into the telaid@telaid.com account so it can be viewed in onlinejob without your login">Share</button>
-        <button id="unshareJobBtn" class="clear-button" title="Remove this job from the PM account">Unshare</button>
+        <button id="shareJobBtn" title="Mirror this job (every record + the floor plan, no photos) into the share branch - anyone signed in can view it; the Telaid map and lookup read it">Share</button>
+        <button id="unshareJobBtn" class="clear-button" title="Remove this job's mirror from the share branch">Unshare</button>
         <span id="shareJobStatus" class="status-hint"></span>
       </div>
     </section>
@@ -1840,16 +1840,25 @@
       finally { if (gen === projectLoadGen) isLoadingProject = false; }
     }
 
-    // ── Share whole job to the telaid@telaid.com PM account ──────────────
-    // Copies every task record for the loaded project (with its nested device
-    // lists, daily tasks, notes and image URLs) into the PM account's tasks, so
-    // the PM sees the job in onlinejob when signed in as telaid@telaid.com.
-    // Read/write into that uid is granted to this work account by an RTDB rule.
+    // ── Share = a MIRROR of the job in the share branch ─────────────────────────────────────────────────────────
+    // L 2026-10-03: "when I press share I just want a mirror of what's there, to the share branch... storage and all."
+    // share/tasks/<id>       = each record of the project in its origin shape + sharedBy / sharedByName / sharedAt
+    // share/tasks_plans/<id> = the floor plan (map). NO PHOTOS for now (L: "no img then for now") - the photos stay in
+    // the sharer's Storage; a shared map shows the sensors, flags and plan without pictures. Any signed-in account reads
+    // share/*; the Telaid map / lookup / dashboard read it as their last fallback, so ?task=<id> works for anyone
+    // (read-only there). Re-share refreshes, Unshare removes. The PM-account copy (telaid@telaid.com) is still written so
+    // the PM's Jobs view keeps working until the Jobs app lists shared jobs itself.
     const PM_SHARE_UID = "YHIJWVQOmefgigMVCcvueIZidze2"; // telaid@telaid.com
+    const SHARE_ROOT = "share";
 
     function projectRecords(tasksObj) {
       const projKey = normKey(currentProjectName);
       return Object.entries(tasksObj || {}).filter(([, t]) => normKey(t.project) === projKey);
+    }
+
+    async function sharerName() {
+      try { const v = (await get(dbRef(database, `${SHARE_ROOT}/directory/${auth.currentUser.uid}`))).val(); return (v && (v.name || (typeof v === "string" ? v : ""))) || auth.currentUser.email || ""; }
+      catch { return auth.currentUser?.email || ""; }
     }
 
     async function shareJobToPM() {
@@ -1858,38 +1867,49 @@
       const snap = await get(dbRef(database, `${DB}/tasks`));
       const matches = snap.exists() ? projectRecords(snap.val()) : [];
       if (!matches.length) { alert(`No task records found for "${projName}".`); return; }
-      if (!confirm(`Share "${projName}" to the Telaid PM account (telaid@telaid.com)?\n\nCopies ${matches.length} record(s) — all visits, devices, notes and images. Re-sharing refreshes the copy.`)) return;
+      if (!confirm(`Share "${projName}"?\n\nMirrors ${matches.length} record(s) and the floor plan into the share branch (no photos). Anyone signed in can view it; the Telaid map / lookup open it with ?task=<id>. Re-sharing refreshes the mirror.`)) return;
+      const btn = document.getElementById("shareJobBtn"); if (btn) btn.disabled = true;
       try {
-        for (const [id, rec] of matches) await set(dbRef(database, `${PM_SHARE_UID}/tasks/${id}`), rec);
+        const stamp = { sharedBy: auth.currentUser.uid, sharedByName: await sharerName(), sharedAt: Date.now() };
+        for (const [id, rec] of matches) {
+          await set(dbRef(database, `${SHARE_ROOT}/tasks/${id}`), { ...rec, ...stamp });
+          await set(dbRef(database, `${PM_SHARE_UID}/tasks/${id}`), rec).catch(e => console.warn("[share] PM copy:", e?.message || e));
+          const plan = await get(dbRef(database, `${DB}/tasks_plans/${id}`)).catch(() => null);
+          if (plan && plan.exists()) await set(dbRef(database, `${SHARE_ROOT}/tasks_plans/${id}`), { ...plan.val(), ...stamp });
+        }
         await updateShareStatus();
-        alert(`Shared "${projName}" (${matches.length} record(s)). The PM can open onlinejob signed in as telaid@telaid.com.`);
+        alert(`Shared "${projName}": ${matches.length} record(s). Map link for anyone signed in: radar-map.html?task=${matches[0][0]}`);
       } catch (e) {
         console.error("[share]", e);
-        alert("Share failed — see console. (A permission error means the share rule isn't active for this account.)");
-      }
+        alert("Share failed - see console. (A permission error means this account can't write to share/.)");
+      } finally { if (btn) btn.disabled = false; }
     }
 
     async function unshareJobFromPM() {
       const projName = currentProjectName || currentProject;
       if (!projName) { alert("Load a job first."); return; }
-      const snap = await get(dbRef(database, `${PM_SHARE_UID}/tasks`));
+      const snap = await get(dbRef(database, `${SHARE_ROOT}/tasks`));
       const matches = snap.exists() ? projectRecords(snap.val()) : [];
-      if (!matches.length) { alert(`"${projName}" isn't shared.`); return; }
-      if (!confirm(`Remove "${projName}" (${matches.length} record(s)) from the PM account?`)) return;
+      const pmSnap = await get(dbRef(database, `${PM_SHARE_UID}/tasks`)).catch(() => null);
+      const pmMatches = pmSnap && pmSnap.exists() ? projectRecords(pmSnap.val()) : [];
+      if (!matches.length && !pmMatches.length) { alert(`"${projName}" isn't shared.`); return; }
+      if (!confirm(`Remove "${projName}" from the share branch (${matches.length} record(s) and its plan)?`)) return;
       try {
-        for (const [id] of matches) await remove(dbRef(database, `${PM_SHARE_UID}/tasks/${id}`));
+        for (const [id] of matches) { await remove(dbRef(database, `${SHARE_ROOT}/tasks/${id}`)); await remove(dbRef(database, `${SHARE_ROOT}/tasks_plans/${id}`)).catch(() => {}); }
+        for (const [id] of pmMatches) await remove(dbRef(database, `${PM_SHARE_UID}/tasks/${id}`)).catch(() => {});
         await updateShareStatus();
         alert(`Unshared "${projName}".`);
-      } catch (e) { console.error("[unshare]", e); alert("Unshare failed — see console."); }
+      } catch (e) { console.error("[unshare]", e); alert("Unshare failed - see console."); }
     }
 
     async function updateShareStatus() {
       const el = document.getElementById("shareJobStatus"); if (!el) return;
       if (!(currentProjectName || currentProject)) { el.textContent = ""; return; }
       try {
-        const snap = await get(dbRef(database, `${PM_SHARE_UID}/tasks`));
-        const n = snap.exists() ? projectRecords(snap.val()).length : 0;
-        el.textContent = n ? `✓ Shared (${n} record${n > 1 ? "s" : ""})` : "Not shared";
+        const snap = await get(dbRef(database, `${SHARE_ROOT}/tasks`));
+        const mine = snap.exists() ? projectRecords(snap.val()) : [];
+        const at = mine.length ? Math.max(...mine.map(([, r]) => Number(r.sharedAt) || 0)) : 0;
+        el.textContent = mine.length ? `✓ Shared (${mine.length} record${mine.length > 1 ? "s" : ""}${at ? ", " + new Date(at).toLocaleDateString() : ""})` : "Not shared";
       } catch { el.textContent = ""; }
     }
 
