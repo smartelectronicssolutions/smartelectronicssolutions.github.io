@@ -11,7 +11,7 @@ import { onAuthStateChanged } from "../../../assets/js/firebase-init.js";
 import { auth, HUBS, hubLabel, esc, fmtFt, clean, loadJob, sensorRows, patchSensor, listSites, listPhotos, photoUrl,
   sensorMarkOf, photoPrefix, uploadSensorPhoto, uploadHubPhoto, deletePhoto, watchJob, tablesFor, zoneOf, idfOf, loadFloorPlan, saveHubPos } from "./telaid-data.js?v=1003c";
 import { openPhotoViewer } from "../../../assets/js/photoviewer.js?v=20261003a";
-import { mountCanvasView } from "../../../assets/js/canvasview.js?v=20261003a";
+import { mountCanvasView } from "../../../assets/js/canvasview.js?v=20261003b";
 
 const CSS = `.rmap .app-shell { max-width: 1100px; margin: auto; padding: 12px; display: grid; gap: 12px; }
 .rmap .card { background: var(--cardBackground); border: 1px solid var(--borderColor); border-radius: 12px; padding: 12px; box-shadow: var(--cardShadow); }

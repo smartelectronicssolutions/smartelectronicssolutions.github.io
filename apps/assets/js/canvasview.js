@@ -84,6 +84,11 @@ export function mountCanvasView(cv, opts) {
 
   // ---- input ----
   cv.style.touchAction = "pan-y";
+  // a press-and-hold must never turn into the phone's text selection / callout over the map (L 2026-10-03: "when I press
+  // and hold I'll sometimes highlight the map window") - no selection on the canvas or its box, no long-press menu
+  for (const el of [cv, cv.parentElement]) if (el) { el.style.userSelect = "none"; el.style.webkitUserSelect = "none"; el.style.webkitTouchCallout = "none"; }
+  cv.addEventListener("contextmenu", e => e.preventDefault());
+  cv.addEventListener("selectstart", e => e.preventDefault());
   const buzz = () => { if (navigator.vibrate) try { navigator.vibrate(15); } catch (_) {} };
   cv.addEventListener("wheel", e => { if (!e.shiftKey && !e.ctrlKey) return; e.preventDefault(); const [x, y] = toC(e); zoomAt(x, y, Math.exp(-(e.deltaY || e.deltaX) * 0.0015)); }, { passive: false });
   cv.addEventListener("touchstart", e => { if (e.touches.length >= 2) e.preventDefault(); }, { passive: false });
