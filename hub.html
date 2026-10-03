@@ -5219,13 +5219,24 @@
         .pswipe:not(.sw) > .pclr { visibility: hidden; }   /* glass rows (background image) let the red Clear show through at rest */
         .pswipe > .pclr { position: absolute; top: 0; right: 0; bottom: 0; width: 84px; border: 0; background: #d9485f; color: #fff; font: inherit; font-size: .8rem; font-weight: 600; cursor: pointer; }
         .dc-peer-row small { display: block; opacity: .6; font-size: .72rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
-        .dc-body.dc-split { flex-direction: row; gap: 12px; }
+        .dc-body.dc-split { flex-direction: row; gap: 0; }   /* the split bar (#dc-peer-split) is the gap now (2026-10-03) */
         .dc-body.dc-split > #dc-chat-panel { flex: 1 1 0; min-width: 0; }
-        #dc-peer { display: none; flex: 1 1 0; min-width: 0; min-height: 0; flex-direction: column; border-left: 1px solid var(--border); padding-left: 12px; }
+        #dc-peer { display: none; flex: 1 1 0; min-width: 0; min-height: 0; flex-direction: column; border-left: 1px solid var(--border); padding-left: 12px; box-sizing: border-box; }
         .dc-body.dc-split > #dc-peer { display: flex; }
+        /* SPLIT BAR (2026-10-03, L: "also between the panes for chat and member chat"): drag the bar between the console chat and the
+           👥 pane to give one more room - left/right side by side, up/down stacked on the phone - remembered per layout
+           (--dc-peer-size on the body); double-tap = the default split. Hidden while the pane covers the chat (pfull). */
+        #dc-peer-split { display: none; flex: none; position: relative; width: 16px; cursor: ew-resize; touch-action: none; user-select: none; }
+        .dc-body.dc-split:not(.pfull) > #dc-peer-split { display: block; }
+        #dc-peer-split::before { content: ""; position: absolute; left: 50%; top: 50%; width: 4px; height: 46px; border-radius: 2px; background: var(--border); transform: translate(-50%, -50%); transition: background .15s; }
+        #dc-peer-split:hover::before, #dc-peer-split.on::before { background: var(--dc-purple); }
+        .dc-body.dc-split.psized:not(.pfull) > #dc-peer { flex: 0 0 var(--dc-peer-size, 50%); }
         @media (max-width: 760px) {
             .dc-body.dc-split { flex-direction: column; }
             .dc-body.dc-split > #dc-peer { border-left: 0; border-top: 1px solid var(--border); padding: 8px 0 0; flex: 0 0 46%; }
+            .dc-body.dc-split.psized:not(.pfull) > #dc-peer { flex: 0 0 var(--dc-peer-size, 46%); }
+            #dc-peer-split { width: auto; height: 16px; cursor: ns-resize; }
+            #dc-peer-split::before { width: 46px; height: 4px; }
         }
         #dc-peer-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; font-weight: 600; padding: 2px 0 6px; touch-action: none; }
         .dc-body.dc-split.pfull > #dc-chat-panel { display: none; }   /* swipe up on the pane head = the pane covers the console chat; X backs out */
@@ -5310,6 +5321,27 @@
             <div id="dc-peer-log" class="dc-chat-log" hidden></div>
             <form id="dc-peer-form" class="dc-chat-input" hidden><span class="ps" aria-hidden="true">❯</span><textarea id="dc-peer-in" rows="2" placeholder="message…  (Enter sends)"></textarea><button type="button" class="dc-emoji-btn" id="dc-peer-emoji" title="emoji (search at the top)" aria-label="emoji picker">🙂</button><button type="submit" class="dc-btn push">▲</button></form>`;   // SAME box as the Droplet chat (L 2026-09-27: "the chat boxes still look different")
         body.appendChild(pane);
+        {   // SPLIT BAR between the console chat and the pane (L 2026-10-03: "also between the panes for chat and member chat")
+            const sp = document.createElement('div'); sp.id = 'dc-peer-split'; sp.title = 'drag to resize the panes · double-tap to reset';
+            body.insertBefore(sp, pane);
+            const mq = matchMedia('(max-width: 760px)'), narrow = () => mq.matches, key = () => narrow() ? 'dc-peer-split-h' : 'dc-peer-split-w';
+            const applySaved = () => { let v = 0; try { v = Number(localStorage.getItem(key())); } catch (_) {}
+                body.classList.toggle('psized', v > 0); if (v > 0) body.style.setProperty('--dc-peer-size', v + '%'); else body.style.removeProperty('--dc-peer-size'); };
+            applySaved(); mq.addEventListener('change', applySaved);
+            let pid = null, p0 = 0, s0 = 0, main = 1;
+            sp.addEventListener('pointerdown', e => { const r = pane.getBoundingClientRect(), b = body.getBoundingClientRect(), cs = getComputedStyle(body);
+                if (narrow()) { p0 = e.clientY; s0 = r.height; main = b.height - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom); }
+                else { p0 = e.clientX; s0 = r.width; main = b.width - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight); }
+                if (!(main > 300)) return;   // nothing to split yet
+                pid = e.pointerId; try { sp.setPointerCapture(pid); } catch (_) {}
+                sp.classList.add('on'); e.preventDefault(); });
+            sp.addEventListener('pointermove', e => { if (pid === null) return; const d = (narrow() ? e.clientY : e.clientX) - p0;
+                const px = Math.max(140, Math.min(main - 160, s0 - d)), pct = Math.round(px / main * 1000) / 10;   // the pane grows toward the chat; both keep a usable minimum
+                body.classList.add('psized'); body.style.setProperty('--dc-peer-size', pct + '%'); });
+            const end = () => { if (pid === null) return; pid = null; sp.classList.remove('on'); const v = parseFloat(body.style.getPropertyValue('--dc-peer-size')); try { if (v > 0) localStorage.setItem(key(), String(v)); } catch (_) {} };
+            sp.addEventListener('pointerup', end); sp.addEventListener('pointercancel', end);
+            sp.addEventListener('dblclick', () => { body.classList.remove('psized'); body.style.removeProperty('--dc-peer-size'); try { localStorage.removeItem(key()); } catch (_) {} });
+        }
         {   // resizer for the 👥 box (same bar as the Droplet chat); in Top mode (.nf) it has to sit AFTER the form in the DOM
             const log = pane.querySelector('#dc-peer-log'), form = pane.querySelector('#dc-peer-form');
             const h = document.createElement('div'); h.className = 'dc-resize'; h.id = 'dc-peer-resize'; h.title = 'drag to resize the typing box · double-tap to reset';

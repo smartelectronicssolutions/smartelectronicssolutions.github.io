@@ -109,6 +109,12 @@
     .gx-legend { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
     .gx-legend button { display: inline-flex; align-items: center; gap: 6px; font-size: .85rem; padding: 5px 10px; font-variant-numeric: tabular-nums; }
     .gx-legend button i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    .gx-legend .gx-item { display: inline-flex; align-items: center; gap: 0; }
+    .gx-dot { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; cursor: pointer; flex: none; }
+    .gx-dot i { width: 12px; height: 12px; border-radius: 50%; display: inline-block; box-shadow: 0 0 0 2px var(--surface); }
+    .gx-dot input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; padding: 0; margin: 0; border: 0; }
+    .gx-dot.set i { outline: 2px solid var(--text); outline-offset: 1px; }
+    .gx-info .mk .gx-dot { vertical-align: middle; margin-right: 6px; }
     .gx-legend button .n { color: var(--muted); } .gx-legend button.over .n { color: var(--danger); font-weight: 700; }
     .gx-info { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; min-height: 3em; margin: 8px 0; }
     .gx-info .mk { font-size: 1.5rem; font-weight: 800; color: var(--accent); line-height: 1.1; }
@@ -175,7 +181,7 @@
 
     <section class="card" id="galaxy">
       <h2>Spending Galaxy</h2>
-      <p class="muted" style="margin:0 0 6px">Every category is a galaxy with its <b>budget drawn as a ring</b>; what you spent fills it. Vendors are the stars inside, sized by spend. Pick a month or the year to date.</p>
+      <p class="muted" style="margin:0 0 6px">Every category is a galaxy <b>sized by what you spent</b> (twice the dollars = twice the area); the ring around it is the budget, filled by how much of it is gone. Vendors are the stars inside, sized by spend. Tap a dot in the legend to pick a category's colour. Pick a month or the year to date.</p>
       <div class="gx-row" id="gx-win"></div>
       <div class="gx-stats" id="gx-stats"></div>
       <div class="gx-mapwrap"><canvas id="gx-map" aria-label="Spending drawn as a galaxy with budget rings"></canvas>
@@ -251,7 +257,8 @@
       { name: 'Insurance', monthly: 170.00 },
     ],
     budgetOverrides: {},
-    actuals: {}
+    actuals: {},
+    colors: {}   // tag -> "#rrggbb" picked by L in the galaxy (2026-10-03); unset = the taxonomy hue
   };
 
   // Optional: where the Financial Tracker lives (only used by sync function)
@@ -429,6 +436,7 @@
     if (!Array.isArray(STATE.categories)) STATE.categories = [];
     STATE.budgetOverrides ||= {};
     STATE.actuals ||= {};
+    STATE.colors ||= {};
     if (typeof STATE.incomeYear !== 'number') STATE.incomeYear = 0;
   }
 
@@ -1223,7 +1231,20 @@
     const EMOJI = /[\p{Extended_Pictographic}️‍]/gu;
     const vendorKey = n => n.replace(EMOJI, "").replace(/#\s*\d+|\b\d{3,}\b/g, "").replace(/[^\p{L}\p{N}' &.-]+/gu, " ").replace(/\s+/g, " ").trim().toLowerCase();
     const HUE = {}; SPENDING_TAGS.forEach((t, i) => { HUE[t.tag] = Math.round(i * 360 / SPENDING_TAGS.length + 20); });
-    const col = (tag, a) => HUE[tag] == null ? `rgba(170,180,200,${a})` : `hsla(${HUE[tag]},80%,${isLight() ? 42 : 66}%,${a})`;
+    // COLOURS (L 2026-10-03 "move the color system for that category"): a colour picked in the legend / galaxy card is saved
+    // in the plan (STATE.colors[tag]) and wins over the taxonomy hue; double-click the dot to go back to the default.
+    const hex2rgba = (h, a) => { const n = parseInt(h.slice(1), 16); return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`; };
+    const hsl2hex = (h, sa, l) => { sa /= 100; l /= 100; const k = n => (n + h / 30) % 12, f = n => l - sa * Math.min(l, 1 - l) * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1));
+      return "#" + [f(0), f(8), f(4)].map(x => Math.round(x * 255).toString(16).padStart(2, "0")).join(""); };
+    const picked = tag => (STATE.colors || {})[tag] || null;
+    const col = (tag, a) => picked(tag) ? hex2rgba(picked(tag), a) : HUE[tag] == null ? `rgba(170,180,200,${a})` : `hsla(${HUE[tag]},80%,${isLight() ? 42 : 66}%,${a})`;
+    const colHex = tag => picked(tag) || (HUE[tag] == null ? "#aab4c8" : hsl2hex(HUE[tag], 80, isLight() ? 42 : 66));
+    const dot = tag => `<label class="gx-dot${picked(tag) ? " set" : ""}" title="Pick this category's colour (double-click = default)"><input type="color" value="${colHex(tag)}" data-tag="${esc(tag)}" /><i style="background:${col(tag, .95)}"></i></label>`;
+    function setColor(tag, hex) { STATE.colors ||= {}; if (hex) STATE.colors[tag] = hex; else delete STATE.colors[tag]; saveToDB(); renderLegend(); draw(); if (selG >= 0) showGalaxy(selG); }
+    for (const id of ["legend", "info"]) {
+      $(id).addEventListener("input", e => { const inp = e.target.closest("input[type=color][data-tag]"); if (inp) setColor(inp.dataset.tag, inp.value); });
+      $(id).addEventListener("dblclick", e => { const d = e.target.closest(".gx-dot"); if (d) { e.preventDefault(); setColor(d.querySelector("input").dataset.tag, null); } });
+    }
     const label = tag => tagLabel(tag) || (tag === UNTITLED_CATEGORY ? "Uncategorized" : "");
 
     // month chips: year to date + the 12 months
@@ -1256,7 +1277,7 @@
       const byG = new Map(); V.forEach((v, i) => { const g = byG.get(v.tag) || { tag: v.tag, total: 0, ids: [] }; g.total += v.total; g.ids.push(i); byG.set(v.tag, g); });
       // budgeted categories with nothing spent still get a (star-less) galaxy, so an unused budget is visible
       for (const c of STATE.categories || []) { const t = parentTag(normTag(c.name)); if (!byG.has(t) && budgetFor(t) > 0) byG.set(t, { tag: t, total: 0, ids: [] }); }
-      G = [...byG.values()]; G.forEach(g => { g.budget = budgetFor(g.tag); g.size = Math.max(g.total, g.budget * 0.6); });
+      G = [...byG.values()]; G.forEach(g => { g.budget = budgetFor(g.tag); g.size = g.total || g.budget * 0.15; });   // size = spend (L 2026-10-03: "proportional to the amount in relation to each other"); unspent budget = a small ring
       G.sort((a, b) => b.size - a.size); G.forEach((g, gi) => g.ids.forEach(i => { V[i].g = gi; }));
       layout(); renderStats(); renderLegend();
       const tags = G.map(g => g.tag).join("|"), same = tags === lastTags; lastTags = tags;
@@ -1265,7 +1286,7 @@
     }
     function layout() {   // same spiral placement as the Louverse; a galaxy's room = max(spend, budget)
       const B_SP = 0.30, ARMS = 4, GAP = 0.004, REF = Math.max(1, G[0] ? G[0].size : 1);
-      const grad = g => 0.02 * Math.sqrt(g.ids.length) + 0.012 + 0.05 * Math.sqrt(g.size / REF);
+      const grad = g => 0.012 + 0.12 * Math.sqrt(g.size / REF);   // radius ~ sqrt(spend) -> ring AREA proportional to spend, biggest = REF; small floor keeps it tappable
       const placed = [[0, 0, 0]], centers = [], armR = Array(ARMS).fill(0.03);
       G.forEach((g, k) => { const rr = grad(g);
         if (k === 0) { centers.push([0, 0]); placed[0][2] = rr; armR.fill(rr + 0.03); return; }
@@ -1287,7 +1308,7 @@
       $("stats").innerHTML = `<span><b>${money0(TOTAL)}</b> spent</span><span>of <b>${money0(budget)}</b> budgeted</span><span class="${TOTAL > budget ? "over" : ""}"><b>${money0(Math.abs(budget - TOTAL))}</b> ${TOTAL > budget ? "over" : "left"}</span><span><b>${V.length}</b> vendors</span><span><b>${over.length}</b> over budget</span>`;
     }
     function renderLegend() {
-      $("legend").innerHTML = G.map((g, gi) => `<button type="button" data-g="${gi}" class="${g.budget > 0 && g.total > g.budget ? "over" : ""}"><i style="background:${col(g.tag, .95)}"></i>${esc(g.tag)} ${esc(label(g.tag))} <span class="n">${money0(g.total)}${g.budget ? " / " + money0(g.budget) : ""}</span></button>`).join("");
+      $("legend").innerHTML = G.map((g, gi) => `<span class="gx-item">${dot(g.tag)}<button type="button" data-g="${gi}" class="${g.budget > 0 && g.total > g.budget ? "over" : ""}">${esc(g.tag)} ${esc(label(g.tag))} <span class="n">${money0(g.total)}${g.budget ? " / " + money0(g.budget) : ""}</span></button></span>`).join("");
     }
     $("legend").addEventListener("click", e => { const b = e.target.closest("button[data-g]"); if (b) showGalaxy(Number(b.dataset.g)); });
     $("info").addEventListener("click", e => { const b = e.target.closest("button[data-v]"); if (b) show(Number(b.dataset.v)); const g = e.target.closest("button[data-g]"); if (g) showGalaxy(Number(g.dataset.g)); });
@@ -1410,7 +1431,7 @@
     }
     function showGalaxy(gi) {
       selG = gi; sel = -1; const g = G[gi]; focus = new Set(g.ids); const top = g.ids.slice(0, 10), diff = g.budget - g.total;
-      $("info").innerHTML = `<div class="mk">${esc(g.tag)} ${esc(label(g.tag))}</div><div class="sub">${win === "ytd" ? "year to date" : MONTH[Number(win)]} · ${g.ids.length} vendors</div>
+      $("info").innerHTML = `<div class="mk">${dot(g.tag)}${esc(g.tag)} ${esc(label(g.tag))}</div><div class="sub">${win === "ytd" ? "year to date" : MONTH[Number(win)]} · ${g.ids.length} vendors</div>
         <div class="kv"><b>Budget</b><span>${g.budget ? fmt.format(g.budget) : "none set"}</span><b>Spent</b><span>${fmt.format(g.total)}</span>
         ${g.budget ? `<b>${diff >= 0 ? "Left" : "Over"}</b><span class="${diff >= 0 ? "under" : "over"}">${fmt.format(Math.abs(diff))} (${Math.round(g.total / g.budget * 100)}% used)</span>` : ""}</div>
         <div class="chips">${top.map(i => `<button type="button" data-v="${i}"><i style="background:${col(V[i].tag, .95)};width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px"></i>${esc(V[i].name)} <span class="n">${money0(V[i].total)}</span></button>`).join("")}</div>
