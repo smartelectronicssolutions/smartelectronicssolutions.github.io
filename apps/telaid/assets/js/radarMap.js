@@ -90,8 +90,10 @@ export function mountRadarMap(root, opts = {}) {
     const LAST_SITE = (() => { try { return JSON.parse(localStorage.getItem("sensorTask")) || null; } catch (_) { return null; } })();
     let TASK = "", TABLES = null, SWITCHES = {};   // TABLES = this site's plan (task.siteTables in Firebase, or the built-in WM54 table)
     const setTaskId = t => { TASK = String(t); TABLES = null; SWITCHES = {}; };   // the plan arrives with the job in load()
-    setTaskId(opts.task || (LAST_SITE && LAST_SITE.task) || "1789898400000");
     const EMBED = !!opts.embed;
+    // Embedded in the checklist the map follows ONLY the site the checklist opens - no remembered site, no default
+    // (L 2026-10-02: "the map is loading the Walmart one even when I haven't selected anything yet").
+    setTaskId(opts.task || (!EMBED && LAST_SITE && LAST_SITE.task) || (!EMBED && "1789898400000") || "");
     if (EMBED) root.classList.add("embed");
     const HUBPH = {};   // "MDF"/"IDF3" -> [storage refs]
     let selHub = null, HL = new Set();   // HL = sensors matching what's typed in the Sensor # box (live)
@@ -118,6 +120,7 @@ export function mountRadarMap(root, opts = {}) {
 
     async function load(user) {
       if (!user) { $("source").textContent = "Sign in to load the site."; return; }
+      if (!TASK) { $("source").textContent = "Open a site above and its map shows here."; $("stats").innerHTML = ""; $("hubs").innerHTML = ""; return; }
       S = []; sel = -1; selHub = null; B = null; for (const k in HUBPH) delete HUBPH[k]; PHOTOS = "loading";
       $("source").textContent = "Loading...";
       const { owner, task, meta } = await loadJob(user, TASK);
@@ -411,7 +414,7 @@ export function mountRadarMap(root, opts = {}) {
     legend(); fit();
     onAuthStateChanged(auth, async u => { await loadJobs(u); load(u); });   // jobs first: a sibling-night id gets swapped for the canonical one before the data read
     return {
-      setTask(t) { if (!t || String(t) === TASK) return; setTaskId(t); load(auth.currentUser); },
+      setTask(t) { if (!t || String(t) === TASK) return; setTaskId(t); $("info").innerHTML = '<span class="muted">Tap a sensor to see its details.</span>'; load(auth.currentUser); },
       refit: fit,
     };
   
