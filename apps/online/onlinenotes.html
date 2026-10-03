@@ -142,7 +142,7 @@
         } catch (_){}
         if (plain != null) { clearText = plain; lastWord = pw; revealed = true; keyInput.value = ''; renderNote(); }
         else if (clearText != null) { revealed = true; keyInput.value = ''; renderNote(); }   // in-session: we still hold it
-        else setStatus('wrong word');
+        else { notesTextarea.value = await garbageView(lockedBlob, pw); notesTextarea.readOnly = true; setStatus('wrong word - this is the note under that word'); }   // GARBAGE VIEW (L 2026-10-03, see garbageView)
       } else {                                               // OPEN -> the word locks it (encrypt)
         if (!pw || !(clearText && clearText.trim())) { renderNote(); return; }
         try { lockedBlob = await encryptText(clearText, pw); lastWord = pw; }
@@ -170,6 +170,22 @@
       const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: _unb64(ivB) }, key, _unb64(ctB));
       return new TextDecoder().decode(pt);
     }
+    // GARBAGE VIEW (L 2026-10-03: "if we removed the GCM it would show garbage until the right word is in - I want to see how
+    // that would look"): GCM REFUSES a wrong word (the tag check fails), so the note never shows anything but the cipher
+    // block. A cipher without that tag (AES-CTR) would hand back random bytes under a wrong word. This shows exactly those
+    // bytes - the ciphertext run through AES-CTR with the key the wrong word makes - WITHOUT dropping GCM: the real note
+    // still only opens under the right word, and a tampered blob is still refused. Same bytes, same look, no loss of safety.
+    async function garbageView(blob, password) {
+      try {
+        const [, saltB, ivB, ctB] = blob.split('.'), salt = _unb64(saltB), ct = _unb64(ctB);
+        const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+        const key = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 210000, hash: 'SHA-256' }, km, { name: 'AES-CTR', length: 256 }, false, ['decrypt']);
+        const counter = new Uint8Array(16); counter.set(_unb64(ivB).slice(0, 12));
+        const bytes = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-CTR', counter, length: 32 }, key, ct.slice(0, ct.length - 16)));   // the last 16 bytes are GCM's tag, not text
+        return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+      } catch (_) { return _cipherView(blob); }
+    }
+    window.__notesCrypto = { encryptText, decryptText, garbageView };   // test hook (nothing saved by it)
 
     // Shared read-view: onlinenotes.html?s=<id> loads a note someone shared (public/sharedNotes).
     async function loadSharedView() {

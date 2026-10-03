@@ -5304,6 +5304,26 @@
         }
     }
     const OWNER = '7cIh8rrhVNOjjj5CBDgb3IlqzEh2';   // Luis: the only account whose console (and daemon) a tab can be shared FROM
+    // E2E TEST (2026-10-03, L: "use the UID as the encryption word, do it automatically"): person-to-person messages are stored
+    // as AES-256-GCM blobs; the key = PBKDF2 of the SENDER's uid, and the reader derives the same key from `from`. This proves
+    // the mechanism (Firebase holds blobs), NOT secrecy - every uid is public. Swap secretFor() for a real shared word and
+    // nothing else changes. Shared-tab threads (tab-*) stay plaintext: the daemon mirrors and reads those.
+    const E2E = { on: true, salt: 'louverse-chat-v1', iters: 150000, keys: new Map(), plain: new Map() };
+    const secretFor = uid => String(uid || '');
+    function keyFor(secret) { if (E2E.keys.has(secret)) return E2E.keys.get(secret);
+        const te = new TextEncoder();
+        const p = crypto.subtle.importKey('raw', te.encode(secret), 'PBKDF2', false, ['deriveKey'])
+            .then(base => crypto.subtle.deriveKey({ name: 'PBKDF2', salt: te.encode(E2E.salt), iterations: E2E.iters, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']));
+        E2E.keys.set(secret, p); return p; }
+    const b64 = u8 => { let b = ''; for (let i = 0; i < u8.length; i += 0x8000) b += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(b); };
+    const unb64 = str => Uint8Array.from(atob(str), c => c.charCodeAt(0));
+    async function encText(secret, text) { const iv = crypto.getRandomValues(new Uint8Array(12)); const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await keyFor(secret), new TextEncoder().encode(text)));
+        const out = new Uint8Array(12 + ct.length); out.set(iv); out.set(ct, 12); return b64(out); }
+    async function decText(secret, blob) { const raw = unb64(blob); return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: raw.slice(0, 12) }, await keyFor(secret), raw.slice(12))); }
+    const isE2EThread = tid => E2E.on && !!tid && !String(tid).startsWith('tab-');
+    async function openMsg(k, m) { if (!m || !m.enc) return m; if (E2E.plain.has(k)) return { ...m, text: E2E.plain.get(k) };
+        let text; try { text = await decText(secretFor(m.from), m.text); } catch (_) { text = '🔒 (could not open this message)'; } E2E.plain.set(k, text); return { ...m, text }; }
+    window.__dcE2E = { E2E, encText, decText, secretFor, isE2EThread };   // test hook
 
     function build() {
         const bar = $('#dc-console .dc-bar'), body = $('#dc-console .dc-body');
@@ -5641,9 +5661,11 @@
     function renderMsgs(msgs) {
         const log = $('#dc-peer-log'); if (!log) return;
         lastMsgs = msgs;
+        const need = Object.entries(msgs).filter(([k, m]) => m && m.enc && !E2E.plain.has(k));   // E2E: open what is new, then draw again
+        if (need.length) Promise.all(need.map(([k, m]) => openMsg(k, m))).then(() => { if (lastMsgs === msgs) renderMsgs(msgs); });
         const nf = newestFirst(); $('#dc-peer') && $('#dc-peer').classList.toggle('nf', nf);
         const cleared = (P.index[P.open] || {}).clearedAt || 0;
-        const asc0 = Object.keys(msgs).sort().map(k => msgs[k] && { ...msgs[k], __k: k }).filter(m => m && m.text && (m.ts || 0) > cleared);
+        const asc0 = Object.keys(msgs).sort().map(k => msgs[k] && { ...msgs[k], text: msgs[k].enc ? (E2E.plain.get(k) ?? '🔒 …') : msgs[k].text, __k: k }).filter(m => m && m.text && (m.ts || 0) > cleared);
         const asc = [], seenSnap = {};
         for (const m of asc0) {   // a text share arrives in parts (4000-char cap per message): fold them into one card
             if (m.snap) { const g = seenSnap[m.snap.id]; if (g) { g.text += m.text; continue; } seenSnap[m.snap.id] = { ...m }; asc.push(seenSnap[m.snap.id]); }
@@ -5667,7 +5689,7 @@
         // edits it; a triple-tap on any message opens the console's own message sheet (▶ play · ⚡ speed read · Delete on yours).
         log.onclick = e => {
             const el = e.target.closest && e.target.closest('.dc-bub[data-k]'); if (!el || e.target.closest('a')) { tap.n = 0; return; }
-            const k = el.dataset.k, m = msgs[k]; if (!m) return;
+            const k = el.dataset.k, m0 = msgs[k]; if (!m0) return; const m = m0.enc ? { ...m0, text: E2E.plain.get(k) ?? '' } : m0;   // E2E: work with the opened text
             if (e.target.closest('.dc-edit')) { startEdit(k, m.text); return; }
             const now = Date.now(); tap.n = (tap.k === k && now - tap.t < 700) ? tap.n + 1 : 1; tap.k = k; tap.t = now;
             if (tap.n >= 3 && window.__dcMsgSheet) { tap.n = 0;
@@ -5687,17 +5709,18 @@
         if (S && S.enhanceOn()) text = S.tidy(text);   // ✨ on: the same tidy the console box gets (spaces, capital, final period)
         if (P.editing) {
             const k = P.editing;
-            try { await update(ref(database, `share/chat/${P.open}/messages/${k}`), { text, edited: Date.now() }); stopEdit(); }
+            try { const e2e = isE2EThread(P.open); await update(ref(database, `share/chat/${P.open}/messages/${k}`), { text: e2e ? await encText(secretFor(P.me), text) : text, ...(e2e ? { enc: 1 } : {}), edited: Date.now() }); E2E.plain.delete(k); stopEdit(); }
             catch (e) { alert('Not saved: ' + (e.code || e.message)); }
             return;
         }
         box.value = '';
         const ts = Date.now(), tid = P.open, other = P.other;
         try {
-            await push(ref(database, `share/chat/${tid}/messages`), { from: P.me, name: P.myName, text, ts });
+            const e2e = isE2EThread(tid), stored = e2e ? await encText(secretFor(P.me), text) : text, preview = e2e ? '🔒 message' : text.slice(0, 90);   // E2E: the thread holds a blob, the inbox line says nothing
+            await push(ref(database, `share/chat/${tid}/messages`), { from: P.me, name: P.myName, text: stored, ...(e2e ? { enc: 1 } : {}), ts });
             const tab = tid.startsWith('tab-'), prevMine = P.index[tid] || {};
-            await update(ref(database, `share/chatIndex/${P.me}/${tid}`), { with: other, name: tab ? (prevMine.name || P.dir[other] || '') : (P.dir[other] || ''), last: text.slice(0, 90), ts, from: P.me, ...(tab ? { kind: 'tab' } : {}) });
-            await update(ref(database, `share/chatIndex/${other}/${tid}`), { with: P.me, name: tab && P.me === OWNER ? `${P.myName} · shared tab` : P.myName, last: text.slice(0, 90), ts, from: P.me, ...(tab ? { kind: 'tab' } : {}) });
+            await update(ref(database, `share/chatIndex/${P.me}/${tid}`), { with: other, name: tab ? (prevMine.name || P.dir[other] || '') : (P.dir[other] || ''), last: preview, ts, from: P.me, ...(tab ? { kind: 'tab' } : {}) });
+            await update(ref(database, `share/chatIndex/${other}/${tid}`), { with: P.me, name: tab && P.me === OWNER ? `${P.myName} · shared tab` : P.myName, last: preview, ts, from: P.me, ...(tab ? { kind: 'tab' } : {}) });
         } catch (e) { box.value = text; alert('Not sent: ' + (e.code || e.message)); }
     }
 
@@ -5711,11 +5734,11 @@
         try {
             const { uploadImage } = await import('./apps/assets/js/imgupload.js');
             const up = await uploadImage({ file, basePath: `${P.me}/images/chat`, name: 'chat-photo' });
-            const text = cap || '📷 photo', ts = Date.now();
-            await push(ref(database, `share/chat/${tid}/messages`), { from: P.me, name: P.myName, text, img: up.url, imgPath: up.path, ts });
+            const text = cap || '📷 photo', ts = Date.now(), e2e = isE2EThread(tid);
+            await push(ref(database, `share/chat/${tid}/messages`), { from: P.me, name: P.myName, text: e2e ? await encText(secretFor(P.me), text) : text, ...(e2e ? { enc: 1 } : {}), img: up.url, imgPath: up.path, ts });
             const tab = tid.startsWith('tab-'), prevMine = P.index[tid] || {};
-            await update(ref(database, `share/chatIndex/${P.me}/${tid}`), { with: other, name: tab ? (prevMine.name || P.dir[other] || '') : (P.dir[other] || ''), last: '📷 ' + (cap || 'photo').slice(0, 80), ts, from: P.me, ...(tab ? { kind: 'tab' } : {}) });
-            await update(ref(database, `share/chatIndex/${other}/${tid}`), { with: P.me, name: tab && P.me === OWNER ? `${P.myName} · shared tab` : P.myName, last: '📷 ' + (cap || 'photo').slice(0, 80), ts, from: P.me, ...(tab ? { kind: 'tab' } : {}) });
+            await update(ref(database, `share/chatIndex/${P.me}/${tid}`), { with: other, name: tab ? (prevMine.name || P.dir[other] || '') : (P.dir[other] || ''), last: e2e ? '📷 photo' : '📷 ' + (cap || 'photo').slice(0, 80), ts, from: P.me, ...(tab ? { kind: 'tab' } : {}) });
+            await update(ref(database, `share/chatIndex/${other}/${tid}`), { with: P.me, name: tab && P.me === OWNER ? `${P.myName} · shared tab` : P.myName, last: e2e ? '📷 photo' : '📷 ' + (cap || 'photo').slice(0, 80), ts, from: P.me, ...(tab ? { kind: 'tab' } : {}) });
             box.value = '';
         } catch (e) { alert('Photo not sent: ' + (e.code || e.message)); }
         finally { box.disabled = false; box.placeholder = ph; }
