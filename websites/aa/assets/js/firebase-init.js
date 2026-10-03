@@ -1,5 +1,4 @@
-// jem's own Firebase init (2026-10-03, L: every site under websites/ carries its own files). Same file
-// in the je-auto deploy repo, so a plain copy deploys cleanly.
+// aa's own copy (2026-10-03, L: every site under websites/ carries its own files) of assets/js/firebase-init.js.
 import { firebaseConfig } from "./firebase-config.js";
 
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js";

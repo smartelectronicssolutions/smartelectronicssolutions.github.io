@@ -1,4 +1,4 @@
-﻿import { ref, database, onValue } from "../../../assets/js/firebase-init.js";
+﻿import { ref, database, onValue } from "./firebase-init.js";
 
 
 const modelSelect = document.getElementById('modelSelect');

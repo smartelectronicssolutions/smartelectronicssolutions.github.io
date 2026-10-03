@@ -1,4 +1,4 @@
-﻿import { auth, signInWithEmailAndPassword, signOut } from "../../../assets/js/firebase-init.js";
+﻿import { auth, signInWithEmailAndPassword, signOut } from "./firebase-init.js";
 
 document.getElementById("login-form").addEventListener("submit", function (event) {
     event.preventDefault();

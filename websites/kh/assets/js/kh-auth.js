@@ -8,7 +8,7 @@
 //   #kh-email / #kh-password / #kh-login-btn / #kh-auth-error
 //   #kh-user-email / #kh-logout-btn
 
-import { auth } from '../../../../assets/js/firebase-init.js';
+import { auth } from './firebase-init.js';
 import {
   onAuthStateChanged,
   signInWithEmailAndPassword,

@@ -1,4 +1,4 @@
-﻿import { auth, createUserWithEmailAndPassword } from "../../../assets/js/firebase-init.js";
+﻿import { auth, createUserWithEmailAndPassword } from "./firebase-init.js";
 
 const regForm = document.getElementById('reg-form');
 const regEmail = document.getElementById('reg-email');

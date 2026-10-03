@@ -1,4 +1,4 @@
-import { ref, database, onValue, set, get, remove } from "../../../assets/js/firebase-init.js";
+import { ref, database, onValue, set, get, remove } from "./firebase-init.js";
 
 // New schema: public/devices/{brand}/{model}: { img: "filename.png", repairs: [{name, price}, ...] }
 // (was: public/devices/Phones/{brand}/{model}/{repair}: scalar price — flat tree)

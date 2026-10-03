@@ -1,4 +1,4 @@
-import { auth, database, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, ref, set } from "../../../../assets/js/firebase-init.js";
+import { auth, database, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, ref, set } from "./firebase-init.js";
 
 const loginForm = document.getElementById("login-form");
 if (loginForm) {

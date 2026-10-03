@@ -1,0 +1,177 @@
+// ytg's own copy (2026-10-03, L: every site under websites/ carries its own files) of assets/js/main.js.
+document.addEventListener("DOMContentLoaded", () => {
+  // Load shared header and footer
+  fetchWithFallback(
+    "header-placeholder",
+    "components/header.html",
+    "../components/header.html",
+  ).then(() => {
+    import("./header-auth.js").then(m => m.init()).catch(() => {});
+    // Theme toggle — AFTER header loads
+    const html = document.documentElement;
+    const btn = document.getElementById("theme-toggle");
+
+    if (btn) {
+      const saved = localStorage.getItem("ss-theme");
+
+      function applyTheme(theme) {
+        if (theme === "light") {
+          html.classList.add("light");
+          btn.textContent = "🌙";
+          btn.title = "Switch to dark";
+        } else {
+          html.classList.remove("light");
+          btn.textContent = "☀️";
+          btn.title = "Switch to light";
+        }
+      }
+
+      // Initial load
+      if (saved) {
+        applyTheme(saved);
+      } else if (window.matchMedia("(prefers-color-scheme: light)").matches) {
+        applyTheme("light");
+      }
+
+      // Click handler
+      btn.addEventListener("click", () => {
+        const isLight = html.classList.contains("light");
+        const next = isLight ? "dark" : "light";
+        localStorage.setItem("ss-theme", next);
+        applyTheme(next);
+      });
+    }
+
+    // Hamburger menu toggle — runs after header is injected into the DOM
+    const hamburger = document.querySelector(".hamburger");
+    const navLinks = document.querySelector(".nav-links");
+    if (hamburger && navLinks) {
+      hamburger.addEventListener("click", () => {
+        navLinks.classList.toggle("active");
+        hamburger.classList.toggle("active");
+      });
+    }
+  });
+
+  fetchWithFallback(
+    "footer-placeholder",
+    "components/footer.html",
+    "../components/footer.html",
+  );
+
+  import('./visitLogger.js').then(m => m.getIP().then(ip => m.updateVisitCount(ip))).catch(() => {});
+
+  if (document.getElementById("projects-container")) {
+    populateThumbnails(projects, "projects-container");
+  }
+
+  if (document.getElementById("apps-container")) {
+    populateThumbnails(apps, "apps-container");
+  }
+});
+
+function populateThumbnails(items, containerId, userLoggedIn) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = "";
+
+  const categories = { Cloud: [], Game: [], Other: [] };
+
+  items.forEach((item) => {
+    if (!item.requiresLogin || (item.requiresLogin && userLoggedIn)) {
+      const itemCategories = item.category
+        ? item.category.split(",").map((cat) => cat.trim())
+        : ["Other"];
+
+      itemCategories.forEach((category) => {
+        if (categories[category]) {
+          categories[category].push(item);
+        } else {
+          categories["Other"].push(item);
+        }
+      });
+    }
+  });
+
+  Object.keys(categories).forEach((category) => {
+    if (categories[category].length > 0) {
+      const categorySection = document.createElement("div");
+      categorySection.classList.add("category-section");
+
+      const categoryTitle = document.createElement("h2");
+      categoryTitle.textContent = category;
+      categorySection.appendChild(categoryTitle);
+
+      const categoryContainer = document.createElement("div");
+      categoryContainer.classList.add("thumbnail-container");
+
+      categories[category].forEach((item) => {
+        const thumbnailDiv = document.createElement("div");
+        thumbnailDiv.classList.add("thumbnail");
+
+        const link = document.createElement("a");
+        link.href = item.link;
+        link.target = "_blank";
+
+        const img = document.createElement("img");
+        img.src =
+          item.image && item.image.trim() !== ""
+            ? item.image
+            : "assets/img/default.png";
+        img.alt = item.title;
+        img.onerror = function () {
+          this.onerror = null;
+          this.src = "assets/img/default.png";
+        };
+
+        const p = document.createElement("p");
+        p.textContent = item.title;
+
+        link.appendChild(img);
+        link.appendChild(p);
+        thumbnailDiv.appendChild(link);
+        categoryContainer.appendChild(thumbnailDiv);
+      });
+
+      categorySection.appendChild(categoryContainer);
+      container.appendChild(categorySection);
+    }
+  });
+}
+
+function fetchWithFallback(targetId, primaryPath, fallbackPath) {
+  return fetch(primaryPath)
+    .then((res) => {
+      if (!res.ok) throw new Error("Primary failed");
+      return res.text();
+    })
+    .then((data) => {
+      document.getElementById(targetId).innerHTML = data;
+    })
+    .catch(() => {
+      return fetch(fallbackPath)
+        .then((res) => {
+          if (!res.ok) throw new Error("Fallback failed");
+          return res.text();
+        })
+        .then((data) => {
+          const el = document.getElementById(targetId);
+          el.innerHTML = data;
+          // Rebase relative links — fallback means we're one level deep (e.g. online/)
+          el.querySelectorAll("a[href]").forEach((a) => {
+            const href = a.getAttribute("href");
+            if (href && !href.startsWith("http") && !href.startsWith("/") && !href.startsWith("#") && !href.startsWith("..") && !href.startsWith("mailto:")) {
+              a.setAttribute("href", "../" + href);
+            }
+          });
+          el.querySelectorAll("[src]").forEach((node) => {
+            const src = node.getAttribute("src");
+            if (src && !src.startsWith("http") && !src.startsWith("/") && !src.startsWith("..") && !src.startsWith("data:")) {
+              node.setAttribute("src", "../" + src);
+            }
+          });
+        })
+        .catch((err) => {
+          console.error(`Failed to load ${targetId}:`, err);
+        });
+    });
+}
