@@ -3771,8 +3771,10 @@
         //      words back. If the caret is mid-text the rewrite waits as "ready · Tab" instead of moving under his cursor.
         //      Typing on discards it; a newer keystroke aborts the older request. (2026-09-25 10:10, L: "I wanted all this
         //      to happen in the chatbox" - the first cut showed it as a line under the box, which pushed the log down.)
-        (function wireLiveEnhance() {
-            const ta = $('#dc-chat-in'), ghost = $('#dc-ghost'); if (!ta || !ghost) return;
+        // ONE enhancer for BOTH boxes (L 2026-10-03 "do the same polish" for member chat): a factory - per-box state, the same
+        // dictionary, the same model. hooks=true (the console box) also publishes the window.__dcLive* test / send hooks.
+        function wireLiveEnhance(ta, ghost, statusEl, sendBtn, hooks) {
+            if (!ta || !ghost) return;
             const on = () => !!($('#dc-chat-enhance') && $('#dc-chat-enhance').checked);
             const FIX = { i: 'I', im: "I'm", ive: "I've", dont: "don't", cant: "can't", wont: "won't", didnt: "didn't", isnt: "isn't", doesnt: "doesn't", wasnt: "wasn't", werent: "weren't",
                 shouldnt: "shouldn't", couldnt: "couldn't", wouldnt: "wouldn't", havent: "haven't", hasnt: "hasn't", arent: "aren't", thats: "that's", whats: "what's", theres: "there's",
@@ -3862,7 +3864,7 @@
             // what the live enhance did, visible: a short status line, and {uid}/console/enhanceLog for Droplet to read from se
             // (2026-09-25, L: "go over the enhance, it's not doing a good job" - from a phone I cannot see; this is the evidence)
             const enhLog = (kind, info) => {
-                try { const st = $('#dc-chat-status'); if (st && !st.textContent) { st.textContent = '✨ ' + kind + (info ? ': ' + String(info).slice(0, 60) : ''); setTimeout(() => { if (st.textContent.startsWith('✨ ' + kind)) st.textContent = ''; }, 2500); } } catch (_) {}
+                try { const st = statusEl; if (st && !st.textContent) { st.textContent = '✨ ' + kind + (info ? ': ' + String(info).slice(0, 60) : ''); setTimeout(() => { if (st.textContent.startsWith('✨ ' + kind)) st.textContent = ''; }, 2500); } } catch (_) {}
                 try { if (DC.base) push(ref(database, `${DC.base}/enhanceLog`), { t: Date.now(), kind, info: String(info || '').slice(0, 200), ua: navigator.userAgent.slice(0, 60) }); } catch (_) {}
             };
             // --- 1. autocorrect (in the text, instantly): the word table, then sentence capitals, then double spaces ---
@@ -4057,7 +4059,7 @@
             });
             // --- 3. words per minute, live (L: "a number in the lower right of the box that logs the speed in real time") ---
             // characters typed in a sliding 10 s window, 5 characters = a word. Fades after 3 s of quiet.
-            const wpmEl = $('#dc-wpm'); const keys = []; let wpmTick = null;
+            const wpmEl = hooks ? $('#dc-wpm') : null; const keys = []; let wpmTick = null;
             // a 30 s window with a 5 s floor: the 10 s / 2 s first cut swung between "really low and really fast" (L)
             const paintWpm = () => { const now = Date.now(); while (keys.length && now - keys[0] > 30000) keys.shift();
                 if (!wpmEl) return; if (!keys.length) { wpmEl.hidden = true; clearInterval(wpmTick); wpmTick = null; return; }
@@ -4073,12 +4075,13 @@
             });
             // ORDER MATTERS: sendChat (the onclick / the keydown registered first) runs FIRST and starts the flush; these two listeners ran
             // second and ABORTED the very request the flush was waiting on - so the last sentence never got its pass at Send. (Review 2026-09-25.)
-            $('#dc-chat-send') && $('#dc-chat-send').addEventListener('click', () => { if (flushing) return; clearTimeout(timer); if (ctl) ctl.abort(); hideGhost(); lastRewrite = null; stable = 0; lastSrc = ''; });
-            window.__dcLiveFix = w => fixFor(String(w || '').toLowerCase()) || null;   // test hooks
-            window.__dcLiveState = () => ({ stable, lastSrc, hasRewrite: !!lastRewrite, flushing, inflight: !!inflight });
+            sendBtn && sendBtn.addEventListener('click', () => { if (flushing) return; clearTimeout(timer); if (ctl) ctl.abort(); hideGhost(); lastRewrite = null; stable = 0; lastSrc = ''; });
+            const liveState = () => ({ stable, lastSrc, hasRewrite: !!lastRewrite, flushing, inflight: !!inflight });
+            if (hooks) { window.__dcLiveFix = w => fixFor(String(w || '').toLowerCase()) || null;   // test hooks
+                window.__dcLiveState = liveState; }
             // Send calls this: give the unrewritten tail its pass now (3+ words), but never wait longer than `ms`. A request already in
             // the air for exactly this tail (the ". " trigger fired a second ago) is waited for, not aborted and asked again.
-            window.__dcLiveFlush = ms => { if (!on()) return Promise.resolve(); clearTimeout(timer); flushing = true; forceApply = true;
+            const liveFlush = ms => { if (!on()) return Promise.resolve(); clearTimeout(timer); flushing = true; forceApply = true;
                 const tail = norm(ta.value.slice(stable));
                 // a request out for exactly this tail: wait for it. One out for an older piece: let it land (the server is on it
                 // anyway; it advances `stable`), then ask for what is left. Nothing out: ask now.
@@ -4088,7 +4091,10 @@
                     .finally(() => { flushing = false; forceApply = false; if (!done && ctl) ctl.abort();
                         if (lastRewrite) { clearTimeout(applyRewrite._learn); learnFrom(lastRewrite.prev, lastRewrite.out); }   // sent = kept
                         hideGhost(); lastRewrite = null; lastFix = null; stable = 0; lastSrc = ''; inflight = null; }); };
-        })();
+            ta.__liveFlush = liveFlush; ta.__liveState = liveState; if (hooks) window.__dcLiveFlush = liveFlush;
+        }
+        wireLiveEnhance($('#dc-chat-in'), $('#dc-ghost'), $('#dc-chat-status'), $('#dc-chat-send'), true);
+        window.__dcWireLiveEnhance = wireLiveEnhance;   // the member-chat pane (built later, in its own module) wires its box with this
         // remember the chat controls per device (enhance toggle, ping, target) - restored before the first render
         const PERSIST = { 'dc-chat-enhance': 'dc_enh_on', 'dc-chat-ping': 'dc_ping_on', 'dc-chat-target': 'dc_target' };
         for (const [id, key] of Object.entries(PERSIST)) {
@@ -5339,7 +5345,7 @@
         pane.innerHTML = `<div id="dc-peer-head"><button type="button" id="dc-peer-back" title="back to People" hidden>‹</button><span id="dc-peer-name"></span><div id="dc-peer-bar" hidden></div><span class="sp"></span><button type="button" id="dc-peer-x" title="close the pane">✕</button></div>
             <div id="dc-peer-home"></div>
             <div id="dc-peer-log" class="dc-chat-log" hidden></div>
-            <form id="dc-peer-form" class="dc-chat-input" hidden><span class="ps" aria-hidden="true">❯</span><textarea id="dc-peer-in" rows="2" placeholder="message…  (Enter sends)"></textarea><button type="button" class="dc-emoji-btn" id="dc-peer-emoji" title="emoji (search at the top)" aria-label="emoji picker">🙂</button><button type="submit" class="dc-btn push">▲</button></form>`;   // SAME box as the Droplet chat (L 2026-09-27: "the chat boxes still look different")
+            <form id="dc-peer-form" class="dc-chat-input" hidden><span class="ps" aria-hidden="true">❯</span><textarea id="dc-peer-in" rows="2" placeholder="message…  (Enter sends)"></textarea><div id="dc-peer-ghost" class="dc-ghost" hidden></div><div class="dc-status dc-stat-pill" id="dc-peer-status"></div><button type="button" class="dc-emoji-btn" id="dc-peer-emoji" title="emoji (search at the top)" aria-label="emoji picker">🙂</button><button type="submit" class="dc-btn push">▲</button></form>`;   // SAME box as the Droplet chat (L 2026-09-27: "the chat boxes still look different")
         body.appendChild(pane);
         {   // SPLIT BAR between the console chat and the pane (L 2026-10-03: "also between the panes for chat and member chat")
             const sp = document.createElement('div'); sp.id = 'dc-peer-split'; sp.title = 'drag to resize the panes · double-tap to reset';
@@ -5390,15 +5396,10 @@
         const pe = $('#dc-peer-emoji');
         pe.addEventListener('pointerdown', e => e.preventDefault());   // keep the box focused
         pe.onclick = () => window.__dcEmojiFor && window.__dcEmojiFor($('#dc-peer-in'), $('#dc-peer-form'));
-        // ✨ live word fixes, same switch as the console box: the word before a space/punctuation gets the enhancer's fix
-        $('#dc-peer-in').addEventListener('input', e => {
-            const S = window.__dcShared, box = e.target; if (!S || !S.enhanceOn() || !window.__dcLiveFix || e.inputType !== 'insertText' || !/^[\s.,!?;:]$/.test(e.data || '')) return;
-            const end = box.selectionStart - 1, m = /([A-Za-z']+)$/.exec(box.value.slice(0, end)); if (!m) return;
-            const fix = window.__dcLiveFix(m[1]); if (!fix || fix.toLowerCase() === m[1].toLowerCase() && fix === m[1]) return;
-            const out = /^[A-Z]/.test(m[1]) ? fix[0].toUpperCase() + fix.slice(1) : fix, a = end - m[1].length;
-            box.value = box.value.slice(0, a) + out + box.value.slice(end);
-            const c = a + out.length + 1; box.setSelectionRange(c, c);   // caret by hand (setRangeText 'preserve' selects - scar)
-        });
+        // ✨ THE SAME POLISH AS THE CONSOLE BOX (L 2026-10-03 "do the same polish"): instant fixes + phrases + doubled words +
+        // the live gemma2 rewrite + the Send pass, wired by the console's factory. Registered AFTER the keydown sender above on
+        // purpose (ORDER MATTERS: send() starts the flush, the enhancer's Enter listener must see flushing=true).
+        window.__dcWireLiveEnhance && window.__dcWireLiveEnhance($('#dc-peer-in'), $('#dc-peer-ghost'), $('#dc-peer-status'), null, false);
     }
 
     function unread(tid) { const x = P.index[tid]; return !!(x && x.from !== P.me && x.ts > seen(tid) && tid !== P.open); }
@@ -5694,7 +5695,7 @@
             const now = Date.now(); tap.n = (tap.k === k && now - tap.t < 700) ? tap.n + 1 : 1; tap.k = k; tap.t = now;
             if (tap.n >= 3 && window.__dcMsgSheet) { tap.n = 0;
                 window.__dcMsgSheet('peer:' + k, { host: $('#dc-peer'), text: m.text,
-                    onDelete: m.from === P.me ? async () => { try { await set(ref(database, `share/chat/${P.open}/messages/${k}`), null); } catch (er) { alert('Could not delete: ' + (er.code || er.message)); } } : null }); }
+                    onDelete: (m.from === P.me || P.me === OWNER) ? async () => { try { await set(ref(database, `share/chat/${P.open}/messages/${k}`), null); } catch (er) { alert('Could not delete: ' + (er.code || er.message)); } } : null }); }
         };
         if (asc.length) markSeen(P.open, asc[asc.length - 1].ts);
         dots();
@@ -5706,6 +5707,7 @@
         const box = $('#dc-peer-in'), S = window.__dcShared;
         let text = box.value.trim();
         if (!text || !P.open) return;
+        if (S && S.enhanceOn() && box.__liveFlush && !P.editing) { try { await box.__liveFlush(3500); } catch (_) {} text = box.value.trim(); if (!text) return; }   // the last proofread pass, like the console's Send
         if (S && S.enhanceOn()) text = S.tidy(text);   // ✨ on: the same tidy the console box gets (spaces, capital, final period)
         if (P.editing) {
             const k = P.editing;
