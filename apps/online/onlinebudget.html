@@ -121,6 +121,8 @@
     .gx-info .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
     .gx-info .chips button { width: auto; margin: 0; font-size: .85rem; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; }
     .gx-hint { font-size: .85rem; color: var(--muted); }
+    .gx-tip { position: absolute; z-index: 4; pointer-events: none; padding: 6px 10px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); color: var(--text); font-size: .85rem; white-space: nowrap; transform: translate(-50%, calc(-100% - 12px)); box-shadow: 0 6px 18px rgba(0,0,0,.25); font-variant-numeric: tabular-nums; }
+    .gx-tip[hidden] { display: none; }
     #gx-find { width: 14em; margin: 0; font-size: 1rem; padding: 6px 10px; }
     @media (max-width: 560px) { #gx-find { width: 100%; } }
   </style>
@@ -178,7 +180,7 @@
       <div class="gx-stats" id="gx-stats"></div>
       <div class="gx-mapwrap"><canvas id="gx-map" aria-label="Spending drawn as a galaxy with budget rings"></canvas>
         <div class="gx-tools"><button id="gx-zin" type="button" aria-label="Zoom in" title="Zoom in">+</button><button id="gx-zout" type="button" aria-label="Zoom out" title="Zoom out">&minus;</button><button id="gx-home" type="button">&#10530; Whole galaxy</button></div>
-        <input type="range" id="gx-slx" class="sl slx" min="0" max="1000" value="0" aria-label="Move left or right" hidden /><input type="range" id="gx-sly" class="sl sly" min="0" max="1000" value="0" aria-label="Move up or down" hidden /></div>
+        <input type="range" id="gx-slx" class="sl slx" min="0" max="1000" value="0" aria-label="Move left or right" hidden /><input type="range" id="gx-sly" class="sl sly" min="0" max="1000" value="0" aria-label="Move up or down" hidden /><div class="gx-tip" id="gx-tip" hidden></div></div>
       <div class="gx-legend" id="gx-legend"></div>
       <div class="gx-hint">Pinch, or Shift + scroll, to zoom · one finger scrolls the page; to move the map: hold half a second then drag, two fingers, the edge sliders, or a mouse drag · tap a galaxy ring or a star · keep zooming and each star shows its numbers.</div>
       <div class="gx-row"><input id="gx-find" type="search" placeholder="Find a vendor" autocomplete="off" /></div>
@@ -1378,7 +1380,8 @@
       sliders: { x: $("slx"), y: $("sly") }, draw: () => draw(),
       hit: (mx, my) => { const i = hitAt(mx, my); if (i >= 0) return { star: i }; const gi = galaxyAt(mx, my); return gi >= 0 ? { galaxy: gi } : null; },
       hold: (t, e) => e.pointerType === "touch" ? "pan" : null,   // hold half a second (touch) = move the map with that finger
-      onTap: t => { if (!t) { if (focus) clearFocus(); } else if (t.star != null) show(t.star); else showGalaxy(t.galaxy); },
+      onTap: (t, mx, my) => { const dot = dotAt(mx, my); if (dot) { tipAt(dot.x, dot.y, dotText(dot.row)); clearTimeout(tipTimer); tipTimer = setTimeout(hideTip, 2500); return; }
+        if (!t) { if (focus) clearFocus(); } else if (t.star != null) show(t.star); else showGalaxy(t.galaxy); },
       onFit: () => { sky = null; } });   // the star field is drawn once per canvas size
     const view = cvw.view, base = cvw.base, requestDraw = cvw.requestDraw, fit = cvw.fit;
     const P = v => [view.ox + v.px * view.s, view.oy + v.py * view.s];
@@ -1428,9 +1431,9 @@
     // different colour"): the selected vendor's charges pop out of its star as dots - one per charge, sized by amount, pale
     // with an amber edge so they read on any galaxy colour; when a ring is full the next one opens further out; 350 ms ease
     // (instant with reduced motion). The count sits under the outer ring. Cleared with the selection.
-    let burstAt = 0;
+    let burstAt = 0, burstDots = [];   // [{x, y, r, row}] in canvas px, for hover / tap tips
     function drawBurst(dpr, zoom) {
-      const v = V[sel]; if (!v || !v.rows.length) return; const [x, y] = P(v);
+      burstDots = []; const v = V[sel]; if (!v || !v.rows.length) return; const [x, y] = P(v);
       const BR = 3.2 * view.s, bubbles = BR > 30 * dpr;
       const starR = bubbles ? Math.min(BR, 150 * dpr) * (0.55 + 0.45 * Math.min(1, v.rad / 7)) : Math.min(26, v.rad * Math.sqrt(zoom)) * dpr;
       const rows = v.rows.slice(0, 240), maxA = Math.max(1, ...rows.map(r => r.amt));
@@ -1442,7 +1445,8 @@
         const step = 2 * Math.max(...rows.slice(placed, placed + 64).map(dr)) * 1.25, cap = Math.max(6, Math.floor(2 * Math.PI * ringR / step)), slice = rows.slice(placed, placed + cap);
         slice.forEach((r, j) => { const a = -Math.PI / 2 + j / slice.length * 2 * Math.PI + ring * 0.35, d = dr(r);
           const px = x + Math.cos(a) * ringR * e, py = y + Math.sin(a) * ringR * e;
-          cx.globalAlpha = 0.25 + 0.75 * e; cx.fillStyle = "#fff4dc"; cx.strokeStyle = "#ffcf7a"; cx.beginPath(); cx.arc(px, py, d * (0.4 + 0.6 * e), 0, 6.283); cx.fill(); cx.stroke(); });
+          cx.globalAlpha = 0.25 + 0.75 * e; cx.fillStyle = "#fff4dc"; cx.strokeStyle = "#ffcf7a"; cx.beginPath(); cx.arc(px, py, d * (0.4 + 0.6 * e), 0, 6.283); cx.fill(); cx.stroke();
+          if (k >= 1) burstDots.push({ x: px, y: py, r: d, row: r }); });
         placed += slice.length; ring++; ringR += step * 0.9;
       }
       cx.globalAlpha = 1; cx.font = `600 ${11 * dpr}px system-ui, sans-serif`; cx.fillStyle = "#ffcf7a"; cx.textAlign = "center";
@@ -1518,6 +1522,20 @@
     $("home").addEventListener("click", () => clearFocus(true));
     $("zin").addEventListener("click", () => cvw.zoomAt(cv.width / 2, cv.height / 2, 1.6));      // zoom buttons (L 2026-10-03)
     $("zout").addEventListener("click", () => cvw.zoomAt(cv.width / 2, cv.height / 2, 1 / 1.6));
+    // TIPS (L 2026-10-03 "mouse hover shows info on them"): hover a burst dot -> that charge (date, name, amount); hover a star
+    // -> name, total, charges. On touch a tap on a dot shows the tip for 2.5 s. Canvas px -> CSS px for the overlay.
+    const tipEl = $("tip"); let tipTimer = 0;
+    const dotAt = (mx, my) => burstDots.find(b => Math.hypot(b.x - mx, b.y - my) <= b.r + 4 * (view.dpr || 1)) || null;
+    const dotText = r => `${r.dt.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" })} · ${r.name}${r.sub ? " · " + r.sub : ""} · ${fmt.format(r.amt)}`;
+    function tipAt(cxp, cyp, text) { const d = view.dpr || 1; tipEl.textContent = text; tipEl.style.left = (cxp / d) + "px"; tipEl.style.top = (cyp / d) + "px"; tipEl.hidden = false; }
+    function hideTip() { tipEl.hidden = true; }
+    cv.addEventListener("pointermove", e => { if (e.pointerType !== "mouse" || cvw.moving) { if (cvw.moving) hideTip(); return; }
+      const [mx, my] = cvw.toC(e); const dot = dotAt(mx, my);
+      if (dot) return tipAt(dot.x, dot.y, dotText(dot.row));
+      const i = cvw.fitted ? hitAt(mx, my) : -1;
+      if (i >= 0) { const v = V[i], [x, y] = P(v); return tipAt(x, y, `${v.name} · ${fmt.format(v.total)} · ${cadence(v)}`); }
+      hideTip(); });
+    cv.addEventListener("pointerleave", hideTip);
     $("find").addEventListener("input", e => { const t = e.target.value.trim().toLowerCase(); HL = new Set(); if (!t) { draw(); return; }
       V.forEach((v, i) => { if (v.name.toLowerCase().includes(t) || v.key.includes(t)) HL.add(i); });
       if (HL.size === 1) show([...HL][0]); else draw(); });
