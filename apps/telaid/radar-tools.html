@@ -10,7 +10,7 @@
     <link rel="icon" href="./assets/img/favicon.ico" type="image/x-icon" />
     <link rel="stylesheet" href="./assets/css/radartools.css?v=20261002a" />
     <script type="module" src="../assets/js/microsoftAuth.js"></script>
-    <script type="module" src="./assets/js/telaid-shell.js?v=1002h"></script>
+    <script type="module" src="./assets/js/telaid-shell.js?v=1003a"></script>
     <script type="module" src="../assets/js/login.js"></script>
     <script src="../assets/js/sidebar.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -379,8 +379,9 @@
         deleteObject,
       } from "../assets/js/firebase-init.js";
 
-      import { initImageModule } from "./assets/js/imageModule.js?v=20261003a";
-      import { mountRadarMap } from "./assets/js/radarMap.js?v=1002z";
+      import { resizeImg, stampImg } from "../assets/js/imgupload.js?v=20261003a";   // THE photo rules - one copy for every app (2026-10-03)
+      import { initImageModule } from "./assets/js/imageModule.js?v=20261003b";
+      import { mountRadarMap } from "./assets/js/radarMap.js?v=1003a";
       // Site Map section: mount once, on first open; then just follow the site (setTask) - one load per site switch
       let siteMap = null, siteMapTask = null;
       function siteMapFollow(task) {
@@ -984,89 +985,10 @@
         );
       }
 
-      const resizeImage = (file, maxWidth = CONFIG.IMAGE_MAX_WIDTH) =>
-        new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onerror = reject;
-
-          reader.onload = () => {
-            const img = new Image();
-            img.onerror = reject;
-            img.src = reader.result;
-
-            img.onload = () => {
-              let { width, height } = img;
-              if (width > maxWidth) {
-                height *= maxWidth / width;
-                width = maxWidth;
-              }
-
-              const canvas = document.createElement("canvas");
-              canvas.width = width;
-              canvas.height = height;
-              canvas.getContext("2d").drawImage(img, 0, 0, width, height);
-
-              canvas.toBlob(
-                (blob) => resolve(blob || file),
-                "image/jpeg",
-                0.92,
-              );
-            };
-          };
-
-          reader.readAsDataURL(file);
-        });
-
-      const addTextToImage = (blob, text) =>
-        new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onerror = reject;
-
-          reader.onload = () => {
-            const img = new Image();
-            img.onerror = reject;
-            img.src = reader.result;
-
-            img.onload = () => {
-              /* IDENTICAL MATHS TO onlinejob's stampImg (2026-09-22, L). That app owns both
-                 the stamp and the CROP, and its unstampImg removes max(40, round(width/22)).
-                 Radar used max(72, round(width*0.08)) - roughly width/12.5 - so removing the
-                 label in the jobs app sliced a thinner strip off a taller bar and left a black
-                 band behind. Height is what the round trip depends on, so radar matches it.
-                 The shrink-to-fit loop comes across too: radar had none, so a long
-                 "Customer 01 - SERIAL" label ran off the edge. */
-              const barHeight = Math.max(40, Math.round(img.width / 22));
-              const canvas = document.createElement("canvas");
-              canvas.width = img.width;
-              canvas.height = img.height + barHeight;
-
-              const ctx = canvas.getContext("2d");
-              ctx.drawImage(img, 0, 0);
-
-              ctx.fillStyle = "black";
-              ctx.fillRect(0, img.height, canvas.width, barHeight);
-
-              let font = Math.round(barHeight * 0.7);
-              ctx.fillStyle = "white";
-              ctx.textAlign = "center";
-              ctx.textBaseline = "alphabetic";
-              ctx.font = `${font}px Arial`;
-              while (font > 12 && ctx.measureText(text).width > canvas.width * 0.92) {
-                font -= 2;
-                ctx.font = `${font}px Arial`;
-              }
-              ctx.fillText(text, canvas.width / 2, canvas.height - Math.round(barHeight * 0.25));
-
-              canvas.toBlob(
-                (finalBlob) => resolve(finalBlob || blob),
-                "image/jpeg",
-                0.92,
-              );
-            };
-          };
-
-          reader.readAsDataURL(blob);
-        });
+      // PHOTO RULES live in ../assets/js/imgupload.js - ONE copy for the jobs app, Details, Gallery, this checklist and
+      // the radar map (L 2026-10-03). Same numbers as before (2048 wide, strip max(40, width/22)); the old names stay.
+      const resizeImage = (file, maxWidth = CONFIG.IMAGE_MAX_WIDTH) => resizeImg(file, maxWidth);
+      const addTextToImage = stampImg;
 
       // Device number from an upload's file name: <prefix>_<NN>-<serial>[_n].jpg.
       // 3-DIGIT FIX (2026-10-01, L: "the missing images count isn't updating when I get them"):

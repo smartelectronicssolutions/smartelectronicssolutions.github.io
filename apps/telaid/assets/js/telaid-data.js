@@ -11,8 +11,9 @@
 // One row per SITE: many job records share a customer+project (one per night); the canonical id is the EARLIEST
 // record, picked exactly the way radar-tools' resolveMetaOwnerTaskId() does, so checklist, map and photos agree.
 // Migration plan: radarMap.js uses this now; radar-tools / sensor-lookup / dashboard move over a section at a time.
-import { auth, database, storage, ref, get, update, storageRef, listAll, uploadBytes, getDownloadURL, onAuthStateChanged }
+import { auth, database, storage, ref, get, update, storageRef, listAll, uploadBytes, getDownloadURL, deleteObject, onAuthStateChanged }
   from "../../../assets/js/firebase-init.js";
+import { resizeImg, stampImg } from "../../../assets/js/imgupload.js?v=20261003a";
 
 export const TELAID_UID = "SDN0vKPQ1qfN5vxkvhR3auVhDYq1";
 export const SENSOR_PHOTOS_REQUIRED = 2;
@@ -108,38 +109,35 @@ export function sensorMarkOf(name, task) {
 export const listPhotos = async (owner, task, sub) => (await listAll(storageRef(storage, imagesDir(owner, task, sub)))).items;
 export const photoUrl = item => getDownloadURL(item);
 
-// PHOTO RULES = onlinejob.html's resizeImg / stampImg (L 2026-10-03: "the banner label is still different, is it resizing
-// everything the same, based on onlinejob?"). Resize: cap the width at 2048, JPEG at the browser's default quality.
-// Stamp: a strip max(40 px, width/22) under the image, white Arial at 70% of the strip, shrunk until it fits 92% of the
-// width, baseline a quarter-strip up from the bottom. Same numbers as the jobs app, so every photo looks the same.
-export function resizeImage(file, maxW = 2048) { return new Promise((res, rej) => { const img = new Image(), u = URL.createObjectURL(file);
-  img.onload = () => { let w = img.width, h = img.height; if (w > maxW) { h = h * maxW / w; w = maxW; }
-    const c = document.createElement("canvas"); c.width = w; c.height = h; c.getContext("2d").drawImage(img, 0, 0, w, h);
-    URL.revokeObjectURL(u); c.toBlob(b => b ? res(b) : rej("Resize failed"), "image/jpeg"); };
-  img.onerror = () => rej("Invalid image."); img.src = u; }); }
-/** the label strip along the bottom - onlinejob's stampImg */
-export function addLabelBar(blob, text) { return new Promise((res, rej) => { const img = new Image(), u = URL.createObjectURL(blob);
-  img.onload = () => { const strip = Math.max(40, Math.round(img.width / 22)); let font = Math.round(strip * 0.7);
-    const c = document.createElement("canvas"); c.width = img.width; c.height = img.height + strip; const g = c.getContext("2d"); g.drawImage(img, 0, 0);
-    g.fillStyle = "white"; g.textAlign = "center"; g.textBaseline = "alphabetic"; g.font = `${font}px Arial`;
-    while (font > 12 && g.measureText(text).width > c.width * 0.92) { font -= 2; g.font = `${font}px Arial`; }
-    g.fillText(text, c.width / 2, c.height - Math.round(strip * 0.25));
-    URL.revokeObjectURL(u); c.toBlob(b => b ? res(b) : rej("Markup failed"), "image/jpeg"); };
-  img.onerror = () => rej("Invalid image."); img.src = u; }); }
+// PHOTO RULES live in ONE place now: apps/assets/js/imgupload.js (resizeImg / stampImg / unstampImg - the jobs app's
+// numbers: 2048 wide, JPEG, strip max(40, width/22)). L 2026-10-03: "can all this code be placed in one place? ideally
+// the Telaid apps just pull the logic". The old names stay for the callers.
+export const resizeImage = resizeImg, addLabelBar = stampImg;
 export async function uniqueName(dir, name) {
   const dot = name.lastIndexOf("."), b = name.slice(0, dot), ext = name.slice(dot); let n = 0;
   for (;;) { const t = n ? `${b}_${n}${ext}` : name;
     try { await getDownloadURL(storageRef(storage, `${dir}/${t}`)); n++; }
     catch (e) { if (e?.code === "storage/object-not-found") return t; throw e; } }
 }
-/** Upload one photo the radar-tools way: resize -> label bar -> unique name -> Storage. Returns the new ref. */
+/** Upload one photo the radar-tools way: resize -> label bar -> unique name -> Storage. Returns the new ref.
+ *  ONE AT A TIME PER FOLDER (sensor 83, 2026-10-03: the second shot started while the first was still uploading, both
+ *  asked for a free name, both got the base name, the second overwrote the first). Resize + stamp run at once; the
+ *  name check + upload wait for the folder's previous upload to land. */
+const uploadQueue = {};
 export async function uploadPhoto({ owner, task, sub, file, name, label }) {
   let blob = await resizeImage(file, 2048);
   if (label) blob = await addLabelBar(blob, label);
-  const dir = imagesDir(owner, task, sub), fn = await uniqueName(dir, name), r = storageRef(storage, `${dir}/${fn}`);
-  await uploadBytes(r, blob, { contentType: "image/jpeg" });
-  return r;
+  const dir = imagesDir(owner, task, sub);
+  const turn = (uploadQueue[dir] || Promise.resolve()).then(async () => {
+    const fn = await uniqueName(dir, name), r = storageRef(storage, `${dir}/${fn}`);
+    await uploadBytes(r, blob, { contentType: "image/jpeg" });
+    return r;
+  });
+  uploadQueue[dir] = turn.catch(() => {});
+  return turn;
 }
+/** Delete a photo by its Storage ref (the viewer's Delete button). */
+export const deletePhoto = item => deleteObject(item);
 /** A device photo for sensor <mark>: "<prefix>_NN-serial.jpg", bar "<customer> NN - serial". */
 export const uploadSensorPhoto = ({ owner, task, mark, serial, file, bar = true }) => { const nn = String(mark).padStart(2, "0");
   return uploadPhoto({ owner, task, sub: "sensors", file, name: `${photoPrefix(task)}_${nn}-${clean(serial)}.jpg`,
@@ -210,4 +208,4 @@ export const saveFloorPlan = (owner, taskId, meta, img) => update(ref(database, 
 // ---------- the signed-in user line every Telaid header shows ----------
 /** Same text radar-tools puts in #firebaseStatus: the email, or "Sign in to edit". */
 export const userLine = user => user ? (user.email || user.displayName || user.uid) : "Sign in to edit";
-export { auth, database, storage, ref, get, update, storageRef, listAll, uploadBytes, getDownloadURL, onAuthStateChanged };
+export { auth, database, storage, ref, get, update, storageRef, listAll, uploadBytes, getDownloadURL, deleteObject, onAuthStateChanged };

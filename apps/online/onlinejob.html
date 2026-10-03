@@ -299,6 +299,7 @@
       deleteObject, listAll, storageRef,
     } from "../assets/js/firebase-init.js";
 
+    import { resizeImg, stampImg, unstampImg } from "../assets/js/imgupload.js?v=20261003a";   // THE photo rules - one copy for every app (2026-10-03)
     import { accessToken, isTokenExpired } from "../assets/js/microsoftAuth.js";
     // onIdTokenChanged isn't re-exported by firebase-init.js; pull it straight
     // from the (already-loaded) Firebase auth module so a dropped/expired token
@@ -1316,27 +1317,8 @@
     // append a version param so re-stamped images actually refresh.
     const bustUrl = u => u + (u.includes("?") ? "&" : "?") + "v=" + Date.now();
 
-    // Crop the bottom stamp strip off an image blob. Uses the same formula
-    // stampImg() uses for strip height — max(40, round(width/22)).
-    function unstampImg(blob) {
-      return new Promise(resolve => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const img = new Image();
-          img.src = reader.result;
-          img.onload = () => {
-            const strip = Math.max(40, Math.round(img.width / 22));
-            const newH = Math.max(1, img.height - strip);
-            const c = document.createElement("canvas");
-            c.width = img.width;
-            c.height = newH;
-            c.getContext("2d").drawImage(img, 0, 0); // top-left aligned; bottom strip cropped
-            c.toBlob(resolve, "image/jpeg");
-          };
-        };
-        reader.readAsDataURL(blob);
-      });
-    }
+    // resizeImg / stampImg / unstampImg live in ../assets/js/imgupload.js now (2026-10-03) - same numbers, one copy
+    // shared with Details, Gallery, the Telaid checklist and the radar map.
 
     // Replace the modal's image bytes at item.fullPath, then refresh the modal preview.
     async function replaceModalImage(transformFn) {
@@ -1386,8 +1368,6 @@
       await loadTimerImages(project); timerFileUploader.value = "";
     }
 
-    function resizeImg(file, maxW) { return new Promise(resolve => { const reader = new FileReader(); reader.onload = () => { const img = new Image(); img.src = reader.result; img.onload = () => { let [w, h] = [img.width, img.height]; if (w > maxW) { h = h * maxW / w; w = maxW; } const c = document.createElement("canvas"); c.width = w; c.height = h; c.getContext("2d").drawImage(img, 0, 0, w, h); c.toBlob(resolve, file.type); }; }; reader.readAsDataURL(file); }); }
-    function stampImg(blob, text) { return new Promise(resolve => { const reader = new FileReader(); reader.onload = () => { const img = new Image(); img.src = reader.result; img.onload = () => { const strip = Math.max(40, Math.round(img.width / 22)); let font = Math.round(strip * 0.7); const c = document.createElement("canvas"); c.width = img.width; c.height = img.height + strip; const ctx = c.getContext("2d"); ctx.drawImage(img, 0, 0); ctx.fillStyle = "white"; ctx.textAlign = "center"; ctx.textBaseline = "alphabetic"; ctx.font = `${font}px Arial`; while (font > 12 && ctx.measureText(text).width > c.width * 0.92) { font -= 2; ctx.font = `${font}px Arial`; } ctx.fillText(text, c.width / 2, c.height - Math.round(strip * 0.25)); c.toBlob(resolve, "image/jpeg"); }; }; reader.readAsDataURL(blob); }); }
     function uploadToStorage(blob, path) { return new Promise((resolve, reject) => { const r = storageRef(storage, path); const t = uploadBytesResumable(r, blob); t.on("state_changed", null, reject, async () => resolve(await getDownloadURL(r))); }); }
 
     function enableClickCopy(row) {

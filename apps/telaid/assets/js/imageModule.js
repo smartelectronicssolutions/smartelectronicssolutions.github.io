@@ -1,101 +1,10 @@
+import { resizeImg, stampImg } from "../../../assets/js/imgupload.js?v=20261003a";
+
 export function initImageModule({ els, state, createEl, openModal }) {
 
-    // =========================
-    // Resize Image
-    // =========================
-    function resizeImage(file, maxWidth) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-
-            reader.onerror = () => reject("Failed to read image.");
-
-            reader.onload = () => {
-                const img = new Image();
-
-                img.onerror = () => reject("Invalid image.");
-
-                img.onload = () => {
-                    let width = img.width;
-                    let height = img.height;
-
-                    if (width > maxWidth) {
-                        height *= maxWidth / width;
-                        width = maxWidth;
-                    }
-
-                    const canvas = document.createElement("canvas");
-                    canvas.width = width;
-                    canvas.height = height;
-
-                    const ctx = canvas.getContext("2d");
-                    if (!ctx) return reject("Canvas context unavailable.");
-
-                    ctx.drawImage(img, 0, 0, width, height);
-
-                    canvas.toBlob(   // browser default quality - same as onlinejob's resizeImg (2026-10-03)
-                        (blob) => blob ? resolve(blob) : reject("Resize failed"),
-                        "image/jpeg"
-                    );
-                };
-
-                img.src = reader.result;
-            };
-
-            reader.readAsDataURL(file);
-        });
-    }
-
-    // =========================
-    // Add Bottom Markup Bar
-    // =========================
-    function addTextToImage(blob, text) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-
-            reader.onerror = () => reject("Failed to read image blob.");
-
-            reader.onload = () => {
-                const img = new Image();
-
-                img.onerror = () => reject("Invalid image.");
-
-                img.onload = () => {
-                    // SAME STRIP AS onlinejob's stampImg (L 2026-10-03: "the banner label is still different"):
-                    // strip = max(40, width/22), white Arial at 70% of the strip, shrunk to fit 92% of the width,
-                    // baseline a quarter-strip up. The 8%/black-bar look is gone so every app's photo matches.
-                    const strip = Math.max(40, Math.round(img.width / 22));
-                    let font = Math.round(strip * 0.7);
-
-                    const canvas = document.createElement("canvas");
-                    canvas.width = img.width;
-                    canvas.height = img.height + strip;
-
-                    const ctx = canvas.getContext("2d");
-                    if (!ctx) return reject("Canvas context unavailable.");
-
-                    ctx.drawImage(img, 0, 0);
-                    ctx.fillStyle = "white";
-                    ctx.textAlign = "center";
-                    ctx.textBaseline = "alphabetic";
-                    ctx.font = `${font}px Arial`;
-                    while (font > 12 && ctx.measureText(text).width > canvas.width * 0.92) {
-                        font -= 2;
-                        ctx.font = `${font}px Arial`;
-                    }
-                    ctx.fillText(text, canvas.width / 2, canvas.height - Math.round(strip * 0.25));
-
-                    canvas.toBlob(
-                        (outputBlob) => outputBlob ? resolve(outputBlob) : reject("Markup failed"),
-                        "image/jpeg"
-                    );
-                };
-
-                img.src = reader.result;
-            };
-
-            reader.readAsDataURL(blob);
-        });
-    }
+    // PHOTO RULES live in apps/assets/js/imgupload.js - ONE copy for the jobs app, Details, Gallery, the checklist and
+    // the radar map (L 2026-10-03). Same numbers (2048 wide, strip max(40, width/22)); the old names stay.
+    const resizeImage = resizeImg, addTextToImage = stampImg;
 
     // =========================
     // Render Preview

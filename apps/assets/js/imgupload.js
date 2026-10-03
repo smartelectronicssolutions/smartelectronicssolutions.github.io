@@ -107,3 +107,50 @@ export async function removeStorageImage(path) {
     try { await deleteObject(storageRef(storage, path)); }
     catch (e) { console.warn("Image delete failed (ok if missing):", e?.message || e); }
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// PHOTO RULES - THE ONE COPY (L 2026-10-03: "can all this code be placed in one place? ideally the Telaid apps just
+// pull the logic"). These were onlinejob.html's resizeImg / stampImg / unstampImg, numbers unchanged. The jobs app,
+// Details, Gallery, the Telaid checklist + its image module and the Telaid data layer (radar map) all import them, so
+// a photo looks the same no matter which app took it, and a bar stamped in one app crops cleanly in another.
+//   resizeImg : width capped (2048 by default), re-encoded as JPEG at the browser's default quality
+//   stampImg  : a strip max(40, round(width/22)) px under the image (black - JPEG has no alpha), white Arial at 70%
+//               of the strip, shrunk until the text fits 92% of the width (min 12 px), baseline a quarter-strip up
+//   unstampImg: crops that same strip back off - stamp -> unstamp is a clean round trip
+// Each takes a File or Blob and resolves to a JPEG Blob; a bad image rejects (callers alert from their catch).
+const loadImg = blob => new Promise((res, rej) => {
+    const img = new Image(), u = URL.createObjectURL(blob);
+    img.onload = () => { URL.revokeObjectURL(u); res(img); };
+    img.onerror = () => { URL.revokeObjectURL(u); rej(new Error("Invalid image")); };
+    img.src = u;
+});
+const toJpeg = (c, what) => new Promise((res, rej) => c.toBlob(b => b ? res(b) : rej(new Error(what + " failed")), "image/jpeg"));
+/** Height of the label strip for an image this wide - the number stamp and unstamp share. */
+export const stripHeight = w => Math.max(40, Math.round(w / 22));
+
+export async function resizeImg(file, maxW = 2048) {
+    const img = await loadImg(file);
+    let w = img.width, h = img.height;
+    if (w > maxW) { h = h * maxW / w; w = maxW; }
+    const c = document.createElement("canvas"); c.width = w; c.height = h;
+    c.getContext("2d").drawImage(img, 0, 0, w, h);
+    return toJpeg(c, "Resize");
+}
+
+export async function stampImg(blob, text) {
+    const img = await loadImg(blob), strip = stripHeight(img.width);
+    let font = Math.round(strip * 0.7);
+    const c = document.createElement("canvas"); c.width = img.width; c.height = img.height + strip;
+    const g = c.getContext("2d"); g.drawImage(img, 0, 0);
+    g.fillStyle = "white"; g.textAlign = "center"; g.textBaseline = "alphabetic"; g.font = `${font}px Arial`;
+    while (font > 12 && g.measureText(text).width > c.width * 0.92) { font -= 2; g.font = `${font}px Arial`; }
+    g.fillText(text, c.width / 2, c.height - Math.round(strip * 0.25));
+    return toJpeg(c, "Markup");
+}
+
+export async function unstampImg(blob) {
+    const img = await loadImg(blob), strip = stripHeight(img.width);
+    const c = document.createElement("canvas"); c.width = img.width; c.height = Math.max(1, img.height - strip);
+    c.getContext("2d").drawImage(img, 0, 0);   // top-left aligned; the bottom strip falls off
+    return toJpeg(c, "Crop");
+}

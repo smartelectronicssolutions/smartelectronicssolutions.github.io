@@ -9,7 +9,8 @@
 // /MDF, /IDF1..IDF6 (site photos). History: floor map, photos/add/run complete, wiring view, IDF photos (all 2026-10-02).
 import { onAuthStateChanged } from "../../../assets/js/firebase-init.js";
 import { auth, HUBS, hubLabel, esc, fmtFt, clean, loadJob, sensorRows, patchSensor, listSites, listPhotos, photoUrl,
-  sensorMarkOf, photoPrefix, uploadSensorPhoto, uploadHubPhoto, tablesFor, zoneOf, idfOf, loadFloorPlan, saveHubPos } from "./telaid-data.js?v=1002z";
+  sensorMarkOf, photoPrefix, uploadSensorPhoto, uploadHubPhoto, deletePhoto, tablesFor, zoneOf, idfOf, loadFloorPlan, saveHubPos } from "./telaid-data.js?v=1003a";
+import { openPhotoViewer } from "../../../assets/js/photoviewer.js?v=20261003a";
 
 const CSS = `.rmap .app-shell { max-width: 1100px; margin: auto; padding: 12px; display: grid; gap: 12px; }
 .rmap .card { background: var(--cardBackground); border: 1px solid var(--borderColor); border-radius: 12px; padding: 12px; box-shadow: var(--cardShadow); }
@@ -34,7 +35,7 @@ padding: 6px 12px; border-radius: 999px; border: 1px solid var(--borderColor); b
 padding: 6px 12px; border-radius: 8px; border: 1px solid var(--borderColor); background: transparent; color: var(--textColor); cursor: pointer; }
 .rmap #rm-views button.on { background: var(--primaryColor); border-color: var(--primaryColor); color: #fff; }
 .rmap .photos { display: flex; gap: 8px; overflow-x: auto; margin-top: 10px; padding-bottom: 4px; }
-.rmap .photos a { flex: none; }
+.rmap .photos a { flex: none; cursor: zoom-in; }
 .rmap .photos img { height: 110px; width: auto; border-radius: 8px; border: 1px solid var(--borderColor); display: block; background: #0003; }
 .rmap .acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .rmap .acts button, .rmap .acts label.btn { width: auto !important; margin: 0 !important; box-shadow: none !important; display: inline-flex; align-items: center; gap: 6px;
@@ -379,13 +380,21 @@ export function mountRadarMap(root, opts = {}) {
       cx.textAlign = "start";
     }
     // ---------- the sensor card: photos, add photo, run complete, labeled ----------
+    // THE PHOTO POP-UP (L 2026-10-03 "have the images pop up, the same way the checklist does for devices"): tap a thumb
+    // -> the shared viewer (apps/assets/js/photoviewer.js): Previous / Next / Download / Delete / Close, swipe, arrow keys.
+    // Delete removes the Storage object and drops it from this card's list; the sensor's photo count and the stats follow.
+    // `s` = a sensor row (its .items) or a hub's ref array.
     async function thumbs(s) {
       const box = $("photos"), items = Array.isArray(s) ? s : s.items; if (!box) return;
       if (!items.length) { box.innerHTML = `<span class="muted">${PHOTOS === "loading" ? "Photos loading\u2026" : PHOTOS === "failed" ? "Photos unavailable \u2013 this network can't reach Storage." : "No photos yet."}</span>`; return; }
-      box.innerHTML = items.map(() => '<a><img alt="" /></a>').join("");
-      const links = box.querySelectorAll("a");
-      await Promise.all(items.map(async (it, k) => { try { const u = await photoUrl(it);
-        links[k].href = u; links[k].target = "_blank"; links[k].rel = "noopener"; links[k].firstChild.src = u; links[k].firstChild.alt = it.name; } catch (_) {} }));
+      box.innerHTML = items.map(() => '<a href="#" role="button"><img alt="" /></a>').join("");
+      const links = box.querySelectorAll("a"), urls = new Array(items.length);
+      links.forEach((a, k) => a.onclick = e => { e.preventDefault();
+        openPhotoViewer(items.map((it, j) => ({ name: it.name, url: urls[j] || (() => photoUrl(it)), ref: it })), k, { onDelete: async v => {
+          await deletePhoto(v.ref); const j = items.indexOf(v.ref); if (j >= 0) items.splice(j, 1);
+          if (!Array.isArray(s)) { s.photos = items.length; renderStats(); if (S[sel] === s) show(sel); }
+          else { renderHubs(); if (selHub && HUBPH[selHub] === items) showHub(selHub); } } }); });
+      await Promise.all(items.map(async (it, k) => { try { const u = urls[k] = await photoUrl(it); links[k].firstChild.src = u; links[k].firstChild.alt = it.name; } catch (_) {} }));
     }
     async function setFlag(field, on) {
       const s = S[sel]; if (!s || !OWNER) return;
@@ -402,11 +411,11 @@ export function mountRadarMap(root, opts = {}) {
       let serial = clean(s.serial);
       if (!serial) { serial = clean(prompt(`Sensor #${s.m} has no serial yet. Serial number:`) || ""); if (!serial) return;
         await patchSensor(OWNER, TASK, s.m, { serial, updatedAt: Date.now() }).catch(() => {}); s.serial = serial; }
-      const st = $("upState"); if (st) st.textContent = "Uploading...";
+      const st = $("upState"), inp = $("addPhoto"); if (st) st.textContent = "Uploading..."; if (inp) inp.disabled = true;   // one at a time (sensor-83 scar)
       try {
         s.items.push(await uploadSensorPhoto({ owner: OWNER, task: TASKREC, mark: s.m, serial, file, bar: !$("mark") || $("mark").checked })); s.photos++;
         renderStats(); show(sel);
-      } catch (e) { if (st) st.textContent = ""; alert("Upload failed: " + (e.code || e.message || e)); }
+      } catch (e) { if (st) st.textContent = ""; if (inp) { inp.disabled = false; inp.value = ""; } alert("Upload failed: " + (e.code || e.message || e)); }
     }
     function showHub(h) {
       selHub = h; sel = -1; const items = HUBPH[h] || [], idf = h === "MDF" ? null : Number(h.slice(3));
@@ -429,11 +438,11 @@ export function mountRadarMap(root, opts = {}) {
     }
     async function addHubPhoto(h, file) {
       if (!file || !OWNER) return;
-      const st = $("upState"); if (st) st.textContent = "Uploading...";
+      const st = $("upState"), inp = $("addHubPhoto"); if (st) st.textContent = "Uploading..."; if (inp) inp.disabled = true;
       try {
         (HUBPH[h] = HUBPH[h] || []).push(await uploadHubPhoto({ owner: OWNER, task: TASKREC, hub: h, file, bar: !$("mark") || $("mark").checked }));
         renderHubs(); showHub(h);
-      } catch (e) { if (st) st.textContent = ""; alert("Upload failed: " + (e.code || e.message || e)); }
+      } catch (e) { if (st) st.textContent = ""; if (inp) { inp.disabled = false; inp.value = ""; } alert("Upload failed: " + (e.code || e.message || e)); }
     }
     function show(i) {
       sel = i; selHub = null; const s = S[i];
