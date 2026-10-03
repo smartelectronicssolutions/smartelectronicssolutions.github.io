@@ -969,6 +969,14 @@
         .dc-bub details.enh summary:hover { opacity: 1; }
         .dc-bub details.enh div { margin-top: 5px; padding: 7px 9px; border-radius: var(--dc-r-md); background: var(--dc-inset); white-space: pre-wrap; }
         .dc-chat-input { display: flex; gap: 8px; padding-top: 8px; align-items: stretch; }
+        /* PANE RESIZER (L 2026-10-02: "can I have a resizer for the panes in the chat console"): a grab bar between the chat
+           log and the typing box. Drag toward the log = taller box; the height is remembered per device; double-tap resets.
+           Sits between log and box in both modes (CSS order in newest-first / Top mode; the 👥 pane moves it in the DOM). */
+        .dc-resize { height: 12px; flex: none; cursor: ns-resize; touch-action: none; user-select: none; position: relative; }
+        .dc-resize::before { content: ""; display: block; width: 46px; height: 4px; border-radius: 2px; background: var(--border); margin: 4px auto; transition: background .15s; }
+        .dc-resize:hover::before, .dc-resize.on::before { background: var(--dc-purple); }
+        .dc-chat.newest-first .dc-resize { order: 3; }
+        #dc-peer.nf .dc-resize { order: 1; }
         .dc-chat-input .ps { font-family: var(--font-mono); color: var(--dc-purple); align-self: center; font-size: calc(1.05rem * var(--dc-fs, 1)); padding-left: 2px; user-select: none; cursor: pointer; transition: filter .15s; }
         /* ARMED (2026-09-20, L: "have the arrow to the left do that when clicked"). A glow, not a new
            colour or size: the caret's purple is part of the look and the placeholder already SAYS what
@@ -1166,6 +1174,7 @@
                     <div id="dc-nav" class="dc-nav"><button type="button" id="dc-totop" title="previous message" aria-label="previous message">⤒</button><button type="button" id="dc-todown" title="next message" aria-label="next message">⤓</button></div>
                     <div id="dc-ideas" class="dc-ideas" hidden></div>
                     <div class="dc-chat-log" id="dc-chat-log"><div style="color:var(--muted);font-size:0.85rem;text-align:center;margin-top:20px">No turns yet. Say something to Droplet.</div></div>
+                    <div class="dc-resize" id="dc-resize" title="drag to resize the typing box · double-tap to reset"></div>
                     <div class="dc-chat-input">
                         <span class="ps" role="button" tabindex="-1" title="tap to put the cursor here">❯</span>
                         <textarea id="dc-chat-in" rows="2" placeholder="type here…  (Enter sends · Shift+Enter newline)"></textarea>
@@ -3733,6 +3742,21 @@
             // Full system lives in the ⚙ menu now: picking it closes the menu (its own click never reaches document)
             if (t.dataset.tab === 'sys') { const gp = $('#dc-gear-pop'); if (gp && !gp.hidden) { gp.hidden = true; $('#dc-gear').classList.remove('open'); } }
         });
+        // PANE RESIZER (L 2026-10-02): drag the bar between the log and the box. The box grows toward the log whichever
+        // side it is on (default: box below the log, drag UP = taller; Top mode: box above, drag DOWN = taller).
+        window.dcAttachResizer = function (handle, ta, key) {
+            if (!handle || !ta || handle.dataset.bound) return; handle.dataset.bound = '1';
+            const apply = h => { ta.style.height = h + 'px'; };
+            try { const h = Number(localStorage.getItem(key)); if (h >= 36) apply(h); } catch (_) {}
+            let y0 = 0, h0 = 0, below = true, pid = null;
+            handle.addEventListener('pointerdown', e => { pid = e.pointerId; handle.setPointerCapture(pid); y0 = e.clientY; h0 = ta.getBoundingClientRect().height;
+                below = ta.getBoundingClientRect().top > handle.getBoundingClientRect().top; handle.classList.add('on'); e.preventDefault(); });
+            handle.addEventListener('pointermove', e => { if (pid === null) return; const dy = e.clientY - y0, h = Math.max(36, Math.min(Math.round(innerHeight * 0.6), Math.round(below ? h0 - dy : h0 + dy))); apply(h); });
+            const end = () => { if (pid === null) return; pid = null; handle.classList.remove('on'); try { localStorage.setItem(key, String(Math.round(ta.getBoundingClientRect().height))); } catch (_) {} };
+            handle.addEventListener('pointerup', end); handle.addEventListener('pointercancel', end);
+            handle.addEventListener('dblclick', () => { ta.style.height = ''; try { localStorage.removeItem(key); } catch (_) {} });
+        };
+        window.dcAttachResizer($('#dc-resize'), $('#dc-chat-in'), 'dc-input-h');
         $('#dc-chat-send').onclick = sendChat;
         $('#dc-chat-in').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } });
         // LIVE ENHANCE (2026-09-25, L: "autocorrect on the fly... suggest a rewrite as you're typing, so it feels like it's
@@ -5286,6 +5310,13 @@
             <div id="dc-peer-log" class="dc-chat-log" hidden></div>
             <form id="dc-peer-form" class="dc-chat-input" hidden><span class="ps" aria-hidden="true">❯</span><textarea id="dc-peer-in" rows="2" placeholder="message…  (Enter sends)"></textarea><button type="button" class="dc-emoji-btn" id="dc-peer-emoji" title="emoji (search at the top)" aria-label="emoji picker">🙂</button><button type="submit" class="dc-btn push">▲</button></form>`;   // SAME box as the Droplet chat (L 2026-09-27: "the chat boxes still look different")
         body.appendChild(pane);
+        {   // resizer for the 👥 box (same bar as the Droplet chat); in Top mode (.nf) it has to sit AFTER the form in the DOM
+            const log = pane.querySelector('#dc-peer-log'), form = pane.querySelector('#dc-peer-form');
+            const h = document.createElement('div'); h.className = 'dc-resize'; h.id = 'dc-peer-resize'; h.title = 'drag to resize the typing box · double-tap to reset';
+            const place = () => { if (pane.classList.contains('nf')) form.after(h); else log.after(h); h.hidden = form.hidden; };
+            place(); new MutationObserver(place).observe(pane, { attributes: true, attributeFilter: ['class'] }); new MutationObserver(place).observe(form, { attributes: true, attributeFilter: ['hidden'] });
+            window.dcAttachResizer && window.dcAttachResizer(h, pane.querySelector('#dc-peer-in'), 'dc-peer-input-h');
+        }
         const body0 = () => $('#dc-console .dc-body');
         $('#dc-peer-x').onclick = () => { if (body0().classList.contains('pfull')) body0().classList.remove('pfull'); else closePeer(); };   // full cover: X = back to the split
         (function wirePeerCover() {   // swipe up on the pane's head = cover the console chat; swipe down = back
