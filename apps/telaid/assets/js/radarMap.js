@@ -150,7 +150,7 @@ export function mountRadarMap(root, opts = {}) {
       OWNER = owner; TASKREC = task;
       const line = `${task.customerName || "Job " + TASK} \u00b7 ${S.length} sensors \u00b7 loaded ${new Date().toLocaleTimeString()}${TABLES ? ` \u00b7 site plan: ${TABLES.from}` : ""}`;
       $("source").textContent = line + " \u00b7 photos loading\u2026";
-      renderHubs(); renderStats(); fit();
+      renderHubs(); renderStats(); fit(false);
       // PHOTOS IN THE BACKGROUND (L 2026-10-03, "did you freeze?": on a network that could not resolve
       // firebasestorage.googleapis.com, listAll retried for ~2 min before failing and the whole map waited on it).
       // The map draws first; photo counts/rings fill in when Storage answers, or the source line says it couldn't.
@@ -231,7 +231,12 @@ export function mountRadarMap(root, opts = {}) {
     let raf = 0; const requestDraw = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; draw(); }); };
     let scrollAcc = 0, scrollRaf = 0; const scrollPage = dy => { scrollAcc += dy; if (!scrollRaf) scrollRaf = requestAnimationFrame(() => { scrollRaf = 0; window.scrollBy(0, scrollAcc); scrollAcc = 0; }); };
     let planFast = null;   // {light, c}
-    function fit() {
+    // fit(keep): size the canvas and compute the fitted "base" view. keep = true (resizes) holds the current zoom and the
+    // world point under the canvas centre - L 2026-10-03 "it snaps back to unzoomed sometimes when I scroll the page":
+    // on the iPad the toolbar collapsing while you scroll fires resize + a canvas height change, which used to reset the view.
+    function fit(keep = true) {
+      const prev = keep && base && B && S.length && view.s > base.s * 1.01
+        ? { zoom: view.s / base.s, cx: B.x0 + (cv.width / 2 - view.ox) / view.s, cy: B.y1 - (cv.height / 2 - view.oy) / view.s } : null;
       const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
       cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
       $("sly").style.setProperty("--rm-slh", Math.max(60, r.height - 40) + "px");
@@ -240,6 +245,7 @@ export function mountRadarMap(root, opts = {}) {
       B = { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
       const pad = 24 * dpr, s = Math.min((cv.width - 2 * pad) / (B.x1 - B.x0 || 1), (cv.height - 2 * pad) / (B.y1 - B.y0 || 1));
       view = { s, dpr, ox: (cv.width - (B.x1 - B.x0) * s) / 2, oy: (cv.height - (B.y1 - B.y0) * s) / 2 }; base = Object.assign({}, view);
+      if (prev) { view.s = base.s * prev.zoom; view.ox = cv.width / 2 - (prev.cx - B.x0) * view.s; view.oy = cv.height / 2 - (B.y1 - prev.cy) * view.s; }
       draw();
     }
     // plan Y grows upward; the screen grows downward, so flip it
@@ -529,13 +535,13 @@ export function mountRadarMap(root, opts = {}) {
     });
     $("find").addEventListener("change", e => { const i = S.findIndex(s => s.m === Number(e.target.value)); if (i < 0) return; centerOn(i, 4); show(i); });
     $("rot").addEventListener("click", () => { ROT = (ROT + 90) % 360; try { localStorage.setItem("rm-rot", String(ROT)); } catch (_) {}
-      $("rot").title = `Rotated ${ROT}° - tap to turn again`; if (layout === "floor") fit(); });
+      $("rot").title = `Rotated ${ROT}° - tap to turn again`; if (layout === "floor") fit(false); });
     $("plan").addEventListener("click", () => { planMode = planMode === "dim" ? "full" : planMode === "full" ? "off" : "dim";
       try { localStorage.setItem("rm-plan-mode", planMode); } catch (_) {} planLabel(); draw(); });
     $("hubs").addEventListener("click", e => { const b = e.target.closest("button[data-h]"); if (b) showHub(b.dataset.h); });
     $("views").addEventListener("click", e => { const b = e.target.closest("button[data-v]"); if (!b) return;
       if (b.dataset.v === "wiring" && !TABLES) { alert("The wiring view needs a site plan (zones, IDF per sensor, switches) on this job's record - this site has none yet."); return; }
-      layout = b.dataset.v; root.querySelectorAll("#rm-views button").forEach(x => x.classList.toggle("on", x === b)); fit(); });
+      layout = b.dataset.v; root.querySelectorAll("#rm-views button").forEach(x => x.classList.toggle("on", x === b)); fit(false); });
     async function loadJobs(user) {   // same one-row-per-site list as the checklist (telaid-data groupSites)
       const selEl = $("job"); if (EMBED || !user || !selEl) return;
       const { sites } = await listSites(user);
@@ -549,9 +555,9 @@ export function mountRadarMap(root, opts = {}) {
       try { const u = new URL(location.href); u.searchParams.set("task", t); history.replaceState(null, "", u); } catch (_) {}
       setTaskId(t); HL = new Set(); $("find").value = ""; $("info").innerHTML = '<span class="muted">Tap a sensor to see its details.</span>';
       load(auth.currentUser); });
-    addEventListener("resize", fit);
+    addEventListener("resize", () => fit(true));
     // a section that was collapsed (display:none) when we mounted gives a 0-wide canvas; re-fit when it gets real size
-    let lastW = 0; new ResizeObserver(() => { const w = cv.getBoundingClientRect().width; if (w && w !== lastW) { lastW = w; fit(); } }).observe(cv);
+    let lastW = 0, lastH = 0; new ResizeObserver(() => { const r = cv.getBoundingClientRect(); if (r.width && (r.width !== lastW || r.height !== lastH)) { lastW = r.width; lastH = r.height; fit(true); } }).observe(cv);
     legend(); fit();
     onAuthStateChanged(auth, async u => { await loadJobs(u); load(u); });   // jobs first: a sibling-night id gets swapped for the canonical one before the data read
     return {
