@@ -61,6 +61,7 @@ body.rm-embed-page header.top-actions { display: none !important; }
    show once the map is bigger than its box. The vertical one is a horizontal range turned 90 degrees. */
 .rmap .mapwrap .rm-sl { position: absolute; margin: 0 !important; padding: 0; height: 16px; box-shadow: none !important; background: transparent; z-index: 2; opacity: .9; touch-action: none; }
 .rmap .mapwrap .rm-sl[hidden] { display: none !important; }
+.rmap .mapwrap .rm-sl:disabled { opacity: .35; }
 .rmap .mapwrap .rm-slx { left: 8px; bottom: 4px; width: calc(100% - 40px) !important; }
 .rmap .mapwrap .rm-sly { top: 8px; left: calc(100% - 6px); width: var(--rm-slh, 300px) !important; transform: rotate(90deg); transform-origin: left top; }
 .rmap.embed #rm-map { height: min(62vh, 560px); }`;
@@ -301,17 +302,25 @@ export function mountRadarMap(root, opts = {}) {
     }
     // sliders <-> view. t = 0: the map's left (top) edge at the box edge; t = 1: its right (bottom) edge there.
     let slHeld = null;
-    function slExtent() { return B ? [(B.x1 - B.x0) * view.s - cv.width, (B.y1 - B.y0) * view.s - cv.height] : [0, 0]; }
+    // the sliders cover EVERYTHING drawn - sensors, cabinets and the floor-plan sheet (L 2026-10-03: the store is tall, so
+    // the left/right one never showed until a deep zoom even though the plan had more to see left and right)
+    function slExt() {
+      if (!B) return null; const E = { x0: B.x0, x1: B.x1, y0: B.y0, y1: B.y1 }, add = (x, y) => { E.x0 = Math.min(E.x0, x); E.x1 = Math.max(E.x1, x); E.y0 = Math.min(E.y0, y); E.y1 = Math.max(E.y1, y); };
+      if (layout === "floor" && PLAN && planMode !== "off") for (const [u, v] of [[0, 0], [PLAN.w, 0], [0, PLAN.h], [PLAN.w, PLAN.h]]) { const [x, y] = rotXY(PLAN.x0 + u / PLAN.k, PLAN.y0 - v / PLAN.k); add(x, y); }
+      if (layout === "floor" && TABLES && TABLES.hubs) for (const xy of Object.values(TABLES.hubs)) { const [x, y] = rotXY(xy[0], xy[1]); add(x, y); }
+      return E;
+    }
+    function slExtent() { const E = slExt(); return E ? [(E.x1 - E.x0) * view.s - cv.width, (E.y1 - E.y0) * view.s - cv.height, E] : [0, 0, null]; }
     function syncSliders() {
-      if (!B || !base) return; const [ex, ey] = slExtent(), sx = $("slx"), sy = $("sly");
-      sx.hidden = ex <= 1; sy.hidden = ey <= 1;
-      if (ex > 1 && slHeld !== "x") sx.value = Math.round(Math.max(0, Math.min(1, -view.ox / ex)) * 1000);
-      if (ey > 1 && slHeld !== "y") sy.value = Math.round(Math.max(0, Math.min(1, -view.oy / ey)) * 1000);
+      if (!B || !base) return; const [ex, ey, E] = slExtent(), sx = $("slx"), sy = $("sly"), zoomed = view.s > base.s * 1.05;
+      sx.hidden = !(zoomed || ex > 1); sy.hidden = !(zoomed || ey > 1); sx.disabled = ex <= 1; sy.disabled = ey <= 1;
+      if (ex > 1 && slHeld !== "x") sx.value = Math.round(Math.max(0, Math.min(1, (-(view.ox) - (E.x0 - B.x0) * view.s) / ex)) * 1000);
+      if (ey > 1 && slHeld !== "y") sy.value = Math.round(Math.max(0, Math.min(1, (-(view.oy) - (B.y1 - E.y1) * view.s) / ey)) * 1000);
     }
     for (const [id, axis] of [["slx", "x"], ["sly", "y"]]) { const el = $(id);
       el.addEventListener("pointerdown", () => { slHeld = axis; }); el.addEventListener("pointerup", () => { slHeld = null; }); el.addEventListener("pointercancel", () => { slHeld = null; });
-      el.addEventListener("input", () => { const [ex, ey] = slExtent(), t = Number(el.value) / 1000;
-        if (axis === "x") { if (ex > 1) view.ox = -t * ex; } else { if (ey > 1) view.oy = -t * ey; } requestDraw(); }); }
+      el.addEventListener("input", () => { const [ex, ey, E] = slExtent(), t = Number(el.value) / 1000; if (!E) return;
+        if (axis === "x") { if (ex > 1) view.ox = -(E.x0 - B.x0) * view.s - t * ex; } else { if (ey > 1) view.oy = -(B.y1 - E.y1) * view.s - t * ey; } requestDraw(); }); }
     function drawPlan() {
       const p = PLAN, light = document.documentElement.classList.contains("light");
       const sc = (u, v) => { const [rx, ry] = rotXY(p.x0 + u / p.k, p.y0 - v / p.k); return [view.ox + (rx - B.x0) * view.s, view.oy + (B.y1 - ry) * view.s]; };
