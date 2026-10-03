@@ -144,7 +144,11 @@ export const uploadHubPhoto = ({ owner, task, hub, file }) => { const d = new Da
   return uploadPhoto({ owner, task, sub: hub, file, name: `${stamp}_${photoPrefix(task)}_${hub}.jpg`,
     label: `${String(task?.customerName || task?.project || "").trim()} ${hubLabel(hub)}` }); };
 
-// ---------- per-site facts (keyed by canonical task id; next step = move onto the task record in Firebase) ----------
+// ---------- the SITE PLAN: {owner}/tasks/<canonical>/siteTables = {zones, idf, switches, maxPerSwitch} ----------
+// L 2026-10-02: "site tables into Firebase so new sites need no code". A site's plan is read off its task record;
+// the table below is only the built-in fallback for Walmart 54 (seeded to Firebase the same day).
+//   zones: [[fromMark, toMark, zone], ...]      idf: one digit per mark ("6666...": mark 1 -> IDF 6)
+//   switches: {idf: [switch#, switch#, "new"]}  ("new" = a switch still needed)   maxPerSwitch: 18
 // Walmart 54 (Springdale AR, PRJTASK33620857): zone + IDF per mark (same tables as sensor-lookup), switch map L gave
 // on site 2026-10-02; <= 18 sensors per switch -> IDF 2 and IDF 5 each need a 3rd ("new").
 export const SITE_TABLES = {
@@ -156,6 +160,23 @@ export const SITE_TABLES = {
   },
 };
 export const siteTables = taskId => SITE_TABLES[String(taskId)] || null;
+/** Firebase hands back {1:..,6:..} as a sparse array; make zones/switches plain again and drop empties. */
+export function normalizeTables(t) {
+  if (!t || typeof t !== "object" || !t.idf) return null;
+  const sw = {};
+  for (const [k, v] of Object.entries(t.switches || {})) if (v && typeof v === "object") sw[k] = Object.values(v).filter(x => x != null);
+  const zones = Object.values(t.zones || {}).filter(z => z && typeof z === "object").map(z => Object.values(z).map(Number));
+  return { zones, idf: String(t.idf), switches: sw, maxPerSwitch: Number(t.maxPerSwitch) || 18 };
+}
+/** The plan for a job: the task record's siteTables (Firebase) first, the built-in table as fallback. .from says which. */
+export function tablesFor(task, taskId) {
+  const fb = normalizeTables(task?.siteTables);
+  if (fb) return Object.assign(fb, { from: "firebase" });
+  const code = siteTables(taskId);
+  return code ? Object.assign({ ...code }, { from: "built-in" }) : null;
+}
+/** Save a plan onto the task record (field-level, so nothing else on the task moves). */
+export const saveSiteTables = (owner, taskId, tables) => update(ref(database, `${owner}/tasks/${taskId}`), { siteTables: tables });
 export const zoneOf = (tables, m) => tables ? (tables.zones.find(([a, b]) => m >= a && m <= b) || [])[2] ?? null : null;
 export const idfOf = (tables, m) => tables ? Number(tables.idf[m - 1]) || null : null;
 

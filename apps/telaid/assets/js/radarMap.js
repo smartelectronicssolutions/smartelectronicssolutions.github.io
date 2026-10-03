@@ -9,7 +9,7 @@
 // /MDF, /IDF1..IDF6 (site photos). History: floor map, photos/add/run complete, wiring view, IDF photos (all 2026-10-02).
 import { onAuthStateChanged } from "../../../assets/js/firebase-init.js";
 import { auth, HUBS, hubLabel, esc, fmtFt, clean, loadJob, sensorRows, patchSensor, listSites, listPhotos, photoUrl,
-  sensorMarkOf, photoPrefix, uploadSensorPhoto, uploadHubPhoto, siteTables, zoneOf, idfOf } from "./telaid-data.js?v=1002g";
+  sensorMarkOf, photoPrefix, uploadSensorPhoto, uploadHubPhoto, tablesFor, zoneOf, idfOf } from "./telaid-data.js?v=1002h";
 
 const CSS = `.rmap .app-shell { max-width: 1100px; margin: auto; padding: 12px; display: grid; gap: 12px; }
 .rmap .card { background: var(--cardBackground); border: 1px solid var(--borderColor); border-radius: 12px; padding: 12px; box-shadow: var(--cardShadow); }
@@ -49,6 +49,10 @@ padding: 6px 10px; border-radius: 8px; border: 1px solid var(--borderColor); bac
 .rmap #rm-hubs button.has .n { color: #22c55e; font-weight: 700; }
 body.rm-embed-page header.top-actions { display: none !important; }
 .rmap.embed .app-shell { padding: 0; }
+/* L 2026-10-02 "can the site map have the map showing?": inside the checklist (and on a phone) the MAP comes first -
+   right under the source line - with the stats, photo chips and colour rows below it, so opening the section shows the map */
+.rmap.embed #rm-jobrow { order: -4; } .rmap.embed #rm-source { order: -3; } .rmap.embed .mapwrap { order: -2; }
+@media (max-width: 700px) { .rmap #rm-jobrow { order: -4; } .rmap #rm-source { order: -3; } .rmap .mapwrap { order: -2; } }
 .rmap #rm-job { width: 100% !important; max-width: 640px; margin: 0 !important; font-size: 1rem; padding: 8px; }
 .rmap.embed #rm-jobrow { display: none !important; }
 .rmap.embed #rm-map { height: min(62vh, 560px); }`;
@@ -62,7 +66,8 @@ const TEMPLATE = `<div class="app-shell">
       <div class="card stats" id="rm-stats"></div>
       <div class="rm-row" id="rm-hubs"></div>
       <div class="rm-row" id="rm-views"><span class="muted">View:</span>
-        <button data-v="floor" class="on">Floor</button><button data-v="wiring">Wiring</button></div>
+        <button data-v="floor" class="on">Floor</button><button data-v="wiring">Wiring</button>
+        <button type="button" id="rm-rot" title="Rotate the floor map 90&deg;">&#8635; Rotate</button></div>
       <div class="rm-row modes" id="rm-modes">
         <span class="muted">Color by:</span>
         <button data-m="idf" class="on">IDF</button>
@@ -83,8 +88,8 @@ const TEMPLATE = `<div class="app-shell">
 export function mountRadarMap(root, opts = {}) {
     injectCss(); root.classList.add("rmap"); root.innerHTML = TEMPLATE;
     const LAST_SITE = (() => { try { return JSON.parse(localStorage.getItem("sensorTask")) || null; } catch (_) { return null; } })();
-    let TASK = "", TABLES = null, SWITCHES = {};   // TABLES = this site's zones/IDF/switch plan from telaid-data (null = no plan yet)
-    const setTaskId = t => { TASK = String(t); TABLES = siteTables(TASK); SWITCHES = TABLES ? TABLES.switches : {}; };
+    let TASK = "", TABLES = null, SWITCHES = {};   // TABLES = this site's plan (task.siteTables in Firebase, or the built-in WM54 table)
+    const setTaskId = t => { TASK = String(t); TABLES = null; SWITCHES = {}; };   // the plan arrives with the job in load()
     setTaskId(opts.task || (LAST_SITE && LAST_SITE.task) || "1789898400000");
     const EMBED = !!opts.embed;
     if (EMBED) root.classList.add("embed");
@@ -99,7 +104,7 @@ export function mountRadarMap(root, opts = {}) {
     function renderHubs() {
       $("hubs").innerHTML = '<span class="muted">Photos:</span>' + HUBS.map(h => { const n = (HUBPH[h] || []).length,
         c = h === "MDF" ? "#475569" : (IDF_COL[h.slice(3)] || "#64748b");
-        return `<button type="button" data-h="${h}" class="${n ? "has" : ""}"><i style="background:${c}"></i>${hubLabel(h)} <span class="n">${n ? "&#128247; " + n : "none"}</span></button>`; }).join("");
+        return `<button type="button" data-h="${h}" class="${n ? "has" : ""}"><i style="background:${c}"></i>${hubLabel(h)} <span class="n">${n ? "&#128247; " + n : PHOTOS === "ok" ? "none" : PHOTOS === "loading" ? "\u2026" : "?"}</span></button>`; }).join("");
     }
 
     function assignSwitches() {   // balanced split by sensor # inside each IDF (same as the port-plan CSV)
@@ -113,16 +118,17 @@ export function mountRadarMap(root, opts = {}) {
 
     async function load(user) {
       if (!user) { $("source").textContent = "Sign in to load the site."; return; }
-      S = []; sel = -1; selHub = null; B = null; for (const k in HUBPH) delete HUBPH[k];
-      if (!TABLES && layout === "wiring") { layout = "floor"; root.querySelectorAll("#rm-views button").forEach(x => x.classList.toggle("on", x.dataset.v === "floor")); }
+      S = []; sel = -1; selHub = null; B = null; for (const k in HUBPH) delete HUBPH[k]; PHOTOS = "loading";
       $("source").textContent = "Loading...";
       const { owner, task, meta } = await loadJob(user, TASK);
       if (!meta) { $("source").textContent = "No sensor data found for this job."; return; }
+      TABLES = tablesFor(task, TASK); SWITCHES = TABLES ? TABLES.switches : {};
+      if (!TABLES && layout === "wiring") { layout = "floor"; root.querySelectorAll("#rm-views button").forEach(x => x.classList.toggle("on", x.dataset.v === "floor")); }
       S = sensorRows(meta).map(s => ({ ...s, idf: idfOf(TABLES, s.m), zone: zoneOf(TABLES, s.m), photos: 0, items: [] }))
         .filter(s => s.x != null && s.y != null);
       if (TABLES) { assignSwitches(); wiringLayout(); }
       OWNER = owner; TASKREC = task;
-      const line = `${task.customerName || "Job " + TASK} \u00b7 ${S.length} sensors \u00b7 loaded ${new Date().toLocaleTimeString()}`;
+      const line = `${task.customerName || "Job " + TASK} \u00b7 ${S.length} sensors \u00b7 loaded ${new Date().toLocaleTimeString()}${TABLES ? ` \u00b7 site plan: ${TABLES.from}` : ""}`;
       $("source").textContent = line + " \u00b7 photos loading\u2026";
       renderHubs(); renderStats(); fit();
       // PHOTOS IN THE BACKGROUND (L 2026-10-03, "did you freeze?": on a network that could not resolve
@@ -142,7 +148,10 @@ export function mountRadarMap(root, opts = {}) {
     function renderStats() {
       const lab = S.filter(s => s.labeledAt).length, ph2 = S.filter(s => s.photos >= 2).length, ph0 = S.filter(s => !s.photos).length,
         runs = S.filter(s => s.runDoneAt).length;
-      $("stats").innerHTML = `<span><b>${S.length}</b> sensors</span><span><b>${runs}</b> runs complete</span><span><b>${lab}</b> labeled</span><span><b>${ph2}</b> with both photos</span><span><b>${ph0}</b> with no photos</span>`;
+      // L 2026-10-02 "0 with both photos - this isn't true": never print a photo count we have not actually fetched
+      const photoBits = PHOTOS === "ok" ? `<span><b>${ph2}</b> with both photos</span><span><b>${ph0}</b> with no photos</span>`
+        : PHOTOS === "loading" ? `<span class="muted">photos loading\u2026</span>` : `<span class="muted">photos: can't reach Storage on this network</span>`;
+      $("stats").innerHTML = `<span><b>${S.length}</b> sensors</span><span><b>${runs}</b> runs complete</span><span><b>${lab}</b> labeled</span>${photoBits}`;
     }
 
     // ---------- drawing ----------
@@ -188,7 +197,11 @@ export function mountRadarMap(root, opts = {}) {
       });
       S.forEach(t => { if (t.wx == null) { t.wx = 0; t.wy = -20; } });
     }
-    const X = s => layout === "wiring" ? s.wx : s.x, Y = s => layout === "wiring" ? s.wy : s.y;
+    // ROTATE (L 2026-10-02 "can the map rotate?"): the floor plan turns in 90-degree steps so the store's long side can
+    // match the phone. Only the drawing turns - the card still shows the real plan X/Y. Remembered on this device.
+    let ROT = 0; try { ROT = Number(localStorage.getItem("rm-rot")) || 0; } catch (_) {}
+    const rotXY = (x, y) => ROT === 90 ? [-y, x] : ROT === 180 ? [-x, -y] : ROT === 270 ? [y, -x] : [x, y];
+    const X = s => layout === "wiring" ? s.wx : rotXY(s.x, s.y)[0], Y = s => layout === "wiring" ? s.wy : rotXY(s.x, s.y)[1];
     let view = { s: 1, ox: 0, oy: 0, dpr: 1 }, base = null, B = null;
     function fit() {
       const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
@@ -291,9 +304,9 @@ export function mountRadarMap(root, opts = {}) {
       $("info").innerHTML = `<div class="mk">${hubLabel(h)}</div><div class="kv">
         <b>Sensors</b><span>${rs.length}</span>
         <b>Runs complete</b><span>${runs} / ${rs.length}</span>
-        <b>Sensor photos</b><span>${ph} / ${rs.length} with both</span>
+        <b>Sensor photos</b><span>${PHOTOS === "ok" ? `${ph} / ${rs.length} with both` : PHOTOS === "loading" ? "loading\u2026" : "can't reach Storage"}</span>
         ${idf && TABLES && SWITCHES[idf] ? `<b>Switches</b><span>${SWITCHES[idf].map(w => w === "new" ? "3rd needed" : "#" + w).join(", ")}</span>` : ""}
-        <b>Photos</b><span>${items.length}</span></div>
+        <b>Photos</b><span>${items.length || PHOTOS === "ok" ? items.length : PHOTOS === "loading" ? "loading\u2026" : "can't reach Storage"}</span></div>
         <div class="photos" id="rm-photos"></div>
         <div class="acts">
           <label class="btn primary">&#128247; Add ${hubLabel(h)} photo<input type="file" id="rm-addHubPhoto" accept="image/*" capture="environment" hidden /></label>
@@ -322,7 +335,7 @@ export function mountRadarMap(root, opts = {}) {
         ${s.sw ? `<b>Switch</b><span>${s.sw === "new" ? "3rd switch needed (not on site yet)" : "#" + s.sw}${s.port ? " · port " + s.port : ""} (planned)</span>` : ""}
         <b>Run</b><span>${s.runDoneAt ? "complete, " + new Date(s.runDoneAt).toLocaleString() : "not yet"}</span>
         <b>Labeled</b><span>${s.labeledAt ? "yes, " + new Date(s.labeledAt).toLocaleString() : "not yet"}</span>
-        <b>Photos</b><span>${s.photos} of 2</span></div>
+        <b>Photos</b><span>${s.photos || PHOTOS === "ok" ? `${s.photos} of 2` : PHOTOS === "loading" ? "loading\u2026" : "can't reach Storage on this network"}</span></div>
         <div class="photos" id="rm-photos"></div>
         <div class="acts">
           <label class="btn primary">&#128247; Add photo<input type="file" id="rm-addPhoto" accept="image/*" capture="environment" hidden /></label>
@@ -373,9 +386,11 @@ export function mountRadarMap(root, opts = {}) {
       if (i >= 0 && (HL.size === 1 || t.length >= 3)) { centerOn(i, 4); show(i); } else draw();
     });
     $("find").addEventListener("change", e => { const i = S.findIndex(s => s.m === Number(e.target.value)); if (i < 0) return; centerOn(i, 4); show(i); });
+    $("rot").addEventListener("click", () => { ROT = (ROT + 90) % 360; try { localStorage.setItem("rm-rot", String(ROT)); } catch (_) {}
+      $("rot").title = `Rotated ${ROT}° - tap to turn again`; if (layout === "floor") fit(); });
     $("hubs").addEventListener("click", e => { const b = e.target.closest("button[data-h]"); if (b) showHub(b.dataset.h); });
     $("views").addEventListener("click", e => { const b = e.target.closest("button[data-v]"); if (!b) return;
-      if (b.dataset.v === "wiring" && !TABLES) { alert("The wiring view needs a switch plan for this site - only Walmart 54 has one so far."); return; }
+      if (b.dataset.v === "wiring" && !TABLES) { alert("The wiring view needs a site plan (zones, IDF per sensor, switches) on this job's record - this site has none yet."); return; }
       layout = b.dataset.v; root.querySelectorAll("#rm-views button").forEach(x => x.classList.toggle("on", x === b)); fit(); });
     async function loadJobs(user) {   // same one-row-per-site list as the checklist (telaid-data groupSites)
       const selEl = $("job"); if (EMBED || !user || !selEl) return;
@@ -391,6 +406,8 @@ export function mountRadarMap(root, opts = {}) {
       setTaskId(t); HL = new Set(); $("find").value = ""; $("info").innerHTML = '<span class="muted">Tap a sensor to see its details.</span>';
       load(auth.currentUser); });
     addEventListener("resize", fit);
+    // a section that was collapsed (display:none) when we mounted gives a 0-wide canvas; re-fit when it gets real size
+    let lastW = 0; new ResizeObserver(() => { const w = cv.getBoundingClientRect().width; if (w && w !== lastW) { lastW = w; fit(); } }).observe(cv);
     legend(); fit();
     onAuthStateChanged(auth, async u => { await loadJobs(u); load(u); });   // jobs first: a sibling-night id gets swapped for the canonical one before the data read
     return {
