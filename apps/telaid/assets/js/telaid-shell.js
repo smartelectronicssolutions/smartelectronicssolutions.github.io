@@ -14,7 +14,7 @@ export function mountShell(header) {
   const title = header.dataset.shell || document.title || "Telaid";
   const extras = [...header.children];
   const inLogin = extras.filter(e => e.hasAttribute("data-in-login")), after = extras.filter(e => !e.hasAttribute("data-in-login"));
-  header.innerHTML = `<h1>${header.dataset.logo === "no" ? "" : `<img src="${LOGO}" alt="" /> `}${title}</h1>
+  header.innerHTML = `<h1>${header.dataset.logo === "no" ? "" : `<a href="./index.html" class="logo-link" aria-label="Telaid tools index" style="display:inline-flex;line-height:0;text-decoration:none"><img src="${LOGO}" alt="" /></a> `}${title}</h1>
     <section id="login-section" class="logins-section">
       <form id="login-form" class="center">
         <label for="username">Email:</label>
