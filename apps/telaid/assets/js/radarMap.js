@@ -49,10 +49,11 @@ padding: 6px 10px; border-radius: 8px; border: 1px solid var(--borderColor); bac
 .rmap #rm-hubs button.has .n { color: #22c55e; font-weight: 700; }
 body.rm-embed-page header.top-actions { display: none !important; }
 .rmap.embed .app-shell { padding: 0; }
-/* L 2026-10-02 "can the site map have the map showing?": inside the checklist (and on a phone) the MAP comes first -
-   right under the source line - with the stats, photo chips and colour rows below it, so opening the section shows the map */
-.rmap.embed #rm-jobrow { order: -4; } .rmap.embed #rm-source { order: -3; } .rmap.embed .mapwrap { order: -2; }
-@media (max-width: 700px) { .rmap #rm-jobrow { order: -4; } .rmap #rm-source { order: -3; } .rmap .mapwrap { order: -2; } }
+/* LAYOUT (L 2026-10-02 "what's under the view above, and info right underneath"): every control sits ABOVE the map,
+   the map, then the info card right under it, then the legend and the hint. Same order everywhere (page + checklist). */
+.rmap #rm-jobrow { order: -10; } .rmap #rm-source { order: -9; } .rmap #rm-stats { order: -8; } .rmap #rm-hubs { order: -7; }
+.rmap #rm-views { order: -6; } .rmap #rm-modes { order: -5; } .rmap .mapwrap { order: -4; } .rmap #rm-info { order: -3; }
+.rmap #rm-legend { order: -2; } .rmap .hint { order: -1; }
 .rmap #rm-job { width: 100% !important; max-width: 640px; margin: 0 !important; font-size: 1rem; padding: 8px; }
 .rmap.embed #rm-jobrow { display: none !important; }
 .rmap.embed #rm-map { height: min(62vh, 560px); }`;
@@ -82,7 +83,7 @@ const TEMPLATE = `<div class="app-shell">
       </div>
       <div class="mapwrap"><canvas id="rm-map" aria-label="Floor map of every sensor"></canvas></div>
       <div class="legend" id="rm-legend"></div>
-      <div class="muted">Pinch, or Shift + scroll, to zoom · two fingers (or a mouse drag) move the map, one finger scrolls the page · tap a sensor or cabinet for its photos · hold one ~half a second, then drag, to move it · double-tap to reset the view. Numbers appear as you zoom in.</div>
+      <div class="muted hint">Pinch, or Shift + scroll, to zoom · two fingers (any direction) or a mouse drag move the map, one finger scrolls the page · tap a sensor or cabinet for its photos · hold one ~half a second, then drag, to move it · double-tap to reset the view. Numbers appear as you zoom in.</div>
       <div class="card" id="rm-info"><span class="muted">Tap a sensor to see its details.</span></div>
     </div>`;
 
