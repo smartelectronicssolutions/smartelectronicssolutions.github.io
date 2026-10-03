@@ -141,7 +141,7 @@
           placeholder="Password" /><button id="do-login">Sign In</button>
         <p id="auth-err"></p>
       </div>
-      <p class="muted">Plan monthly budgets for next year, enter actuals each month, and see variances live.</p>
+      <p class="muted">Plan monthly budgets; actuals come straight from the ledger - nothing to enter or sync - and the variances are live.</p>
     </div>
     <nav>
       <a href="onlinefinancials.html"><button>Ledger</button></a>
@@ -157,12 +157,12 @@
         <label title="Gross income you expect for this year">
           Expected Yearly Income:
           <input id="incomeYear" type="number" min="0" style="width:12ch;" />
+          <span id="incomeActual" class="muted small"></span>
         </label>
 
         <button id="save">Save now</button>
         <button id="export-csv">Export CSV</button>
         <button id="reset-defaults" style="display: none;">Reset to defaults</button>
-        <button id="sync-from-tracker">Sync from Financial Data</button>
         <br>
         <label>Year:
           <select id="year"></select>
@@ -264,6 +264,44 @@
   // - 'full'  = count full amount under every tag
   const MULTITAG_MODE = "first";
   const UNTITLED_CATEGORY = "Uncategorized";
+
+  /* ============ THE LEDGER - one read per account + year, shared by the table and the galaxy ============ */
+  // L 2026-10-03 "is the sync in the budget make sense? should it just pull the data as such?" -> "Go". Actuals are
+  // computed from the ledger on every load and year switch; nothing is copied into the plan any more (the Sync button and
+  // the stored actuals are gone). Only the plan is saved: categories, monthly budgets, overrides, expected income.
+  const parseDate = d => { if (d == null) return null; const n = Number(d); if (Number.isFinite(n) && n > 1e11) return new Date(n);
+    const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], 12)) : null; };
+  const LEDGER = { key: "", rows: [] };
+  async function loadLedgerYear() {
+    const key = `${DATABASE_BASE_PATH}|${STATE.year}`;
+    if (key === LEDGER.key) return LEDGER.rows;
+    LEDGER.key = key; LEDGER.rows = [];
+    try {
+      const snap = await get(ref(database, TX_YEAR_PATH(DATABASE_BASE_PATH, STATE.year))), rows = [];
+      for (const [id, r] of Object.entries(snap.val() || {})) {
+        if (!r || typeof r !== "object") continue; const dt = parseDate(r.date); if (!dt) continue;
+        const raw = Array.isArray(r.tags) ? r.tags.map(t => String(t).trim()).filter(Boolean) : [];
+        rows.push({ id, dt, amt: Math.abs(toMoney(r.amt ?? r.amount ?? 0)), name: String(r.name || "").trim(), type: r.type === "income" ? "income" : "expense",
+          tags: raw.map(normTag), rawTags: raw, sub: r.sub || "" });
+      }
+      if (key === LEDGER.key) LEDGER.rows = rows;   // a newer year may have won the race
+    } catch (e) { console.warn("[budget] ledger read failed", e); }
+    return LEDGER.rows;
+  }
+  // actuals[month][category] from the ledger: an expense counts under its FIRST tag (the old Sync rule), no tag =
+  // Uncategorized; a tag with no category yet gets one (monthly 0) so it shows in the table. Income is summed for the
+  // live "actual so far" line next to the expected-income box.
+  function computeActuals() {
+    const want = Number(STATE.year), acts = {}; let income = 0;
+    for (const r of LEDGER.rows) {
+      if (r.dt.getUTCFullYear() !== want) continue;
+      if (r.type === "income") { income += r.amt; continue; }
+      const tag = r.rawTags[0] || UNTITLED_CATEGORY, mKey = months[r.dt.getUTCMonth()];
+      const mo = (acts[mKey] ||= {}); mo[tag] = toMoney((mo[tag] || 0) + r.amt);
+      ensureCategory(tag);
+    }
+    STATE.actuals = acts; STATE.incomeActual = toMoney(income);
+  }
 
   // Firebase RTDB forbidden chars in keys
   const FORBIDDEN = /[.#$/[\]]/g;
@@ -414,17 +452,8 @@
     const nameMap = buildNameMap(state);
     out._nameMap = nameMap;
 
-    // actuals: actuals[month][safeCat] = value
-    const encActuals = {};
-    for (const m of Object.keys(out.actuals || {})) {
-      const monthObj = out.actuals[m] || {};
-      const encMonth = {};
-      for (const [catName, val] of Object.entries(monthObj)) {
-        encMonth[safeKey(catName)] = toMoney(val);
-      }
-      encActuals[m] = encMonth;
-    }
-    out.actuals = encActuals;
+    out.actuals = {};   // actuals are derived from the ledger (2026-10-03) - never stored
+    delete out.incomeActual;
 
     // overrides: "<safeCat>::<mIndex>" = value
     const encOverrides = {};
@@ -492,6 +521,7 @@
       STATE.year = wantYear;
     }
     ensureShapes();
+    await loadLedgerYear(); computeActuals();   // actuals are never stored - always the ledger's numbers
   }
 
   async function saveToDB() {
@@ -572,7 +602,7 @@
     const a = actualForMonth(catName, mi);
     const b = planForMonth(catName, mi);
     td.classList.remove('light-under', 'light-over');
-    if (td.querySelector('input')?.value === '') return;
+    if (td.dataset.empty === '1' || td.querySelector('input')?.value === '') return;
     td.classList.add(a <= b ? 'light-under' : 'light-over');
   }
 
@@ -753,35 +783,13 @@
       name2.appendChild(name2Span);
       tr2.appendChild(name2);
 
-      months.forEach((m, mi) => {
+      months.forEach((m, mi) => {   // actuals are read-only figures from the ledger (2026-10-03)
         const td = document.createElement('td');
         td.setAttribute('data-mi', mi);
-        const input = document.createElement('input');
-        input.type = 'number'; input.min = '0'; input.step = '0.01';
-        const mKey = months[mi];
-        const hasVal =
-          STATE.actuals?.[mKey] &&
-          Object.prototype.hasOwnProperty.call(STATE.actuals[mKey], c.name);
-        input.value = hasVal ? STATE.actuals[mKey][c.name] : '';
-        input.placeholder = '0.00';
-        input.addEventListener('input', () => {
-          const val = input.value;
-          const mKey = months[mi];
-          if (val === '') {
-            if (STATE.actuals?.[mKey]) delete STATE.actuals[mKey][c.name];
-          } else {
-            setActual(c.name, mi, val);
-          }
-          setActualCellColor(td, c.name, mi);
-          updateCategoryLabelByIndex(idx);
-          renderMonthTotals();
-          renderYearTotals();
-          applyMonthVisibility();
-          const a = avgActualForCategory(c.name);
-          avgActTd.textContent = (a == null) ? '—' : fmt.format(a);
-          setAvgActualCellColor(avgActTd, c.name);
-        });
-        td.appendChild(input);
+        const has = hasActual(c.name, mi);
+        td.textContent = has ? fmt.format(actualForMonth(c.name, mi)) : '—';
+        td.dataset.empty = has ? '0' : '1';
+        td.title = has ? 'From the ledger' : 'No ledger entries this month';
         setActualCellColor(td, c.name, mi);
         tr2.appendChild(td);
       });
@@ -978,6 +986,8 @@
 
     const incEl = document.getElementById('incomeYear');
     if (incEl) incEl.value = STATE.incomeYear ?? 0;
+    const incA = document.getElementById('incomeActual');
+    if (incA) incA.textContent = `actual so far ${fmt.format(STATE.incomeActual || 0)} (ledger)`;
 
     renderHeader();
     renderCategoriesEditor();
@@ -1081,92 +1091,6 @@
     alert(`Year ${y} added.`);
   }
 
-  /* ============ Sync from Financial Tracker (UTC) ============ */
-  async function syncFromFinancialTracker() {
-    const wantYear = Number(STATE.year);
-
-    const yearSnap = await get(ref(database, TX_YEAR_PATH(DATABASE_BASE_PATH, wantYear)));
-    if (!yearSnap.exists()) {
-      alert(`No transactions found at: ${TX_YEAR_PATH(DATABASE_BASE_PATH, wantYear)}`);
-      return;
-    }
-
-    const raw = yearSnap.val() || {};
-
-    let incomeGross = 0;
-    let expensesGross = 0;
-
-    // month -> tag -> sum
-    const monthTagSums = Array.from({ length: 12 }, () => new Map());
-
-    for (const [id, v] of Object.entries(raw)) {
-      const t = normalizeTx(id, v);
-      if (!t) continue;
-
-      const dt = new Date(t.date);
-      if (Number.isNaN(dt.getTime())) continue;
-      if (dt.getUTCFullYear() !== wantYear) continue;
-
-      const mi = dt.getUTCMonth();
-      const amount = Math.abs(toMoney(t.amt));
-
-      const tagsRaw = Array.isArray(t.tags) ? t.tags : [];
-      let tagList = (tagsRaw.length ? tagsRaw : [UNTITLED_CATEGORY])
-        .map(x => String(x).trim())
-        .filter(Boolean);
-
-      // ONLY keep the first tag
-      if (MULTITAG_MODE === 'first') {
-        tagList = tagList.length ? [tagList[0]] : [UNTITLED_CATEGORY];
-      }
-
-      const share = (MULTITAG_MODE === 'split' && tagList.length > 0)
-        ? (amount / tagList.length)
-        : amount;
-
-      const mMap = monthTagSums[mi];
-
-      if (t.type === 'income') {
-        incomeGross += amount;
-
-        // IMPORTANT:
-        // - Your Budget Planner expects "Actual Expenses" to be POSITIVE numbers.
-        // - So we do NOT store income in actuals (or store it as negative).
-        // We'll just track incomeGross and set STATE.incomeYear from it.
-      } else {
-        expensesGross += amount;
-
-        for (const tag of tagList) {
-          const prev = mMap.get(tag) || 0;
-          mMap.set(tag, prev + (MULTITAG_MODE === 'split' ? share : amount));
-        }
-      }
-    }
-
-    // Ensure categories exist for all expense tags
-    const seen = new Set();
-    monthTagSums.forEach(mMap => mMap.forEach((_, tag) => seen.add(tag)));
-    for (const tag of seen) ensureCategory(tag);
-
-    // Write actuals (OVERWRITE months we computed)
-    // If you prefer merge-only (keep manual entries), say so and I’ll flip it.
-    STATE.actuals = {};
-    for (let mi = 0; mi < 12; mi++) {
-      const mKey = months[mi];
-      STATE.actuals[mKey] = {};
-      monthTagSums[mi].forEach((sum, tag) => {
-        STATE.actuals[mKey][tag] = toMoney(sum);
-      });
-    }
-
-    // Income box = gross income from ledgerTx
-    STATE.incomeYear = toMoney(incomeGross);
-
-    renderAll();
-    await saveToDB();
-
-    alert(`Synced from ${TX_NODE}/${wantYear} (UTC). Income: ${fmt.format(incomeGross)} • Spending: ${fmt.format(expensesGross)}`);
-  }
   /* ============ Export CSV (optional) ============ */
   function exportCSV() {
     const { perMonth, yearBudget, yearActual, yearVariance } = totals();
@@ -1296,8 +1220,6 @@
     const isLight = () => document.documentElement.classList.contains("light");
     const MONTH = months;   // the budget's own month names
     let ROWS = [], ROWS_KEY = "", win = "ytd", V = [], G = [], TOTAL = 0, sel = -1, selG = -1, HL = new Set(), focus = null, lastTags = "";
-    const parseDate = d => { if (d == null) return null; const n = Number(d); if (Number.isFinite(n) && n > 1e11) return new Date(n);
-      const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], 12)) : null; };
     const EMOJI = /[\p{Extended_Pictographic}️‍]/gu;
     const vendorKey = n => n.replace(EMOJI, "").replace(/#\s*\d+|\b\d{3,}\b/g, "").replace(/[^\p{L}\p{N}' &.-]+/gu, " ").replace(/\s+/g, " ").trim().toLowerCase();
     const HUE = {}; SPENDING_TAGS.forEach((t, i) => { HUE[t.tag] = Math.round(i * 360 / SPENDING_TAGS.length + 20); });
@@ -1309,18 +1231,10 @@
     $("win").addEventListener("click", e => { const b = e.target.closest("button[data-w]"); if (!b) return; win = b.dataset.w;
       $("win").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b)); build(true); });
 
-    async function update() {
-      const key = `${DATABASE_BASE_PATH}|${STATE.year}`;
-      if (key !== ROWS_KEY) {
-        ROWS_KEY = key; ROWS = [];
-        try { const snap = await get(ref(database, TX_YEAR_PATH(DATABASE_BASE_PATH, STATE.year)));
-          for (const [id, r] of Object.entries(snap.val() || {})) { if (!r || typeof r !== "object") continue; const dt = parseDate(r.date); if (!dt) continue;
-            ROWS.push({ id, dt, amt: Math.abs(toMoney(r.amt ?? r.amount ?? 0)), name: String(r.name || "").trim(), type: r.type === "income" ? "income" : "expense",
-              tags: Array.isArray(r.tags) ? r.tags.map(normTag) : [], sub: r.sub || "" }); }
-        } catch (e) { console.warn("[galaxy] ledger read failed", e); }
-        if (key !== ROWS_KEY) return;   // a newer year won the race
-      }
-      build(false);
+    async function update() {   // the ledger read is shared with the table (loadLedgerYear) - one read per account + year
+      const rows = await loadLedgerYear();
+      if (`${DATABASE_BASE_PATH}|${STATE.year}` !== LEDGER.key) return;   // a newer year won the race
+      ROWS = rows; build(false);
     }
     // the budget for a galaxy (tag) over the window = the sum of the matching categories' plans (children fold into parents)
     function budgetFor(tag) {
@@ -1603,12 +1517,9 @@
           STATE.year = keepYear;
           STATE.incomeYear = keepIncome;
           ensureShapes();
+          computeActuals();
           renderAll();
           saveToDB();
-        }
-        if (t.matches('#sync-from-tracker')) {
-          try { await syncFromFinancialTracker(); }
-          catch (err) { console.error(err); alert('Sync failed. See console for details.'); }
         }
       });
       document._budgetClickWired = true;
