@@ -25,7 +25,7 @@
     .stats { display: flex; flex-wrap: wrap; gap: 6px 18px; font-variant-numeric: tabular-nums; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
     .stats b { color: var(--text); }
     .mapwrap { position: relative; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); background: var(--bg); }
-    #map { display: block; width: 100%; height: min(72vh, 700px); touch-action: none; cursor: grab; }
+    #map { display: block; width: 100%; height: min(72vh, 700px); touch-action: pan-y; cursor: grab; }
     .tools { position: absolute; top: 8px; right: 8px; display: flex; gap: 6px; }
     .tools button { width: auto; margin: 0; padding: 6px 10px; font-size: .78rem; font-weight: 600; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; }
     .legend { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -72,7 +72,7 @@
       <div class="mapwrap"><canvas id="map" aria-label="Your spending drawn as a galaxy"></canvas>
         <div class="tools"><button id="home" type="button">&#10530; Whole galaxy</button></div></div>
       <div class="legend" id="legend"></div>
-      <div class="hint">Pinch, or Shift + scroll, to zoom · drag (or two fingers, middle button, shift-drag) to move · tap a star · keep zooming and each star shows its numbers · ⤢ to see everything. A star's size is how much went there; lines run from recurring vendors to the months they charged.</div>
+      <div class="hint">Pinch, or Shift + scroll, to zoom · two fingers (or a mouse drag) move the map, one finger scrolls the page · tap a star · keep zooming and each star shows its numbers · ⤢ to see everything. A star's size is how much went there; lines run from recurring vendors to the months they charged.</div>
       <div id="info"><span class="muted">Tap a star, or a category below.</span></div>
     </div>
   </main>
@@ -319,13 +319,19 @@
     // L 2026-10-02: a plain wheel scrolls the PAGE; Shift + wheel (or Ctrl, i.e. trackpad pinch) zooms the map.
     cv.addEventListener("wheel", e => { if (!e.shiftKey && !e.ctrlKey) return; e.preventDefault(); const [x, y] = toC(e);
       zoomAt(x, y, Math.exp(-(e.deltaY || e.deltaX) * 0.0015)); }, { passive: false });
-    cv.addEventListener("pointerdown", e => { cv.setPointerCapture(e.pointerId); ptr.set(e.pointerId, toC(e)); moved = false;
+    // ONE FINGER SCROLLS THE PAGE, TWO MOVE THE MAP (L 2026-10-02: "use two fingers to scroll down on the map so I can scroll
+    // the page until I use two fingers"): touch-action pan-y lets a one-finger swipe scroll the page; two fingers (and a
+    // hold-then-drag) are claimed with preventDefault so the browser leaves them to the map. Mouse drag still pans.
+    cv.addEventListener("touchstart", e => { if (e.touches.length >= 2) e.preventDefault(); }, { passive: false });
+    cv.addEventListener("touchmove", e => { if (e.touches.length >= 2) e.preventDefault(); }, { passive: false });
+    cv.addEventListener("pointerdown", e => { try { cv.setPointerCapture(e.pointerId); } catch (_) {} ptr.set(e.pointerId, toC(e)); moved = false;
       if (ptr.size === 1) { drag = toC(e); if (e.button === 1 || e.shiftKey) { e.preventDefault(); moved = true; } }
       if (ptr.size === 2) { const [a, b] = [...ptr.values()]; pinch = Math.hypot(a[0] - b[0], a[1] - b[1]); mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; } });
     cv.addEventListener("pointermove", e => { if (!ptr.has(e.pointerId)) return; const p = toC(e); ptr.set(e.pointerId, p);
       if (ptr.size === 2 && pinch) { const [a, b] = [...ptr.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]), m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
         if (mid) { view.ox += m[0] - mid[0]; view.oy += m[1] - mid[1]; } zoomAt(m[0], m[1], d / pinch); pinch = d; mid = m; moved = true; }
-      else if (drag) { const dx = p[0] - drag[0], dy = p[1] - drag[1]; if (Math.abs(dx) + Math.abs(dy) > 6) moved = true; if (!moved) return; view.ox += dx; view.oy += dy; drag = p; draw(); } });
+      else if (drag) { if (e.pointerType === "touch") return;   // one finger = the page scrolls, not the map
+        const dx = p[0] - drag[0], dy = p[1] - drag[1]; if (Math.abs(dx) + Math.abs(dy) > 6) moved = true; if (!moved) return; view.ox += dx; view.oy += dy; drag = p; draw(); } });
     const up = e => { ptr.delete(e.pointerId); if (ptr.size < 2) { pinch = null; mid = null; drag = ptr.size ? [...ptr.values()][0] : null; } };
     cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
     cv.addEventListener("mousedown", e => { if (e.button === 1) e.preventDefault(); }); cv.addEventListener("auxclick", e => { if (e.button === 1) e.preventDefault(); });

@@ -20,7 +20,7 @@ padding: 6px 12px; border-radius: 999px; border: 1px solid var(--borderColor); b
 .rmap #rm-modes button.on { background: var(--primaryColor); border-color: var(--primaryColor); color: #fff; }
 .rmap #rm-find { width: 7em !important; margin: 0 !important; font-size: 1rem; padding: 6px 8px; }
 .rmap .mapwrap { position: relative; border-radius: 12px; overflow: hidden; border: 1px solid var(--borderColor); background: var(--secondaryBackgroundColor); }
-.rmap #rm-map { display: block; width: 100%; height: min(75vh, 720px); touch-action: none; cursor: grab; }
+.rmap #rm-map { display: block; width: 100%; height: min(75vh, 720px); touch-action: pan-y; cursor: grab; }
 .rmap .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: .85rem; }
 .rmap .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .rmap .legend i { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
@@ -82,7 +82,7 @@ const TEMPLATE = `<div class="app-shell">
       </div>
       <div class="mapwrap"><canvas id="rm-map" aria-label="Floor map of every sensor"></canvas></div>
       <div class="legend" id="rm-legend"></div>
-      <div class="muted">Pinch, or Shift + scroll, to zoom · drag to move · tap a sensor or cabinet for its photos · hold one ~half a second, then drag, to move it · double-tap to reset the view. Numbers appear as you zoom in.</div>
+      <div class="muted">Pinch, or Shift + scroll, to zoom · two fingers (or a mouse drag) move the map, one finger scrolls the page · tap a sensor or cabinet for its photos · hold one ~half a second, then drag, to move it · double-tap to reset the view. Numbers appear as you zoom in.</div>
       <div class="card" id="rm-info"><span class="muted">Tap a sensor to see its details.</span></div>
     </div>`;
 
@@ -431,6 +431,11 @@ export function mountRadarMap(root, opts = {}) {
     // L 2026-10-02: a plain wheel scrolls the PAGE; Shift + wheel (or Ctrl, i.e. trackpad pinch) zooms the map.
     cv.addEventListener("wheel", e => { if (!e.shiftKey && !e.ctrlKey) return; e.preventDefault(); const [x, y] = toC(e);
       zoomAt(x, y, Math.exp(-(e.deltaY || e.deltaX) * 0.0015)); }, { passive: false });
+    // ONE FINGER SCROLLS THE PAGE, TWO MOVE THE MAP (L 2026-10-02: "use two fingers to scroll down on the map so I can scroll
+    // the page until I use two fingers"): touch-action pan-y lets a one-finger swipe scroll the page; two fingers (and a
+    // hold-then-drag) are claimed with preventDefault so the browser leaves them to the map. Mouse drag still pans.
+    cv.addEventListener("touchstart", e => { if (e.touches.length >= 2) e.preventDefault(); }, { passive: false });
+    cv.addEventListener("touchmove", e => { if (e.touches.length >= 2 || mov) e.preventDefault(); }, { passive: false });
     cv.addEventListener("pointerdown", e => { try { cv.setPointerCapture(e.pointerId); } catch (_) {} ptr.set(e.pointerId, toC(e)); moved = false;
       if (ptr.size === 1) { drag = toC(e); clearTimeout(press); press = null; mov = null;
         if (layout === "floor" && e.button === 0 && !e.shiftKey) { const [mx, my] = drag, hh = hubAt(mx, my);
@@ -440,7 +445,8 @@ export function mountRadarMap(root, opts = {}) {
       if (ptr.size === 2) { clearTimeout(press); press = null; mov = null; const [a, b] = [...ptr.values()]; pinch = Math.hypot(a[0] - b[0], a[1] - b[1]); } });
     cv.addEventListener("pointermove", e => { if (!ptr.has(e.pointerId)) return; const p = toC(e); ptr.set(e.pointerId, p);
       if (ptr.size === 2 && pinch) { const [a, b] = [...ptr.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]); zoomAt((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, d / pinch); pinch = d; moved = true; }
-      else if (drag) { const dx = p[0] - drag[0], dy = p[1] - drag[1];
+      else if (drag) { if (e.pointerType === "touch" && !mov) return;   // one finger = the page scrolls, not the map
+        const dx = p[0] - drag[0], dy = p[1] - drag[1];
         if (mov) { const [fx, fy] = unrot(dx / view.s, -dy / view.s);   // screen y down -> plan y up
           if (mov.kind === "sensor") { S[mov.i].x += fx; S[mov.i].y += fy; } else { TABLES.hubs[mov.h][0] += fx; TABLES.hubs[mov.h][1] += fy; }
           drag = p; draw(); return; }
