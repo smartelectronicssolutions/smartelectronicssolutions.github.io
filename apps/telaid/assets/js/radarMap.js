@@ -9,7 +9,7 @@
 // /MDF, /IDF1..IDF6 (site photos). History: floor map, photos/add/run complete, wiring view, IDF photos (all 2026-10-02).
 import { onAuthStateChanged } from "../../../assets/js/firebase-init.js";
 import { auth, HUBS, hubLabel, esc, fmtFt, clean, loadJob, sensorRows, patchSensor, listSites, listPhotos, photoUrl,
-  sensorMarkOf, photoPrefix, uploadSensorPhoto, uploadHubPhoto, tablesFor, zoneOf, idfOf, loadFloorPlan, saveHubPos } from "./telaid-data.js?v=1002o";
+  sensorMarkOf, photoPrefix, uploadSensorPhoto, uploadHubPhoto, tablesFor, zoneOf, idfOf, loadFloorPlan, saveHubPos } from "./telaid-data.js?v=1002x";
 
 const CSS = `.rmap .app-shell { max-width: 1100px; margin: auto; padding: 12px; display: grid; gap: 12px; }
 .rmap .card { background: var(--cardBackground); border: 1px solid var(--borderColor); border-radius: 12px; padding: 12px; box-shadow: var(--cardShadow); }
@@ -393,14 +393,18 @@ export function mountRadarMap(root, opts = {}) {
       try { await patchSensor(OWNER, TASK, s.m, { [field]: ts }); s[field] = ts; renderStats(); show(sel); }
       catch (e) { alert("Couldn't save: " + (e.code || e.message || e)); if (btn) btn.disabled = false; }
     }
+    // PHOTO RULES = the checklist's uploadSensor (L 2026-10-03 "make it all the same as the checklist"): camera-or-library
+    // picker (no capture=), 2048 px JPEG, "<customer> NN - serial" bar unless unticked, <prefix>_NN-serial.jpg into the
+    // job's sensors folder, a confirm once the sensor already has its 2 photos.
     async function addPhoto(file) {
       const s = S[sel]; if (!s || !file || !OWNER) return;
+      if (s.photos >= 2 && !confirm(`Sensor ${String(s.m).padStart(2, "0")} already has ${s.photos} photos. Upload another?`)) { if ($("addPhoto")) $("addPhoto").value = ""; return; }
       let serial = clean(s.serial);
       if (!serial) { serial = clean(prompt(`Sensor #${s.m} has no serial yet. Serial number:`) || ""); if (!serial) return;
         await patchSensor(OWNER, TASK, s.m, { serial, updatedAt: Date.now() }).catch(() => {}); s.serial = serial; }
       const st = $("upState"); if (st) st.textContent = "Uploading...";
       try {
-        s.items.push(await uploadSensorPhoto({ owner: OWNER, task: TASKREC, mark: s.m, serial, file })); s.photos++;
+        s.items.push(await uploadSensorPhoto({ owner: OWNER, task: TASKREC, mark: s.m, serial, file, bar: !$("mark") || $("mark").checked })); s.photos++;
         renderStats(); show(sel);
       } catch (e) { if (st) st.textContent = ""; alert("Upload failed: " + (e.code || e.message || e)); }
     }
@@ -415,7 +419,8 @@ export function mountRadarMap(root, opts = {}) {
         <b>Photos</b><span>${items.length || PHOTOS === "ok" ? items.length : PHOTOS === "loading" ? "loading\u2026" : "can't reach Storage"}</span></div>
         <div class="photos" id="rm-photos"></div>
         <div class="acts">
-          <label class="btn primary">&#128247; Add ${hubLabel(h)} photo<input type="file" id="rm-addHubPhoto" accept="image/*" capture="environment" hidden /></label>
+          <label class="btn primary">&#128247; Take / choose ${hubLabel(h)} photo<input type="file" id="rm-addHubPhoto" accept="image/*" hidden /></label>
+          <label class="muted"><input type="checkbox" id="rm-mark" checked /> label bar</label>
           <span class="muted" id="rm-upState"></span>
         </div>
         <div class="note">Saved to the job's ${h} folder with a "${esc(String(TASKREC.customerName || "").trim())} ${hubLabel(h)}" bar.</div>`;
@@ -426,7 +431,7 @@ export function mountRadarMap(root, opts = {}) {
       if (!file || !OWNER) return;
       const st = $("upState"); if (st) st.textContent = "Uploading...";
       try {
-        (HUBPH[h] = HUBPH[h] || []).push(await uploadHubPhoto({ owner: OWNER, task: TASKREC, hub: h, file }));
+        (HUBPH[h] = HUBPH[h] || []).push(await uploadHubPhoto({ owner: OWNER, task: TASKREC, hub: h, file, bar: !$("mark") || $("mark").checked }));
         renderHubs(); showHub(h);
       } catch (e) { if (st) st.textContent = ""; alert("Upload failed: " + (e.code || e.message || e)); }
     }
@@ -443,7 +448,8 @@ export function mountRadarMap(root, opts = {}) {
         <b>Photos</b><span>${s.photos || PHOTOS === "ok" ? `${s.photos} of 2` : PHOTOS === "loading" ? "loading\u2026" : "can't reach Storage on this network"}</span></div>
         <div class="photos" id="rm-photos"></div>
         <div class="acts">
-          <label class="btn primary">&#128247; Add photo<input type="file" id="rm-addPhoto" accept="image/*" capture="environment" hidden /></label>
+          <label class="btn primary">&#128247; Take / choose photo<input type="file" id="rm-addPhoto" accept="image/*" hidden /></label>
+          <label class="muted"><input type="checkbox" id="rm-mark" checked /> label bar</label>
           <button type="button" id="rm-runBtn" class="${s.runDoneAt ? "done" : ""}">${s.runDoneAt ? "&#10003; Run complete" : "Mark run complete"}</button>
           <button type="button" id="rm-labBtn" class="${s.labeledAt ? "done" : ""}">${s.labeledAt ? "&#10003; Labeled" : "Mark labeled"}</button>
           ${s.pos ? '<button type="button" id="rm-resetPos">Back to plan spot</button>' : ""}

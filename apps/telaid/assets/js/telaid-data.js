@@ -137,14 +137,14 @@ export async function uploadPhoto({ owner, task, sub, file, name, label }) {
   return r;
 }
 /** A device photo for sensor <mark>: "<prefix>_NN-serial.jpg", bar "<customer> NN - serial". */
-export const uploadSensorPhoto = ({ owner, task, mark, serial, file }) => { const nn = String(mark).padStart(2, "0");
+export const uploadSensorPhoto = ({ owner, task, mark, serial, file, bar = true }) => { const nn = String(mark).padStart(2, "0");
   return uploadPhoto({ owner, task, sub: "sensors", file, name: `${photoPrefix(task)}_${nn}-${clean(serial)}.jpg`,
-    label: `${String(task?.customerName || task?.project || "").trim()} ${nn} - ${clean(serial)}` }); };
+    label: bar ? `${String(task?.customerName || task?.project || "").trim()} ${nn} - ${clean(serial)}` : null }); };
 /** A site photo for MDF / IDFn: "YYYY_MM_DD_<prefix>_<hub>.jpg", bar "<customer> IDF n". */
-export const uploadHubPhoto = ({ owner, task, hub, file }) => { const d = new Date(),
+export const uploadHubPhoto = ({ owner, task, hub, file, bar = true }) => { const d = new Date(),
   stamp = `${d.getFullYear()}_${String(d.getMonth() + 1).padStart(2, "0")}_${String(d.getDate()).padStart(2, "0")}`;
   return uploadPhoto({ owner, task, sub: hub, file, name: `${stamp}_${photoPrefix(task)}_${hub}.jpg`,
-    label: `${String(task?.customerName || task?.project || "").trim()} ${hubLabel(hub)}` }); };
+    label: bar ? `${String(task?.customerName || task?.project || "").trim()} ${hubLabel(hub)}` : null }); };
 
 // ---------- the SITE PLAN: {owner}/tasks/<canonical>/siteTables = {zones, idf, switches, maxPerSwitch} ----------
 // L 2026-10-02: "site tables into Firebase so new sites need no code". A site's plan is read off its task record;
