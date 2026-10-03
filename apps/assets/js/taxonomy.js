@@ -28,7 +28,7 @@ export const SPENDING_TAGS = [
   { tag: '🎓', label: 'Education' },
 ];
 
-export const INV_TAG = 'inv';            // "this is a tracked / billable part" - the inventory/invoice link
+export const INV_TAG = 'inv';            // LEGACY (retired 2026-10-03): the old "this is a part" marker inside tags[]; nothing reads it now
 export const GAS_TAG = '⛽';
 
 // SECOND TIER (wired 2026-09-23). L wanted few tags but still a way to see one KIND of spend:
@@ -62,7 +62,11 @@ for (const s of SPENDING_TAGS) { LABEL[normTag(s.tag)] = s.label; for (const c o
 export function tagLabel(t) { return LABEL[normTag(t)] || ''; }
 
 export function isSpendingTag(t) { return normTag(t) in LABEL; }
-export function isPart(tx) { return Array.isArray(tx && tx.tags) && tx.tags.some(x => normTag(x).toLowerCase() === INV_TAG); }
+// THE PART CONNECTOR (L 2026-10-03 "could there be a different connector?"): a row is a billable / tracked part when it has a
+// part category (tx.cat) - that is what the invoice, analytics and budget apps test, through this one function. Why not
+// the SKU alone: 81 ordinary purchases carry an Amazon order number as their SKU and 3 parts have none; `cat` matched the
+// old inv-tagged set exactly. To change the rule, change this line.
+export function isPart(tx) { return String((tx && tx.cat) || '').trim() !== ''; }
 
 // one line for prompts / hints: "🍽 Dining · 🛒 Groceries · ..."
 export const SPENDING_HINT = SPENDING_TAGS.map(s => `${s.tag} ${s.label}`).join(' · ');

@@ -229,7 +229,7 @@
 
 <script type="module">
   import { auth, onAuthStateChanged, database, ref, get, set } from '../assets/js/firebase-init.js';
-  import { SPENDING_TAGS, parentTag, tagLabel, normTag, INV_TAG } from '../assets/js/taxonomy.js';
+  import { SPENDING_TAGS, parentTag, tagLabel, normTag, isSpendingTag } from '../assets/js/taxonomy.js';
   import { mountCanvasView } from '../assets/js/canvasview.js?v=20261003a';   // the one map engine (radar map, this galaxy, the Louverse)   // the galaxy groups by the same tags the budget rows use
   // onIdTokenChanged is not re-exported by firebase-init.js; pull it from the
   // same (already-cached) auth module to catch token expiry live.
@@ -296,7 +296,7 @@
     for (const r of LEDGER.rows) {
       if (r.dt.getUTCFullYear() !== want) continue;
       if (r.type === "income") { income += r.amt; continue; }
-      const tag = r.rawTags[0] || UNTITLED_CATEGORY, mKey = months[r.dt.getUTCMonth()];
+      const tag = r.rawTags.find(t => isSpendingTag(t)) || UNTITLED_CATEGORY, mKey = months[r.dt.getUTCMonth()];   // first SPENDING tag; a legacy inv token never becomes a category
       const mo = (acts[mKey] ||= {}); mo[tag] = toMoney((mo[tag] || 0) + r.amt);
       ensureCategory(tag);
     }
@@ -1249,7 +1249,7 @@
       for (const r of rows) { const k = vendorKey(r.name) || "(no name)"; let v = byV.get(k);
         if (!v) { v = { key: k, names: new Map(), total: 0, n: 0, rows: [], tags: new Map() }; byV.set(k, v); }
         v.total += r.amt; v.n++; v.rows.push(r); v.names.set(r.name, (v.names.get(r.name) || 0) + 1);
-        const t = r.tags.map(parentTag).find(t => t && t.toLowerCase() !== INV_TAG) || UNTITLED_CATEGORY; v.tags.set(t, (v.tags.get(t) || 0) + r.amt); }
+        const t = r.tags.map(parentTag).find(t => isSpendingTag(t)) || UNTITLED_CATEGORY; v.tags.set(t, (v.tags.get(t) || 0) + r.amt); }   // first SPENDING tag (a legacy inv token is skipped)
       V = [...byV.values()].map(v => { v.name = [...v.names.entries()].sort((a, b) => b[1] - a[1])[0][0].replace(EMOJI, "").trim() || v.key;
         v.tag = [...v.tags.entries()].sort((a, b) => b[1] - a[1])[0][0]; v.rows.sort((a, b) => a.dt - b.dt); return v; });
       V.sort((a, b) => b.total - a.total); TOTAL = V.reduce((s, v) => s + v.total, 0);
