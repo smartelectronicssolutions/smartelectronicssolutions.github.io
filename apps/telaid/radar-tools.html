@@ -157,47 +157,8 @@
         <div id="comparisonResults"></div>
       </section>
 
-      <!-- SCAN & LABEL (L, 2026-09-26: "can the scanner just be in the checklist app, therefore tied into that system of
-           serials" / "in a collapsible section"): the Sensor Lookup scanner, reading THIS site's sensorMeta (serial -> device #)
-           and ticking sensorMeta/<mark>/labeledAt - the same field as the Labeled box under Device Details. -->
-      <section class="collapsible-section" id="sensor-scan">
-        <h2 class="collapsible-header">🔎 Scan &amp; Label</h2>
-        <style>
-          #sensor-scan .scan-result { border: 2px solid rgba(127,127,127,.35); border-radius: 12px; padding: 12px; margin: 8px 0; text-align: center; }
-          #sensor-scan .scan-result .mk { font-size: 3.2rem; font-weight: 800; line-height: 1.1; }
-          #sensor-scan .scan-result .lbl { font-size: .75rem; letter-spacing: .15em; opacity: .7; }
-          #sensor-scan .scan-result .sub { opacity: .8; margin-top: 4px; }
-          #sensor-scan .scan-result .raw { opacity: .55; font-size: .8rem; margin-top: 6px; word-break: break-all; }
-          #sensor-scan .scan-result.hit { border-color: #22c55e; } #sensor-scan .scan-result.spare { border-color: #f59e0b; } #sensor-scan .scan-result.dupe { border-color: #ef4444; }
-          #sensor-scan .scan-row { display: flex; gap: 8px; } #sensor-scan .scan-row input { flex: 1; font-size: 1.1rem; }
-          #sensor-scan .scan-bar { height: 8px; background: rgba(127,127,127,.25); border-radius: 4px; overflow: hidden; margin-top: 6px; }
-          #sensor-scan .scan-bar div { height: 100%; width: 0; background: #22c55e; transition: width .3s; }
-          /* TALLER VIEW (2026-10-02, L: "the scanner in the checklist view is too thin"): a 16:9 feed on a portrait
-             phone came out as a short strip. Square feed, fixed ~45vh tall, video fills it (cover). */
-          #sensor-scan #scanReader { margin: 8px auto 0; width: 100%; max-width: 520px; overflow: hidden; border-radius: 8px; }
-          #sensor-scan #scanReader video { width: 100% !important; height: 45vh !important; object-fit: cover; }
-        </style>
-        <div class="status-sub" id="scanSource">Open a site to load its serials.</div>
-        <div class="scan-result" id="scanResult"><div class="sub">Scan or type a serial.</div></div>
-        <div class="scan-row">
-          <input id="scanInput" type="text" inputmode="numeric" autocomplete="off" placeholder="Serial" />
-          <button id="scanBtn" type="button">📷 Scan</button>
-        </div>
-        <label class="status-sub" style="display:none;margin-top:6px"><input type="checkbox" id="scanAnyCode" /> Any code </label>
-        <div id="scanReader" hidden></div>
-        <div style="margin-top:8px"><span id="scanCount">0 / 0 labeled</span> <button id="scanUndo" type="button" hidden>Undo last ✓</button></div>
-        <div class="scan-bar"><div id="scanBarFill"></div></div>
-        <details style="margin-top:8px"><summary>Not labeled yet</summary><ul id="scanTodo"></ul></details>
-      </section>
-
-      <!-- SITE MAP (L 2026-10-02: "add this section to the checklist" + "grab the logic from the same place"): the SAME
-           map as radar-map.html - one module, assets/js/radarMap.js - mounted here the first time the section opens and
-           pointed at whatever site this checklist opens (canonical task, like Scan & Label). Tap a sensor or IDF for
-           photos / Add photo / Run complete / Labeled. -->
-      <section class="collapsible-section" id="site-map">
-        <h2 class="collapsible-header">🗺️ Site Map</h2>
-        <div id="siteMapRoot"><div class="status-sub">Open a site, then this shows every sensor and IDF.</div></div>
-      </section>
+      <!-- Scan & Label and Site Map were sections here until 2026-10-03 (L: "no need to have sensor scanner and site map in
+           checklist") - the standalone pages sensor-lookup.html and radar-map.html carry the newest versions. -->
 
       <section class="collapsible-section" id="sensor-meta">
         <h2 class="collapsible-header">📡 Device Details</h2>
@@ -381,20 +342,6 @@
 
       import { resizeImg, stampImg } from "../assets/js/imgupload.js?v=20261003a";   // THE photo rules - one copy for every app (2026-10-03)
       import { initImageModule } from "./assets/js/imageModule.js?v=20261003b";
-      import { mountRadarMap } from "./assets/js/radarMap.js?v=1003e";
-      // Site Map section: mount once, on first open; then just follow the site (setTask) - one load per site switch
-      let siteMap = null, siteMapTask = null;
-      function siteMapFollow(task) {
-        siteMapTask = task;
-        if (siteMap) siteMap.setTask(task);
-        else if (!document.getElementById("site-map")?.classList.contains("collapsed"))   // left open last time
-          siteMap = mountRadarMap(document.getElementById("siteMapRoot"), { task, embed: true });
-      }
-      document.querySelector("#site-map .collapsible-header")?.addEventListener("click", () => setTimeout(() => {
-        const sec = document.getElementById("site-map"); if (sec.classList.contains("collapsed")) return;
-        if (!siteMap) siteMap = mountRadarMap(document.getElementById("siteMapRoot"), { task: siteMapTask, embed: true });
-        else siteMap.refit();
-      }, 0));
       const CONFIG = {
         MAX_NIGHTS: 10,
         DEFAULT_NIGHTS: 5,
@@ -1558,8 +1505,6 @@
           if (seq !== state.loadSeq) return;
           // Sensor Lookup (same site) follows the site open here: it reads this to know which task's sensorMeta to scan against
           try { localStorage.setItem("sensorTask", JSON.stringify({ task: state.metaOwnerTaskId, name: [state.currentCustomerName, state.currentProjectName].filter(Boolean).join(" - "), at: Date.now() })); } catch (_) { }
-          scanReload();   // Scan & Label follows the site that just opened (canonical task resolved above)
-          siteMapFollow(state.metaOwnerTaskId);   // so does the Site Map section
 
           const owner =
             (await readOnce(getTaskPath(state.metaOwnerTaskId))) || data;
@@ -1599,7 +1544,7 @@
           if (seq !== state.loadSeq) return;
 
           syncSensorTotalToQC();
-          initCollapsibles(); initScan();
+          initCollapsibles();
           bindRealtimeProjectListener(projectId);
         } catch (err) {
           if (seq !== state.loadSeq) return;
@@ -2346,7 +2291,7 @@
         renderFieldToggles();
         applyFieldVisibility();
         updateEndTimeFieldFromInputs();
-        initCollapsibles(); initScan();
+        initCollapsibles();
       }
 
       function collectData() {
@@ -3251,130 +3196,6 @@
         downloadCSV(rows, `${site}_report.csv`);
       }
 
-      // ─── Scan & Label (2026-09-26, the Sensor Lookup scanner folded into the checklist) ───
-      // One read of this site's sensorMeta when the site opens (never a timer). A tick writes the field only,
-      // {mark}/labeledAt, so serial/m1-m3 and anything else on the record are untouched.
-      const scan = { bySerial: new Map(), labeled: {}, last: null, cam: null, lastRaw: "", lastAt: 0 };
-      const scanEsc = (x) => String(x).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-      async function scanReload() {
-        if (!$("scanSource") || !state.metaOwnerTaskId) return;
-        let meta = {};
-        try { meta = (await readOnce(sensorMetaBasePath())) || {}; }
-        catch (e) { $("scanSource").textContent = "Couldn't read this site's serials: " + (e.code || e.message || e); return; }
-        scan.bySerial = new Map(); scan.labeled = {}; scan.last = null; scan.retried = false;
-        // RTDB hands numeric keys (1..241) back as a SPARSE ARRAY with a hole at 0 - Object.entries skips holes;
-        // the first version mapped over it and the hole crashed the loop, so Walmart 54 showed "no serials" (09-26)
-        const rows = Object.entries(meta);
-        for (const [mark, v] of rows) {
-          if (!v || typeof v !== "object") continue;
-          const sn = String(v.serial || "").trim().replace(/^0+/, "");
-          if (sn) scan.bySerial.set(sn, Number(mark));
-          if (v.labeledAt) scan.labeled[Number(mark)] = v.labeledAt;
-        }
-        $("scanSource").textContent = scan.bySerial.size
-          ? `${scan.bySerial.size} serials · ${state.currentProjectName || "this site"}`
-          : "No serials saved for this site yet (Device Details > Serial #).";
-        scanStats();
-      }
-      function scanResolve(raw) {
-        const t = String(raw || "").trim(), B = scan.bySerial;
-        if (B.has(t)) return t;
-        const first = t.split(",")[0].trim();
-        if (/^\d+$/.test(first)) { const n = String(Number(first)); if (B.has(n)) return n; }
-        const runs = t.match(/\d+/g) || [];
-        for (const r of runs) if (B.has(r)) return r;
-        for (const r of runs) { const n = String(Number(r)); if (B.has(n)) return n; }
-        return null;
-      }
-      let scanActx = null;
-      function scanFlash(kind) {
-        const box = $("scanResult"); box.classList.remove("hit", "spare", "dupe"); void box.offsetWidth; box.classList.add(kind);
-        if (navigator.vibrate) navigator.vibrate(kind === "hit" ? [70, 40, 70] : kind === "spare" ? [350] : [120, 80, 120]);
-        try {
-          scanActx = scanActx || new (window.AudioContext || window.webkitAudioContext)(); let t = scanActx.currentTime;
-          for (const f of kind === "hit" ? [1320, 1760] : kind === "spare" ? [330] : [440, 440]) {
-            const o = scanActx.createOscillator(), g = scanActx.createGain(); o.type = "square"; o.frequency.value = f; g.gain.value = 0.08;
-            o.connect(g); g.connect(scanActx.destination); o.start(t); o.stop(t + 0.1); t += 0.15;
-          }
-        } catch (_) { }
-      }
-      function scanShow(raw, fmt) {
-        const box = $("scanResult");
-        if ($("scanAnyCode").checked) {
-          box.innerHTML = `<div class="lbl">${scanEsc(fmt || "CODE")}</div><div class="raw" style="font-size:1.1rem;opacity:1">${scanEsc(raw)}</div>`;
-          scanFlash("hit"); return;
-        }
-        if (!scan.bySerial.size) {   // not loaded yet (or the load failed) - try once more before saying so
-          if (state.metaOwnerTaskId && !scan.retried) { scan.retried = true; scanReload().then(() => scanShow(raw, fmt)); return; }
-          box.innerHTML = `<div class="sub">No serials loaded for this site.</div>`; return;
-        }
-        const serial = scanResolve(raw);
-        if (!serial) {
-          const noSerial = !/(^|\D)0{0,2}\d{5}(\D|$)/.test(String(raw).replace(/([0-9a-f]{2}[:-]){5}[0-9a-f]{2}/ig, ""));
-          const mac = noSerial && /([0-9a-f]{2}[:-]){5}[0-9a-f]{2}/i.test(String(raw));
-          box.innerHTML = (noSerial
-            ? `<div class="lbl">${mac ? "THAT IS THE MAC" : "NO SERIAL IN THAT CODE"}</div><div class="sub">Scan the barcode or the carton QR, or type the serial.</div>`
-            : `<div class="lbl">SPARE</div><div class="sub">Not one of this site's ${scan.bySerial.size} sensors.</div>`)
-            + `<div class="raw">read: ${scanEsc(raw)}</div>`;
-          scanFlash(noSerial ? "dupe" : "spare"); return;
-        }
-        const mark = scan.bySerial.get(serial), already = scan.labeled[mark];
-        box.innerHTML = `<div class="lbl">WRITE</div><div class="mk">${mark}</div><div class="sub">serial ${scanEsc(serial)}</div>` +
-          (already ? `<div class="sub">⚠ Already labeled ${new Date(already).toLocaleTimeString()}</div>`
-            : `<button id="scanTick" type="button" style="margin-top:8px">✓ Labeled</button>`);
-        if (!already) $("scanTick").onclick = () => scanTick(mark);
-        scanFlash(already ? "dupe" : "hit");
-      }
-      async function scanTick(mark) {
-        if (scan.labeled[mark]) return;
-        const ts = Date.now(); scan.labeled[mark] = ts; scan.last = mark;
-        try { await patch(sensorMetaBasePath(), { [`${mark}/labeledAt`]: ts }); }
-        catch (e) { delete scan.labeled[mark]; scan.last = null; alert("Not saved: " + (e.message || e)); }
-        const b = $("scanTick"); if (b) b.replaceWith(Object.assign(document.createElement("div"), { className: "sub", textContent: "✓ labeled" }));
-        $("scanInput").value = ""; scanStats();
-      }
-      function scanStats() {
-        const total = scan.bySerial.size, n = Object.keys(scan.labeled).length;
-        $("scanCount").textContent = `${n} / ${total} labeled`;
-        $("scanBarFill").style.width = total ? `${Math.min(100, (100 * n) / total)}%` : "0";
-        $("scanUndo").hidden = scan.last == null;
-        const todo = [...scan.bySerial.entries()].filter(([, m]) => !scan.labeled[m]).sort((a, b) => a[1] - b[1]);
-        $("scanTodo").innerHTML = todo.map(([sn, m]) => `<li>#${m} · ${scanEsc(sn)}</li>`).join("") || "<li>All labeled.</li>";
-      }
-      function initScan() {
-        if (!$("scanBtn") || $("scanBtn").dataset.bound) return;
-        $("scanBtn").dataset.bound = "1";
-        $("scanInput").addEventListener("input", (e) => { const v = e.target.value.trim(); if (/^\d+$/.test(v) && String(Number(v)).length === 5) scanShow(v); });
-        $("scanInput").addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.value.trim()) scanShow(e.target.value.trim()); });
-        $("scanUndo").addEventListener("click", async () => {
-          const m = scan.last; if (m == null) return;
-          delete scan.labeled[m]; scan.last = null;
-          await patch(sensorMetaBasePath(), { [`${m}/labeledAt`]: null }).catch(() => { });
-          scanStats();
-        });
-        $("scanBtn").addEventListener("click", async () => {
-          const r = $("scanReader");
-          if (scan.cam) { await scan.cam.stop().catch(() => { }); scan.cam = null; r.hidden = true; $("scanBtn").textContent = "📷 Scan"; return; }
-          try {
-            if (!window.Html5Qrcode) await new Promise((res, rej) => {
-              const el = document.createElement("script"); el.src = "https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js";
-              el.onload = res; el.onerror = () => rej(new Error("scanner library didn't load - type the serial")); document.head.appendChild(el);
-            });
-            r.hidden = false; scan.cam = new Html5Qrcode("scanReader"); $("scanBtn").textContent = "■ Stop";
-            await scan.cam.start({ facingMode: "environment" },
-              { fps: 10, aspectRatio: 1.0, qrbox: (w, h) => ({ width: Math.floor(w * 0.85), height: Math.floor(h * 0.5) }) },
-              (text, res) => {
-                const now = Date.now(); if (text === scan.lastRaw && now - scan.lastAt < 2500) return;
-                scan.lastRaw = text; scan.lastAt = now;
-                scanShow(text, res && res.result && res.result.format && res.result.format.formatName);
-              });
-          } catch (e) {
-            scan.cam = null; r.hidden = true; $("scanBtn").textContent = "📷 Scan";
-            $("scanResult").innerHTML = `<div class="sub">${scanEsc(e.message || e)}</div>`;
-          }
-        });
-      }
-
       function initCollapsibles() {
         $$(".collapsible-section").forEach((section) => {
           const header = section.querySelector(".collapsible-header");
@@ -4073,7 +3894,7 @@
       initProjectEvents();
       initFeatureEvents();
       updateImageModeUI();
-      initCollapsibles(); initScan();
+      initCollapsibles();
     </script>
   </body>
 </html>

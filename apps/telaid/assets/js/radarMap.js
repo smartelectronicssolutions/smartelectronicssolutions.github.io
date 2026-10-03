@@ -68,6 +68,10 @@ body.rm-embed-page header.top-actions { display: none !important; }
 .rmap .mapwrap .rm-sl { position: absolute; margin: 0 !important; padding: 0; height: 16px; box-shadow: none !important; background: transparent; z-index: 2; opacity: .9; touch-action: none; }
 .rmap .mapwrap .rm-sl[hidden] { display: none !important; }
 .rmap .mapwrap .rm-sl:disabled { opacity: .35; }
+/* ZOOM BUTTONS (L 2026-10-03 "add a zoom and unzoom button onscreen"): top-right, clear of the up/down slider strip */
+.rmap .rm-zoom { position: absolute; top: 8px; right: 28px; display: grid; gap: 6px; z-index: 3; }
+.rmap .rm-zoom button { width: 38px !important; height: 38px; margin: 0 !important; padding: 0; font-size: 1.5rem; line-height: 1; border-radius: 8px;
+  border: 1px solid var(--borderColor); background: var(--cardBackground); color: var(--textColor); cursor: pointer; box-shadow: none !important; }
 .rmap .mapwrap .rm-slx { left: 8px; bottom: 4px; width: calc(100% - 40px) !important; }
 .rmap .mapwrap .rm-sly { top: 8px; left: calc(100% - 6px); width: var(--rm-slh, 300px) !important; transform: rotate(90deg); transform-origin: left top; }
 .rmap.embed #rm-map { height: min(62vh, 560px); }`;
@@ -96,6 +100,7 @@ const TEMPLATE = `<div class="app-shell">
         <input id="rm-find" type="text" inputmode="numeric" placeholder="Sensor #" autocomplete="off" />
       </div>
       <div class="mapwrap"><canvas id="rm-map" aria-label="Floor map of every sensor"></canvas>
+        <div class="rm-zoom"><button type="button" id="rm-zin" aria-label="Zoom in" title="Zoom in">+</button><button type="button" id="rm-zout" aria-label="Zoom out" title="Zoom out">&minus;</button></div>
         <input type="range" id="rm-slx" class="rm-sl rm-slx" min="0" max="1000" value="0" aria-label="Move the map left or right" hidden />
         <input type="range" id="rm-sly" class="rm-sl rm-sly" min="0" max="1000" value="0" aria-label="Move the map up or down" hidden /></div>
       <div class="legend" id="rm-legend"></div>
@@ -536,6 +541,9 @@ export function mountRadarMap(root, opts = {}) {
       if (i >= 0 && (HL.size === 1 || t.length >= 3)) { centerOn(i, 4); show(i); } else draw();
     });
     $("find").addEventListener("change", e => { const i = S.findIndex(s => s.m === Number(e.target.value)); if (i < 0) return; centerOn(i, 4); show(i); });
+    // ZOOM BUTTONS (L 2026-10-03 "add a zoom and unzoom button onscreen"): 1.6x per tap, about the centre of the view
+    $("zin").addEventListener("click", () => cvw.zoomAt(cv.width / 2, cv.height / 2, 1.6));
+    $("zout").addEventListener("click", () => cvw.zoomAt(cv.width / 2, cv.height / 2, 1 / 1.6));
     $("rot").addEventListener("click", () => { ROT = (ROT + 90) % 360; try { localStorage.setItem("rm-rot", String(ROT)); } catch (_) {}
       $("rot").title = `Rotated ${ROT}° - tap to turn again`; if (layout === "floor") fit(false); });
     $("plan").addEventListener("click", () => { planMode = planMode === "dim" ? "full" : planMode === "full" ? "off" : "dim";
