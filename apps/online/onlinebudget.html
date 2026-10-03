@@ -224,7 +224,8 @@
 
 <script type="module">
   import { auth, onAuthStateChanged, database, ref, get, set } from '../assets/js/firebase-init.js';
-  import { SPENDING_TAGS, parentTag, tagLabel, normTag, INV_TAG } from '../assets/js/taxonomy.js';   // the galaxy groups by the same tags the budget rows use
+  import { SPENDING_TAGS, parentTag, tagLabel, normTag, INV_TAG } from '../assets/js/taxonomy.js';
+  import { mountCanvasView } from '../assets/js/canvasview.js?v=20261003a';   // the one map engine (radar map, this galaxy, the Louverse)   // the galaxy groups by the same tags the budget rows use
   // onIdTokenChanged is not re-exported by firebase-init.js; pull it from the
   // same (already-cached) auth module to catch token expiry live.
   import { onIdTokenChanged } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js';
@@ -1368,18 +1369,15 @@
     $("info").addEventListener("click", e => { const b = e.target.closest("button[data-v]"); if (b) show(Number(b.dataset.v)); const g = e.target.closest("button[data-g]"); if (g) showGalaxy(Number(g.dataset.g)); });
 
     // ---- drawing ----
-    let view = { s: 1, ox: 0, oy: 0, dpr: 1 }, base = null, sky = null, raf = 0;
-    const requestDraw = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; draw(); }); };
-    function fit(keep = true) {
-      const prev = keep && base && view.s > base.s * 1.01 ? { zoom: view.s / base.s, cx: (cv.width / 2 - view.ox) / view.s, cy: (cv.height / 2 - view.oy) / view.s } : null;
-      const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
-      cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
-      $("sly").style.setProperty("--sl-h", Math.max(60, r.height - 40) + "px");
-      const pad = 14 * dpr, s = Math.min((cv.width - 2 * pad) / 1000, (cv.height - 2 * pad) / 1000);
-      view = { s, ox: (cv.width - 1000 * s) / 2, oy: (cv.height - 1000 * s) / 2, dpr }; base = Object.assign({}, view); sky = null;
-      if (prev) { view.s = base.s * prev.zoom; view.ox = cv.width / 2 - prev.cx * view.s; view.oy = cv.height / 2 - prev.cy * view.s; }
-      draw();
-    }
+    // THE VIEWPORT + INPUT = ../assets/js/canvasview.js (L 2026-10-03: one engine for every map). World = 0..1000.
+    let sky = null;
+    const cvw = mountCanvasView(cv, { world: () => ({ x0: 0, y0: 0, x1: 1000, y1: 1000 }), pad: 14, minZoom: 0.8, maxZoom: 160,
+      sliders: { x: $("slx"), y: $("sly") }, draw: () => draw(),
+      hit: (mx, my) => { const i = hitAt(mx, my); if (i >= 0) return { star: i }; const gi = galaxyAt(mx, my); return gi >= 0 ? { galaxy: gi } : null; },
+      hold: (t, e) => e.pointerType === "touch" ? "pan" : null,   // hold half a second (touch) = move the map with that finger
+      onTap: t => { if (!t) { if (focus) clearFocus(); } else if (t.star != null) show(t.star); else showGalaxy(t.galaxy); },
+      onFit: () => { sky = null; } });   // the star field is drawn once per canvas size
+    const view = cvw.view, base = cvw.base, requestDraw = cvw.requestDraw, fit = cvw.fit;
     const P = v => [view.ox + v.px * view.s, view.oy + v.py * view.s];
     function makeSky() {
       sky = document.createElement("canvas"); sky.width = cv.width; sky.height = cv.height;
@@ -1388,23 +1386,11 @@
       const light = isLight(); for (let k = 0; k < 600; k++) { const r = rnd() * 1.1 * (view.dpr || 1);
         g.fillStyle = light ? `rgba(60,70,110,${0.08 + rnd() * 0.25})` : `rgba(200,210,255,${0.15 + rnd() * 0.45})`; g.beginPath(); g.arc(rnd() * sky.width, rnd() * sky.height, r, 0, 6.283); g.fill(); }
     }
-    // sliders <-> view (world 0..1000)
-    let slHeld = null;
-    const slExtent = () => [1000 * view.s - cv.width, 1000 * view.s - cv.height];
-    function syncSliders() {
-      if (!base) return; const [ex, ey] = slExtent(), sx = $("slx"), sy = $("sly"), zoomed = view.s > base.s * 1.05;
-      sx.hidden = !(zoomed || ex > 1); sy.hidden = !(zoomed || ey > 1); sx.disabled = ex <= 1; sy.disabled = ey <= 1;
-      if (ex > 1 && slHeld !== "x") sx.value = Math.round(Math.max(0, Math.min(1, -view.ox / ex)) * 1000);
-      if (ey > 1 && slHeld !== "y") sy.value = Math.round(Math.max(0, Math.min(1, -view.oy / ey)) * 1000);
-    }
-    for (const [id, axis] of [["slx", "x"], ["sly", "y"]]) { const el = $(id);
-      el.addEventListener("pointerdown", () => { slHeld = axis; }); el.addEventListener("pointerup", () => { slHeld = null; }); el.addEventListener("pointercancel", () => { slHeld = null; });
-      el.addEventListener("input", () => { const [ex, ey] = slExtent(), t = Number(el.value) / 1000; if (axis === "x") { if (ex > 1) view.ox = -t * ex; } else { if (ey > 1) view.oy = -t * ey; } requestDraw(); }); }
     function draw() {
       if (!cv.width) return;
       if (!sky || sky.width !== cv.width || sky.height !== cv.height) makeSky();
       const dpr = view.dpr || 1, zoom = base ? view.s / base.s : 1, light = isLight(), mut = tok("--muted") || "#9aa3b2";
-      cx.drawImage(sky, 0, 0); syncSliders();
+      cx.drawImage(sky, 0, 0); cvw.syncSliders();
       if (!G.length) { cx.font = `${14 * dpr}px system-ui, sans-serif`; cx.fillStyle = mut; cx.textAlign = "center"; cx.fillText("No spending in this window yet.", cv.width / 2, cv.height / 2); cx.textAlign = "start"; return; }
       const F = focus, OK = tok("--success") || "#22c55e", WARN = tok("--warn") || "#f59e0b", BAD = tok("--danger") || "#ef4444";
       // galaxy glow + the BUDGET RING: a track at the galaxy's edge, filled by spent/budget; over budget = full red ring + glow
@@ -1481,7 +1467,7 @@
     }
     let anim = 0;
     function flyTo(items, minS) {
-      if (!base) return; let target = Object.assign({}, base);
+      if (!cvw.fitted) return; let target = Object.assign({}, base);
       if (items && items.length) { const xs = items.map(v => v.px), ys = items.map(v => v.py), pad = 60 * view.dpr;
         const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
         const sw = (cv.width - 2 * pad) / Math.max(30, x1 - x0), sh = (cv.height - 2 * pad) / Math.max(30, y1 - y0);
@@ -1494,40 +1480,16 @@
     }
     function clearFocus(fly) { focus = null; sel = -1; selG = -1; $("info").innerHTML = '<span class="muted">Tap a galaxy or a star.</span>'; if (fly) flyTo(null); else draw(); }
 
-    // ---- zoom / pan / tap (the shared map rules) ----
-    let drag = null, pinch = null, moved = false, mid = null, press = null, mov = false; const ptr = new Map();
-    function zoomAt(px, py, f) { if (!base) return; const ns = Math.max(base.s * 0.8, Math.min(base.s * 160, view.s * f)); f = ns / view.s;
-      view.ox = px - (px - view.ox) * f; view.oy = py - (py - view.oy) * f; view.s = ns; requestDraw(); }
-    const toC = e => { const r = cv.getBoundingClientRect(), d = view.dpr || 1; return [(e.clientX - r.left) * d, (e.clientY - r.top) * d]; };
+    // ---- what is under the finger (the engine asks on every press and tap) ----
     function hitAt(mx, my) { const dpr = view.dpr || 1, zoom = base ? view.s / base.s : 1, br = 3.2 * view.s; let best = -1, bd = Infinity;
       V.forEach((v, i) => { const [x, y] = P(v), reach = Math.max(22 * dpr, br > 30 * dpr ? Math.min(br, 150 * dpr) : Math.min(26, v.rad * Math.sqrt(zoom)) * dpr + 6 * dpr), d = (x - mx) ** 2 + (y - my) ** 2; if (d < reach ** 2 && d < bd) { bd = d; best = i; } });
       return best; }
     function galaxyAt(mx, my) { const dpr = view.dpr || 1; for (let k = 0; k < G.length; k++) { const g = G[k], x = view.ox + g.px * view.s, y = view.oy + g.py * view.s, R = Math.max(14 * dpr, g.prad * view.s) * 1.18;
       const d = Math.hypot(x - mx, y - my); if (Math.abs(d - R) < 9 * dpr || (!g.ids.length && d < R)) return k; } return -1; }
-    cv.addEventListener("wheel", e => { if (!e.shiftKey && !e.ctrlKey) return; e.preventDefault(); const [x, y] = toC(e); zoomAt(x, y, Math.exp(-(e.deltaY || e.deltaX) * 0.0015)); }, { passive: false });
-    cv.addEventListener("touchstart", e => { if (e.touches.length >= 2) e.preventDefault(); }, { passive: false });
-    cv.addEventListener("touchmove", e => { if (e.touches.length >= 2 || mov) e.preventDefault(); }, { passive: false });
-    cv.addEventListener("pointerdown", e => { try { cv.setPointerCapture(e.pointerId); } catch (_) {} ptr.set(e.pointerId, toC(e)); moved = false;
-      if (ptr.size === 1) { drag = toC(e); clearTimeout(press); press = null; mov = false; if (e.button === 1 || e.shiftKey) { e.preventDefault(); moved = true; }
-        else if (e.pointerType === "touch") press = setTimeout(() => { press = null; if (!moved) { mov = true; moved = true; if (navigator.vibrate) try { navigator.vibrate(15); } catch (_) {} } }, 480); }
-      if (ptr.size === 2) { clearTimeout(press); press = null; mov = false; const [a, b] = [...ptr.values()]; pinch = Math.hypot(a[0] - b[0], a[1] - b[1]); mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; } });
-    cv.addEventListener("pointermove", e => { if (!ptr.has(e.pointerId)) return; const p = toC(e); ptr.set(e.pointerId, p);
-      if (ptr.size === 2 && pinch) { const [a, b] = [...ptr.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]), m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-        if (mid) { view.ox += m[0] - mid[0]; view.oy += m[1] - mid[1]; } zoomAt(m[0], m[1], d / pinch); pinch = d; mid = m; moved = true; }
-      else if (drag) { const dx = p[0] - drag[0], dy = p[1] - drag[1];
-        if (e.pointerType === "touch") { if (mov) { view.ox += dx; view.oy += dy; drag = p; requestDraw(); return; }
-          if (Math.abs(dx) + Math.abs(dy) > 6) { moved = true; clearTimeout(press); press = null; } drag = p; return; }
-        if (Math.abs(dx) + Math.abs(dy) > 6) moved = true; if (!moved) return; view.ox += dx; view.oy += dy; drag = p; requestDraw(); } });
-    const up = e => { ptr.delete(e.pointerId); clearTimeout(press); press = null; if (!ptr.size) mov = false; if (ptr.size < 2) { pinch = null; mid = null; drag = ptr.size ? [...ptr.values()][0] : null; } };
-    cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
-    cv.addEventListener("mousedown", e => { if (e.button === 1) e.preventDefault(); }); cv.addEventListener("auxclick", e => { if (e.button === 1) e.preventDefault(); });
-    cv.addEventListener("click", e => { if (moved) { moved = false; return; } const [mx, my] = toC(e), i = hitAt(mx, my);
-      if (i >= 0) show(i); else { const gi = galaxyAt(mx, my); if (gi >= 0) showGalaxy(gi); else if (focus) clearFocus(); } });
     $("home").addEventListener("click", () => clearFocus(true));
     $("find").addEventListener("input", e => { const t = e.target.value.trim().toLowerCase(); HL = new Set(); if (!t) { draw(); return; }
       V.forEach((v, i) => { if (v.name.toLowerCase().includes(t) || v.key.includes(t)) HL.add(i); });
       if (HL.size === 1) show([...HL][0]); else draw(); });
-    addEventListener("resize", () => fit(true));
     new MutationObserver(() => { sky = null; draw(); }).observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
     if (location.hash === "#galaxy") setTimeout(() => document.getElementById("galaxy")?.scrollIntoView({ block: "start" }), 300);
     return { update };

@@ -11,6 +11,7 @@ import { onAuthStateChanged } from "../../../assets/js/firebase-init.js";
 import { auth, HUBS, hubLabel, esc, fmtFt, clean, loadJob, sensorRows, patchSensor, listSites, listPhotos, photoUrl,
   sensorMarkOf, photoPrefix, uploadSensorPhoto, uploadHubPhoto, deletePhoto, tablesFor, zoneOf, idfOf, loadFloorPlan, saveHubPos } from "./telaid-data.js?v=1003a";
 import { openPhotoViewer } from "../../../assets/js/photoviewer.js?v=20261003a";
+import { mountCanvasView } from "../../../assets/js/canvasview.js?v=20261003a";
 
 const CSS = `.rmap .app-shell { max-width: 1100px; margin: auto; padding: 12px; display: grid; gap: 12px; }
 .rmap .card { background: var(--cardBackground); border: 1px solid var(--borderColor); border-radius: 12px; padding: 12px; box-shadow: var(--cardShadow); }
@@ -226,30 +227,28 @@ export function mountRadarMap(root, opts = {}) {
     let ROT = 0; try { ROT = Number(localStorage.getItem("rm-rot")) || 0; } catch (_) {}
     const rotXY = (x, y) => ROT === 90 ? [-y, x] : ROT === 180 ? [-x, -y] : ROT === 270 ? [y, -x] : [x, y];
     const X = s => layout === "wiring" ? s.wx : rotXY(s.x, s.y)[0], Y = s => layout === "wiring" ? s.wy : rotXY(s.x, s.y)[1];
-    let view = { s: 1, ox: 0, oy: 0, dpr: 1 }, base = null, B = null;
-    // SMOOTH (L 2026-10-02 "it's very stuttery now"): pointer events arrive faster than the iPad can paint the floor plan,
-    // so moves only ASK for a frame (one draw per animation frame), the plan is drawn from a small cached copy while a
-    // finger is down (full-res again on release), and the 241 number labels wait until the move ends.
-    let raf = 0; const requestDraw = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; draw(); }); };
-    let scrollAcc = 0, scrollRaf = 0; const scrollPage = dy => { scrollAcc += dy; if (!scrollRaf) scrollRaf = requestAnimationFrame(() => { scrollRaf = 0; window.scrollBy(0, scrollAcc); scrollAcc = 0; }); };
+    // THE VIEWPORT + INPUT = apps/assets/js/canvasview.js, one engine shared with the Spending Galaxy and the Louverse
+    // code map (L 2026-10-03: "a lot of code that is similar"). This map only says what its world is (B = the sensor
+    // extent, plan y grows UP), what is under the finger, what a hold means, how to draw. Smoothness rules live there too:
+    // one draw per frame, labels + the full-res plan wait until the fingers lift (cvw.moving).
+    let B = null;
+    const cvw = mountCanvasView(cv, {
+      world: () => { if (!S.length) return (B = null); const xs = S.map(X), ys = S.map(Y);
+        return (B = { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) }); },
+      flipY: true, pad: 24, minZoom: 0.7, maxZoom: 30, sliders: { x: $("slx"), y: $("sly") }, slVar: "--rm-slh", slExtent: slExt,
+      draw: () => draw(),
+      hit: (mx, my) => { const hh = hubAt(mx, my); if (hh) return { kind: "hub", h: hh };
+        let best = -1, bd = (22 * view.dpr) ** 2; S.forEach((s, i) => { const [x, y] = P(s), d = (x - mx) ** 2 + (y - my) ** 2; if (d < bd) { bd = d; best = i; } });
+        return best >= 0 ? { kind: "sensor", i: best } : null; },
+      // HOLD-TO-MOVE (L 2026-10-02 "hold 'em and move each object around"): hold a sensor / cabinet ~0.5 s = drag it (floor
+      // view only; the new spot is saved as sensorMeta/<mark>/pos or siteTables/hubs); hold empty floor = pan the map.
+      hold: (t, e) => e.button !== 0 ? null : !t ? "pan" : layout === "floor" ? "drag" : null,
+      onDrag: (t, fx, fy) => { const [ux, uy] = unrot(fx, fy);   // screen delta -> plan feet, through the inverse of the rotate
+        if (t.kind === "sensor") { S[t.i].x += ux; S[t.i].y += uy; } else { TABLES.hubs[t.h][0] += ux; TABLES.hubs[t.h][1] += uy; } },
+      onDragEnd: t => endMove(t),
+      onTap: t => { if (!t) return; if (t.kind === "hub") showHub(t.h); else show(t.i); } });   // no page jump on tap
+    const view = cvw.view, base = cvw.base, requestDraw = cvw.requestDraw, fit = cvw.fit;
     let planFast = null;   // {light, c}
-    // fit(keep): size the canvas and compute the fitted "base" view. keep = true (resizes) holds the current zoom and the
-    // world point under the canvas centre - L 2026-10-03 "it snaps back to unzoomed sometimes when I scroll the page":
-    // on the iPad the toolbar collapsing while you scroll fires resize + a canvas height change, which used to reset the view.
-    function fit(keep = true) {
-      const prev = keep && base && B && S.length && view.s > base.s * 1.01
-        ? { zoom: view.s / base.s, cx: B.x0 + (cv.width / 2 - view.ox) / view.s, cy: B.y1 - (cv.height / 2 - view.oy) / view.s } : null;
-      const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
-      cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
-      $("sly").style.setProperty("--rm-slh", Math.max(60, r.height - 40) + "px");
-      if (!S.length) return draw();
-      const xs = S.map(X), ys = S.map(Y);
-      B = { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
-      const pad = 24 * dpr, s = Math.min((cv.width - 2 * pad) / (B.x1 - B.x0 || 1), (cv.height - 2 * pad) / (B.y1 - B.y0 || 1));
-      view = { s, dpr, ox: (cv.width - (B.x1 - B.x0) * s) / 2, oy: (cv.height - (B.y1 - B.y0) * s) / 2 }; base = Object.assign({}, view);
-      if (prev) { view.s = base.s * prev.zoom; view.ox = cv.width / 2 - (prev.cx - B.x0) * view.s; view.oy = cv.height / 2 - (B.y1 - prev.cy) * view.s; }
-      draw();
-    }
     // plan Y grows upward; the screen grows downward, so flip it
     const P = s => [view.ox + (X(s) - B.x0) * view.s, view.oy + (B.y1 - Y(s)) * view.s];
     const PP = ([x, y]) => [view.ox + (x - B.x0) * view.s, view.oy + (B.y1 - y) * view.s];
@@ -270,7 +269,7 @@ export function mountRadarMap(root, opts = {}) {
       for (const s of S) { const [x, y] = P(s); if (x < -20 || y < -20 || x > cv.width + 20 || y > cv.height + 20) continue;
         cx.fillStyle = colorOf(s); cx.beginPath(); cx.arc(x, y, r, 0, 6.283); cx.fill();
         if (s.photos) { cx.strokeStyle = "#ffffff"; cx.lineWidth = 1.6 * dpr; cx.beginPath(); cx.arc(x, y, r + 2.5 * dpr, 0, 6.283); cx.stroke(); } }
-      if (zoom >= 2.2 && !ptr.size) {   // number labels wait until the move ends (fillText x241 is what the iPad trips on)
+      if (zoom >= 2.2 && !cvw.moving) {   // number labels wait until the move ends (fillText x241 is what the iPad trips on)
         cx.font = `600 ${11 * dpr}px system-ui, sans-serif`; cx.fillStyle = css("--textColor") || "#e5e7eb";
         for (const s of S) { const [x, y] = P(s); if (x > 0 && y > 0 && x < cv.width && y < cv.height) cx.fillText(String(s.m), x + r + 2 * dpr, y + 4 * dpr); }
       }
@@ -278,7 +277,7 @@ export function mountRadarMap(root, opts = {}) {
         for (const i of HL) { const [x, y] = P(S[i]); cx.beginPath(); cx.arc(x, y, r + 4 * dpr, 0, 6.283); cx.stroke(); } }
       if (sel >= 0) { const s = S[sel], [x, y] = P(s); cx.strokeStyle = css("--textColor") || "#fff"; cx.lineWidth = 2.5 * dpr;
         cx.beginPath(); cx.arc(x, y, r + 5 * dpr, 0, 6.283); cx.stroke(); }
-      syncSliders();
+      cvw.syncSliders();
       if (layout === "wiring") return;
       // scale bar
       const ft = zoom > 3 ? 10 : 50, w = ft * view.s;
@@ -301,8 +300,6 @@ export function mountRadarMap(root, opts = {}) {
         cx.fillStyle = css("--textColor") || "#e5e7eb"; cx.font = `600 ${10 * dpr}px system-ui, sans-serif`; cx.fillText(hubLabel(h), x, y - half - 4 * dpr); }
       cx.textAlign = "start";
     }
-    // sliders <-> view. t = 0: the map's left (top) edge at the box edge; t = 1: its right (bottom) edge there.
-    let slHeld = null;
     // the sliders cover EVERYTHING drawn - sensors, cabinets and the floor-plan sheet (L 2026-10-03: the store is tall, so
     // the left/right one never showed until a deep zoom even though the plan had more to see left and right)
     function slExt() {
@@ -311,17 +308,6 @@ export function mountRadarMap(root, opts = {}) {
       if (layout === "floor" && TABLES && TABLES.hubs) for (const xy of Object.values(TABLES.hubs)) { const [x, y] = rotXY(xy[0], xy[1]); add(x, y); }
       return E;
     }
-    function slExtent() { const E = slExt(); return E ? [(E.x1 - E.x0) * view.s - cv.width, (E.y1 - E.y0) * view.s - cv.height, E] : [0, 0, null]; }
-    function syncSliders() {
-      if (!B || !base) return; const [ex, ey, E] = slExtent(), sx = $("slx"), sy = $("sly"), zoomed = view.s > base.s * 1.05;
-      sx.hidden = !(zoomed || ex > 1); sy.hidden = !(zoomed || ey > 1); sx.disabled = ex <= 1; sy.disabled = ey <= 1;
-      if (ex > 1 && slHeld !== "x") sx.value = Math.round(Math.max(0, Math.min(1, (-(view.ox) - (E.x0 - B.x0) * view.s) / ex)) * 1000);
-      if (ey > 1 && slHeld !== "y") sy.value = Math.round(Math.max(0, Math.min(1, (-(view.oy) - (B.y1 - E.y1) * view.s) / ey)) * 1000);
-    }
-    for (const [id, axis] of [["slx", "x"], ["sly", "y"]]) { const el = $(id);
-      el.addEventListener("pointerdown", () => { slHeld = axis; }); el.addEventListener("pointerup", () => { slHeld = null; }); el.addEventListener("pointercancel", () => { slHeld = null; });
-      el.addEventListener("input", () => { const [ex, ey, E] = slExtent(), t = Number(el.value) / 1000; if (!E) return;
-        if (axis === "x") { if (ex > 1) view.ox = -(E.x0 - B.x0) * view.s - t * ex; } else { if (ey > 1) view.oy = -(B.y1 - E.y1) * view.s - t * ey; } requestDraw(); }); }
     function drawPlan() {
       const p = PLAN, light = document.documentElement.classList.contains("light");
       const sc = (u, v) => { const [rx, ry] = rotXY(p.x0 + u / p.k, p.y0 - v / p.k); return [view.ox + (rx - B.x0) * view.s, view.oy + (B.y1 - ry) * view.s]; };
@@ -332,7 +318,7 @@ export function mountRadarMap(root, opts = {}) {
           g.drawImage(planImg, 0, 0); const d = g.getImageData(0, 0, o.width, o.height), a = d.data; for (let i = 0; i < a.length; i += 4) { a[i] = 255 - a[i]; a[i + 1] = 255 - a[i + 1]; a[i + 2] = 255 - a[i + 2]; }
           g.putImageData(d, 0, 0); planDark = o; }
         im = planDark; }
-      if (ptr.size) {   // moving: draw a small cached copy (long side 1400 px) instead of the full 1800x2366 sheet
+      if (cvw.moving) {   // moving: draw a small cached copy (long side 1400 px) instead of the full 1800x2366 sheet
         if (!planFast || planFast.light !== light) { const k = 1400 / Math.max(im.width || im.naturalWidth, im.height || im.naturalHeight), o = document.createElement("canvas");
           o.width = Math.round((im.width || im.naturalWidth) * k); o.height = Math.round((im.height || im.naturalHeight) * k); o.getContext("2d").drawImage(im, 0, 0, o.width, o.height); planFast = { light, c: o }; }
         im = planFast.c; }
@@ -480,15 +466,13 @@ export function mountRadarMap(root, opts = {}) {
       return null;
     }
     // ---------- zoom / pan / tap ----------
-    const ptr = new Map(); let drag = null, pinch = null, moved = false, mid = null;
     // HOLD-TO-MOVE (L 2026-10-02 "a way to move these sensors around, like hold 'em and move each object around"):
     // hold a sensor or cabinet ~0.5 s without moving, then drag it. Floor view only. A sensor's new spot is saved as
     // sensorMeta/<mark>/pos (as built) - m1/m2 keep the plan - and its card offers "Back to plan". A cabinet's spot
     // saves to siteTables/hubs. Screen delta -> plan feet goes through the inverse of the rotate.
-    let press = null, mov = null;   // mov = {kind:"sensor", i} | {kind:"hub", h}
     const unrot = (dx, dy) => ROT === 90 ? [dy, -dx] : ROT === 180 ? [-dx, -dy] : ROT === 270 ? [-dy, dx] : [dx, dy];
-    async function endMove() {
-      const m = mov; mov = null; cv.style.cursor = ""; if (!m || m.kind === "pan" || !OWNER) return;
+    async function endMove(m) {   // the engine's onDragEnd: save the moved sensor / cabinet
+      if (!m || !OWNER) return;
       try {
         if (m.kind === "sensor") { const s = S[m.i]; s.pos = { x: Math.round(s.x * 100) / 100, y: Math.round(s.y * 100) / 100 }; s.x = s.pos.x; s.y = s.pos.y;
           await patchSensor(OWNER, TASK, s.m, { pos: s.pos, posAt: Date.now() }); if (sel === m.i) show(m.i); }
@@ -501,60 +485,14 @@ export function mountRadarMap(root, opts = {}) {
       try { await patchSensor(OWNER, TASK, s.m, { pos: null, posAt: null }); s.pos = null; s.x = s.plan[0]; s.y = s.plan[1]; show(i); }
       catch (e) { alert("Couldn't reset: " + (e.code || e.message || e)); }
     }
-    const toC = e => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * view.dpr, (e.clientY - r.top) * view.dpr]; };
-    function zoomAt(px, py, f) { if (!base) return; const ns = Math.max(base.s * .7, Math.min(base.s * 30, view.s * f)); f = ns / view.s;
-      view.ox = px - (px - view.ox) * f; view.oy = py - (py - view.oy) * f; view.s = ns; requestDraw(); }
-    // L 2026-10-02: a plain wheel scrolls the PAGE; Shift + wheel (or Ctrl, i.e. trackpad pinch) zooms the map.
-    cv.addEventListener("wheel", e => { if (!e.shiftKey && !e.ctrlKey) return; e.preventDefault(); const [x, y] = toC(e);
-      zoomAt(x, y, Math.exp(-(e.deltaY || e.deltaX) * 0.0015)); }, { passive: false });
-    // TOUCH (L 2026-10-03 "stuttering, but only when swiping up and down on the map"): scrolling the page by hand
-    // (touch-action none + scrollBy) can never be as smooth as the browser's own scroll, so one finger is NATIVE again
-    // (touch-action pan-y). Two fingers are claimed with preventDefault (pan + pinch); on the iPad Safari may still take a
-    // two-finger drag as a page pan, so the sure way to move the map with one finger is HOLD ~0.5 s on empty floor, then
-    // drag (same gesture as moving a sensor), or the edge sliders. Mouse drag still pans.
-    cv.addEventListener("touchstart", e => { if (e.touches.length >= 2) e.preventDefault(); }, { passive: false });
-    cv.addEventListener("touchmove", e => { if (e.touches.length >= 2 || mov) e.preventDefault(); }, { passive: false });
-    cv.addEventListener("pointerdown", e => { try { cv.setPointerCapture(e.pointerId); } catch (_) {} ptr.set(e.pointerId, toC(e)); moved = false;
-      if (ptr.size === 1) { drag = toC(e); clearTimeout(press); press = null; mov = null;
-        if (layout === "floor" && e.button === 0 && !e.shiftKey) { const [mx, my] = drag, hh = hubAt(mx, my);
-          let best = -1; if (!hh) { let bd = (22 * view.dpr) ** 2; S.forEach((s, i) => { const [x, y] = P(s), d = (x - mx) ** 2 + (y - my) ** 2; if (d < bd) { bd = d; best = i; } }); }
-          // hold on a sensor / cabinet = move it; hold on empty floor = pan the map (one finger, no scroll fight)
-          press = setTimeout(() => { press = null; if (moved) return; mov = hh ? { kind: "hub", h: hh } : best >= 0 ? { kind: "sensor", i: best } : { kind: "pan" };
-            moved = true; cv.style.cursor = "grabbing"; if (navigator.vibrate) try { navigator.vibrate(15); } catch (_) {} draw(); }, 480); } }
-      if (ptr.size === 2) { clearTimeout(press); press = null; mov = null; const [a, b] = [...ptr.values()]; pinch = Math.hypot(a[0] - b[0], a[1] - b[1]); mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; } });
-    cv.addEventListener("pointermove", e => { if (!ptr.has(e.pointerId)) return; const p = toC(e); ptr.set(e.pointerId, p);
-      if (ptr.size === 2 && pinch) { const [a, b] = [...ptr.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]), m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-        // two fingers PAN too - follow the midpoint (L 2026-10-03: the galaxies had this, the radar map never did; that was the iPad "can zoom, can't move")
-        if (mid) { view.ox += m[0] - mid[0]; view.oy += m[1] - mid[1]; } zoomAt(m[0], m[1], d / pinch); pinch = d; mid = m; moved = true; }
-      else if (drag) { const dx = p[0] - drag[0], dy = p[1] - drag[1];
-        if (e.pointerType === "touch" && !mov) {   // one finger without a hold = the browser scrolls the page; the map stays put
-          if (Math.abs(dx) + Math.abs(dy) > 6) { moved = true; clearTimeout(press); press = null; }
-          drag = p; return; }
-        if (mov && mov.kind === "pan") { view.ox += dx; view.oy += dy; drag = p; requestDraw(); return; }
-        if (mov) { const [fx, fy] = unrot(dx / view.s, -dy / view.s);   // screen y down -> plan y up
-          if (mov.kind === "sensor") { S[mov.i].x += fx; S[mov.i].y += fy; } else { TABLES.hubs[mov.h][0] += fx; TABLES.hubs[mov.h][1] += fy; }
-          drag = p; requestDraw(); return; }
-        if (Math.abs(dx) + Math.abs(dy) > 6) { moved = true; clearTimeout(press); press = null; }
-        view.ox += dx; view.oy += dy; drag = p; requestDraw(); } });
-    const up = e => { ptr.delete(e.pointerId); clearTimeout(press); press = null; if (ptr.size < 2) { pinch = null; mid = null; }
-      if (!ptr.size) { drag = null; if (mov) endMove(); requestDraw(); } };   // full-quality frame once the fingers lift
-    cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
-    cv.addEventListener("dblclick", () => { if (base) { view = Object.assign({}, base); draw(); } });
-    cv.addEventListener("click", e => { if (moved) { moved = false; return; }
-      const [mx, my] = toC(e);
-      const hh = hubAt(mx, my); if (hh) return showHub(hh);
-      let best = -1, bd = (22 * view.dpr) ** 2;
-      S.forEach((s, i) => { const [x, y] = P(s), d = (x - mx) ** 2 + (y - my) ** 2; if (d < bd) { bd = d; best = i; } });
-      if (best >= 0) show(best); });   // no page jump on tap (L 2026-10-02: "we don't need it to snap to the bottom when I click an object")
     $("modes").addEventListener("click", e => { const b = e.target.closest("button[data-m]"); if (!b) return;
       mode = b.dataset.m; root.querySelectorAll("#rm-modes button").forEach(x => x.classList.toggle("on", x === b)); legend(); draw(); });
     // LIVE FIND (L 2026-10-02: "when I type a radar number have it highlight in real time"): every keystroke rings the
     // sensors whose number starts with what's typed (yellow); an exact number also flies there and opens its card.
-    function centerOn(i, minZoom) { const s = S[i]; view.s = Math.max(view.s, base.s * minZoom);
-      view.ox = cv.width / 2 - (X(s) - B.x0) * view.s; view.oy = cv.height / 2 - (B.y1 - Y(s)) * view.s; }
+    const centerOn = (i, minZoom) => { const s = S[i]; cvw.centerOn(X(s), Y(s), minZoom); };
     $("find").addEventListener("input", e => {
       const t = e.target.value.replace(/\D/g, ""); HL = new Set();
-      if (!t || !base) { draw(); return; }
+      if (!t || !cvw.fitted) { draw(); return; }
       S.forEach((s, i) => { if (String(s.m).startsWith(t)) HL.add(i); });
       const i = S.findIndex(s => s.m === Number(t));
       if (i >= 0 && (HL.size === 1 || t.length >= 3)) { centerOn(i, 4); show(i); } else draw();
@@ -581,9 +519,6 @@ export function mountRadarMap(root, opts = {}) {
       try { const u = new URL(location.href); u.searchParams.set("task", t); history.replaceState(null, "", u); } catch (_) {}
       setTaskId(t); HL = new Set(); $("find").value = ""; $("info").innerHTML = '<span class="muted">Tap a sensor to see its details.</span>';
       load(auth.currentUser); });
-    addEventListener("resize", () => fit(true));
-    // a section that was collapsed (display:none) when we mounted gives a 0-wide canvas; re-fit when it gets real size
-    let lastW = 0, lastH = 0; new ResizeObserver(() => { const r = cv.getBoundingClientRect(); if (r.width && (r.width !== lastW || r.height !== lastH)) { lastW = r.width; lastH = r.height; fit(true); } }).observe(cv);
     legend(); fit();
     onAuthStateChanged(auth, async u => { await loadJobs(u); load(u); });   // jobs first: a sibling-night id gets swapped for the canonical one before the data read
     return {
