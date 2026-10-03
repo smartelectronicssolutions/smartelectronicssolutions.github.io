@@ -9,7 +9,7 @@
 // /MDF, /IDF1..IDF6 (site photos). History: floor map, photos/add/run complete, wiring view, IDF photos (all 2026-10-02).
 import { onAuthStateChanged } from "../../../assets/js/firebase-init.js";
 import { auth, HUBS, hubLabel, esc, fmtFt, clean, loadJob, sensorRows, patchSensor, listSites, listPhotos, photoUrl,
-  sensorMarkOf, photoPrefix, uploadSensorPhoto, uploadHubPhoto, tablesFor, zoneOf, idfOf } from "./telaid-data.js?v=1002h";
+  sensorMarkOf, photoPrefix, uploadSensorPhoto, uploadHubPhoto, tablesFor, zoneOf, idfOf, loadFloorPlan } from "./telaid-data.js?v=1002l";
 
 const CSS = `.rmap .app-shell { max-width: 1100px; margin: auto; padding: 12px; display: grid; gap: 12px; }
 .rmap .card { background: var(--cardBackground); border: 1px solid var(--borderColor); border-radius: 12px; padding: 12px; box-shadow: var(--cardShadow); }
@@ -67,7 +67,8 @@ const TEMPLATE = `<div class="app-shell">
       <div class="rm-row" id="rm-hubs"></div>
       <div class="rm-row" id="rm-views"><span class="muted">View:</span>
         <button data-v="floor" class="on">Floor</button><button data-v="wiring">Wiring</button>
-        <button type="button" id="rm-rot" title="Rotate the floor map 90&deg;">&#8635; Rotate</button></div>
+        <button type="button" id="rm-rot" title="Rotate the floor map 90&deg;">&#8635; Rotate</button>
+        <button type="button" id="rm-plan" title="Floor plan under the dots" hidden>&#128506; Plan: dim</button></div>
       <div class="rm-row modes" id="rm-modes">
         <span class="muted">Color by:</span>
         <button data-m="idf" class="on">IDF</button>
@@ -81,7 +82,7 @@ const TEMPLATE = `<div class="app-shell">
       </div>
       <div class="mapwrap"><canvas id="rm-map" aria-label="Floor map of every sensor"></canvas></div>
       <div class="legend" id="rm-legend"></div>
-      <div class="muted">Pinch or scroll to zoom · drag to move · tap a sensor for its photos, Add photo and Run complete · double-tap to reset. Numbers appear as you zoom in.</div>
+      <div class="muted">Pinch, or Shift + scroll, to zoom · drag to move · tap a sensor for its photos, Add photo and Run complete · double-tap to reset. Numbers appear as you zoom in.</div>
       <div class="card" id="rm-info"><span class="muted">Tap a sensor to see its details.</span></div>
     </div>`;
 
@@ -98,6 +99,10 @@ export function mountRadarMap(root, opts = {}) {
     const HUBPH = {};   // "MDF"/"IDF3" -> [storage refs]
     let selHub = null, HL = new Set();   // HL = sensors matching what's typed in the Sensor # box (live)
     let loadGen = 0, PHOTOS = "loading";  // photos arrive after the map; "loading" | "ok" | "failed" (can't reach Storage)
+    // FLOOR PLAN under the dots (L 2026-10-02): the key-map drawing, fitted to the sensor coordinates (telaid-data
+    // loadFloorPlan). Light theme = the drawing multiplied over the map; dark theme = an inverted copy screened on.
+    let PLAN = null, planImg = null, planDark = null, planMode = "dim";
+    try { planMode = localStorage.getItem("rm-plan-mode") || "dim"; } catch (_) {}
     const $ = id => root.querySelector("#rm-" + id);
 
     let S = [];            // {m, serial, x, y, z, idf, zone, photos, items, labeledAt, runDoneAt, sw, port, wx, wy}
@@ -122,6 +127,7 @@ export function mountRadarMap(root, opts = {}) {
       if (!user) { $("source").textContent = "Sign in to load the site."; return; }
       if (!TASK) { $("source").textContent = "Open a site above and its map shows here."; $("stats").innerHTML = ""; $("hubs").innerHTML = ""; return; }
       S = []; sel = -1; selHub = null; B = null; for (const k in HUBPH) delete HUBPH[k]; PHOTOS = "loading";
+      PLAN = null; planImg = null; planDark = null; $("plan").hidden = true;
       $("source").textContent = "Loading...";
       const { owner, task, meta } = await loadJob(user, TASK);
       if (!meta) { $("source").textContent = "No sensor data found for this job."; return; }
@@ -138,6 +144,8 @@ export function mountRadarMap(root, opts = {}) {
       // firebasestorage.googleapis.com, listAll retried for ~2 min before failing and the whole map waited on it).
       // The map draws first; photo counts/rings fill in when Storage answers, or the source line says it couldn't.
       const gen = ++loadGen; PHOTOS = "loading";
+      loadFloorPlan(owner, TASK).then(p => { if (gen !== loadGen || !p) return; PLAN = p;
+        const im = new Image(); im.onload = () => { planImg = im; planDark = null; $("plan").hidden = false; planLabel(); draw(); }; im.src = p.img; }).catch(() => {});
       const sensorsP = listPhotos(owner, task, "sensors").then(items => { if (gen !== loadGen) return;
         for (const it of items) { const s = S.find(x => x.m === sensorMarkOf(it.name, task)); if (s) { s.photos++; s.items.push(it); } } });
       const hubsP = Promise.all(HUBS.map(async h => { const items = await listPhotos(owner, task, h); if (gen === loadGen) HUBPH[h] = items; }));
@@ -223,6 +231,7 @@ export function mountRadarMap(root, opts = {}) {
       cx.fillStyle = css("--secondaryBackgroundColor") || "#0f172a"; cx.fillRect(0, 0, cv.width, cv.height);
       if (!S.length || !B) return;
       const dpr = view.dpr, zoom = view.s / base.s, r = Math.min(9, 3.2 * Math.sqrt(zoom)) * dpr;
+      if (layout === "floor" && planImg && planMode !== "off") drawPlan();
       if (layout === "wiring") drawWiring(dpr, r);
       // 10 ft grid so distances read like a floor plan
       cx.strokeStyle = layout === "wiring" ? "rgba(0,0,0,0)" : "rgba(148,163,184,.10)"; cx.lineWidth = 1;
@@ -248,6 +257,21 @@ export function mountRadarMap(root, opts = {}) {
       cx.fillStyle = css("--mutedText") || "#94a3b8"; cx.fillRect(14 * dpr, cv.height - 18 * dpr, w, 3 * dpr);
       cx.font = `${11 * dpr}px system-ui, sans-serif`; cx.fillText(ft + " ft", 14 * dpr, cv.height - 24 * dpr);
     }
+    function drawPlan() {
+      const p = PLAN, light = document.documentElement.classList.contains("light");
+      const sc = (u, v) => { const [rx, ry] = rotXY(p.x0 + u / p.k, p.y0 - v / p.k); return [view.ox + (rx - B.x0) * view.s, view.oy + (B.y1 - ry) * view.s]; };
+      const [ax, ay] = sc(0, 0), [bx, by] = sc(p.w, 0), [cx2, cy2] = sc(0, p.h);
+      let im = planImg;
+      if (!light) {   // dark map: invert once (white sheet -> black, lines -> light) so it can be screened on
+        if (!planDark) { const o = document.createElement("canvas"); o.width = planImg.naturalWidth; o.height = planImg.naturalHeight; const g = o.getContext("2d");
+          g.drawImage(planImg, 0, 0); const d = g.getImageData(0, 0, o.width, o.height), a = d.data; for (let i = 0; i < a.length; i += 4) { a[i] = 255 - a[i]; a[i + 1] = 255 - a[i + 1]; a[i + 2] = 255 - a[i + 2]; }
+          g.putImageData(d, 0, 0); planDark = o; }
+        im = planDark; }
+      cx.save(); cx.globalAlpha = planMode === "full" ? (light ? 0.95 : 0.85) : (light ? 0.45 : 0.4); cx.globalCompositeOperation = light ? "multiply" : "screen";
+      cx.setTransform((bx - ax) / p.w, (by - ay) / p.w, (cx2 - ax) / p.h, (cy2 - ay) / p.h, ax, ay); cx.drawImage(im, 0, 0); cx.restore();
+      cx.setTransform(1, 0, 0, 1, 0, 0);
+    }
+    function planLabel() { $("plan").innerHTML = "&#128506; Plan: " + planMode; }
     function drawWiring(dpr, r) {
       const fg = css("--textColor") || "#e5e7eb", mut = css("--mutedText") || "#94a3b8";
       cx.lineWidth = 1 * dpr; cx.strokeStyle = "rgba(148,163,184,.28)"; cx.beginPath();
@@ -359,7 +383,9 @@ export function mountRadarMap(root, opts = {}) {
     const toC = e => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * view.dpr, (e.clientY - r.top) * view.dpr]; };
     function zoomAt(px, py, f) { if (!base) return; const ns = Math.max(base.s * .7, Math.min(base.s * 30, view.s * f)); f = ns / view.s;
       view.ox = px - (px - view.ox) * f; view.oy = py - (py - view.oy) * f; view.s = ns; draw(); }
-    cv.addEventListener("wheel", e => { e.preventDefault(); const [x, y] = toC(e); zoomAt(x, y, Math.exp(-e.deltaY * .0015)); }, { passive: false });
+    // L 2026-10-02: a plain wheel scrolls the PAGE; Shift + wheel (or Ctrl, i.e. trackpad pinch) zooms the map.
+    cv.addEventListener("wheel", e => { if (!e.shiftKey && !e.ctrlKey) return; e.preventDefault(); const [x, y] = toC(e);
+      zoomAt(x, y, Math.exp(-(e.deltaY || e.deltaX) * 0.0015)); }, { passive: false });
     cv.addEventListener("pointerdown", e => { cv.setPointerCapture(e.pointerId); ptr.set(e.pointerId, toC(e)); moved = false;
       if (ptr.size === 1) drag = toC(e); if (ptr.size === 2) { const [a, b] = [...ptr.values()]; pinch = Math.hypot(a[0] - b[0], a[1] - b[1]); } });
     cv.addEventListener("pointermove", e => { if (!ptr.has(e.pointerId)) return; const p = toC(e); ptr.set(e.pointerId, p);
@@ -391,6 +417,8 @@ export function mountRadarMap(root, opts = {}) {
     $("find").addEventListener("change", e => { const i = S.findIndex(s => s.m === Number(e.target.value)); if (i < 0) return; centerOn(i, 4); show(i); });
     $("rot").addEventListener("click", () => { ROT = (ROT + 90) % 360; try { localStorage.setItem("rm-rot", String(ROT)); } catch (_) {}
       $("rot").title = `Rotated ${ROT}° - tap to turn again`; if (layout === "floor") fit(); });
+    $("plan").addEventListener("click", () => { planMode = planMode === "dim" ? "full" : planMode === "full" ? "off" : "dim";
+      try { localStorage.setItem("rm-plan-mode", planMode); } catch (_) {} planLabel(); draw(); });
     $("hubs").addEventListener("click", e => { const b = e.target.closest("button[data-h]"); if (b) showHub(b.dataset.h); });
     $("views").addEventListener("click", e => { const b = e.target.closest("button[data-v]"); if (!b) return;
       if (b.dataset.v === "wiring" && !TABLES) { alert("The wiring view needs a site plan (zones, IDF per sensor, switches) on this job's record - this site has none yet."); return; }

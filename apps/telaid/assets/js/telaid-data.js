@@ -180,6 +180,22 @@ export const saveSiteTables = (owner, taskId, tables) => update(ref(database, `$
 export const zoneOf = (tables, m) => tables ? (tables.zones.find(([a, b]) => m >= a && m <= b) || [])[2] ?? null : null;
 export const idfOf = (tables, m) => tables ? Number(tables.idf[m - 1]) || null : null;
 
+// ---------- FLOOR PLAN (L 2026-10-02 "can we put the map floorplan in the map background?") ----------
+// {owner}/tasks_plans/<canonical>/floorPlanMeta = {at, w, h, k (px per foot), x0, y0 (plan feet at the image's
+// top-left), bytes, src} and .../floorPlan/img = a data URL. Image px (u,v) -> plan feet (x0 + u/k, y0 - v/k).
+// It lives OUTSIDE tasks/ so the checklist's site-list read never pulls the image, and in the DATABASE (not Storage)
+// because the store Wi-Fi blocks Storage. The image is cached per device (localStorage) by its `at` stamp.
+export const planPath = (owner, taskId) => `${owner}/tasks_plans/${taskId}`;
+export async function loadFloorPlan(owner, taskId) {
+  const meta = await readOnce(`${planPath(owner, taskId)}/floorPlanMeta`); if (!meta || !meta.k) return null;
+  const key = `rm-plan-${taskId}`; let img = null;
+  try { const c = JSON.parse(localStorage.getItem(key) || "null"); if (c && c.at === meta.at && c.img) img = c.img; } catch (_) {}
+  if (!img) { img = await readOnce(`${planPath(owner, taskId)}/floorPlan/img`); if (!img) return null;
+    try { localStorage.setItem(key, JSON.stringify({ at: meta.at, img })); } catch (_) {} }
+  return { ...meta, img };
+}
+export const saveFloorPlan = (owner, taskId, meta, img) => update(ref(database, planPath(owner, taskId)), { floorPlanMeta: meta, "floorPlan/img": img });
+
 // ---------- the signed-in user line every Telaid header shows ----------
 /** Same text radar-tools puts in #firebaseStatus: the email, or "Sign in to edit". */
 export const userLine = user => user ? (user.email || user.displayName || user.uid) : "Sign in to edit";
