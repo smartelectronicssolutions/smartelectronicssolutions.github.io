@@ -9,7 +9,7 @@
 // /MDF, /IDF1..IDF6 (site photos). History: floor map, photos/add/run complete, wiring view, IDF photos (all 2026-10-02).
 import { onAuthStateChanged } from "../../../assets/js/firebase-init.js";
 import { auth, HUBS, hubLabel, esc, fmtFt, clean, loadJob, sensorRows, patchSensor, listSites, listPhotos, photoUrl,
-  sensorMarkOf, photoPrefix, uploadSensorPhoto, uploadHubPhoto, tablesFor, zoneOf, idfOf, loadFloorPlan } from "./telaid-data.js?v=1002l";
+  sensorMarkOf, photoPrefix, uploadSensorPhoto, uploadHubPhoto, tablesFor, zoneOf, idfOf, loadFloorPlan, saveHubPos } from "./telaid-data.js?v=1002o";
 
 const CSS = `.rmap .app-shell { max-width: 1100px; margin: auto; padding: 12px; display: grid; gap: 12px; }
 .rmap .card { background: var(--cardBackground); border: 1px solid var(--borderColor); border-radius: 12px; padding: 12px; box-shadow: var(--cardShadow); }
@@ -82,7 +82,7 @@ const TEMPLATE = `<div class="app-shell">
       </div>
       <div class="mapwrap"><canvas id="rm-map" aria-label="Floor map of every sensor"></canvas></div>
       <div class="legend" id="rm-legend"></div>
-      <div class="muted">Pinch, or Shift + scroll, to zoom · drag to move · tap a sensor for its photos, Add photo and Run complete · double-tap to reset. Numbers appear as you zoom in.</div>
+      <div class="muted">Pinch, or Shift + scroll, to zoom · drag to move · tap a sensor or cabinet for its photos · hold one ~half a second, then drag, to move it · double-tap to reset the view. Numbers appear as you zoom in.</div>
       <div class="card" id="rm-info"><span class="muted">Tap a sensor to see its details.</span></div>
     </div>`;
 
@@ -133,8 +133,9 @@ export function mountRadarMap(root, opts = {}) {
       if (!meta) { $("source").textContent = "No sensor data found for this job."; return; }
       TABLES = tablesFor(task, TASK); SWITCHES = TABLES ? TABLES.switches : {};
       if (!TABLES && layout === "wiring") { layout = "floor"; root.querySelectorAll("#rm-views button").forEach(x => x.classList.toggle("on", x.dataset.v === "floor")); }
-      S = sensorRows(meta).map(s => ({ ...s, idf: idfOf(TABLES, s.m), zone: zoneOf(TABLES, s.m), photos: 0, items: [] }))
+      S = sensorRows(meta).map(s => ({ ...s, plan: [s.x, s.y], idf: idfOf(TABLES, s.m), zone: zoneOf(TABLES, s.m), photos: 0, items: [] }))
         .filter(s => s.x != null && s.y != null);
+      S.forEach(s => { if (s.pos) { s.x = s.pos.x; s.y = s.pos.y; } });   // hold-to-move override (as built) wins over the plan
       if (TABLES) { assignSwitches(); wiringLayout(); }
       OWNER = owner; TASKREC = task;
       const line = `${task.customerName || "Job " + TASK} \u00b7 ${S.length} sensors \u00b7 loaded ${new Date().toLocaleTimeString()}${TABLES ? ` \u00b7 site plan: ${TABLES.from}` : ""}`;
@@ -232,6 +233,7 @@ export function mountRadarMap(root, opts = {}) {
       if (!S.length || !B) return;
       const dpr = view.dpr, zoom = view.s / base.s, r = Math.min(9, 3.2 * Math.sqrt(zoom)) * dpr;
       if (layout === "floor" && planImg && planMode !== "off") drawPlan();
+      if (layout === "floor") drawHubsFloor(dpr);
       if (layout === "wiring") drawWiring(dpr, r);
       // 10 ft grid so distances read like a floor plan
       cx.strokeStyle = layout === "wiring" ? "rgba(0,0,0,0)" : "rgba(148,163,184,.10)"; cx.lineWidth = 1;
@@ -256,6 +258,22 @@ export function mountRadarMap(root, opts = {}) {
       const ft = zoom > 3 ? 10 : 50, w = ft * view.s;
       cx.fillStyle = css("--mutedText") || "#94a3b8"; cx.fillRect(14 * dpr, cv.height - 18 * dpr, w, 3 * dpr);
       cx.font = `${11 * dpr}px system-ui, sans-serif`; cx.fillText(ft + " ft", 14 * dpr, cv.height - 24 * dpr);
+    }
+    // CABINETS ON THE FLOOR (L 2026-10-02 "can I have the IDFs and MDF showing on the map"): squares at the plan positions
+    // from siteTables.hubs, same colours as the chips, white ring when the cabinet has photos, tap = its card.
+    const hubXY = h => (TABLES && TABLES.hubs && TABLES.hubs[h]) || null;
+    function drawHubsFloor(dpr) {
+      if (!TABLES || !TABLES.hubs) return;
+      const half = Math.max(7, Math.min(16, 4.5 * view.s)) * dpr;   // ~9 ft square, clamped
+      cx.textAlign = "center";
+      for (const h of HUBS) { const xy = hubXY(h); if (!xy) continue;
+        const [x, y] = PP(rotXY(xy[0], xy[1])); if (x < -40 || y < -40 || x > cv.width + 40 || y > cv.height + 40) continue;
+        cx.fillStyle = h === "MDF" ? "#475569" : (IDF_COL[h.slice(3)] || "#64748b"); cx.fillRect(x - half, y - half, 2 * half, 2 * half);
+        cx.lineWidth = (selHub === h ? 3 : 1.5) * dpr; cx.strokeStyle = selHub === h ? "#facc15" : "rgba(255,255,255,.9)"; cx.strokeRect(x - half, y - half, 2 * half, 2 * half);
+        if ((HUBPH[h] || []).length) { cx.strokeStyle = "#ffffff"; cx.lineWidth = 1.6 * dpr; cx.beginPath(); cx.arc(x, y, half * 1.5, 0, 6.283); cx.stroke(); }
+        cx.fillStyle = "#fff"; cx.font = `700 ${Math.max(9, Math.min(12, half / dpr * .9)) * dpr}px system-ui, sans-serif`; cx.fillText(h === "MDF" ? "MDF" : h.slice(3), x, y + 4 * dpr);
+        cx.fillStyle = css("--textColor") || "#e5e7eb"; cx.font = `600 ${10 * dpr}px system-ui, sans-serif`; cx.fillText(hubLabel(h), x, y - half - 4 * dpr); }
+      cx.textAlign = "start";
     }
     function drawPlan() {
       const p = PLAN, light = document.documentElement.classList.contains("light");
@@ -355,7 +373,7 @@ export function mountRadarMap(root, opts = {}) {
       sel = i; selHub = null; const s = S[i];
       $("info").innerHTML = `<div class="mk">#${s.m}</div><div class="kv">
         <b>Serial</b><span>${esc(s.serial) || "-"}</span>
-        <b>Position</b><span>X ${fmtFt(s.x)} · Y ${fmtFt(s.y)}</span>
+        <b>Position</b><span>X ${fmtFt(s.x)} · Y ${fmtFt(s.y)}${s.pos ? ` <span class="muted">(moved ${Math.hypot(s.x - s.plan[0], s.y - s.plan[1]).toFixed(1)} ft from plan X ${fmtFt(s.plan[0])} · Y ${fmtFt(s.plan[1])})</span>` : ""}</span>
         <b>Height</b><span>${fmtFt(s.z)}</span>
         ${s.idf ? `<b>IDF / zone</b><span>IDF ${s.idf} · zone ${s.zone}</span>` : ""}
         ${s.sw ? `<b>Switch</b><span>${s.sw === "new" ? "3rd switch needed (not on site yet)" : "#" + s.sw}${s.port ? " · port " + s.port : ""} (planned)</span>` : ""}
@@ -367,36 +385,73 @@ export function mountRadarMap(root, opts = {}) {
           <label class="btn primary">&#128247; Add photo<input type="file" id="rm-addPhoto" accept="image/*" capture="environment" hidden /></label>
           <button type="button" id="rm-runBtn" class="${s.runDoneAt ? "done" : ""}">${s.runDoneAt ? "&#10003; Run complete" : "Mark run complete"}</button>
           <button type="button" id="rm-labBtn" class="${s.labeledAt ? "done" : ""}">${s.labeledAt ? "&#10003; Labeled" : "Mark labeled"}</button>
+          ${s.pos ? '<button type="button" id="rm-resetPos">Back to plan spot</button>' : ""}
           <span class="muted" id="rm-upState"></span>
         </div>
         <div class="note">Photos save like radar-tools: "${esc(photoPrefix(TASKREC))}_${String(s.m).padStart(2, "0")}-${esc(s.serial || "serial")}.jpg" with the label bar.</div>`;
       $("addPhoto").onchange = e => addPhoto(e.target.files[0]);
       $("runBtn").onclick = () => setFlag("runDoneAt", !s.runDoneAt);
       $("labBtn").onclick = () => setFlag("labeledAt", !s.labeledAt);
+      if ($("resetPos")) $("resetPos").onclick = () => resetPos(i);
       thumbs(s);
       draw();
     }
 
+    function hubAt(mx, my) {   // which cabinet marker is under the finger, in either view
+      for (const h of HUBS) { let pt = null;
+        if (layout === "wiring") pt = h === "MDF" ? HUB.mdf : HUB[h.slice(3)]; else { const xy = hubXY(h); pt = xy ? rotXY(xy[0], xy[1]) : null; }
+        if (!pt) continue; const [x, y] = PP(pt); if ((x - mx) ** 2 + (y - my) ** 2 < (24 * view.dpr) ** 2) return h; }
+      return null;
+    }
     // ---------- zoom / pan / tap ----------
     const ptr = new Map(); let drag = null, pinch = null, moved = false;
+    // HOLD-TO-MOVE (L 2026-10-02 "a way to move these sensors around, like hold 'em and move each object around"):
+    // hold a sensor or cabinet ~0.5 s without moving, then drag it. Floor view only. A sensor's new spot is saved as
+    // sensorMeta/<mark>/pos (as built) - m1/m2 keep the plan - and its card offers "Back to plan". A cabinet's spot
+    // saves to siteTables/hubs. Screen delta -> plan feet goes through the inverse of the rotate.
+    let press = null, mov = null;   // mov = {kind:"sensor", i} | {kind:"hub", h}
+    const unrot = (dx, dy) => ROT === 90 ? [dy, -dx] : ROT === 180 ? [-dx, -dy] : ROT === 270 ? [-dy, dx] : [dx, dy];
+    async function endMove() {
+      const m = mov; mov = null; cv.style.cursor = ""; if (!m || !OWNER) return;
+      try {
+        if (m.kind === "sensor") { const s = S[m.i]; s.pos = { x: Math.round(s.x * 100) / 100, y: Math.round(s.y * 100) / 100 }; s.x = s.pos.x; s.y = s.pos.y;
+          await patchSensor(OWNER, TASK, s.m, { pos: s.pos, posAt: Date.now() }); if (sel === m.i) show(m.i); }
+        else { const xy = TABLES.hubs[m.h]; xy[0] = Math.round(xy[0] * 10) / 10; xy[1] = Math.round(xy[1] * 10) / 10; await saveHubPos(OWNER, TASK, m.h, xy); }
+      } catch (e) { alert("Couldn't save the new spot: " + (e.code || e.message || e)); }
+      draw();
+    }
+    async function resetPos(i) {
+      const s = S[i]; if (!s || !OWNER) return;
+      try { await patchSensor(OWNER, TASK, s.m, { pos: null, posAt: null }); s.pos = null; s.x = s.plan[0]; s.y = s.plan[1]; show(i); }
+      catch (e) { alert("Couldn't reset: " + (e.code || e.message || e)); }
+    }
     const toC = e => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * view.dpr, (e.clientY - r.top) * view.dpr]; };
     function zoomAt(px, py, f) { if (!base) return; const ns = Math.max(base.s * .7, Math.min(base.s * 30, view.s * f)); f = ns / view.s;
       view.ox = px - (px - view.ox) * f; view.oy = py - (py - view.oy) * f; view.s = ns; draw(); }
     // L 2026-10-02: a plain wheel scrolls the PAGE; Shift + wheel (or Ctrl, i.e. trackpad pinch) zooms the map.
     cv.addEventListener("wheel", e => { if (!e.shiftKey && !e.ctrlKey) return; e.preventDefault(); const [x, y] = toC(e);
       zoomAt(x, y, Math.exp(-(e.deltaY || e.deltaX) * 0.0015)); }, { passive: false });
-    cv.addEventListener("pointerdown", e => { cv.setPointerCapture(e.pointerId); ptr.set(e.pointerId, toC(e)); moved = false;
-      if (ptr.size === 1) drag = toC(e); if (ptr.size === 2) { const [a, b] = [...ptr.values()]; pinch = Math.hypot(a[0] - b[0], a[1] - b[1]); } });
+    cv.addEventListener("pointerdown", e => { try { cv.setPointerCapture(e.pointerId); } catch (_) {} ptr.set(e.pointerId, toC(e)); moved = false;
+      if (ptr.size === 1) { drag = toC(e); clearTimeout(press); press = null; mov = null;
+        if (layout === "floor" && e.button === 0 && !e.shiftKey) { const [mx, my] = drag, hh = hubAt(mx, my);
+          let best = -1; if (!hh) { let bd = (22 * view.dpr) ** 2; S.forEach((s, i) => { const [x, y] = P(s), d = (x - mx) ** 2 + (y - my) ** 2; if (d < bd) { bd = d; best = i; } }); }
+          if (hh || best >= 0) press = setTimeout(() => { press = null; if (moved) return; mov = hh ? { kind: "hub", h: hh } : { kind: "sensor", i: best };
+            moved = true; cv.style.cursor = "grabbing"; if (navigator.vibrate) try { navigator.vibrate(15); } catch (_) {} draw(); }, 480); } }
+      if (ptr.size === 2) { clearTimeout(press); press = null; mov = null; const [a, b] = [...ptr.values()]; pinch = Math.hypot(a[0] - b[0], a[1] - b[1]); } });
     cv.addEventListener("pointermove", e => { if (!ptr.has(e.pointerId)) return; const p = toC(e); ptr.set(e.pointerId, p);
       if (ptr.size === 2 && pinch) { const [a, b] = [...ptr.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]); zoomAt((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, d / pinch); pinch = d; moved = true; }
-      else if (drag) { const dx = p[0] - drag[0], dy = p[1] - drag[1]; if (Math.abs(dx) + Math.abs(dy) > 6) moved = true; view.ox += dx; view.oy += dy; drag = p; draw(); } });
-    const up = e => { ptr.delete(e.pointerId); if (ptr.size < 2) pinch = null; if (!ptr.size) drag = null; };
+      else if (drag) { const dx = p[0] - drag[0], dy = p[1] - drag[1];
+        if (mov) { const [fx, fy] = unrot(dx / view.s, -dy / view.s);   // screen y down -> plan y up
+          if (mov.kind === "sensor") { S[mov.i].x += fx; S[mov.i].y += fy; } else { TABLES.hubs[mov.h][0] += fx; TABLES.hubs[mov.h][1] += fy; }
+          drag = p; draw(); return; }
+        if (Math.abs(dx) + Math.abs(dy) > 6) { moved = true; clearTimeout(press); press = null; }
+        view.ox += dx; view.oy += dy; drag = p; draw(); } });
+    const up = e => { ptr.delete(e.pointerId); clearTimeout(press); press = null; if (ptr.size < 2) pinch = null; if (!ptr.size) { drag = null; if (mov) endMove(); } };
     cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
     cv.addEventListener("dblclick", () => { if (base) { view = Object.assign({}, base); draw(); } });
     cv.addEventListener("click", e => { if (moved) { moved = false; return; }
       const [mx, my] = toC(e);
-      if (layout === "wiring") { for (const h of HUBS) { const pt = h === "MDF" ? HUB.mdf : HUB[h.slice(3)]; if (!pt) continue;
-        const [x, y] = PP(pt); if ((x - mx) ** 2 + (y - my) ** 2 < (26 * view.dpr) ** 2) return showHub(h); } }
+      const hh = hubAt(mx, my); if (hh) return showHub(hh);
       let best = -1, bd = (22 * view.dpr) ** 2;
       S.forEach((s, i) => { const [x, y] = P(s), d = (x - mx) ** 2 + (y - my) ** 2; if (d < bd) { bd = d; best = i; } });
       if (best >= 0) show(best); });   // no page jump on tap (L 2026-10-02: "we don't need it to snap to the bottom when I click an object")

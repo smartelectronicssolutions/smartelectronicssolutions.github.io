@@ -81,7 +81,9 @@ export async function loadJob(user, taskId) {
 /** sensorMeta rows -> [{m, serial, x, y, z (feet), labeledAt, runDoneAt, updatedAt}] sorted by mark. */
 export const sensorRows = meta => Object.entries(meta || {}).map(([k, v]) => ({ m: Number(k), serial: v?.serial || "",
   x: feet(v?.m1), y: feet(v?.m2), z: feet(v?.m3), labeledAt: v?.labeledAt || null, runDoneAt: v?.runDoneAt || null,
-  updatedAt: v?.updatedAt || null })).filter(s => s.m).sort((a, b) => a.m - b.m);
+  updatedAt: v?.updatedAt || null,
+  pos: v?.pos && Number.isFinite(Number(v.pos.x)) && Number.isFinite(Number(v.pos.y)) ? { x: Number(v.pos.x), y: Number(v.pos.y) } : null   // as-built override (map hold-to-move); m1/m2 stay the plan
+})).filter(s => s.m).sort((a, b) => a.m - b.m);
 
 // ---------- writes (field-level: update() at the sensorMeta node never clobbers a sibling field) ----------
 export const sensorMetaPath = (owner, taskId) => `${owner}/tasks/${taskId}/sensorMeta`;
@@ -157,6 +159,8 @@ export const SITE_TABLES = {
     idf: "6666666666666666665566666555655566611555551111155551111111555551111115555551111115554455441111555544411115555441111144454444441154444444441334441444443334444443334224222333322222222332232222233332222233322222333322222333322233333223322333333",
     switches: { 1: [3, 6, 10], 2: [1, 11, "new"], 3: [5, 9, 15], 4: [4, 7, 13], 5: [8, 12, "new"], 6: [2, 14] },
     maxPerSwitch: 18,
+    // cabinet positions in plan feet, read off the key map's blue squares (2026-10-02)
+    hubs: { MDF: [314.3, 353.2], IDF1: [117.9, 164.8], IDF2: [36.8, 373.1], IDF3: [211.4, 373.4], IDF4: [36.8, 250.2], IDF5: [199.4, 118.1], IDF6: [36.6, 46.4] },
   },
 };
 export const siteTables = taskId => SITE_TABLES[String(taskId)] || null;
@@ -166,7 +170,8 @@ export function normalizeTables(t) {
   const sw = {};
   for (const [k, v] of Object.entries(t.switches || {})) if (v && typeof v === "object") sw[k] = Object.values(v).filter(x => x != null);
   const zones = Object.values(t.zones || {}).filter(z => z && typeof z === "object").map(z => Object.values(z).map(Number));
-  return { zones, idf: String(t.idf), switches: sw, maxPerSwitch: Number(t.maxPerSwitch) || 18 };
+  const hubs = {}; for (const [k, v] of Object.entries(t.hubs || {})) if (v && typeof v === "object") { const a = Object.values(v).map(Number); if (a.length >= 2 && a.every(Number.isFinite)) hubs[k] = [a[0], a[1]]; }
+  return { zones, idf: String(t.idf), switches: sw, maxPerSwitch: Number(t.maxPerSwitch) || 18, hubs: Object.keys(hubs).length ? hubs : null };
 }
 /** The plan for a job: the task record's siteTables (Firebase) first, the built-in table as fallback. .from says which. */
 export function tablesFor(task, taskId) {
@@ -175,6 +180,8 @@ export function tablesFor(task, taskId) {
   const code = siteTables(taskId);
   return code ? Object.assign({ ...code }, { from: "built-in" }) : null;
 }
+/** Move a cabinet marker (plan feet) - field-level under siteTables/hubs so the rest of the plan stays. */
+export const saveHubPos = (owner, taskId, hub, xy) => update(ref(database, `${owner}/tasks/${taskId}/siteTables/hubs`), { [hub]: [Number(xy[0]), Number(xy[1])] });
 /** Save a plan onto the task record (field-level, so nothing else on the task moves). */
 export const saveSiteTables = (owner, taskId, tables) => update(ref(database, `${owner}/tasks/${taskId}`), { siteTables: tables });
 export const zoneOf = (tables, m) => tables ? (tables.zones.find(([a, b]) => m >= a && m <= b) || [])[2] ?? null : null;
