@@ -20,7 +20,7 @@ padding: 6px 12px; border-radius: 999px; border: 1px solid var(--borderColor); b
 .rmap #rm-modes button.on { background: var(--primaryColor); border-color: var(--primaryColor); color: #fff; }
 .rmap #rm-find { width: 7em !important; margin: 0 !important; font-size: 1rem; padding: 6px 8px; }
 .rmap .mapwrap { position: relative; border-radius: 12px; overflow: hidden; border: 1px solid var(--borderColor); background: var(--secondaryBackgroundColor); }
-.rmap #rm-map { display: block; width: 100%; height: min(75vh, 720px); touch-action: none; cursor: grab; }
+.rmap #rm-map { display: block; width: 100%; height: min(75vh, 720px); touch-action: pan-y; cursor: grab; }
 .rmap .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: .85rem; }
 .rmap .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .rmap .legend i { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
@@ -93,7 +93,7 @@ const TEMPLATE = `<div class="app-shell">
         <input type="range" id="rm-slx" class="rm-sl rm-slx" min="0" max="1000" value="0" aria-label="Move the map left or right" hidden />
         <input type="range" id="rm-sly" class="rm-sl rm-sly" min="0" max="1000" value="0" aria-label="Move the map up or down" hidden /></div>
       <div class="legend" id="rm-legend"></div>
-      <div class="muted hint">Pinch, or Shift + scroll, to zoom · two fingers (any direction), the edge sliders, or a mouse drag move the map; one finger on the map scrolls the page · tap a sensor or cabinet for its photos · hold one ~half a second, then drag, to move it · double-tap to reset the view. Numbers appear as you zoom in.</div>
+      <div class="muted hint">Pinch, or Shift + scroll, to zoom · one finger scrolls the page; to move the map: hold half a second on empty floor then drag, two fingers, the edge sliders, or a mouse drag · tap a sensor or cabinet for its photos · hold one ~half a second, then drag, to move it · double-tap to reset the view. Numbers appear as you zoom in.</div>
       <div class="card" id="rm-info"><span class="muted">Tap a sensor to see its details.</span></div>
     </div>`;
 
@@ -473,7 +473,7 @@ export function mountRadarMap(root, opts = {}) {
     let press = null, mov = null;   // mov = {kind:"sensor", i} | {kind:"hub", h}
     const unrot = (dx, dy) => ROT === 90 ? [dy, -dx] : ROT === 180 ? [-dx, -dy] : ROT === 270 ? [-dy, dx] : [dx, dy];
     async function endMove() {
-      const m = mov; mov = null; cv.style.cursor = ""; if (!m || !OWNER) return;
+      const m = mov; mov = null; cv.style.cursor = ""; if (!m || m.kind === "pan" || !OWNER) return;
       try {
         if (m.kind === "sensor") { const s = S[m.i]; s.pos = { x: Math.round(s.x * 100) / 100, y: Math.round(s.y * 100) / 100 }; s.x = s.pos.x; s.y = s.pos.y;
           await patchSensor(OWNER, TASK, s.m, { pos: s.pos, posAt: Date.now() }); if (sel === m.i) show(m.i); }
@@ -492,35 +492,35 @@ export function mountRadarMap(root, opts = {}) {
     // L 2026-10-02: a plain wheel scrolls the PAGE; Shift + wheel (or Ctrl, i.e. trackpad pinch) zooms the map.
     cv.addEventListener("wheel", e => { if (!e.shiftKey && !e.ctrlKey) return; e.preventDefault(); const [x, y] = toC(e);
       zoomAt(x, y, Math.exp(-(e.deltaY || e.deltaX) * 0.0015)); }, { passive: false });
-    // ONE FINGER SCROLLS THE PAGE, TWO MOVE THE MAP (L 2026-10-02): touch-action is NONE - on the iPad, touch-action pan-y
-    // let Safari treat a two-finger drag as a native page pan (pinch reached us, moving did not). So the browser gets no
-    // gesture at all; one finger scrolls the page BY HAND (scrollBy + a glide), two fingers pan/zoom the map, a hold then
-    // drag moves an object. Mouse drag still pans.
-    // one-finger page scroll done by hand (touch-action none): follow the finger, then a short glide on release
-    const fling = { v: 0, t: 0, id: 0 };
-    function glide() { const id = ++fling.id; let v = fling.v, last = performance.now();
-      const step = now => { if (id !== fling.id) return; const dt = now - last; last = now; window.scrollBy(0, v * dt); v *= Math.pow(0.94, dt / 16); if (Math.abs(v) > 0.02) requestAnimationFrame(step); };
-      if (Math.abs(v) > 0.25) requestAnimationFrame(step); }
+    // TOUCH (L 2026-10-03 "stuttering, but only when swiping up and down on the map"): scrolling the page by hand
+    // (touch-action none + scrollBy) can never be as smooth as the browser's own scroll, so one finger is NATIVE again
+    // (touch-action pan-y). Two fingers are claimed with preventDefault (pan + pinch); on the iPad Safari may still take a
+    // two-finger drag as a page pan, so the sure way to move the map with one finger is HOLD ~0.5 s on empty floor, then
+    // drag (same gesture as moving a sensor), or the edge sliders. Mouse drag still pans.
+    cv.addEventListener("touchstart", e => { if (e.touches.length >= 2) e.preventDefault(); }, { passive: false });
+    cv.addEventListener("touchmove", e => { if (e.touches.length >= 2 || mov) e.preventDefault(); }, { passive: false });
     cv.addEventListener("pointerdown", e => { try { cv.setPointerCapture(e.pointerId); } catch (_) {} ptr.set(e.pointerId, toC(e)); moved = false;
       if (ptr.size === 1) { drag = toC(e); clearTimeout(press); press = null; mov = null;
         if (layout === "floor" && e.button === 0 && !e.shiftKey) { const [mx, my] = drag, hh = hubAt(mx, my);
           let best = -1; if (!hh) { let bd = (22 * view.dpr) ** 2; S.forEach((s, i) => { const [x, y] = P(s), d = (x - mx) ** 2 + (y - my) ** 2; if (d < bd) { bd = d; best = i; } }); }
-          if (hh || best >= 0) press = setTimeout(() => { press = null; if (moved) return; mov = hh ? { kind: "hub", h: hh } : { kind: "sensor", i: best };
+          // hold on a sensor / cabinet = move it; hold on empty floor = pan the map (one finger, no scroll fight)
+          press = setTimeout(() => { press = null; if (moved) return; mov = hh ? { kind: "hub", h: hh } : best >= 0 ? { kind: "sensor", i: best } : { kind: "pan" };
             moved = true; cv.style.cursor = "grabbing"; if (navigator.vibrate) try { navigator.vibrate(15); } catch (_) {} draw(); }, 480); } }
       if (ptr.size === 2) { clearTimeout(press); press = null; mov = null; const [a, b] = [...ptr.values()]; pinch = Math.hypot(a[0] - b[0], a[1] - b[1]); } });
     cv.addEventListener("pointermove", e => { if (!ptr.has(e.pointerId)) return; const p = toC(e); ptr.set(e.pointerId, p);
       if (ptr.size === 2 && pinch) { const [a, b] = [...ptr.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]); zoomAt((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, d / pinch); pinch = d; moved = true; }
       else if (drag) { const dx = p[0] - drag[0], dy = p[1] - drag[1];
-        if (e.pointerType === "touch" && !mov) {   // one finger = scroll the page, never the map (and never start a grab)
+        if (e.pointerType === "touch" && !mov) {   // one finger without a hold = the browser scrolls the page; the map stays put
           if (Math.abs(dx) + Math.abs(dy) > 6) { moved = true; clearTimeout(press); press = null; }
-          const d = view.dpr || 1, now = performance.now(); scrollPage(-dy / d); fling.v = (-dy / d) / Math.max(1, now - fling.t); fling.t = now; drag = p; return; }
+          drag = p; return; }
+        if (mov && mov.kind === "pan") { view.ox += dx; view.oy += dy; drag = p; requestDraw(); return; }
         if (mov) { const [fx, fy] = unrot(dx / view.s, -dy / view.s);   // screen y down -> plan y up
           if (mov.kind === "sensor") { S[mov.i].x += fx; S[mov.i].y += fy; } else { TABLES.hubs[mov.h][0] += fx; TABLES.hubs[mov.h][1] += fy; }
           drag = p; requestDraw(); return; }
         if (Math.abs(dx) + Math.abs(dy) > 6) { moved = true; clearTimeout(press); press = null; }
         view.ox += dx; view.oy += dy; drag = p; requestDraw(); } });
     const up = e => { ptr.delete(e.pointerId); clearTimeout(press); press = null; if (ptr.size < 2) pinch = null;
-      if (!ptr.size) { drag = null; if (mov) endMove(); else if (e.pointerType === "touch" && moved && performance.now() - fling.t < 80) glide(); requestDraw(); } };   // full-quality frame once the fingers lift
+      if (!ptr.size) { drag = null; if (mov) endMove(); requestDraw(); } };   // full-quality frame once the fingers lift
     cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
     cv.addEventListener("dblclick", () => { if (base) { view = Object.assign({}, base); draw(); } });
     cv.addEventListener("click", e => { if (moved) { moved = false; return; }

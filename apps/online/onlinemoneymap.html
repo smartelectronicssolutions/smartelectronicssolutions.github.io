@@ -25,7 +25,7 @@
     .stats { display: flex; flex-wrap: wrap; gap: 6px 18px; font-variant-numeric: tabular-nums; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
     .stats b { color: var(--text); }
     .mapwrap { position: relative; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); background: var(--bg); }
-    #map { display: block; width: 100%; height: min(72vh, 700px); touch-action: none; cursor: grab; }
+    #map { display: block; width: 100%; height: min(72vh, 700px); touch-action: pan-y; cursor: grab; }
     .tools { position: absolute; top: 8px; right: 8px; display: flex; gap: 6px; }
     .tools button { width: auto; margin: 0; padding: 6px 10px; font-size: .78rem; font-weight: 600; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; }
     .legend { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -324,11 +324,9 @@
     // ONE FINGER SCROLLS THE PAGE, TWO MOVE THE MAP (L 2026-10-02: "use two fingers to scroll down on the map so I can scroll
     // the page until I use two fingers"): touch-action pan-y lets a one-finger swipe scroll the page; two fingers (and a
     // hold-then-drag) are claimed with preventDefault so the browser leaves them to the map. Mouse drag still pans.
-    // one-finger page scroll done by hand (touch-action none): follow the finger, then a short glide on release
-    const fling = { v: 0, t: 0, id: 0 };
-    function glide() { const id = ++fling.id; let v = fling.v, last = performance.now();
-      const step = now => { if (id !== fling.id) return; const dt = now - last; last = now; window.scrollBy(0, v * dt); v *= Math.pow(0.94, dt / 16); if (Math.abs(v) > 0.02) requestAnimationFrame(step); };
-      if (Math.abs(v) > 0.25) requestAnimationFrame(step); }
+    // one finger = the browser's own page scroll (touch-action pan-y); two fingers are claimed for the map (2026-10-03)
+    cv.addEventListener("touchstart", e => { if (e.touches.length >= 2) e.preventDefault(); }, { passive: false });
+    cv.addEventListener("touchmove", e => { if (e.touches.length >= 2) e.preventDefault(); }, { passive: false });
     cv.addEventListener("pointerdown", e => { try { cv.setPointerCapture(e.pointerId); } catch (_) {} ptr.set(e.pointerId, toC(e)); moved = false;
       if (ptr.size === 1) { drag = toC(e); if (e.button === 1 || e.shiftKey) { e.preventDefault(); moved = true; } }
       if (ptr.size === 2) { const [a, b] = [...ptr.values()]; pinch = Math.hypot(a[0] - b[0], a[1] - b[1]); mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; } });
@@ -336,11 +334,10 @@
       if (ptr.size === 2 && pinch) { const [a, b] = [...ptr.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]), m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
         if (mid) { view.ox += m[0] - mid[0]; view.oy += m[1] - mid[1]; } zoomAt(m[0], m[1], d / pinch); pinch = d; mid = m; moved = true; }
       else if (drag) { const dx = p[0] - drag[0], dy = p[1] - drag[1];
-        if (e.pointerType === "touch") {   // one finger = scroll the page by hand (touch-action none), never the map
-          if (Math.abs(dx) + Math.abs(dy) > 6) moved = true; const d = view.dpr || 1, now = performance.now(); scrollPage(-dy / d); fling.v = (-dy / d) / Math.max(1, now - fling.t); fling.t = now; drag = p; return; }
+        if (e.pointerType === "touch") { if (Math.abs(dx) + Math.abs(dy) > 6) moved = true; drag = p; return; }   // one finger: the page scrolls natively
         if (Math.abs(dx) + Math.abs(dy) > 6) moved = true; if (!moved) return; view.ox += dx; view.oy += dy; drag = p; requestDraw(); } });
     const up = e => { ptr.delete(e.pointerId); if (ptr.size < 2) { pinch = null; mid = null; drag = ptr.size ? [...ptr.values()][0] : null; }
-      if (!ptr.size && e.pointerType === "touch" && moved && performance.now() - fling.t < 80) glide(); };
+    };
     cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
     cv.addEventListener("mousedown", e => { if (e.button === 1) e.preventDefault(); }); cv.addEventListener("auxclick", e => { if (e.button === 1) e.preventDefault(); });
     cv.addEventListener("click", e => { if (moved) { moved = false; return; } const [mx, my] = toC(e), i = hitAt(mx, my);
