@@ -342,7 +342,6 @@ export function mountRadarMap(root, opts = {}) {
         <div class="note">Saved to the job's ${h} folder with a "${esc(String(TASKREC.customerName || "").trim())} ${hubLabel(h)}" bar.</div>`;
       $("addHubPhoto").onchange = e => addHubPhoto(h, e.target.files[0]);
       thumbs(items); draw();
-      if (EMBED) $("info").scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
     async function addHubPhoto(h, file) {
       if (!file || !OWNER) return;
@@ -400,7 +399,7 @@ export function mountRadarMap(root, opts = {}) {
         const [x, y] = PP(pt); if ((x - mx) ** 2 + (y - my) ** 2 < (26 * view.dpr) ** 2) return showHub(h); } }
       let best = -1, bd = (22 * view.dpr) ** 2;
       S.forEach((s, i) => { const [x, y] = P(s), d = (x - mx) ** 2 + (y - my) ** 2; if (d < bd) { bd = d; best = i; } });
-      if (best >= 0) { show(best); const r = $("info").getBoundingClientRect(); if (r.top > innerHeight - 80) $("info").scrollIntoView({ behavior: "smooth", block: "start" }); } });
+      if (best >= 0) show(best); });   // no page jump on tap (L 2026-10-02: "we don't need it to snap to the bottom when I click an object")
     $("modes").addEventListener("click", e => { const b = e.target.closest("button[data-m]"); if (!b) return;
       mode = b.dataset.m; root.querySelectorAll("#rm-modes button").forEach(x => x.classList.toggle("on", x === b)); legend(); draw(); });
     // LIVE FIND (L 2026-10-02: "when I type a radar number have it highlight in real time"): every keystroke rings the
