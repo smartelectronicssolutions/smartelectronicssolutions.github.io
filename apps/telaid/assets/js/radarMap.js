@@ -3,10 +3,13 @@
 // can it grab the logic from the same place" - so the map, its sensor/IDF cards, photo upload and the run/label
 // toggles live ONLY here. mountRadarMap(root, {task, embed}) -> { setTask(id), refit() }.
 // Everything it renders is scoped: ids are "rm-*", CSS is under .rmap, so it can sit inside another page.
-// DATA (one read per load, no timers - poll-loop scar): {owner}/tasks/<task>/sensorMeta/<mark> = {serial, m1/m2/m3,
+// DATA comes from telaid-data.js (the one file that knows the Firebase shape) - one read per load, no timers (poll-loop scar).
+// Shape, for orientation: {owner}/tasks/<task>/sensorMeta/<mark> = {serial, m1/m2/m3,
 // labeledAt, runDoneAt} + Storage {owner}/tasks/images/<project>/sensors (<prefix>_<mark>-<serial>[_n].jpg) and
 // /MDF, /IDF1..IDF6 (site photos). History: floor map, photos/add/run complete, wiring view, IDF photos (all 2026-10-02).
-import { auth, database, storage, ref, get, update, onAuthStateChanged, storageRef, listAll, uploadBytes, getDownloadURL } from "../../../assets/js/firebase-init.js";
+import { onAuthStateChanged } from "../../../assets/js/firebase-init.js";
+import { auth, HUBS, hubLabel, esc, fmtFt, clean, loadJob, sensorRows, patchSensor, listSites, listPhotos, photoUrl,
+  sensorMarkOf, photoPrefix, uploadSensorPhoto, uploadHubPhoto, siteTables, zoneOf, idfOf } from "./telaid-data.js?v=1002g";
 
 const CSS = `.rmap .app-shell { max-width: 1100px; margin: auto; padding: 12px; display: grid; gap: 12px; }
 .rmap .card { background: var(--cardBackground); border: 1px solid var(--borderColor); border-radius: 12px; padding: 12px; box-shadow: var(--cardShadow); }
@@ -79,45 +82,22 @@ const TEMPLATE = `<div class="app-shell">
 
 export function mountRadarMap(root, opts = {}) {
     injectCss(); root.classList.add("rmap"); root.innerHTML = TEMPLATE;
-    const TELAID_UID = "SDN0vKPQ1qfN5vxkvhR3auVhDYq1";
     const LAST_SITE = (() => { try { return JSON.parse(localStorage.getItem("sensorTask")) || null; } catch (_) { return null; } })();
-    let TASK = opts.task || (LAST_SITE && LAST_SITE.task) || "1789898400000";
-    let IS_WM54 = TASK === "1789898400000";
+    let TASK = "", TABLES = null, SWITCHES = {};   // TABLES = this site's zones/IDF/switch plan from telaid-data (null = no plan yet)
+    const setTaskId = t => { TASK = String(t); TABLES = siteTables(TASK); SWITCHES = TABLES ? TABLES.switches : {}; };
+    setTaskId(opts.task || (LAST_SITE && LAST_SITE.task) || "1789898400000");
     const EMBED = !!opts.embed;
     if (EMBED) root.classList.add("embed");
-    const HUBNAMES = ["MDF", "IDF1", "IDF2", "IDF3", "IDF4", "IDF5", "IDF6"];
     const HUBPH = {};   // "MDF"/"IDF3" -> [storage refs]
     let selHub = null, HL = new Set();   // HL = sensors matching what's typed in the Sensor # box (live)
     let loadGen = 0, PHOTOS = "loading";  // photos arrive after the map; "loading" | "ok" | "failed" (can't reach Storage)
-    // Walmart 54 zone + IDF per mark (same tables as sensor-lookup), and the switch map L gave on site 10/2
-    const ZONES = [[1, 10, 1], [11, 75, 2], [76, 141, 3], [142, 203, 4], [204, 241, 5]];
-    const IDF = "6666666666666666665566666555655566611555551111155551111111555551111115555551111115554455441111555544411115555441111144454444441154444444441334441444443334444443334224222333322222222332232222233332222233322222333322222333322233333223322333333";
-    const SWITCHES = { 1: [3, 6, 10], 2: [1, 11, "new"], 3: [5, 9, 15], 4: [4, 7, 13], 5: [8, 12, "new"], 6: [2, 14] };
-    const zoneOf = m => IS_WM54 ? (ZONES.find(([a, b]) => m >= a && m <= b) || [])[2] : null;
-    const idfOf = m => IS_WM54 ? Number(IDF[m - 1]) : null;
     const $ = id => root.querySelector("#rm-" + id);
-    const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-
-    // "X 306'-1 1/2\"" / "-117'-4 1/2\"" -> feet
-    function feet(s) {
-      const t = String(s || "").replace(/^[XYZ]\s*/i, "").trim(); if (!t) return null;
-      const neg = t.startsWith("-"), m = t.replace(/^-/, "").match(/(\d+)'\s*-?\s*(\d+)?(?:\s+(\d+)\/(\d+))?/);
-      if (!m) return null;
-      const v = Number(m[1]) + ((Number(m[2] || 0) + (m[3] ? Number(m[3]) / Number(m[4]) : 0)) / 12);
-      return neg ? -v : v;
-    }
-    const fmtFt = v => v == null ? "-" : `${Math.trunc(v)}'-${(Math.abs(v % 1) * 12).toFixed(1).replace(/\.0$/, "")}"`;
 
     let S = [];            // {m, serial, x, y, z, idf, zone, photos, items, labeledAt, runDoneAt, sw, port, wx, wy}
     let mode = "idf", sel = -1, layout = "floor";
-    let OWNER = null, TASKREC = {}, PROJ = "", PRE = "";      // set by load(); used by the card's actions
-    const clean = v => String(v || "").trim().replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_-]/g, "");
-    const metaPath = () => `${OWNER}/tasks/${TASK}/sensorMeta`;
-    const photoDir = () => `${OWNER}/tasks/images/${PROJ}/sensors`;
-    const hubDir = h => `${OWNER}/tasks/images/${PROJ}/${h}`;
-    const hubLabel = h => h === "MDF" ? "MDF" : "IDF " + h.slice(3);
+    let OWNER = null, TASKREC = {};      // set by load(); used by the card's actions
     function renderHubs() {
-      $("hubs").innerHTML = '<span class="muted">Photos:</span>' + HUBNAMES.map(h => { const n = (HUBPH[h] || []).length,
+      $("hubs").innerHTML = '<span class="muted">Photos:</span>' + HUBS.map(h => { const n = (HUBPH[h] || []).length,
         c = h === "MDF" ? "#475569" : (IDF_COL[h.slice(3)] || "#64748b");
         return `<button type="button" data-h="${h}" class="${n ? "has" : ""}"><i style="background:${c}"></i>${hubLabel(h)} <span class="n">${n ? "&#128247; " + n : "none"}</span></button>`; }).join("");
     }
@@ -134,34 +114,24 @@ export function mountRadarMap(root, opts = {}) {
     async function load(user) {
       if (!user) { $("source").textContent = "Sign in to load the site."; return; }
       S = []; sel = -1; selHub = null; B = null; for (const k in HUBPH) delete HUBPH[k];
-      if (!IS_WM54 && layout === "wiring") { layout = "floor"; root.querySelectorAll("#rm-views button").forEach(x => x.classList.toggle("on", x.dataset.v === "floor")); }
+      if (!TABLES && layout === "wiring") { layout = "floor"; root.querySelectorAll("#rm-views button").forEach(x => x.classList.toggle("on", x.dataset.v === "floor")); }
       $("source").textContent = "Loading...";
-      let meta = null, owner = null;
-      for (const o of [...new Set([user.uid, TELAID_UID])]) {
-        try { const v = (await get(ref(database, `${o}/tasks/${TASK}/sensorMeta`))).val(); if (v) { meta = v; owner = o; break; } } catch (_) {}
-      }
+      const { owner, task, meta } = await loadJob(user, TASK);
       if (!meta) { $("source").textContent = "No sensor data found for this job."; return; }
-      const task = (await get(ref(database, `${owner}/tasks/${TASK}`)).catch(() => null))?.val() || {};
-      S = Object.entries(meta).map(([k, v]) => ({ m: Number(k), serial: v?.serial || "", x: feet(v?.m1), y: feet(v?.m2), z: feet(v?.m3),
-        labeledAt: v?.labeledAt || null, runDoneAt: v?.runDoneAt || null, idf: idfOf(Number(k)), zone: zoneOf(Number(k)), photos: 0, items: [] }))
-        .filter(s => s.m && s.x != null && s.y != null);
-      if (IS_WM54) { assignSwitches(); wiringLayout(); }
+      S = sensorRows(meta).map(s => ({ ...s, idf: idfOf(TABLES, s.m), zone: zoneOf(TABLES, s.m), photos: 0, items: [] }))
+        .filter(s => s.x != null && s.y != null);
+      if (TABLES) { assignSwitches(); wiringLayout(); }
       OWNER = owner; TASKREC = task;
-      PROJ = clean(task.project || task.customerName || TASK); PRE = clean(task.customerName || task.project || TASK);
-      const pre = clean(task.customerName || ""), line = `${task.customerName || "Job " + TASK} \u00b7 ${S.length} sensors \u00b7 loaded ${new Date().toLocaleTimeString()}`;
+      const line = `${task.customerName || "Job " + TASK} \u00b7 ${S.length} sensors \u00b7 loaded ${new Date().toLocaleTimeString()}`;
       $("source").textContent = line + " \u00b7 photos loading\u2026";
       renderHubs(); renderStats(); fit();
       // PHOTOS IN THE BACKGROUND (L 2026-10-03, "did you freeze?": on a network that could not resolve
       // firebasestorage.googleapis.com, listAll retried for ~2 min before failing and the whole map waited on it).
       // The map draws first; photo counts/rings fill in when Storage answers, or the source line says it couldn't.
       const gen = ++loadGen; PHOTOS = "loading";
-      const sensorsP = listAll(storageRef(storage, photoDir())).then(res => { if (gen !== loadGen) return;
-        for (const it of res.items) {
-          const rest = pre && it.name.startsWith(pre + "_") ? it.name.slice(pre.length + 1) : it.name.replace(/^.*?_(?=\d+-)/, "");
-          const mm = rest.match(/^(\d{1,4})-/); if (!mm) continue;
-          const s = S.find(x => x.m === Number(mm[1])); if (s) { s.photos++; s.items.push(it); }
-        } });
-      const hubsP = Promise.all(HUBNAMES.map(async h => { const items = (await listAll(storageRef(storage, hubDir(h)))).items; if (gen === loadGen) HUBPH[h] = items; }));
+      const sensorsP = listPhotos(owner, task, "sensors").then(items => { if (gen !== loadGen) return;
+        for (const it of items) { const s = S.find(x => x.m === sensorMarkOf(it.name, task)); if (s) { s.photos++; s.items.push(it); } } });
+      const hubsP = Promise.all(HUBS.map(async h => { const items = await listPhotos(owner, task, h); if (gen === loadGen) HUBPH[h] = items; }));
       Promise.allSettled([sensorsP, hubsP]).then(rs => { if (gen !== loadGen) return;
         PHOTOS = rs.some(r => r.status === "rejected") ? "failed" : "ok";
         $("source").textContent = line + (PHOTOS === "failed" ? " \u00b7 photos unavailable (this network can't reach Storage)" : "");
@@ -295,47 +265,23 @@ export function mountRadarMap(root, opts = {}) {
       if (!items.length) { box.innerHTML = `<span class="muted">${PHOTOS === "loading" ? "Photos loading\u2026" : PHOTOS === "failed" ? "Photos unavailable \u2013 this network can't reach Storage." : "No photos yet."}</span>`; return; }
       box.innerHTML = items.map(() => '<a><img alt="" /></a>').join("");
       const links = box.querySelectorAll("a");
-      await Promise.all(items.map(async (it, k) => { try { const u = await getDownloadURL(it);
+      await Promise.all(items.map(async (it, k) => { try { const u = await photoUrl(it);
         links[k].href = u; links[k].target = "_blank"; links[k].rel = "noopener"; links[k].firstChild.src = u; links[k].firstChild.alt = it.name; } catch (_) {} }));
     }
     async function setFlag(field, on) {
       const s = S[sel]; if (!s || !OWNER) return;
       const ts = on ? Date.now() : null, btn = $(field === "runDoneAt" ? "runBtn" : "labBtn"); if (btn) btn.disabled = true;
-      try { await update(ref(database, metaPath()), { [`${s.m}/${field}`]: ts }); s[field] = ts; renderStats(); show(sel); }
+      try { await patchSensor(OWNER, TASK, s.m, { [field]: ts }); s[field] = ts; renderStats(); show(sel); }
       catch (e) { alert("Couldn't save: " + (e.code || e.message || e)); if (btn) btn.disabled = false; }
-    }
-    function resizeImage(file, maxW) { return new Promise((res, rej) => { const img = new Image(), u = URL.createObjectURL(file);
-      img.onload = () => { let w = img.width, h = img.height; if (w > maxW) { h *= maxW / w; w = maxW; }
-        const c = document.createElement("canvas"); c.width = w; c.height = h; c.getContext("2d").drawImage(img, 0, 0, w, h);
-        URL.revokeObjectURL(u); c.toBlob(b => b ? res(b) : rej("Resize failed"), "image/jpeg", 0.9); };
-      img.onerror = () => rej("Invalid image."); img.src = u; }); }
-    function addBar(blob, text) { return new Promise((res, rej) => { const img = new Image(), u = URL.createObjectURL(blob);   // same bottom bar as radar-tools
-      img.onload = () => { const bar = Math.max(80, img.width * 0.08), c = document.createElement("canvas"); c.width = img.width; c.height = img.height + bar;
-        const g = c.getContext("2d"); g.drawImage(img, 0, 0); g.fillStyle = "black"; g.fillRect(0, img.height, c.width, bar);
-        let fs = Math.floor(c.width / 15); g.font = `${fs}px Arial`; g.textAlign = "center"; g.textBaseline = "middle";
-        while (g.measureText(text).width > c.width * 0.9 && fs > 10) { fs -= 2; g.font = `${fs}px Arial`; }
-        g.fillStyle = "white"; g.fillText(text, c.width / 2, img.height + bar / 2);
-        URL.revokeObjectURL(u); c.toBlob(b => b ? res(b) : rej("Markup failed"), "image/jpeg", 0.95); };
-      img.onerror = () => rej("Invalid image."); img.src = u; }); }
-    async function uniqueName(dir, name) {
-      const dot = name.lastIndexOf("."), b = name.slice(0, dot), ext = name.slice(dot); let n = 0;
-      for (;;) { const t = n ? `${b}_${n}${ext}` : name;
-        try { await getDownloadURL(storageRef(storage, `${dir}/${t}`)); n++; }
-        catch (e) { if (e?.code === "storage/object-not-found") return t; throw e; } }
     }
     async function addPhoto(file) {
       const s = S[sel]; if (!s || !file || !OWNER) return;
       let serial = clean(s.serial);
       if (!serial) { serial = clean(prompt(`Sensor #${s.m} has no serial yet. Serial number:`) || ""); if (!serial) return;
-        await update(ref(database, metaPath()), { [`${s.m}/serial`]: serial, [`${s.m}/updatedAt`]: Date.now() }).catch(() => {}); s.serial = serial; }
+        await patchSensor(OWNER, TASK, s.m, { serial, updatedAt: Date.now() }).catch(() => {}); s.serial = serial; }
       const st = $("upState"); if (st) st.textContent = "Uploading...";
       try {
-        const nn = String(s.m).padStart(2, "0");
-        let blob = await resizeImage(file, 2048);
-        blob = await addBar(blob, `${String(TASKREC.customerName || TASKREC.project || "").trim()} ${nn} - ${serial}`);
-        const dir = photoDir(), name = await uniqueName(dir, `${PRE}_${nn}-${serial}.jpg`);
-        await uploadBytes(storageRef(storage, `${dir}/${name}`), blob, { contentType: "image/jpeg" });
-        s.items.push(storageRef(storage, `${dir}/${name}`)); s.photos++;
+        s.items.push(await uploadSensorPhoto({ owner: OWNER, task: TASKREC, mark: s.m, serial, file })); s.photos++;
         renderStats(); show(sel);
       } catch (e) { if (st) st.textContent = ""; alert("Upload failed: " + (e.code || e.message || e)); }
     }
@@ -346,7 +292,7 @@ export function mountRadarMap(root, opts = {}) {
         <b>Sensors</b><span>${rs.length}</span>
         <b>Runs complete</b><span>${runs} / ${rs.length}</span>
         <b>Sensor photos</b><span>${ph} / ${rs.length} with both</span>
-        ${idf && SWITCHES[idf] ? `<b>Switches</b><span>${SWITCHES[idf].map(w => w === "new" ? "3rd needed" : "#" + w).join(", ")}</span>` : ""}
+        ${idf && TABLES && SWITCHES[idf] ? `<b>Switches</b><span>${SWITCHES[idf].map(w => w === "new" ? "3rd needed" : "#" + w).join(", ")}</span>` : ""}
         <b>Photos</b><span>${items.length}</span></div>
         <div class="photos" id="rm-photos"></div>
         <div class="acts">
@@ -362,12 +308,7 @@ export function mountRadarMap(root, opts = {}) {
       if (!file || !OWNER) return;
       const st = $("upState"); if (st) st.textContent = "Uploading...";
       try {
-        let blob = await resizeImage(file, 2048);
-        const d = new Date(), stamp = `${d.getFullYear()}_${String(d.getMonth() + 1).padStart(2, "0")}_${String(d.getDate()).padStart(2, "0")}`;
-        blob = await addBar(blob, `${String(TASKREC.customerName || TASKREC.project || "").trim()} ${hubLabel(h)}`);
-        const dir = hubDir(h), name = await uniqueName(dir, `${stamp}_${PRE}_${h}.jpg`);
-        await uploadBytes(storageRef(storage, `${dir}/${name}`), blob, { contentType: "image/jpeg" });
-        (HUBPH[h] = HUBPH[h] || []).push(storageRef(storage, `${dir}/${name}`));
+        (HUBPH[h] = HUBPH[h] || []).push(await uploadHubPhoto({ owner: OWNER, task: TASKREC, hub: h, file }));
         renderHubs(); showHub(h);
       } catch (e) { if (st) st.textContent = ""; alert("Upload failed: " + (e.code || e.message || e)); }
     }
@@ -389,7 +330,7 @@ export function mountRadarMap(root, opts = {}) {
           <button type="button" id="rm-labBtn" class="${s.labeledAt ? "done" : ""}">${s.labeledAt ? "&#10003; Labeled" : "Mark labeled"}</button>
           <span class="muted" id="rm-upState"></span>
         </div>
-        <div class="note">Photos save like radar-tools: "${esc(PRE)}_${String(s.m).padStart(2, "0")}-${esc(s.serial || "serial")}.jpg" with the label bar.</div>`;
+        <div class="note">Photos save like radar-tools: "${esc(photoPrefix(TASKREC))}_${String(s.m).padStart(2, "0")}-${esc(s.serial || "serial")}.jpg" with the label bar.</div>`;
       $("addPhoto").onchange = e => addPhoto(e.target.files[0]);
       $("runBtn").onclick = () => setFlag("runDoneAt", !s.runDoneAt);
       $("labBtn").onclick = () => setFlag("labeledAt", !s.labeledAt);
@@ -413,7 +354,7 @@ export function mountRadarMap(root, opts = {}) {
     cv.addEventListener("dblclick", () => { if (base) { view = Object.assign({}, base); draw(); } });
     cv.addEventListener("click", e => { if (moved) { moved = false; return; }
       const [mx, my] = toC(e);
-      if (layout === "wiring") { for (const h of HUBNAMES) { const pt = h === "MDF" ? HUB.mdf : HUB[h.slice(3)]; if (!pt) continue;
+      if (layout === "wiring") { for (const h of HUBS) { const pt = h === "MDF" ? HUB.mdf : HUB[h.slice(3)]; if (!pt) continue;
         const [x, y] = PP(pt); if ((x - mx) ** 2 + (y - my) ** 2 < (26 * view.dpr) ** 2) return showHub(h); } }
       let best = -1, bd = (22 * view.dpr) ** 2;
       S.forEach((s, i) => { const [x, y] = P(s), d = (x - mx) ** 2 + (y - my) ** 2; if (d < bd) { bd = d; best = i; } });
@@ -434,38 +375,26 @@ export function mountRadarMap(root, opts = {}) {
     $("find").addEventListener("change", e => { const i = S.findIndex(s => s.m === Number(e.target.value)); if (i < 0) return; centerOn(i, 4); show(i); });
     $("hubs").addEventListener("click", e => { const b = e.target.closest("button[data-h]"); if (b) showHub(b.dataset.h); });
     $("views").addEventListener("click", e => { const b = e.target.closest("button[data-v]"); if (!b) return;
-      if (b.dataset.v === "wiring" && !IS_WM54) { alert("The wiring view needs a switch plan - only Walmart 54 has one so far."); return; }
+      if (b.dataset.v === "wiring" && !TABLES) { alert("The wiring view needs a switch plan for this site - only Walmart 54 has one so far."); return; }
       layout = b.dataset.v; root.querySelectorAll("#rm-views button").forEach(x => x.classList.toggle("on", x === b)); fit(); });
-    async function loadJobs(user) {
+    async function loadJobs(user) {   // same one-row-per-site list as the checklist (telaid-data groupSites)
       const selEl = $("job"); if (EMBED || !user || !selEl) return;
-      let tasks = null;
-      for (const o of [...new Set([user.uid, TELAID_UID])]) { try { const v = (await get(ref(database, `${o}/tasks`))).val(); if (v) { tasks = v; break; } } catch (_) {} }
-      if (!tasks) { selEl.innerHTML = '<option value="">No jobs found</option>'; return; }
-      const norm = v => String(v || "").trim().toLowerCase().replace(/\s+/g, " ");
-      const groups = new Map();
-      for (const [id, t] of Object.entries(tasks)) {
-        if (!t || typeof t !== "object") continue;
-        const c = String(t.customerName || "").trim(), pr = String(t.project || "").trim(); if (!c && !pr) continue;
-        const time = Number(t.startTime) || Number(id) || 0, key = norm(c) + "|" + norm(pr), g = groups.get(key);
-        if (!g) { groups.set(key, { id, c, pr, first: time, last: time, n: 1, ids: [id], meta: !!t.sensorMeta }); continue; }
-        g.n++; g.ids.push(id); g.meta = g.meta || !!t.sensorMeta;
-        if (time < g.first) { g.first = time; g.id = id; } if (time > g.last) g.last = time;
-      }
-      const list = [...groups.values()].sort((a, b) => b.last - a.last);
-      const cur = list.find(g => g.ids.includes(String(TASK)));
-      selEl.innerHTML = list.map(g => `<option value="${g.id}"${cur === g ? " selected" : ""}>${g.meta ? "" : "(no sensors) "}${esc(g.c || "(No customer)")} \u2014 ${esc(g.pr || "(No project)")}${g.n > 1 ? ` (${g.n} visits)` : ""}</option>`).join("");
-      if (cur && cur.id !== String(TASK)) { TASK = cur.id; IS_WM54 = TASK === "1789898400000"; }
+      const { sites } = await listSites(user);
+      if (!sites.length) { selEl.innerHTML = '<option value="">No jobs found</option>'; return; }
+      const cur = sites.find(g => g.ids.includes(TASK));
+      selEl.innerHTML = sites.map(g => `<option value="${g.id}"${cur === g ? " selected" : ""}>${g.hasSensors ? "" : "(no sensors) "}${esc(g.label)}</option>`).join("");
+      if (cur && cur.id !== TASK) setTaskId(cur.id);   // a sibling-night id -> the site's canonical record
     }
     $("job").addEventListener("change", e => { const t = e.target.value; if (!t) return;
       try { localStorage.setItem("sensorTask", JSON.stringify({ task: t, name: e.target.selectedOptions[0].text, at: Date.now() })); } catch (_) {}
       try { const u = new URL(location.href); u.searchParams.set("task", t); history.replaceState(null, "", u); } catch (_) {}
-      TASK = t; IS_WM54 = TASK === "1789898400000"; HL = new Set(); $("find").value = ""; $("info").innerHTML = '<span class="muted">Tap a sensor to see its details.</span>';
+      setTaskId(t); HL = new Set(); $("find").value = ""; $("info").innerHTML = '<span class="muted">Tap a sensor to see its details.</span>';
       load(auth.currentUser); });
     addEventListener("resize", fit);
     legend(); fit();
     onAuthStateChanged(auth, async u => { await loadJobs(u); load(u); });   // jobs first: a sibling-night id gets swapped for the canonical one before the data read
     return {
-      setTask(t) { if (!t || String(t) === String(TASK)) return; TASK = String(t); IS_WM54 = TASK === "1789898400000"; load(auth.currentUser); },
+      setTask(t) { if (!t || String(t) === TASK) return; setTaskId(t); load(auth.currentUser); },
       refit: fit,
     };
   
