@@ -209,6 +209,15 @@
         <details style="margin-top:8px"><summary>Not labeled yet</summary><ul id="scanTodo"></ul></details>
       </section>
 
+      <!-- SITE MAP (L 2026-10-02: "add this section to the checklist" + "grab the logic from the same place"): the SAME
+           map as radar-map.html - one module, assets/js/radarMap.js - mounted here the first time the section opens and
+           pointed at whatever site this checklist opens (canonical task, like Scan & Label). Tap a sensor or IDF for
+           photos / Add photo / Run complete / Labeled. -->
+      <section class="collapsible-section" id="site-map">
+        <h2 class="collapsible-header">🗺️ Site Map</h2>
+        <div id="siteMapRoot"><div class="status-sub">Open a site, then this shows every sensor and IDF.</div></div>
+      </section>
+
       <section class="collapsible-section" id="sensor-meta">
         <h2 class="collapsible-header">📡 Device Details</h2>
 
@@ -390,6 +399,20 @@
       } from "../assets/js/firebase-init.js";
 
       import { initImageModule } from "./assets/js/imageModule.js";
+      import { mountRadarMap } from "./assets/js/radarMap.js?v=1002c";
+      // Site Map section: mount once, on first open; then just follow the site (setTask) - one load per site switch
+      let siteMap = null, siteMapTask = null;
+      function siteMapFollow(task) {
+        siteMapTask = task;
+        if (siteMap) siteMap.setTask(task);
+        else if (!document.getElementById("site-map")?.classList.contains("collapsed"))   // left open last time
+          siteMap = mountRadarMap(document.getElementById("siteMapRoot"), { task, embed: true });
+      }
+      document.querySelector("#site-map .collapsible-header")?.addEventListener("click", () => setTimeout(() => {
+        const sec = document.getElementById("site-map"); if (sec.classList.contains("collapsed")) return;
+        if (!siteMap) siteMap = mountRadarMap(document.getElementById("siteMapRoot"), { task: siteMapTask, embed: true });
+        else siteMap.refit();
+      }, 0));
       const CONFIG = {
         MAX_NIGHTS: 10,
         DEFAULT_NIGHTS: 5,
@@ -1629,6 +1652,7 @@
           // Sensor Lookup (same site) follows the site open here: it reads this to know which task's sensorMeta to scan against
           try { localStorage.setItem("sensorTask", JSON.stringify({ task: state.metaOwnerTaskId, name: [state.currentCustomerName, state.currentProjectName].filter(Boolean).join(" - "), at: Date.now() })); } catch (_) { }
           scanReload();   // Scan & Label follows the site that just opened (canonical task resolved above)
+          siteMapFollow(state.metaOwnerTaskId);   // so does the Site Map section
 
           const owner =
             (await readOnce(getTaskPath(state.metaOwnerTaskId))) || data;
