@@ -43,6 +43,11 @@
     #info .tx div span:last-child { text-align: right; }
     #info .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
     .hint { font-size: .85rem; color: var(--muted); }
+    /* edge sliders (same as the radar map): bottom = left/right, right edge = up/down; shown once zoomed in */
+    .mapwrap .sl { position: absolute; margin: 0; padding: 0; height: 16px; background: transparent; z-index: 3; opacity: .9; touch-action: none; }
+    .mapwrap .sl[hidden] { display: none !important; } .mapwrap .sl:disabled { opacity: .35; }
+    .mapwrap .slx { left: 8px; bottom: 4px; width: calc(100% - 40px); }
+    .mapwrap .sly { top: 8px; left: calc(100% - 6px); width: var(--sl-h, 300px); transform: rotate(90deg); transform-origin: left top; }
     @media (max-width: 560px) { #find { width: 100%; } }
   </style>
 </head>
@@ -70,9 +75,10 @@
       </div>
       <div class="stats" id="stats"></div>
       <div class="mapwrap"><canvas id="map" aria-label="Your spending drawn as a galaxy"></canvas>
+        <input type="range" id="slx" class="sl slx" min="0" max="1000" value="0" aria-label="Move left or right" hidden /><input type="range" id="sly" class="sl sly" min="0" max="1000" value="0" aria-label="Move up or down" hidden />
         <div class="tools"><button id="home" type="button">&#10530; Whole galaxy</button></div></div>
       <div class="legend" id="legend"></div>
-      <div class="hint">Pinch, or Shift + scroll, to zoom · two fingers (or a mouse drag) move the map, one finger scrolls the page · tap a star · keep zooming and each star shows its numbers · ⤢ to see everything. A star's size is how much went there; lines run from recurring vendors to the months they charged.</div>
+      <div class="hint">Pinch, or Shift + scroll, to zoom · one finger scrolls the page; to move the map: hold half a second then drag, two fingers, the edge sliders, or a mouse drag · tap a star · keep zooming and each star shows its numbers · ⤢ to see everything. A star's size is how much went there; lines run from recurring vendors to the months they charged.</div>
       <div id="info"><span class="muted">Tap a star, or a category below.</span></div>
     </div>
   </main>
@@ -147,7 +153,7 @@
       layout(); renderStats(); renderLegend(); sel = -1; selG = -1; focus = null; HL = new Set();
       $("info").innerHTML = '<span class="muted">Tap a star, or a category below.</span>';
       $("source").textContent = `${kind === "expense" ? "Spending" : "Income"} · ${rows.length} entries · ${V.length} ${kind === "expense" ? "vendors" : "sources"} · ${G.length} galaxies`;
-      fit();
+      fit(false);
     }
     // GALAXY LAYOUT (same idea as the Louverse): the biggest category sits at the core, the rest walk out along 4
     // spiral arms until they clear the previous one; inside a galaxy the vendors sit on a sunflower spiral, big ones
@@ -196,12 +202,30 @@
     let view = { s: 1, ox: 0, oy: 0, dpr: 1 }, base = null, sky = null;
     let raf = 0; const requestDraw = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; draw(); }); };   // one draw per frame while moving
     let scrollAcc = 0, scrollRaf = 0; const scrollPage = dy => { scrollAcc += dy; if (!scrollRaf) scrollRaf = requestAnimationFrame(() => { scrollRaf = 0; window.scrollBy(0, scrollAcc); scrollAcc = 0; }); };
-    function fit() {
+    // fit(keep): a resize (iPad toolbar collapsing while you scroll) keeps the zoom and the point under the centre; only a
+    // rebuild (new window / spending vs income) starts fitted again. Same rule as the radar map.
+    function fit(keep = true) {
+      const prev = keep && base && view.s > base.s * 1.01 ? { zoom: view.s / base.s, cx: (cv.width / 2 - view.ox) / view.s, cy: (cv.height / 2 - view.oy) / view.s } : null;
       const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
       cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
+      $("sly").style.setProperty("--sl-h", Math.max(60, r.height - 40) + "px");
       const pad = 14 * dpr, s = Math.min((cv.width - 2 * pad) / 1000, (cv.height - 2 * pad) / 1000);
-      view = { s, ox: (cv.width - 1000 * s) / 2, oy: (cv.height - 1000 * s) / 2, dpr }; base = Object.assign({}, view); sky = null; draw();
+      view = { s, ox: (cv.width - 1000 * s) / 2, oy: (cv.height - 1000 * s) / 2, dpr }; base = Object.assign({}, view); sky = null;
+      if (prev) { view.s = base.s * prev.zoom; view.ox = cv.width / 2 - prev.cx * view.s; view.oy = cv.height / 2 - prev.cy * view.s; }
+      draw();
     }
+    // sliders <-> view (world is 0..1000): t = 0 puts the map's left/top edge at the box edge, t = 1 its right/bottom edge
+    let slHeld = null;
+    const slExtent = () => [1000 * view.s - cv.width, 1000 * view.s - cv.height];
+    function syncSliders() {
+      if (!base) return; const [ex, ey] = slExtent(), sx = $("slx"), sy = $("sly"), zoomed = view.s > base.s * 1.05;
+      sx.hidden = !(zoomed || ex > 1); sy.hidden = !(zoomed || ey > 1); sx.disabled = ex <= 1; sy.disabled = ey <= 1;
+      if (ex > 1 && slHeld !== "x") sx.value = Math.round(Math.max(0, Math.min(1, -view.ox / ex)) * 1000);
+      if (ey > 1 && slHeld !== "y") sy.value = Math.round(Math.max(0, Math.min(1, -view.oy / ey)) * 1000);
+    }
+    for (const [id, axis] of [["slx", "x"], ["sly", "y"]]) { const el = $(id);
+      el.addEventListener("pointerdown", () => { slHeld = axis; }); el.addEventListener("pointerup", () => { slHeld = null; }); el.addEventListener("pointercancel", () => { slHeld = null; });
+      el.addEventListener("input", () => { const [ex, ey] = slExtent(), t = Number(el.value) / 1000; if (axis === "x") { if (ex > 1) view.ox = -t * ex; } else { if (ey > 1) view.oy = -t * ey; } requestDraw(); }); }
     const P = v => [view.ox + v.px * view.s, view.oy + v.py * view.s];
     function makeSky() {
       sky = document.createElement("canvas"); sky.width = cv.width; sky.height = cv.height;
@@ -220,6 +244,7 @@
       if (!sky || sky.width !== cv.width || sky.height !== cv.height) makeSky();
       const dpr = view.dpr || 1, zoom = base ? view.s / base.s : 1, light = isLight(), ink = tok("--text") || "#e8ecff", mut = tok("--muted") || "#9aa3b2";
       cx.drawImage(sky, 0, 0);
+      syncSliders();
       if (!V.length) return;
       const F = focus;
       // galaxy glows
@@ -311,7 +336,7 @@
     function clearFocus(fly) { focus = null; sel = -1; selG = -1; $("info").innerHTML = '<span class="muted">Tap a star, or a category below.</span>'; if (fly) flyTo(null); else draw(); }
 
     // ---- zoom / pan / tap (Louverse rules: two fingers, middle button or shift-drag always move the map) ----
-    let drag = null, pinch = null, moved = false, mid = null; const ptr = new Map();
+    let drag = null, pinch = null, moved = false, mid = null, press = null, mov = false; const ptr = new Map();   // mov = hold-to-pan engaged
     function zoomAt(px, py, f) { if (!base) return; const ns = Math.max(base.s * 0.8, Math.min(base.s * 160, view.s * f)); f = ns / view.s;
       view.ox = px - (px - view.ox) * f; view.oy = py - (py - view.oy) * f; view.s = ns; requestDraw(); }
     const toC = e => { const r = cv.getBoundingClientRect(), d = view.dpr || 1; return [(e.clientX - r.left) * d, (e.clientY - r.top) * d]; };
@@ -326,17 +351,20 @@
     // hold-then-drag) are claimed with preventDefault so the browser leaves them to the map. Mouse drag still pans.
     // one finger = the browser's own page scroll (touch-action pan-y); two fingers are claimed for the map (2026-10-03)
     cv.addEventListener("touchstart", e => { if (e.touches.length >= 2) e.preventDefault(); }, { passive: false });
-    cv.addEventListener("touchmove", e => { if (e.touches.length >= 2) e.preventDefault(); }, { passive: false });
+    cv.addEventListener("touchmove", e => { if (e.touches.length >= 2 || mov) e.preventDefault(); }, { passive: false });
     cv.addEventListener("pointerdown", e => { try { cv.setPointerCapture(e.pointerId); } catch (_) {} ptr.set(e.pointerId, toC(e)); moved = false;
-      if (ptr.size === 1) { drag = toC(e); if (e.button === 1 || e.shiftKey) { e.preventDefault(); moved = true; } }
-      if (ptr.size === 2) { const [a, b] = [...ptr.values()]; pinch = Math.hypot(a[0] - b[0], a[1] - b[1]); mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; } });
+      if (ptr.size === 1) { drag = toC(e); clearTimeout(press); press = null; mov = false; if (e.button === 1 || e.shiftKey) { e.preventDefault(); moved = true; }
+        // one finger: hold ~0.5 s then drag = pan (the sure way on the iPad, same as the radar map)
+        else if (e.pointerType === "touch") press = setTimeout(() => { press = null; if (!moved) { mov = true; moved = true; if (navigator.vibrate) try { navigator.vibrate(15); } catch (_) {} } }, 480); }
+      if (ptr.size === 2) { clearTimeout(press); press = null; mov = false; const [a, b] = [...ptr.values()]; pinch = Math.hypot(a[0] - b[0], a[1] - b[1]); mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; } });
     cv.addEventListener("pointermove", e => { if (!ptr.has(e.pointerId)) return; const p = toC(e); ptr.set(e.pointerId, p);
       if (ptr.size === 2 && pinch) { const [a, b] = [...ptr.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]), m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
         if (mid) { view.ox += m[0] - mid[0]; view.oy += m[1] - mid[1]; } zoomAt(m[0], m[1], d / pinch); pinch = d; mid = m; moved = true; }
       else if (drag) { const dx = p[0] - drag[0], dy = p[1] - drag[1];
-        if (e.pointerType === "touch") { if (Math.abs(dx) + Math.abs(dy) > 6) moved = true; drag = p; return; }   // one finger: the page scrolls natively
+        if (e.pointerType === "touch") { if (mov) { view.ox += dx; view.oy += dy; drag = p; requestDraw(); return; }
+          if (Math.abs(dx) + Math.abs(dy) > 6) { moved = true; clearTimeout(press); press = null; } drag = p; return; }   // one finger without a hold: the page scrolls natively
         if (Math.abs(dx) + Math.abs(dy) > 6) moved = true; if (!moved) return; view.ox += dx; view.oy += dy; drag = p; requestDraw(); } });
-    const up = e => { ptr.delete(e.pointerId); if (ptr.size < 2) { pinch = null; mid = null; drag = ptr.size ? [...ptr.values()][0] : null; }
+    const up = e => { ptr.delete(e.pointerId); clearTimeout(press); press = null; if (!ptr.size) mov = false; if (ptr.size < 2) { pinch = null; mid = null; drag = ptr.size ? [...ptr.values()][0] : null; }
     };
     cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
     cv.addEventListener("mousedown", e => { if (e.button === 1) e.preventDefault(); }); cv.addEventListener("auxclick", e => { if (e.button === 1) e.preventDefault(); });
@@ -351,7 +379,7 @@
     $("find").addEventListener("input", e => { const t = e.target.value.trim().toLowerCase(); HL = new Set(); if (!t) { draw(); return; }
       V.forEach((v, i) => { if (v.name.toLowerCase().includes(t) || v.key.includes(t)) HL.add(i); });
       if (HL.size === 1) { const i = [...HL][0]; show(i); } else draw(); });
-    addEventListener("resize", fit);
+    addEventListener("resize", () => fit(true));
     new MutationObserver(() => { sky = null; draw(); }).observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
     onAuthStateChanged(auth, user => { BASE_PATH = user ? user.uid : "public"; load(); });
     fit();

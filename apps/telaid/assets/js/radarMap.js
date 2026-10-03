@@ -471,7 +471,7 @@ export function mountRadarMap(root, opts = {}) {
       return null;
     }
     // ---------- zoom / pan / tap ----------
-    const ptr = new Map(); let drag = null, pinch = null, moved = false;
+    const ptr = new Map(); let drag = null, pinch = null, moved = false, mid = null;
     // HOLD-TO-MOVE (L 2026-10-02 "a way to move these sensors around, like hold 'em and move each object around"):
     // hold a sensor or cabinet ~0.5 s without moving, then drag it. Floor view only. A sensor's new spot is saved as
     // sensorMeta/<mark>/pos (as built) - m1/m2 keep the plan - and its card offers "Back to plan". A cabinet's spot
@@ -512,9 +512,11 @@ export function mountRadarMap(root, opts = {}) {
           // hold on a sensor / cabinet = move it; hold on empty floor = pan the map (one finger, no scroll fight)
           press = setTimeout(() => { press = null; if (moved) return; mov = hh ? { kind: "hub", h: hh } : best >= 0 ? { kind: "sensor", i: best } : { kind: "pan" };
             moved = true; cv.style.cursor = "grabbing"; if (navigator.vibrate) try { navigator.vibrate(15); } catch (_) {} draw(); }, 480); } }
-      if (ptr.size === 2) { clearTimeout(press); press = null; mov = null; const [a, b] = [...ptr.values()]; pinch = Math.hypot(a[0] - b[0], a[1] - b[1]); } });
+      if (ptr.size === 2) { clearTimeout(press); press = null; mov = null; const [a, b] = [...ptr.values()]; pinch = Math.hypot(a[0] - b[0], a[1] - b[1]); mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; } });
     cv.addEventListener("pointermove", e => { if (!ptr.has(e.pointerId)) return; const p = toC(e); ptr.set(e.pointerId, p);
-      if (ptr.size === 2 && pinch) { const [a, b] = [...ptr.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]); zoomAt((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, d / pinch); pinch = d; moved = true; }
+      if (ptr.size === 2 && pinch) { const [a, b] = [...ptr.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]), m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+        // two fingers PAN too - follow the midpoint (L 2026-10-03: the galaxies had this, the radar map never did; that was the iPad "can zoom, can't move")
+        if (mid) { view.ox += m[0] - mid[0]; view.oy += m[1] - mid[1]; } zoomAt(m[0], m[1], d / pinch); pinch = d; mid = m; moved = true; }
       else if (drag) { const dx = p[0] - drag[0], dy = p[1] - drag[1];
         if (e.pointerType === "touch" && !mov) {   // one finger without a hold = the browser scrolls the page; the map stays put
           if (Math.abs(dx) + Math.abs(dy) > 6) { moved = true; clearTimeout(press); press = null; }
@@ -525,7 +527,7 @@ export function mountRadarMap(root, opts = {}) {
           drag = p; requestDraw(); return; }
         if (Math.abs(dx) + Math.abs(dy) > 6) { moved = true; clearTimeout(press); press = null; }
         view.ox += dx; view.oy += dy; drag = p; requestDraw(); } });
-    const up = e => { ptr.delete(e.pointerId); clearTimeout(press); press = null; if (ptr.size < 2) pinch = null;
+    const up = e => { ptr.delete(e.pointerId); clearTimeout(press); press = null; if (ptr.size < 2) { pinch = null; mid = null; }
       if (!ptr.size) { drag = null; if (mov) endMove(); requestDraw(); } };   // full-quality frame once the fingers lift
     cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
     cv.addEventListener("dblclick", () => { if (base) { view = Object.assign({}, base); draw(); } });
