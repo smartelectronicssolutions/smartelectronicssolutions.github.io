@@ -46,12 +46,15 @@ padding: 6px 10px; border-radius: 8px; border: 1px solid var(--borderColor); bac
 .rmap #rm-hubs button.has .n { color: #22c55e; font-weight: 700; }
 body.rm-embed-page header.top-actions { display: none !important; }
 .rmap.embed .app-shell { padding: 0; }
+.rmap #rm-job { width: 100% !important; max-width: 640px; margin: 0 !important; font-size: 1rem; padding: 8px; }
+.rmap.embed #rm-jobrow { display: none !important; }
 .rmap.embed #rm-map { height: min(62vh, 560px); }`;
 function injectCss() {
   if (document.getElementById("rmap-css")) return;
   const st = document.createElement("style"); st.id = "rmap-css"; st.textContent = CSS; document.head.appendChild(st);
 }
 const TEMPLATE = `<div class="app-shell">
+      <div class="rm-row" id="rm-jobrow"><select id="rm-job" aria-label="Job"><option value="">Loading jobs...</option></select></div>
       <div class="muted" id="rm-source">Sign in to load the site.</div>
       <div class="card stats" id="rm-stats"></div>
       <div class="rm-row" id="rm-hubs"></div>
@@ -66,7 +69,7 @@ const TEMPLATE = `<div class="app-shell">
         <button data-m="switch">Switch</button>
         <button data-m="runs">Runs</button>
         <span style="flex:1"></span>
-        <input id="rm-find" type="text" inputmode="numeric" placeholder="Sensor #" />
+        <input id="rm-find" type="text" inputmode="numeric" placeholder="Sensor #" autocomplete="off" />
       </div>
       <div class="mapwrap"><canvas id="rm-map" aria-label="Floor map of every sensor"></canvas></div>
       <div class="legend" id="rm-legend"></div>
@@ -84,7 +87,7 @@ export function mountRadarMap(root, opts = {}) {
     if (EMBED) root.classList.add("embed");
     const HUBNAMES = ["MDF", "IDF1", "IDF2", "IDF3", "IDF4", "IDF5", "IDF6"];
     const HUBPH = {};   // "MDF"/"IDF3" -> [storage refs]
-    let selHub = null;
+    let selHub = null, HL = new Set();   // HL = sensors matching what's typed in the Sensor # box (live)
     // Walmart 54 zone + IDF per mark (same tables as sensor-lookup), and the switch map L gave on site 10/2
     const ZONES = [[1, 10, 1], [11, 75, 2], [76, 141, 3], [142, 203, 4], [204, 241, 5]];
     const IDF = "6666666666666666665566666555655566611555551111155551111111555551111115555551111115554455441111555544411115555441111144454444441154444444441334441444443334444443334224222333322222222332232222233332222233322222333322222333322233333223322333333";
@@ -243,6 +246,8 @@ export function mountRadarMap(root, opts = {}) {
         cx.font = `600 ${11 * dpr}px system-ui, sans-serif`; cx.fillStyle = css("--textColor") || "#e5e7eb";
         for (const s of S) { const [x, y] = P(s); if (x > 0 && y > 0 && x < cv.width && y < cv.height) cx.fillText(String(s.m), x + r + 2 * dpr, y + 4 * dpr); }
       }
+      if (HL.size) { cx.strokeStyle = "#facc15"; cx.lineWidth = 2.5 * dpr;
+        for (const i of HL) { const [x, y] = P(S[i]); cx.beginPath(); cx.arc(x, y, r + 4 * dpr, 0, 6.283); cx.stroke(); } }
       if (sel >= 0) { const s = S[sel], [x, y] = P(s); cx.strokeStyle = css("--textColor") || "#fff"; cx.lineWidth = 2.5 * dpr;
         cx.beginPath(); cx.arc(x, y, r + 5 * dpr, 0, 6.283); cx.stroke(); }
       if (layout === "wiring") return;
@@ -406,19 +411,53 @@ export function mountRadarMap(root, opts = {}) {
         const [x, y] = PP(pt); if ((x - mx) ** 2 + (y - my) ** 2 < (26 * view.dpr) ** 2) return showHub(h); } }
       let best = -1, bd = (22 * view.dpr) ** 2;
       S.forEach((s, i) => { const [x, y] = P(s), d = (x - mx) ** 2 + (y - my) ** 2; if (d < bd) { bd = d; best = i; } });
-      if (best >= 0) show(best); });
+      if (best >= 0) { show(best); const r = $("info").getBoundingClientRect(); if (r.top > innerHeight - 80) $("info").scrollIntoView({ behavior: "smooth", block: "start" }); } });
     $("modes").addEventListener("click", e => { const b = e.target.closest("button[data-m]"); if (!b) return;
       mode = b.dataset.m; root.querySelectorAll("#rm-modes button").forEach(x => x.classList.toggle("on", x === b)); legend(); draw(); });
-    $("find").addEventListener("change", e => { const i = S.findIndex(s => s.m === Number(e.target.value)); if (i < 0) return;
-      const s = S[i]; view.s = base.s * 6; const [x, y] = [ (X(s) - B.x0) * view.s, (B.y1 - Y(s)) * view.s ];
-      view.ox = cv.width / 2 - x; view.oy = cv.height / 2 - y; show(i); });
+    // LIVE FIND (L 2026-10-02: "when I type a radar number have it highlight in real time"): every keystroke rings the
+    // sensors whose number starts with what's typed (yellow); an exact number also flies there and opens its card.
+    function centerOn(i, minZoom) { const s = S[i]; view.s = Math.max(view.s, base.s * minZoom);
+      view.ox = cv.width / 2 - (X(s) - B.x0) * view.s; view.oy = cv.height / 2 - (B.y1 - Y(s)) * view.s; }
+    $("find").addEventListener("input", e => {
+      const t = e.target.value.replace(/\D/g, ""); HL = new Set();
+      if (!t || !base) { draw(); return; }
+      S.forEach((s, i) => { if (String(s.m).startsWith(t)) HL.add(i); });
+      const i = S.findIndex(s => s.m === Number(t));
+      if (i >= 0 && (HL.size === 1 || t.length >= 3)) { centerOn(i, 4); show(i); } else draw();
+    });
+    $("find").addEventListener("change", e => { const i = S.findIndex(s => s.m === Number(e.target.value)); if (i < 0) return; centerOn(i, 4); show(i); });
     $("hubs").addEventListener("click", e => { const b = e.target.closest("button[data-h]"); if (b) showHub(b.dataset.h); });
     $("views").addEventListener("click", e => { const b = e.target.closest("button[data-v]"); if (!b) return;
       if (b.dataset.v === "wiring" && !IS_WM54) { alert("The wiring view needs a switch plan - only Walmart 54 has one so far."); return; }
       layout = b.dataset.v; root.querySelectorAll("#rm-views button").forEach(x => x.classList.toggle("on", x === b)); fit(); });
+    async function loadJobs(user) {
+      const selEl = $("job"); if (EMBED || !user || !selEl) return;
+      let tasks = null;
+      for (const o of [...new Set([user.uid, TELAID_UID])]) { try { const v = (await get(ref(database, `${o}/tasks`))).val(); if (v) { tasks = v; break; } } catch (_) {} }
+      if (!tasks) { selEl.innerHTML = '<option value="">No jobs found</option>'; return; }
+      const norm = v => String(v || "").trim().toLowerCase().replace(/\s+/g, " ");
+      const groups = new Map();
+      for (const [id, t] of Object.entries(tasks)) {
+        if (!t || typeof t !== "object") continue;
+        const c = String(t.customerName || "").trim(), pr = String(t.project || "").trim(); if (!c && !pr) continue;
+        const time = Number(t.startTime) || Number(id) || 0, key = norm(c) + "|" + norm(pr), g = groups.get(key);
+        if (!g) { groups.set(key, { id, c, pr, first: time, last: time, n: 1, ids: [id], meta: !!t.sensorMeta }); continue; }
+        g.n++; g.ids.push(id); g.meta = g.meta || !!t.sensorMeta;
+        if (time < g.first) { g.first = time; g.id = id; } if (time > g.last) g.last = time;
+      }
+      const list = [...groups.values()].sort((a, b) => b.last - a.last);
+      const cur = list.find(g => g.ids.includes(String(TASK)));
+      selEl.innerHTML = list.map(g => `<option value="${g.id}"${cur === g ? " selected" : ""}>${g.meta ? "" : "(no sensors) "}${esc(g.c || "(No customer)")} \u2014 ${esc(g.pr || "(No project)")}${g.n > 1 ? ` (${g.n} visits)` : ""}</option>`).join("");
+      if (cur && cur.id !== String(TASK)) { TASK = cur.id; IS_WM54 = TASK === "1789898400000"; }
+    }
+    $("job").addEventListener("change", e => { const t = e.target.value; if (!t) return;
+      try { localStorage.setItem("sensorTask", JSON.stringify({ task: t, name: e.target.selectedOptions[0].text, at: Date.now() })); } catch (_) {}
+      try { const u = new URL(location.href); u.searchParams.set("task", t); history.replaceState(null, "", u); } catch (_) {}
+      TASK = t; IS_WM54 = TASK === "1789898400000"; HL = new Set(); $("find").value = ""; $("info").innerHTML = '<span class="muted">Tap a sensor to see its details.</span>';
+      load(auth.currentUser); });
     addEventListener("resize", fit);
     legend(); fit();
-    onAuthStateChanged(auth, u => load(u));
+    onAuthStateChanged(auth, async u => { await loadJobs(u); load(u); });   // jobs first: a sibling-night id gets swapped for the canonical one before the data read
     return {
       setTask(t) { if (!t || String(t) === String(TASK)) return; TASK = String(t); IS_WM54 = TASK === "1789898400000"; load(auth.currentUser); },
       refit: fit,
