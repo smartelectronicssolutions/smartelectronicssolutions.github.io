@@ -20,7 +20,7 @@ padding: 6px 12px; border-radius: 999px; border: 1px solid var(--borderColor); b
 .rmap #rm-modes button.on { background: var(--primaryColor); border-color: var(--primaryColor); color: #fff; }
 .rmap #rm-find { width: 7em !important; margin: 0 !important; font-size: 1rem; padding: 6px 8px; }
 .rmap .mapwrap { position: relative; border-radius: 12px; overflow: hidden; border: 1px solid var(--borderColor); background: var(--secondaryBackgroundColor); }
-.rmap #rm-map { display: block; width: 100%; height: min(75vh, 720px); touch-action: pan-y; cursor: grab; }
+.rmap #rm-map { display: block; width: 100%; height: min(75vh, 720px); touch-action: none; cursor: grab; }
 .rmap .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: .85rem; }
 .rmap .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .rmap .legend i { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
@@ -432,11 +432,15 @@ export function mountRadarMap(root, opts = {}) {
     // L 2026-10-02: a plain wheel scrolls the PAGE; Shift + wheel (or Ctrl, i.e. trackpad pinch) zooms the map.
     cv.addEventListener("wheel", e => { if (!e.shiftKey && !e.ctrlKey) return; e.preventDefault(); const [x, y] = toC(e);
       zoomAt(x, y, Math.exp(-(e.deltaY || e.deltaX) * 0.0015)); }, { passive: false });
-    // ONE FINGER SCROLLS THE PAGE, TWO MOVE THE MAP (L 2026-10-02: "use two fingers to scroll down on the map so I can scroll
-    // the page until I use two fingers"): touch-action pan-y lets a one-finger swipe scroll the page; two fingers (and a
-    // hold-then-drag) are claimed with preventDefault so the browser leaves them to the map. Mouse drag still pans.
-    cv.addEventListener("touchstart", e => { if (e.touches.length >= 2) e.preventDefault(); }, { passive: false });
-    cv.addEventListener("touchmove", e => { if (e.touches.length >= 2 || mov) e.preventDefault(); }, { passive: false });
+    // ONE FINGER SCROLLS THE PAGE, TWO MOVE THE MAP (L 2026-10-02): touch-action is NONE - on the iPad, touch-action pan-y
+    // let Safari treat a two-finger drag as a native page pan (pinch reached us, moving did not). So the browser gets no
+    // gesture at all; one finger scrolls the page BY HAND (scrollBy + a glide), two fingers pan/zoom the map, a hold then
+    // drag moves an object. Mouse drag still pans.
+    // one-finger page scroll done by hand (touch-action none): follow the finger, then a short glide on release
+    const fling = { v: 0, t: 0, id: 0 };
+    function glide() { const id = ++fling.id; let v = fling.v, last = performance.now();
+      const step = now => { if (id !== fling.id) return; const dt = now - last; last = now; window.scrollBy(0, v * dt); v *= Math.pow(0.94, dt / 16); if (Math.abs(v) > 0.02) requestAnimationFrame(step); };
+      if (Math.abs(v) > 0.25) requestAnimationFrame(step); }
     cv.addEventListener("pointerdown", e => { try { cv.setPointerCapture(e.pointerId); } catch (_) {} ptr.set(e.pointerId, toC(e)); moved = false;
       if (ptr.size === 1) { drag = toC(e); clearTimeout(press); press = null; mov = null;
         if (layout === "floor" && e.button === 0 && !e.shiftKey) { const [mx, my] = drag, hh = hubAt(mx, my);
@@ -446,14 +450,17 @@ export function mountRadarMap(root, opts = {}) {
       if (ptr.size === 2) { clearTimeout(press); press = null; mov = null; const [a, b] = [...ptr.values()]; pinch = Math.hypot(a[0] - b[0], a[1] - b[1]); } });
     cv.addEventListener("pointermove", e => { if (!ptr.has(e.pointerId)) return; const p = toC(e); ptr.set(e.pointerId, p);
       if (ptr.size === 2 && pinch) { const [a, b] = [...ptr.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]); zoomAt((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, d / pinch); pinch = d; moved = true; }
-      else if (drag) { if (e.pointerType === "touch" && !mov) return;   // one finger = the page scrolls, not the map
-        const dx = p[0] - drag[0], dy = p[1] - drag[1];
+      else if (drag) { const dx = p[0] - drag[0], dy = p[1] - drag[1];
+        if (e.pointerType === "touch" && !mov) {   // one finger = scroll the page, never the map (and never start a grab)
+          if (Math.abs(dx) + Math.abs(dy) > 6) { moved = true; clearTimeout(press); press = null; }
+          const d = view.dpr || 1, now = performance.now(); window.scrollBy(0, -dy / d); fling.v = (-dy / d) / Math.max(1, now - fling.t); fling.t = now; drag = p; return; }
         if (mov) { const [fx, fy] = unrot(dx / view.s, -dy / view.s);   // screen y down -> plan y up
           if (mov.kind === "sensor") { S[mov.i].x += fx; S[mov.i].y += fy; } else { TABLES.hubs[mov.h][0] += fx; TABLES.hubs[mov.h][1] += fy; }
           drag = p; draw(); return; }
         if (Math.abs(dx) + Math.abs(dy) > 6) { moved = true; clearTimeout(press); press = null; }
         view.ox += dx; view.oy += dy; drag = p; draw(); } });
-    const up = e => { ptr.delete(e.pointerId); clearTimeout(press); press = null; if (ptr.size < 2) pinch = null; if (!ptr.size) { drag = null; if (mov) endMove(); } };
+    const up = e => { ptr.delete(e.pointerId); clearTimeout(press); press = null; if (ptr.size < 2) pinch = null;
+      if (!ptr.size) { drag = null; if (mov) endMove(); else if (e.pointerType === "touch" && moved && performance.now() - fling.t < 80) glide(); } };
     cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
     cv.addEventListener("dblclick", () => { if (base) { view = Object.assign({}, base); draw(); } });
     cv.addEventListener("click", e => { if (moved) { moved = false; return; }
