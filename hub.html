@@ -5290,7 +5290,7 @@
         try { localStorage.setItem('dc_peer_seen_' + tid, String(ts)); } catch (_) {}
         const x = P.index[tid];
         if (P.me && x && !(+x.readAt >= ts)) { x.readAt = ts; update(ref(database, `share/chatIndex/${P.me}/${tid}`), { readAt: ts }).catch(() => {}); } };
-    const P = { me: null, myName: '', dir: {}, open: null, other: null, unsub: null, index: {} };
+    const P = { me: null, myName: '', dir: {}, open: null, other: null, unsub: null, index: {}, word: '' };   // word = this session's chat word (memory only)
     // POP-UP ALERTS (2026-09-27, L: "I sent a message to Kev and he said there was no notification on his end"): the daemon only
     // Telegrams L; everyone else gets a browser notification while the hub is open (per device, opt-in in People > Settings).
     const popOn = () => { try { return localStorage.getItem('dc_peer_pop') === '1'; } catch (_) { return false; } };
@@ -5315,7 +5315,12 @@
     // the mechanism (Firebase holds blobs), NOT secrecy - every uid is public. Swap secretFor() for a real shared word and
     // nothing else changes. Shared-tab threads (tab-*) stay plaintext: the daemon mirrors and reads those.
     const E2E = { on: true, salt: 'louverse-chat-v1', iters: 150000, keys: new Map(), plain: new Map() };
-    const secretFor = uid => String(uid || '');
+    const secretFor = uid => String(uid || '');            // enc 1: the sender's uid, automatic
+    // CHAT WORD (L 2026-10-03): a word typed in Settings (this session only) locks what I send under it (enc 2); the reader
+    // must type the same word or sees the blob. Blank = automatic. Mixed words across messages = some open, some blobs.
+    const sendSecret = () => P.word || secretFor(P.me);
+    const encMode = () => P.word ? 2 : 1;
+    const readSecret = m => m.enc === 2 ? (P.word || null) : secretFor(m.from);
     function keyFor(secret) { if (E2E.keys.has(secret)) return E2E.keys.get(secret);
         const te = new TextEncoder();
         const p = crypto.subtle.importKey('raw', te.encode(secret), 'PBKDF2', false, ['deriveKey'])
@@ -5328,7 +5333,9 @@
     async function decText(secret, blob) { const raw = unb64(blob); return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: raw.slice(0, 12) }, await keyFor(secret), raw.slice(12))); }
     const isE2EThread = tid => E2E.on && !!tid && !String(tid).startsWith('tab-');
     async function openMsg(k, m) { if (!m || !m.enc) return m; if (E2E.plain.has(k)) return { ...m, text: E2E.plain.get(k) };
-        let text; try { text = await decText(secretFor(m.from), m.text); } catch (_) { text = '🔒 (could not open this message)'; } E2E.plain.set(k, text); return { ...m, text }; }
+        const sec = readSecret(m); let text;   // no word entered, or the wrong one = the blob itself, as it sits in Firebase
+        if (sec == null) text = '🔒 ' + m.text; else { try { text = await decText(sec, m.text); } catch (_) { text = '🔒 ' + m.text; } }
+        E2E.plain.set(k, text); return { ...m, text }; }
     window.__dcE2E = { E2E, encText, decText, secretFor, isE2EThread };   // test hook
 
     function build() {
@@ -5491,6 +5498,7 @@
             html += `<label class="dc-peer-row" style="cursor:pointer"><input type="checkbox" id="dc-peer-ping" ${P.pingOn !== false ? 'checked' : ''}> 📣 Telegram ping when someone writes<small>via the console bot; the ⚙ Telegram pings switch still wins</small></label>`;
             const np = ('Notification' in window) ? Notification.permission : 'unsupported';
             html += `<label class="dc-peer-row" style="cursor:pointer"><input type="checkbox" id="dc-peer-pop" ${popOn() && np === 'granted' ? 'checked' : ''} ${np === 'unsupported' || np === 'denied' ? 'disabled' : ''}> 🔔 Pop-up alerts on this device<small>${np === 'denied' ? 'blocked in this browser - allow notifications for luissolutions.us in the site settings' : np === 'unsupported' ? 'this browser has no notifications' : 'a system pop-up when someone writes, while the hub is open (even minimised)'}</small></label>`;
+            html += `<label class="dc-peer-row" style="cursor:text">🔑 Chat word <input type="password" id="dc-peer-word" value="${esc(P.word)}" placeholder="blank = automatic" autocomplete="off" style="width:58%;margin-left:6px"><small>${P.word ? 'set for this session: what you send locks under it; the other side types the same word to read it' : 'blank = automatic (your account). Type a word and what you send locks under it; the other side must type the same word, every session, or sees the blob.'}</small></label>`;
             html += `<button type="button" class="dc-peer-row" data-readall="1">✓ Mark everything read</button>`;
             html += `<div class="pnote">Members come from the share list (the same one Notes uses). Chats are private to the people in them; nothing typed here reaches the daemon.</div>`;
         }
@@ -5510,6 +5518,8 @@
             if (pp.checked) try { new Notification('🔔 Alerts on', { body: 'New messages will pop up here while the hub is open.' }); } catch (_) {}
         };
         const pc = $('#dc-peer-ping'); if (pc) pc.onchange = () => { P.pingOn = pc.checked; set(ref(database, `${P.me}/console/settings/peerPings`), pc.checked).catch(() => {}); };
+        const pw = $('#dc-peer-word'); if (pw) { pw.oninput = () => { P.word = pw.value.trim(); E2E.plain.clear(); if (P.open) renderMsgs(lastMsgs); };   // the word changes what opens: forget what was opened, draw again
+            pw.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); pw.blur(); } }; }
     }
     const renderMenu = () => renderHome();   // older call sites
 
@@ -5711,15 +5721,15 @@
         if (S && S.enhanceOn()) text = S.tidy(text);   // ✨ on: the same tidy the console box gets (spaces, capital, final period)
         if (P.editing) {
             const k = P.editing;
-            try { const e2e = isE2EThread(P.open); await update(ref(database, `share/chat/${P.open}/messages/${k}`), { text: e2e ? await encText(secretFor(P.me), text) : text, ...(e2e ? { enc: 1 } : {}), edited: Date.now() }); E2E.plain.delete(k); stopEdit(); }
+            try { const e2e = isE2EThread(P.open); await update(ref(database, `share/chat/${P.open}/messages/${k}`), { text: e2e ? await encText(sendSecret(), text) : text, ...(e2e ? { enc: encMode() } : {}), edited: Date.now() }); E2E.plain.delete(k); stopEdit(); }
             catch (e) { alert('Not saved: ' + (e.code || e.message)); }
             return;
         }
         box.value = '';
         const ts = Date.now(), tid = P.open, other = P.other;
         try {
-            const e2e = isE2EThread(tid), stored = e2e ? await encText(secretFor(P.me), text) : text, preview = e2e ? '🔒 message' : text.slice(0, 90);   // E2E: the thread holds a blob, the inbox line says nothing
-            await push(ref(database, `share/chat/${tid}/messages`), { from: P.me, name: P.myName, text: stored, ...(e2e ? { enc: 1 } : {}), ts });
+            const e2e = isE2EThread(tid), stored = e2e ? await encText(sendSecret(), text) : text, preview = e2e ? '🔒 message' : text.slice(0, 90);   // E2E: the thread holds a blob, the inbox line says nothing
+            await push(ref(database, `share/chat/${tid}/messages`), { from: P.me, name: P.myName, text: stored, ...(e2e ? { enc: encMode() } : {}), ts });
             const tab = tid.startsWith('tab-'), prevMine = P.index[tid] || {};
             await update(ref(database, `share/chatIndex/${P.me}/${tid}`), { with: other, name: tab ? (prevMine.name || P.dir[other] || '') : (P.dir[other] || ''), last: preview, ts, from: P.me, ...(tab ? { kind: 'tab' } : {}) });
             await update(ref(database, `share/chatIndex/${other}/${tid}`), { with: P.me, name: tab && P.me === OWNER ? `${P.myName} · shared tab` : P.myName, last: preview, ts, from: P.me, ...(tab ? { kind: 'tab' } : {}) });
@@ -5737,7 +5747,7 @@
             const { uploadImage } = await import('./apps/assets/js/imgupload.js');
             const up = await uploadImage({ file, basePath: `${P.me}/images/chat`, name: 'chat-photo' });
             const text = cap || '📷 photo', ts = Date.now(), e2e = isE2EThread(tid);
-            await push(ref(database, `share/chat/${tid}/messages`), { from: P.me, name: P.myName, text: e2e ? await encText(secretFor(P.me), text) : text, ...(e2e ? { enc: 1 } : {}), img: up.url, imgPath: up.path, ts });
+            await push(ref(database, `share/chat/${tid}/messages`), { from: P.me, name: P.myName, text: e2e ? await encText(sendSecret(), text) : text, ...(e2e ? { enc: encMode() } : {}), img: up.url, imgPath: up.path, ts });
             const tab = tid.startsWith('tab-'), prevMine = P.index[tid] || {};
             await update(ref(database, `share/chatIndex/${P.me}/${tid}`), { with: other, name: tab ? (prevMine.name || P.dir[other] || '') : (P.dir[other] || ''), last: e2e ? '📷 photo' : '📷 ' + (cap || 'photo').slice(0, 80), ts, from: P.me, ...(tab ? { kind: 'tab' } : {}) });
             await update(ref(database, `share/chatIndex/${other}/${tid}`), { with: P.me, name: tab && P.me === OWNER ? `${P.myName} · shared tab` : P.myName, last: e2e ? '📷 photo' : '📷 ' + (cap || 'photo').slice(0, 80), ts, from: P.me, ...(tab ? { kind: 'tab' } : {}) });
