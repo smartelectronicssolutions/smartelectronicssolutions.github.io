@@ -181,14 +181,14 @@
 
     <section class="card" id="galaxy">
       <h2>Spending Galaxy</h2>
-      <p class="muted" style="margin:0 0 6px">Every category is a galaxy <b>sized by what you spent</b> (twice the dollars = twice the area); the ring around it is the budget, filled by how much of it is gone. Vendors are the stars inside, sized by spend. Tap a dot in the legend to pick a category's colour. Pick a month or the year to date.</p>
+      <p class="muted" style="margin:0 0 6px">Every category is a galaxy <b>sized by what you spent</b> (twice the dollars = twice the area); the ring around it is the budget, filled by how much of it is gone. Vendors are the stars inside, sized by spend. Zoom out and it all folds into one circle; zoom in and a category opens into its stars. Hold a circle half a second to move it. Tap a dot in the legend to pick its colour. Pick a month or the year to date.</p>
       <div class="gx-row" id="gx-win"></div>
       <div class="gx-stats" id="gx-stats"></div>
       <div class="gx-mapwrap"><canvas id="gx-map" aria-label="Spending drawn as a galaxy with budget rings"></canvas>
-        <div class="gx-tools"><button id="gx-zin" type="button" aria-label="Zoom in" title="Zoom in">+</button><button id="gx-zout" type="button" aria-label="Zoom out" title="Zoom out">&minus;</button><button id="gx-home" type="button">&#10530; Whole galaxy</button></div>
+        <div class="gx-tools"><button id="gx-zin" type="button" aria-label="Zoom in" title="Zoom in">+</button><button id="gx-zout" type="button" aria-label="Zoom out" title="Zoom out">&minus;</button><button id="gx-home" type="button">&#10530; Whole galaxy</button><button id="gx-arrange" type="button" title="Put every circle back where the layout places it" hidden>&#8634; Arrange</button></div>
         <input type="range" id="gx-slx" class="sl slx" min="0" max="1000" value="0" aria-label="Move left or right" hidden /><input type="range" id="gx-sly" class="sl sly" min="0" max="1000" value="0" aria-label="Move up or down" hidden /><div class="gx-tip" id="gx-tip" hidden></div></div>
       <div class="gx-legend" id="gx-legend"></div>
-      <div class="gx-hint">Pinch, or Shift + scroll, to zoom · one finger scrolls the page; to move the map: hold half a second then drag, two fingers, the edge sliders, or a mouse drag · tap a galaxy ring or a star · keep zooming and each star shows its numbers.</div>
+      <div class="gx-hint">Pinch, or Shift + scroll, to zoom · zoomed out = one circle for everything; zoom in and a category opens into its stars · one finger scrolls the page; to move the map: hold half a second on empty space then drag, two fingers, the edge sliders, or a mouse drag · hold half a second on a circle to move it (Arrange puts them back) · tap a circle or a star · keep zooming and each star shows its numbers.</div>
       <div class="gx-row"><input id="gx-find" type="search" placeholder="Find a vendor" autocomplete="off" /></div>
       <div id="gx-info" class="gx-info"><span class="muted">Tap a galaxy or a star.</span></div>
     </section>
@@ -258,7 +258,8 @@
     ],
     budgetOverrides: {},
     actuals: {},
-    colors: {}   // tag -> "#rrggbb" picked by L in the galaxy (2026-10-03); unset = the taxonomy hue
+    colors: {},   // tag -> "#rrggbb" picked by L in the galaxy (2026-10-03); unset = the taxonomy hue
+    galaxyPos: {}   // tag -> {x, y} (world 0..1000) where L dragged a circle (2026-10-03); unset = the spiral layout
   };
 
   // Optional: where the Financial Tracker lives (only used by sync function)
@@ -437,6 +438,7 @@
     STATE.budgetOverrides ||= {};
     STATE.actuals ||= {};
     STATE.colors ||= {};
+    STATE.galaxyPos ||= {};
     if (typeof STATE.incomeYear !== 'number') STATE.incomeYear = 0;
   }
 
@@ -1301,6 +1303,9 @@
       const S = (x, y) => [(x - (x0 + x1) / 2) / span * 1000 + 500, (y - (y0 + y1) / 2) / span * 1000 + 500];
       V.forEach(v => { [v.px, v.py] = S(v.x, v.y); v.rad = 1.2 + 6 * Math.sqrt(v.total / (V[0] ? V[0].total : 1)); });
       G.forEach(g => { [g.px, g.py] = S(g.cx, g.cy); g.prad = g.r / span * 1000; });
+      const pos = STATE.galaxyPos || {}; let movedAny = false;   // circles L has moved stay where he put them (2026-10-03); Arrange clears them
+      G.forEach(g => { const q = pos[g.tag]; if (!q || !isFinite(q.x) || !isFinite(q.y)) return; const dx = q.x - g.px, dy = q.y - g.py; g.px = q.x; g.py = q.y; g.ids.forEach(i => { V[i].px += dx; V[i].py += dy; }); movedAny = true; });
+      $("arrange").hidden = !movedAny;
     }
     const cadence = v => v.n === 1 ? "one charge" : `${v.n} times`;
     function renderStats() {
@@ -1316,15 +1321,29 @@
     // ---- drawing ----
     // THE VIEWPORT + INPUT = ../assets/js/canvasview.js (L 2026-10-03: one engine for every map). World = 0..1000.
     let sky = null;
-    const cvw = mountCanvasView(cv, { world: () => ({ x0: 0, y0: 0, x1: 1000, y1: 1000 }), pad: 14, minZoom: 0.8, maxZoom: 160,
+    const cvw = mountCanvasView(cv, { world: () => ({ x0: 0, y0: 0, x1: 1000, y1: 1000 }), pad: 14, minZoom: 0.6, maxZoom: 160,
       sliders: { x: $("slx"), y: $("sly") }, draw: () => draw(),
-      hit: (mx, my) => { const i = hitAt(mx, my); if (i >= 0) return { star: i }; const gi = galaxyAt(mx, my); return gi >= 0 ? { galaxy: gi } : null; },
-      hold: (t, e) => e.pointerType === "touch" ? "pan" : null,   // hold half a second (touch) = move the map with that finger
+      // under the finger: the one big circle when zoomed out, else a star (only inside an OPEN circle), else the circle it is in
+      hit: (mx, my) => { if (mergeOf() > .5) return { all: true }; const i = hitAt(mx, my); if (i >= 0) return { star: i }; const gi = galaxyAt(mx, my); return gi >= 0 ? { galaxy: gi } : null; },
+      // hold half a second on a circle = move it (L 2026-10-03 "hold, move the circles"); a touch held anywhere else = move the map
+      hold: (t, e) => t && t.galaxy != null ? "drag" : (e.pointerType === "touch" ? "pan" : null),
+      onDrag: (t, dx, dy) => { if (!t || t.galaxy == null) return; const g = G[t.galaxy], nx = Math.max(0, Math.min(1000, g.px + dx)), ny = Math.max(0, Math.min(1000, g.py + dy)), ax = nx - g.px, ay = ny - g.py;
+        g.px = nx; g.py = ny; g.ids.forEach(i => { V[i].px += ax; V[i].py += ay; }); hideTip(); },
+      onDragEnd: (t, moved) => { if (!t || t.galaxy == null || !moved) return; const g = G[t.galaxy]; STATE.galaxyPos ||= {}; STATE.galaxyPos[g.tag] = { x: Math.round(g.px), y: Math.round(g.py) }; saveToDB(); $("arrange").hidden = false; },
       onTap: (t, mx, my) => { const dot = dotAt(mx, my); if (dot) { tipAt(dot.x, dot.y, dotText(dot.row)); clearTimeout(tipTimer); tipTimer = setTimeout(hideTip, 2500); return; }
-        if (!t) { if (focus) clearFocus(); } else if (t.star != null) show(t.star); else showGalaxy(t.galaxy); },
+        if (!t) { if (focus) clearFocus(); } else if (t.all) flyTo(null); else if (t.star != null) show(t.star); else showGalaxy(t.galaxy); },
       onFit: () => { sky = null; } });   // the star field is drawn once per canvas size
     const view = cvw.view, base = cvw.base, requestDraw = cvw.requestDraw, fit = cvw.fit;
-    const P = v => [view.ox + v.px * view.s, view.oy + v.py * view.s];
+    // LEVELS (L 2026-10-03 "when I zoom out, one large circle; when I zoom in enough it spreads to the multiple inside"):
+    //   mergeOf() 0..1 = how far everything has folded into ONE circle (starts below 0.9x of the fit, fully one at 0.7x);
+    //   openOf(g) 0..1 = how far a category circle has opened into its stars (closed under 46 css px on screen, open at 80).
+    //   P(v) places a star by those two numbers, so drawing, hit tests, tips and the burst all agree.
+    const mergeOf = () => { const z = base.s ? view.s / base.s : 1; return Math.max(0, Math.min(1, (0.9 - z) / 0.2)); };
+    const openOf = g => { const d = view.dpr || 1, R = g.prad * view.s; return Math.max(0, Math.min(1, (R - 46 * d) / (34 * d))); };
+    const starOn = (v, mg) => openOf(G[v.g]) * (1 - mg);
+    function centroid() { let sx = 0, sy = 0, sw = 0; for (const g of G) { const w = g.prad * g.prad; sx += g.px * w; sy += g.py * w; sw += w; } return sw ? [sx / sw, sy / sw] : [500, 500]; }
+    const GP = g => { const mg = mergeOf(); if (!mg) return [view.ox + g.px * view.s, view.oy + g.py * view.s]; const [cxw, cyw] = centroid(), e = mg * mg; return [view.ox + (g.px + (cxw - g.px) * e) * view.s, view.oy + (g.py + (cyw - g.py) * e) * view.s]; };
+    const P = v => { const g = G[v.g]; if (!g) return [view.ox + v.px * view.s, view.oy + v.py * view.s]; const o = openOf(g), [gx, gy] = GP(g), e = o * o * (3 - 2 * o); return [gx + (v.px - g.px) * view.s * e, gy + (v.py - g.py) * view.s * e]; };
     function makeSky() {
       sky = document.createElement("canvas"); sky.width = cv.width; sky.height = cv.height;
       const g = sky.getContext("2d"), rnd = (() => { let a = 7; return () => (a = (a * 16807) % 2147483647) / 2147483647; })();
@@ -1338,28 +1357,32 @@
       const dpr = view.dpr || 1, zoom = base ? view.s / base.s : 1, light = isLight(), mut = tok("--muted") || "#9aa3b2";
       cx.drawImage(sky, 0, 0); cvw.syncSliders();
       if (!G.length) { cx.font = `${14 * dpr}px system-ui, sans-serif`; cx.fillStyle = mut; cx.textAlign = "center"; cx.fillText("No spending in this window yet.", cv.width / 2, cv.height / 2); cx.textAlign = "start"; return; }
-      const F = focus, OK = tok("--success") || "#22c55e", WARN = tok("--warn") || "#f59e0b", BAD = tok("--danger") || "#ef4444";
-      // galaxy glow + the BUDGET RING: a track at the galaxy's edge, filled by spent/budget; over budget = full red ring + glow
-      for (const g of G) { const [x, y] = [view.ox + g.px * view.s, view.oy + g.py * view.s], R = Math.max(14 * dpr, g.prad * view.s), ring = R * 1.18;
-        const gr = cx.createRadialGradient(x, y, 0, x, y, R); gr.addColorStop(0, col(g.tag, light ? .14 : .16)); gr.addColorStop(1, col(g.tag, 0));
+      const F = focus, mg = mergeOf();
+      // galaxy glow + a CLOSED circle's solid fill and inside label + the BUDGET RING (track at the edge, filled by spent/budget)
+      for (const g of G) { const a = 1 - mg; if (a <= .01) break; const [x, y] = GP(g), R = Math.max(14 * dpr, g.prad * view.s), ring = R * 1.18, op = openOf(g);
+        const gr = cx.createRadialGradient(x, y, 0, x, y, R); gr.addColorStop(0, col(g.tag, (light ? .14 : .16) * a)); gr.addColorStop(1, col(g.tag, 0));
         cx.fillStyle = gr; cx.beginPath(); cx.arc(x, y, R, 0, 6.283); cx.fill();
-        if (g.budget > 0) { const frac = g.total / g.budget, c = frac > 1 ? BAD : frac > 0.8 ? WARN : OK;
-          cx.lineWidth = Math.max(2, 3 * Math.sqrt(zoom)) * dpr; cx.strokeStyle = light ? "rgba(60,70,110,.18)" : "rgba(200,210,255,.14)"; cx.beginPath(); cx.arc(x, y, ring, 0, 6.283); cx.stroke();
-          cx.strokeStyle = c; cx.beginPath(); cx.arc(x, y, ring, -Math.PI / 2, -Math.PI / 2 + Math.min(1, frac) * 2 * Math.PI); cx.stroke();
-          if (frac > 1) { cx.globalAlpha = .35; cx.lineWidth *= 2.2; cx.beginPath(); cx.arc(x, y, ring, 0, 6.283); cx.stroke(); cx.globalAlpha = 1; } }
-        else { cx.setLineDash([4 * dpr, 4 * dpr]); cx.lineWidth = 1 * dpr; cx.strokeStyle = light ? "rgba(60,70,110,.3)" : "rgba(200,210,255,.25)"; cx.beginPath(); cx.arc(x, y, ring, 0, 6.283); cx.stroke(); cx.setLineDash([]); } }
+        if (op < 1) {   // CLOSED (small on screen): one solid circle with the name and amount inside; it opens into its stars as it grows
+          cx.fillStyle = col(g.tag, (light ? .45 : .42) * (1 - op) * a); cx.beginPath(); cx.arc(x, y, R, 0, 6.283); cx.fill();
+          if (R > 22 * dpr) { cx.globalAlpha = (1 - op) * a; cx.textAlign = "center"; cx.textBaseline = "middle"; const fs = Math.max(9, Math.min(15, R / dpr / 5.5)) * dpr, lh = fs * 1.15;
+            cx.fillStyle = light ? "#141a2e" : "#ffffff"; cx.font = `700 ${fs}px system-ui, sans-serif`; const lines = wrap(`${g.tag} ${label(g.tag)}`, R * 1.7, 2), top = y - (lines.length + 1) * lh / 2;
+            lines.forEach((ln, j) => cx.fillText(ln, x, top + lh * (j + .5)));
+            cx.font = `400 ${fs * .9}px system-ui, sans-serif`; cx.fillStyle = light ? "rgba(20,26,46,.85)" : "rgba(232,236,255,.88)"; cx.fillText(money0(g.total), x, top + lh * (lines.length + .5));
+            cx.textAlign = "start"; cx.textBaseline = "alphabetic"; cx.globalAlpha = 1; } }
+        budgetRing(x, y, ring, g.total, g.budget, dpr, zoom, light, a); }
       // stars
       const BR = 3.2 * view.s; if (BR > 30 * dpr) { drawBubbles(dpr); drawNames(dpr, zoom, light); if (sel >= 0) drawBurst(dpr, zoom); return; }
       cx.globalCompositeOperation = light ? "source-over" : "lighter";
-      V.forEach((v, i) => { const [x, y] = P(v); if (x < -20 || y < -20 || x > cv.width + 20 || y > cv.height + 20) return;
+      V.forEach((v, i) => { const o = starOn(v, mg); if (o < .02) return; const [x, y] = P(v); if (x < -20 || y < -20 || x > cv.width + 20 || y > cv.height + 20) return;
         const on = !F || F.has(i), r = Math.min(26, v.rad * Math.sqrt(zoom)) * dpr;
-        cx.fillStyle = col(v.tag, on ? (light ? .10 : .07) : .02); cx.beginPath(); cx.arc(x, y, r * 2.6, 0, 6.283); cx.fill(); });
+        cx.fillStyle = col(v.tag, (on ? (light ? .10 : .07) : .02) * o); cx.beginPath(); cx.arc(x, y, r * 2.6, 0, 6.283); cx.fill(); });
       cx.globalCompositeOperation = "source-over";
-      V.forEach((v, i) => { const [x, y] = P(v); if (x < -20 || y < -20 || x > cv.width + 20 || y > cv.height + 20) return;
+      V.forEach((v, i) => { const o = starOn(v, mg); if (o < .02) return; const [x, y] = P(v); if (x < -20 || y < -20 || x > cv.width + 20 || y > cv.height + 20) return;
         const on = !F || F.has(i), r = Math.min(26, v.rad * Math.sqrt(zoom)) * dpr;
-        cx.fillStyle = col(v.tag, on ? .92 : .15); cx.beginPath(); cx.arc(x, y, r, 0, 6.283); cx.fill();
-        if (HL.has(i)) { cx.strokeStyle = "#facc15"; cx.lineWidth = 2.5 * dpr; cx.beginPath(); cx.arc(x, y, r + 5 * dpr, 0, 6.283); cx.stroke(); } });
+        cx.fillStyle = col(v.tag, (on ? .92 : .15) * o); cx.beginPath(); cx.arc(x, y, r, 0, 6.283); cx.fill();
+        if (HL.has(i)) { cx.globalAlpha = o; cx.strokeStyle = "#facc15"; cx.lineWidth = 2.5 * dpr; cx.beginPath(); cx.arc(x, y, r + 5 * dpr, 0, 6.283); cx.stroke(); cx.globalAlpha = 1; } });
       drawNames(dpr, zoom, light);
+      if (mg > 0) drawAll(mg, dpr, zoom, light);
       if (zoom >= 3) { cx.font = `${11 * dpr}px system-ui, sans-serif`; cx.fillStyle = light ? "rgba(30,36,60,.8)" : "rgba(220,228,255,.75)"; let shown = 0;
         for (let i = 0; i < V.length && shown < 220; i++) { const v = V[i], [x, y] = P(v); if (x > 0 && y > 0 && x < cv.width - 40 * dpr && y < cv.height && (zoom >= 6 || v.rad > 2.2)) { cx.fillText(v.name, x + v.rad * dpr + 5 * dpr, y + 4 * dpr); shown++; } } }
       if (sel >= 0) { const v = V[sel], [x, y] = P(v); cx.strokeStyle = "#ffcf7a"; cx.lineWidth = 2.5 * dpr; cx.beginPath(); cx.arc(x, y, Math.min(26, v.rad * Math.sqrt(zoom)) * dpr + 6 * dpr, 0, 6.283); cx.stroke();
@@ -1393,14 +1416,36 @@
       cx.fillText(`${v.n} charge${v.n === 1 ? "" : "s"}${v.rows.length > rows.length ? ` (${rows.length} shown)` : ""}`, x, y + ringR + 12 * dpr); cx.textAlign = "start";
       if (k < 1) requestDraw();
     }
-    function drawNames(dpr, zoom, light) {   // galaxy name + "$spent / $budget" under each ring
-      cx.textAlign = "center";
-      G.forEach((g, k) => { if (k > 11 && zoom < 1.5) return; const x = view.ox + g.px * view.s, y = view.oy + g.py * view.s, R = Math.max(14 * dpr, g.prad * view.s) * 1.18;
+    function budgetRing(x, y, ring, total, budget, dpr, zoom, light, a) {   // the budget track + the spent arc; over = red + glow; no budget = dashed
+      const OK = tok("--success") || "#22c55e", WARN = tok("--warn") || "#f59e0b", BAD = tok("--danger") || "#ef4444";
+      cx.globalAlpha = a;
+      if (budget > 0) { const frac = total / budget, c = frac > 1 ? BAD : frac > 0.8 ? WARN : OK;
+        cx.lineWidth = Math.max(2, 3 * Math.sqrt(zoom)) * dpr; cx.strokeStyle = light ? "rgba(60,70,110,.18)" : "rgba(200,210,255,.14)"; cx.beginPath(); cx.arc(x, y, ring, 0, 6.283); cx.stroke();
+        cx.strokeStyle = c; cx.beginPath(); cx.arc(x, y, ring, -Math.PI / 2, -Math.PI / 2 + Math.min(1, frac) * 2 * Math.PI); cx.stroke();
+        if (frac > 1) { cx.globalAlpha = .35 * a; cx.lineWidth *= 2.2; cx.beginPath(); cx.arc(x, y, ring, 0, 6.283); cx.stroke(); } }
+      else { cx.setLineDash([4 * dpr, 4 * dpr]); cx.lineWidth = 1 * dpr; cx.strokeStyle = light ? "rgba(60,70,110,.3)" : "rgba(200,210,255,.25)"; cx.beginPath(); cx.arc(x, y, ring, 0, 6.283); cx.stroke(); cx.setLineDash([]); }
+      cx.globalAlpha = 1;
+    }
+    function drawAll(mg, dpr, zoom, light) {   // ONE circle for everything (zoomed out): its area = the sum of the categories' areas; ring = the whole budget
+      const [cxw, cyw] = centroid(), x = view.ox + cxw * view.s, y = view.oy + cyw * view.s, R = Math.sqrt(G.reduce((t, g) => t + g.prad * g.prad, 0)) * view.s, budget = G.reduce((t, g) => t + g.budget, 0);
+      const gr = cx.createRadialGradient(x, y - R * .3, R * .1, x, y, R); gr.addColorStop(0, light ? "rgba(110,100,220,.5)" : "rgba(150,140,255,.5)"); gr.addColorStop(1, light ? "rgba(110,100,220,.22)" : "rgba(150,140,255,.18)");
+      cx.globalAlpha = mg; cx.fillStyle = gr; cx.beginPath(); cx.arc(x, y, R, 0, 6.283); cx.fill(); cx.globalAlpha = 1;
+      budgetRing(x, y, R * 1.08, TOTAL, budget, dpr, zoom, light, mg);
+      cx.globalAlpha = mg; cx.textAlign = "center"; cx.textBaseline = "middle"; const fs = Math.max(12, Math.min(26, R / dpr / 6)) * dpr;
+      cx.fillStyle = light ? "#141a2e" : "#ffffff"; cx.font = `700 ${fs}px system-ui, sans-serif`; cx.fillText(money0(TOTAL), x, y - fs * .55);
+      cx.font = `400 ${fs * .58}px system-ui, sans-serif`; cx.fillStyle = light ? "rgba(20,26,46,.8)" : "rgba(232,236,255,.85)";
+      cx.fillText(`spent · ${G.length} categories${budget ? ` · ${money0(budget)} budgeted` : ""}`, x, y + fs * .45); cx.fillText("tap to open", x, y + fs * 1.2);
+      cx.textAlign = "start"; cx.textBaseline = "alphabetic"; cx.globalAlpha = 1;
+    }
+    function drawNames(dpr, zoom, light) {   // galaxy name + "$spent / $budget" under each ring (a closed circle carries its label inside instead)
+      const mg = mergeOf(); if (mg >= 1) return; cx.textAlign = "center"; cx.globalAlpha = 1 - mg;
+      G.forEach((g, k) => { if (k > 11 && zoom < 1.5) return; const [x, y] = GP(g), R0 = Math.max(14 * dpr, g.prad * view.s), R = R0 * 1.18, op = openOf(g); if (op < .5 && R0 > 22 * dpr) return;
+        cx.globalAlpha = (1 - mg) * (R0 > 22 * dpr ? Math.min(1, (op - .5) * 2) : 1);   // the outside label fades in as the inside one fades out
         cx.font = `600 ${(k < 3 ? 13 : 11) * dpr}px system-ui, sans-serif`; cx.fillStyle = light ? "rgba(30,36,60,.75)" : "rgba(232,236,255,.65)";
         cx.fillText(`${g.tag} ${label(g.tag)}`, x, y - R - 12 * dpr);
         cx.font = `${10 * dpr}px system-ui, sans-serif`; cx.fillStyle = g.budget > 0 && g.total > g.budget ? (tok("--danger") || "#ef4444") : (light ? "rgba(30,36,60,.6)" : "rgba(220,228,255,.55)");
         cx.fillText(g.budget ? `${money0(g.total)} / ${money0(g.budget)}` : `${money0(g.total)} · no budget`, x, y + R + 14 * dpr); });
-      cx.textAlign = "start";
+      cx.textAlign = "start"; cx.globalAlpha = 1;
     }
     function wrap(text, maxW, maxLines) { const words = String(text || "").split(/\s+/), lines = []; let cur = "";
       for (const w of words) { const t = cur ? cur + " " + w : w; if (cx.measureText(t).width > maxW && cur) { lines.push(cur); cur = w; if (lines.length === maxLines) break; } else cur = t; }
@@ -1455,13 +1500,17 @@
 
     // ---- what is under the finger (the engine asks on every press and tap) ----
     function hitAt(mx, my) { const dpr = view.dpr || 1, zoom = base ? view.s / base.s : 1, br = 3.2 * view.s; let best = -1, bd = Infinity;
-      V.forEach((v, i) => { const [x, y] = P(v), reach = Math.max(22 * dpr, br > 30 * dpr ? Math.min(br, 150 * dpr) : Math.min(26, v.rad * Math.sqrt(zoom)) * dpr + 6 * dpr), d = (x - mx) ** 2 + (y - my) ** 2; if (d < reach ** 2 && d < bd) { bd = d; best = i; } });
+      V.forEach((v, i) => { if (openOf(G[v.g]) < .6) return; const [x, y] = P(v), reach = Math.max(22 * dpr, br > 30 * dpr ? Math.min(br, 150 * dpr) : Math.min(26, v.rad * Math.sqrt(zoom)) * dpr + 6 * dpr), d = (x - mx) ** 2 + (y - my) ** 2; if (d < reach ** 2 && d < bd) { bd = d; best = i; } });
       return best; }
-    function galaxyAt(mx, my) { const dpr = view.dpr || 1; for (let k = 0; k < G.length; k++) { const g = G[k], x = view.ox + g.px * view.s, y = view.oy + g.py * view.s, R = Math.max(14 * dpr, g.prad * view.s) * 1.18;
-      const d = Math.hypot(x - mx, y - my); if (Math.abs(d - R) < 9 * dpr || (!g.ids.length && d < R)) return k; } return -1; }
+    function galaxyAt(mx, my) { const dpr = view.dpr || 1; let best = -1, bestR = Infinity;   // anywhere inside a circle (the smallest wins where L has moved one onto another)
+      for (let k = 0; k < G.length; k++) { const g = G[k], [x, y] = GP(g), R = Math.max(14 * dpr, g.prad * view.s) * 1.18;
+        if (Math.hypot(x - mx, y - my) < R + 9 * dpr && R < bestR) { best = k; bestR = R; } }
+      return best; }
     $("home").addEventListener("click", () => clearFocus(true));
     $("zin").addEventListener("click", () => cvw.zoomAt(cv.width / 2, cv.height / 2, 1.6));      // zoom buttons (L 2026-10-03)
     $("zout").addEventListener("click", () => cvw.zoomAt(cv.width / 2, cv.height / 2, 1 / 1.6));
+    $("arrange").addEventListener("click", () => { STATE.galaxyPos = {}; saveToDB(); layout(); draw(); });   // every circle back to the spiral (2026-10-03)
+    window.__gx = () => ({ G, V, view, base, STATE, openOf, mergeOf, GP, P });   // test hook
     // TIPS (L 2026-10-03 "mouse hover shows info on them"): hover a burst dot -> that charge (date, name, amount); hover a star
     // -> name, total, charges. On touch a tap on a dot shows the tip for 2.5 s. Canvas px -> CSS px for the overlay.
     const tipEl = $("tip"); let tipTimer = 0;
@@ -1470,6 +1519,7 @@
     function tipAt(cxp, cyp, text) { const d = view.dpr || 1; tipEl.textContent = text; tipEl.style.left = (cxp / d) + "px"; tipEl.style.top = (cyp / d) + "px"; tipEl.hidden = false; }
     function hideTip() { tipEl.hidden = true; }
     cv.addEventListener("pointermove", e => { if (e.pointerType !== "mouse" || cvw.moving) { if (cvw.moving) hideTip(); return; }
+      if (mergeOf() > .5) return hideTip();
       const [mx, my] = cvw.toC(e); const dot = dotAt(mx, my);
       if (dot) return tipAt(dot.x, dot.y, dotText(dot.row));
       const i = cvw.fitted ? hitAt(mx, my) : -1;
