@@ -23,6 +23,10 @@ padding: 6px 12px; border-radius: 999px; border: 1px solid var(--borderColor); b
 .rmap #rm-find { width: 7em !important; margin: 0 !important; font-size: 1rem; padding: 6px 8px; }
 .rmap .mapwrap { position: relative; border-radius: 12px; overflow: hidden; border: 1px solid var(--borderColor); background: var(--secondaryBackgroundColor); }
 .rmap #rm-map { display: block; width: 100%; height: min(75vh, 720px); touch-action: pan-y; cursor: grab; }
+/* L 2026-10-03 (same as the Louverse): on its own page the map uses the most width it can - 12px from each screen edge - and
+   grows with the screen height; inside the checklist (.embed) it stays in the section */
+.rmap:not(.embed) .mapwrap { margin-inline: calc(50% - 50vw + 12px); }
+.rmap:not(.embed) #rm-map { height: min(110vw, 85vh); }
 .rmap .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: .85rem; }
 .rmap .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .rmap .legend i { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
@@ -105,6 +109,7 @@ export function mountRadarMap(root, opts = {}) {
     let TASK = "", TABLES = null, SWITCHES = {};   // TABLES = this site's plan (task.siteTables in Firebase, or the built-in WM54 table)
     const setTaskId = t => { TASK = String(t); TABLES = null; SWITCHES = {}; };   // the plan arrives with the job in load()
     const EMBED = !!opts.embed;
+    if (!EMBED) document.body.style.overflowX = "clip";   // the full-width map box bleeds past the 1100px column; never a sideways scroll
     // Embedded in the checklist the map follows ONLY the site the checklist opens - no remembered site, no default
     // (L 2026-10-02: "the map is loading the Walmart one even when I haven't selected anything yet").
     setTaskId(opts.task || (!EMBED && LAST_SITE && LAST_SITE.task) || (!EMBED && "1789898400000") || "");
