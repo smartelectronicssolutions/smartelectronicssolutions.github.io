@@ -88,6 +88,7 @@ export function mountRadarMap(root, opts = {}) {
     const HUBNAMES = ["MDF", "IDF1", "IDF2", "IDF3", "IDF4", "IDF5", "IDF6"];
     const HUBPH = {};   // "MDF"/"IDF3" -> [storage refs]
     let selHub = null, HL = new Set();   // HL = sensors matching what's typed in the Sensor # box (live)
+    let loadGen = 0, PHOTOS = "loading";  // photos arrive after the map; "loading" | "ok" | "failed" (can't reach Storage)
     // Walmart 54 zone + IDF per mark (same tables as sensor-lookup), and the switch map L gave on site 10/2
     const ZONES = [[1, 10, 1], [11, 75, 2], [76, 141, 3], [142, 203, 4], [204, 241, 5]];
     const IDF = "6666666666666666665566666555655566611555551111155551111111555551111115555551111115554455441111555544411115555441111144454444441154444444441334441444443334444443334224222333322222222332232222233332222233322222333322222333322233333223322333333";
@@ -146,21 +147,26 @@ export function mountRadarMap(root, opts = {}) {
         .filter(s => s.m && s.x != null && s.y != null);
       if (IS_WM54) { assignSwitches(); wiringLayout(); }
       OWNER = owner; TASKREC = task;
-      // photo counts from the file names in Storage (one list call)
-      try {
-        const proj = clean(task.project || task.customerName || TASK); PROJ = proj;
-        const pre = clean(task.customerName || ""); PRE = clean(task.customerName || task.project || TASK);
-        const res = await listAll(storageRef(storage, `${owner}/tasks/images/${proj}/sensors`));
+      PROJ = clean(task.project || task.customerName || TASK); PRE = clean(task.customerName || task.project || TASK);
+      const pre = clean(task.customerName || ""), line = `${task.customerName || "Job " + TASK} \u00b7 ${S.length} sensors \u00b7 loaded ${new Date().toLocaleTimeString()}`;
+      $("source").textContent = line + " \u00b7 photos loading\u2026";
+      renderHubs(); renderStats(); fit();
+      // PHOTOS IN THE BACKGROUND (L 2026-10-03, "did you freeze?": on a network that could not resolve
+      // firebasestorage.googleapis.com, listAll retried for ~2 min before failing and the whole map waited on it).
+      // The map draws first; photo counts/rings fill in when Storage answers, or the source line says it couldn't.
+      const gen = ++loadGen; PHOTOS = "loading";
+      const sensorsP = listAll(storageRef(storage, photoDir())).then(res => { if (gen !== loadGen) return;
         for (const it of res.items) {
           const rest = pre && it.name.startsWith(pre + "_") ? it.name.slice(pre.length + 1) : it.name.replace(/^.*?_(?=\d+-)/, "");
           const mm = rest.match(/^(\d{1,4})-/); if (!mm) continue;
           const s = S.find(x => x.m === Number(mm[1])); if (s) { s.photos++; s.items.push(it); }
-        }
-      } catch (_) { PROJ = PROJ || clean(task.project || task.customerName || TASK); }
-      await Promise.all(HUBNAMES.map(async h => { try { HUBPH[h] = (await listAll(storageRef(storage, hubDir(h)))).items; } catch (_) { HUBPH[h] = []; } }));
-      renderHubs();
-      $("source").textContent = `${task.customerName || "Job " + TASK} · ${S.length} sensors · loaded ${new Date().toLocaleTimeString()}`;
-      renderStats(); fit();
+        } });
+      const hubsP = Promise.all(HUBNAMES.map(async h => { const items = (await listAll(storageRef(storage, hubDir(h)))).items; if (gen === loadGen) HUBPH[h] = items; }));
+      Promise.allSettled([sensorsP, hubsP]).then(rs => { if (gen !== loadGen) return;
+        PHOTOS = rs.some(r => r.status === "rejected") ? "failed" : "ok";
+        $("source").textContent = line + (PHOTOS === "failed" ? " \u00b7 photos unavailable (this network can't reach Storage)" : "");
+        renderHubs(); renderStats(); draw();
+        if (sel >= 0) show(sel); else if (selHub) showHub(selHub); });
     }
 
     function renderStats() {
@@ -286,7 +292,7 @@ export function mountRadarMap(root, opts = {}) {
     // ---------- the sensor card: photos, add photo, run complete, labeled ----------
     async function thumbs(s) {
       const box = $("photos"), items = Array.isArray(s) ? s : s.items; if (!box) return;
-      if (!items.length) { box.innerHTML = '<span class="muted">No photos yet.</span>'; return; }
+      if (!items.length) { box.innerHTML = `<span class="muted">${PHOTOS === "loading" ? "Photos loading\u2026" : PHOTOS === "failed" ? "Photos unavailable \u2013 this network can't reach Storage." : "No photos yet."}</span>`; return; }
       box.innerHTML = items.map(() => '<a><img alt="" /></a>').join("");
       const links = box.querySelectorAll("a");
       await Promise.all(items.map(async (it, k) => { try { const u = await getDownloadURL(it);
