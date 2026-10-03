@@ -181,14 +181,14 @@
 
     <section class="card" id="galaxy">
       <h2>Spending Galaxy</h2>
-      <p class="muted" style="margin:0 0 6px">Every category is a galaxy <b>sized by what you spent</b> (twice the dollars = twice the area); the ring around it is the budget, filled by how much of it is gone. Vendors are the stars inside, sized by spend. Zoom out and it all folds into one circle; zoom in and a category opens into its stars. Hold a circle half a second to move it. Tap a dot in the legend to pick its colour. Pick a month or the year to date.</p>
+      <p class="muted" style="margin:0 0 6px">Every category is a galaxy <b>sized by what you spent</b> (twice the dollars = twice the area); the ring around it is the budget, filled by how much of it is gone. Vendors are the stars inside, sized by spend. Zoom out and it all folds into one circle; zoom in and a category opens into its stars. Hold a circle, or a star, half a second to move it. Tap a dot in the legend to pick its colour. Pick a month or the year to date.</p>
       <div class="gx-row" id="gx-win"></div>
       <div class="gx-stats" id="gx-stats"></div>
       <div class="gx-mapwrap"><canvas id="gx-map" aria-label="Spending drawn as a galaxy with budget rings"></canvas>
         <div class="gx-tools"><button id="gx-zin" type="button" aria-label="Zoom in" title="Zoom in">+</button><button id="gx-zout" type="button" aria-label="Zoom out" title="Zoom out">&minus;</button><button id="gx-home" type="button">&#10530; Whole galaxy</button><button id="gx-arrange" type="button" title="Put every circle back where the layout places it" hidden>&#8634; Arrange</button></div>
         <input type="range" id="gx-slx" class="sl slx" min="0" max="1000" value="0" aria-label="Move left or right" hidden /><input type="range" id="gx-sly" class="sl sly" min="0" max="1000" value="0" aria-label="Move up or down" hidden /><div class="gx-tip" id="gx-tip" hidden></div></div>
       <div class="gx-legend" id="gx-legend"></div>
-      <div class="gx-hint">Pinch, or Shift + scroll, to zoom · zoomed out = one circle for everything; zoom in and a category opens into its stars · one finger scrolls the page; to move the map: hold half a second on empty space then drag, two fingers, the edge sliders, or a mouse drag · hold half a second on a circle to move it (Arrange puts them back) · tap a circle or a star · keep zooming and each star shows its numbers.</div>
+      <div class="gx-hint">Pinch, or Shift + scroll, to zoom · zoomed out = one circle for everything; zoom in and a category opens into its stars · one finger scrolls the page; to move the map: hold half a second on empty space then drag, two fingers, the edge sliders, or a mouse drag · hold half a second on a circle, or on a star once it shows, to move it (Arrange puts them back) · tap a circle or a star · keep zooming and each star shows its numbers.</div>
       <div class="gx-row"><input id="gx-find" type="search" placeholder="Find a vendor" autocomplete="off" /></div>
       <div id="gx-info" class="gx-info"><span class="muted">Tap a galaxy or a star.</span></div>
     </section>
@@ -259,7 +259,8 @@
     budgetOverrides: {},
     actuals: {},
     colors: {},   // tag -> "#rrggbb" picked by L in the galaxy (2026-10-03); unset = the taxonomy hue
-    galaxyPos: {}   // tag -> {x, y} (world 0..1000) where L dragged a circle (2026-10-03); unset = the spiral layout
+    galaxyPos: {},   // tag -> {x, y} (world 0..1000) where L dragged a circle (2026-10-03); unset = the spiral layout
+    starPos: {}   // tag -> vendorKey -> {dx, dy} (world units from the circle's centre) where L dragged a star (2026-10-03)
   };
 
   // Optional: where the Financial Tracker lives (only used by sync function)
@@ -439,6 +440,7 @@
     STATE.actuals ||= {};
     STATE.colors ||= {};
     STATE.galaxyPos ||= {};
+    STATE.starPos ||= {};
     if (typeof STATE.incomeYear !== 'number') STATE.incomeYear = 0;
   }
 
@@ -1305,6 +1307,8 @@
       G.forEach(g => { [g.px, g.py] = S(g.cx, g.cy); g.prad = g.r / span * 1000; });
       const pos = STATE.galaxyPos || {}; let movedAny = false;   // circles L has moved stay where he put them (2026-10-03); Arrange clears them
       G.forEach(g => { const q = pos[g.tag]; if (!q || !isFinite(q.x) || !isFinite(q.y)) return; const dx = q.x - g.px, dy = q.y - g.py; g.px = q.x; g.py = q.y; g.ids.forEach(i => { V[i].px += dx; V[i].py += dy; }); movedAny = true; });
+      const sp = STATE.starPos || {};   // stars L moved keep their place beside their circle
+      V.forEach(v => { const g = G[v.g], q = g && sp[g.tag] && sp[g.tag][posKey(v.key)]; if (!q || !isFinite(q.dx) || !isFinite(q.dy)) return; v.px = g.px + q.dx; v.py = g.py + q.dy; movedAny = true; });
       $("arrange").hidden = !movedAny;
     }
     const cadence = v => v.n === 1 ? "one charge" : `${v.n} times`;
@@ -1326,10 +1330,14 @@
       // under the finger: the one big circle when zoomed out, else a star (only inside an OPEN circle), else the circle it is in
       hit: (mx, my) => { if (mergeOf() > .5) return { all: true }; const i = hitAt(mx, my); if (i >= 0) return { star: i }; const gi = galaxyAt(mx, my); return gi >= 0 ? { galaxy: gi } : null; },
       // hold half a second on a circle = move it (L 2026-10-03 "hold, move the circles"); a touch held anywhere else = move the map
-      hold: (t, e) => t && t.galaxy != null ? "drag" : (e.pointerType === "touch" ? "pan" : null),
-      onDrag: (t, dx, dy) => { if (!t || t.galaxy == null) return; const g = G[t.galaxy], nx = Math.max(0, Math.min(1000, g.px + dx)), ny = Math.max(0, Math.min(1000, g.py + dy)), ax = nx - g.px, ay = ny - g.py;
+      hold: (t, e) => t && (t.galaxy != null || t.star != null) ? "drag" : (e.pointerType === "touch" ? "pan" : null),   // ... or on a star once its circle is open (L: "move the small circle when they become visible too")
+      onDrag: (t, dx, dy) => { if (!t) return;
+        if (t.star != null) { const v = V[t.star], e = Math.max(.3, ease(openOf(G[v.g]))); v.px += dx / e; v.py += dy / e; hideTip(); return; }   // a star follows the finger even while its circle is still opening
+        if (t.galaxy == null) return; const g = G[t.galaxy], nx = Math.max(0, Math.min(1000, g.px + dx)), ny = Math.max(0, Math.min(1000, g.py + dy)), ax = nx - g.px, ay = ny - g.py;
         g.px = nx; g.py = ny; g.ids.forEach(i => { V[i].px += ax; V[i].py += ay; }); hideTip(); },
-      onDragEnd: (t, moved) => { if (!t || t.galaxy == null || !moved) return; const g = G[t.galaxy]; STATE.galaxyPos ||= {}; STATE.galaxyPos[g.tag] = { x: Math.round(g.px), y: Math.round(g.py) }; saveToDB(); $("arrange").hidden = false; },
+      onDragEnd: (t, moved) => { if (!t || !moved) return;
+        if (t.star != null) { const v = V[t.star], g = G[v.g]; STATE.starPos ||= {}; (STATE.starPos[g.tag] ||= {})[posKey(v.key)] = { dx: Math.round(v.px - g.px), dy: Math.round(v.py - g.py) }; saveToDB(); $("arrange").hidden = false; return; }
+        if (t.galaxy == null) return; const g = G[t.galaxy]; STATE.galaxyPos ||= {}; STATE.galaxyPos[g.tag] = { x: Math.round(g.px), y: Math.round(g.py) }; saveToDB(); $("arrange").hidden = false; },
       onTap: (t, mx, my) => { const dot = dotAt(mx, my); if (dot) { tipAt(dot.x, dot.y, dotText(dot.row)); clearTimeout(tipTimer); tipTimer = setTimeout(hideTip, 2500); return; }
         if (!t) { if (focus) clearFocus(); } else if (t.all) flyTo(null); else if (t.star != null) show(t.star); else showGalaxy(t.galaxy); },
       onFit: () => { sky = null; } });   // the star field is drawn once per canvas size
@@ -1341,9 +1349,10 @@
     const mergeOf = () => { const z = base.s ? view.s / base.s : 1; return Math.max(0, Math.min(1, (0.9 - z) / 0.2)); };
     const openOf = g => { const d = view.dpr || 1, R = g.prad * view.s; return Math.max(0, Math.min(1, (R - 46 * d) / (34 * d))); };
     const starOn = (v, mg) => openOf(G[v.g]) * (1 - mg);
+    const ease = o => o * o * (3 - 2 * o), posKey = k => String(k || "").replace(/[.#$\[\]\/]/g, "_") || "_";   // smoothstep; a vendor key safe as a Firebase key
     function centroid() { let sx = 0, sy = 0, sw = 0; for (const g of G) { const w = g.prad * g.prad; sx += g.px * w; sy += g.py * w; sw += w; } return sw ? [sx / sw, sy / sw] : [500, 500]; }
     const GP = g => { const mg = mergeOf(); if (!mg) return [view.ox + g.px * view.s, view.oy + g.py * view.s]; const [cxw, cyw] = centroid(), e = mg * mg; return [view.ox + (g.px + (cxw - g.px) * e) * view.s, view.oy + (g.py + (cyw - g.py) * e) * view.s]; };
-    const P = v => { const g = G[v.g]; if (!g) return [view.ox + v.px * view.s, view.oy + v.py * view.s]; const o = openOf(g), [gx, gy] = GP(g), e = o * o * (3 - 2 * o); return [gx + (v.px - g.px) * view.s * e, gy + (v.py - g.py) * view.s * e]; };
+    const P = v => { const g = G[v.g]; if (!g) return [view.ox + v.px * view.s, view.oy + v.py * view.s]; const o = openOf(g), [gx, gy] = GP(g), e = ease(o); return [gx + (v.px - g.px) * view.s * e, gy + (v.py - g.py) * view.s * e]; };
     function makeSky() {
       sky = document.createElement("canvas"); sky.width = cv.width; sky.height = cv.height;
       const g = sky.getContext("2d"), rnd = (() => { let a = 7; return () => (a = (a * 16807) % 2147483647) / 2147483647; })();
@@ -1509,7 +1518,7 @@
     $("home").addEventListener("click", () => clearFocus(true));
     $("zin").addEventListener("click", () => cvw.zoomAt(cv.width / 2, cv.height / 2, 1.6));      // zoom buttons (L 2026-10-03)
     $("zout").addEventListener("click", () => cvw.zoomAt(cv.width / 2, cv.height / 2, 1 / 1.6));
-    $("arrange").addEventListener("click", () => { STATE.galaxyPos = {}; saveToDB(); layout(); draw(); });   // every circle back to the spiral (2026-10-03)
+    $("arrange").addEventListener("click", () => { STATE.galaxyPos = {}; STATE.starPos = {}; saveToDB(); layout(); draw(); });   // every circle and star back to the layout (2026-10-03)
     window.__gx = () => ({ G, V, view, base, STATE, openOf, mergeOf, GP, P });   // test hook
     // TIPS (L 2026-10-03 "mouse hover shows info on them"): hover a burst dot -> that charge (date, name, amount); hover a star
     // -> name, total, charges. On touch a tap on a dot shows the tip for 2.5 s. Canvas px -> CSS px for the overlay.
