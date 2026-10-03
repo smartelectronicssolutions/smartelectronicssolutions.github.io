@@ -32,10 +32,9 @@ export function initImageModule({ els, state, createEl, openModal }) {
 
                     ctx.drawImage(img, 0, 0, width, height);
 
-                    canvas.toBlob(
+                    canvas.toBlob(   // browser default quality - same as onlinejob's resizeImg (2026-10-03)
                         (blob) => blob ? resolve(blob) : reject("Resize failed"),
-                        "image/jpeg",
-                        0.9
+                        "image/jpeg"
                     );
                 };
 
@@ -61,41 +60,33 @@ export function initImageModule({ els, state, createEl, openModal }) {
                 img.onerror = () => reject("Invalid image.");
 
                 img.onload = () => {
-                    const barHeight = Math.max(80, img.width * 0.08);
+                    // SAME STRIP AS onlinejob's stampImg (L 2026-10-03: "the banner label is still different"):
+                    // strip = max(40, width/22), white Arial at 70% of the strip, shrunk to fit 92% of the width,
+                    // baseline a quarter-strip up. The 8%/black-bar look is gone so every app's photo matches.
+                    const strip = Math.max(40, Math.round(img.width / 22));
+                    let font = Math.round(strip * 0.7);
 
                     const canvas = document.createElement("canvas");
                     canvas.width = img.width;
-                    canvas.height = img.height + barHeight;
+                    canvas.height = img.height + strip;
 
                     const ctx = canvas.getContext("2d");
                     if (!ctx) return reject("Canvas context unavailable.");
 
-                    // Draw image
                     ctx.drawImage(img, 0, 0);
-
-                    // Black bar
-                    ctx.fillStyle = "black";
-                    ctx.fillRect(0, img.height, canvas.width, barHeight);
-
-                    // Dynamic font sizing
-                    let fontSize = Math.floor(canvas.width / 15);
-                    ctx.font = `${fontSize}px Arial`;
-                    ctx.textAlign = "center";
-                    ctx.textBaseline = "middle";
-
-                    // Shrink text if too wide
-                    while (ctx.measureText(text).width > canvas.width * 0.9 && fontSize > 10) {
-                        fontSize -= 2;
-                        ctx.font = `${fontSize}px Arial`;
-                    }
-
                     ctx.fillStyle = "white";
-                    ctx.fillText(text, canvas.width / 2, img.height + (barHeight / 2));
+                    ctx.textAlign = "center";
+                    ctx.textBaseline = "alphabetic";
+                    ctx.font = `${font}px Arial`;
+                    while (font > 12 && ctx.measureText(text).width > canvas.width * 0.92) {
+                        font -= 2;
+                        ctx.font = `${font}px Arial`;
+                    }
+                    ctx.fillText(text, canvas.width / 2, canvas.height - Math.round(strip * 0.25));
 
                     canvas.toBlob(
                         (outputBlob) => outputBlob ? resolve(outputBlob) : reject("Markup failed"),
-                        "image/jpeg",
-                        0.95
+                        "image/jpeg"
                     );
                 };
 

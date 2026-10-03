@@ -9,7 +9,7 @@
 // /MDF, /IDF1..IDF6 (site photos). History: floor map, photos/add/run complete, wiring view, IDF photos (all 2026-10-02).
 import { onAuthStateChanged } from "../../../assets/js/firebase-init.js";
 import { auth, HUBS, hubLabel, esc, fmtFt, clean, loadJob, sensorRows, patchSensor, listSites, listPhotos, photoUrl,
-  sensorMarkOf, photoPrefix, uploadSensorPhoto, uploadHubPhoto, tablesFor, zoneOf, idfOf, loadFloorPlan, saveHubPos } from "./telaid-data.js?v=1002x";
+  sensorMarkOf, photoPrefix, uploadSensorPhoto, uploadHubPhoto, tablesFor, zoneOf, idfOf, loadFloorPlan, saveHubPos } from "./telaid-data.js?v=1002z";
 
 const CSS = `.rmap .app-shell { max-width: 1100px; margin: auto; padding: 12px; display: grid; gap: 12px; }
 .rmap .card { background: var(--cardBackground); border: 1px solid var(--borderColor); border-radius: 12px; padding: 12px; box-shadow: var(--cardShadow); }

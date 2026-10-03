@@ -108,19 +108,23 @@ export function sensorMarkOf(name, task) {
 export const listPhotos = async (owner, task, sub) => (await listAll(storageRef(storage, imagesDir(owner, task, sub)))).items;
 export const photoUrl = item => getDownloadURL(item);
 
+// PHOTO RULES = onlinejob.html's resizeImg / stampImg (L 2026-10-03: "the banner label is still different, is it resizing
+// everything the same, based on onlinejob?"). Resize: cap the width at 2048, JPEG at the browser's default quality.
+// Stamp: a strip max(40 px, width/22) under the image, white Arial at 70% of the strip, shrunk until it fits 92% of the
+// width, baseline a quarter-strip up from the bottom. Same numbers as the jobs app, so every photo looks the same.
 export function resizeImage(file, maxW = 2048) { return new Promise((res, rej) => { const img = new Image(), u = URL.createObjectURL(file);
-  img.onload = () => { let w = img.width, h = img.height; if (w > maxW) { h *= maxW / w; w = maxW; }
+  img.onload = () => { let w = img.width, h = img.height; if (w > maxW) { h = h * maxW / w; w = maxW; }
     const c = document.createElement("canvas"); c.width = w; c.height = h; c.getContext("2d").drawImage(img, 0, 0, w, h);
-    URL.revokeObjectURL(u); c.toBlob(b => b ? res(b) : rej("Resize failed"), "image/jpeg", 0.9); };
+    URL.revokeObjectURL(u); c.toBlob(b => b ? res(b) : rej("Resize failed"), "image/jpeg"); };
   img.onerror = () => rej("Invalid image."); img.src = u; }); }
-/** the black label bar along the bottom - same as radar-tools / imageModule addTextToImage */
+/** the label strip along the bottom - onlinejob's stampImg */
 export function addLabelBar(blob, text) { return new Promise((res, rej) => { const img = new Image(), u = URL.createObjectURL(blob);
-  img.onload = () => { const bar = Math.max(80, img.width * 0.08), c = document.createElement("canvas"); c.width = img.width; c.height = img.height + bar;
-    const g = c.getContext("2d"); g.drawImage(img, 0, 0); g.fillStyle = "black"; g.fillRect(0, img.height, c.width, bar);
-    let fs = Math.floor(c.width / 15); g.font = `${fs}px Arial`; g.textAlign = "center"; g.textBaseline = "middle";
-    while (g.measureText(text).width > c.width * 0.9 && fs > 10) { fs -= 2; g.font = `${fs}px Arial`; }
-    g.fillStyle = "white"; g.fillText(text, c.width / 2, img.height + bar / 2);
-    URL.revokeObjectURL(u); c.toBlob(b => b ? res(b) : rej("Markup failed"), "image/jpeg", 0.95); };
+  img.onload = () => { const strip = Math.max(40, Math.round(img.width / 22)); let font = Math.round(strip * 0.7);
+    const c = document.createElement("canvas"); c.width = img.width; c.height = img.height + strip; const g = c.getContext("2d"); g.drawImage(img, 0, 0);
+    g.fillStyle = "white"; g.textAlign = "center"; g.textBaseline = "alphabetic"; g.font = `${font}px Arial`;
+    while (font > 12 && g.measureText(text).width > c.width * 0.92) { font -= 2; g.font = `${font}px Arial`; }
+    g.fillText(text, c.width / 2, c.height - Math.round(strip * 0.25));
+    URL.revokeObjectURL(u); c.toBlob(b => b ? res(b) : rej("Markup failed"), "image/jpeg"); };
   img.onerror = () => rej("Invalid image."); img.src = u; }); }
 export async function uniqueName(dir, name) {
   const dot = name.lastIndexOf("."), b = name.slice(0, dot), ext = name.slice(dot); let n = 0;
