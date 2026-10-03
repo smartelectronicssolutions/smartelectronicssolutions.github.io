@@ -1,0 +1,347 @@
+<!doctype html>
+<!-- MONEY GALAXY (2026-10-02, L: "can something like this be made for ... my financials" -> "do the next one"):
+     the personal ledger drawn the way the Louverse code map is drawn. Each spending category (taxonomy.js parent
+     tag) is a galaxy; each vendor is a star sized by what went there; a ring of month beads sits at the core and
+     recurring vendors (3+ charges) link to the months they charged, so subscription creep reads as dense spokes.
+     READ-ONLY: one get() of {uid}/money/ledger (all years), nothing written. House style (online.css, auth.js,
+     firebase-init shim, BASE_PATH = uid | public). Script stays inline per the no-splits rule. -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Money Galaxy</title>
+  <link rel="stylesheet" href="../assets/css/online.css" />
+  <link rel="icon" href="../../favicon.ico" />
+  <script>(function () { const t = localStorage.getItem("ss-theme"); if (t === "light") document.documentElement.classList.add("light"); })();</script>
+  <script type="module" src="../assets/js/auth.js"></script>
+  <style>
+    .app-shell { max-width: 1100px; margin: auto; padding: 12px; display: grid; gap: 10px; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .muted { color: var(--muted); font-size: .9rem; }
+    .chips button, .row > button { width: auto; margin: 0; font-size: .9rem; line-height: 1.2; padding: 6px 12px; border-radius: 999px;
+      border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; }
+    .chips button.on, .row > button.on { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+    #find { width: 12em; margin: 0; font-size: 1rem; padding: 6px 10px; }
+    .stats { display: flex; flex-wrap: wrap; gap: 6px 18px; font-variant-numeric: tabular-nums; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+    .stats b { color: var(--text); }
+    .mapwrap { position: relative; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); background: var(--bg); }
+    #map { display: block; width: 100%; height: min(72vh, 700px); touch-action: none; cursor: grab; }
+    .tools { position: absolute; top: 8px; right: 8px; display: flex; gap: 6px; }
+    .tools button { width: auto; margin: 0; padding: 6px 10px; font-size: .78rem; font-weight: 600; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; }
+    .legend { display: flex; flex-wrap: wrap; gap: 6px; }
+    .legend button { width: auto; margin: 0; display: inline-flex; align-items: center; gap: 6px; font-size: .85rem; padding: 5px 10px; border-radius: 999px;
+      border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; font-variant-numeric: tabular-nums; }
+    .legend button i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    .legend button .n { color: var(--muted); }
+    #info { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; min-height: 3em; }
+    #info .mk { font-size: 1.6rem; font-weight: 800; color: var(--accent); line-height: 1.1; }
+    #info .sub { color: var(--muted); margin: 2px 0 8px; }
+    #info .kv { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; font-size: .95rem; font-variant-numeric: tabular-nums; }
+    #info .kv b { color: var(--muted); font-weight: 600; }
+    #info .tx { margin-top: 10px; display: grid; gap: 3px; font-size: .9rem; font-variant-numeric: tabular-nums; }
+    #info .tx div { display: grid; grid-template-columns: 6em 1fr 5.5em; gap: 8px; }
+    #info .tx div span:last-child { text-align: right; }
+    #info .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .hint { font-size: .85rem; color: var(--muted); }
+    @media (max-width: 560px) { #find { width: 100%; } }
+  </style>
+</head>
+<body>
+  <header style="position:relative;">
+    <div class="logo-box"><a href="../../index.html"><img src="../../assets/img/android-chrome-192x192.png" alt="Luis Solutions"></a></div>
+    <h1>Money Galaxy</h1>
+    <div class="auth-bar"><span id="auth-label">Not signed in</span><button id="auth-btn">Sign In</button></div>
+    <button id="theme-toggle" title="Toggle theme">☀️</button>
+    <script>(function () { const btn = document.getElementById("theme-toggle"), html = document.documentElement;
+      btn.textContent = html.classList.contains("light") ? "🌙" : "☀️";
+      btn.addEventListener("click", function () { const next = html.classList.contains("light") ? "dark" : "light";
+        html.classList.toggle("light", next === "light"); localStorage.setItem("ss-theme", next); btn.textContent = next === "light" ? "🌙" : "☀️"; }); })();</script>
+    <div id="login-inline"><h3>Sign In</h3><input type="email" id="email-in" placeholder="Email" /><input type="password" id="pass-in" placeholder="Password" /><button id="do-login">Sign In</button><p id="auth-err"></p></div>
+  </header>
+
+  <main>
+    <div class="app-shell">
+      <div class="muted" id="source">Sign in to see your ledger.</div>
+      <div class="row chips" id="win">
+        <button data-w="ytd" class="on">This year</button><button data-w="12m">Last 12 months</button><button data-w="2025">2025</button><button data-w="2024">2024</button><button data-w="all">All</button>
+        <span style="flex:1"></span>
+        <button id="kind" data-k="expense" class="on">Spending</button>
+        <input id="find" type="search" placeholder="Find a vendor" autocomplete="off" />
+      </div>
+      <div class="stats" id="stats"></div>
+      <div class="mapwrap"><canvas id="map" aria-label="Your spending drawn as a galaxy"></canvas>
+        <div class="tools"><button id="home" type="button">&#10530; Whole galaxy</button></div></div>
+      <div class="legend" id="legend"></div>
+      <div class="hint">Pinch or scroll to zoom · drag (or two fingers, middle button, shift-drag) to move · tap a star · keep zooming and each star shows its numbers · ⤢ to see everything. A star's size is how much went there; lines run from recurring vendors to the months they charged.</div>
+      <div id="info"><span class="muted">Tap a star, or a category below.</span></div>
+    </div>
+  </main>
+
+  <script type="module">
+    import { auth, database, ref, get, onAuthStateChanged } from "../assets/js/firebase-init.js";
+    import { SPENDING_TAGS, parentTag, tagLabel, normTag, INV_TAG } from "../assets/js/taxonomy.js";
+
+    let BASE_PATH = "public";
+    const NODE = "money/ledger";                       // read-only here
+    const $ = id => document.getElementById(id);
+    const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    const money = v => (v < 0 ? "-" : "") + "$" + Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const money0 = v => "$" + Math.round(v).toLocaleString();
+    const tok = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+    const isLight = () => document.documentElement.classList.contains("light");
+
+    // ---- the ledger: {year: {id: {amt, name, type, date (ms | "YYYY-MM-DD"), tags[], sub, cat, desc}}} ----
+    let ROWS = [];                 // every row with a parsed date, across all years
+    let win = "ytd", kind = "expense";
+    const parseDate = d => { if (d == null) return null; const n = Number(d); if (Number.isFinite(n) && n > 1e11) return new Date(n);
+      const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], 12)) : null; };
+    async function load() {
+      $("source").textContent = "Loading your ledger…";
+      let data = null;
+      try { data = (await get(ref(database, `${BASE_PATH}/${NODE}`))).val(); } catch (e) { $("source").textContent = "Couldn't read the ledger: " + (e.code || e.message || e); return; }
+      ROWS = [];
+      for (const [year, rows] of Object.entries(data || {})) for (const [id, r] of Object.entries(rows || {})) {
+        if (!r || typeof r !== "object") continue; const dt = parseDate(r.date); if (!dt) continue;
+        ROWS.push({ id, year, dt, amt: Number(r.amt) || 0, name: String(r.name || "").trim(), type: r.type === "income" ? "income" : "expense",
+          tags: Array.isArray(r.tags) ? r.tags.map(normTag) : [], sub: r.sub || "", desc: r.desc || "" });
+      }
+      if (!ROWS.length) { $("source").textContent = BASE_PATH === "public" ? "Sign in to see your ledger." : "No ledger rows found."; return; }
+      build();
+    }
+
+    // ---- vendors + galaxies for the chosen window ----
+    const EMOJI = /[\p{Extended_Pictographic}️‍]/gu;
+    const vendorKey = n => n.replace(EMOJI, "").replace(/#\s*\d+|\b\d{3,}\b/g, "").replace(/[^\p{L}\p{N}' &.-]+/gu, " ").replace(/\s+/g, " ").trim().toLowerCase();
+    const MONTH = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const mkey = dt => dt.getUTCFullYear() * 12 + dt.getUTCMonth();
+    const mlabel = k => MONTH[k % 12] + (k % 12 === 0 || true ? " '" + String(Math.floor(k / 12)).slice(2) : "");
+    let V = [], G = [], MONTHS = [], TOTAL = 0, sel = -1, selG = -1, HL = new Set(), focus = null;
+    function inWindow(r) {
+      const now = new Date(), y = now.getUTCFullYear();
+      if (win === "ytd") return r.dt.getUTCFullYear() === y;
+      if (win === "12m") { const a = new Date(Date.UTC(y, now.getUTCMonth() - 11, 1)); return r.dt >= a; }
+      if (win === "all") return true;
+      return r.dt.getUTCFullYear() === Number(win);
+    }
+    function build() {
+      const rows = ROWS.filter(r => r.type === kind && inWindow(r) && r.amt > 0);
+      const byV = new Map();
+      for (const r of rows) {
+        const k = vendorKey(r.name) || "(no name)"; let v = byV.get(k);
+        if (!v) { v = { key: k, names: new Map(), total: 0, n: 0, rows: [], tags: new Map() }; byV.set(k, v); }
+        v.total += r.amt; v.n++; v.rows.push(r); v.names.set(r.name, (v.names.get(r.name) || 0) + 1);
+        const t = r.tags.map(parentTag).find(t => t && t.toLowerCase() !== INV_TAG) || "❓"; v.tags.set(t, (v.tags.get(t) || 0) + r.amt);
+      }
+      V = [...byV.values()].map(v => { v.name = [...v.names.entries()].sort((a, b) => b[1] - a[1])[0][0].replace(EMOJI, "").trim() || v.key;
+        v.tag = [...v.tags.entries()].sort((a, b) => b[1] - a[1])[0][0]; v.rows.sort((a, b) => a.dt - b.dt);
+        const ks = v.rows.map(r => mkey(r.dt)); v.months = [...new Set(ks)];
+        const gaps = []; for (let i = 1; i < v.rows.length; i++) gaps.push((v.rows[i].dt - v.rows[i - 1].dt) / 864e5);
+        gaps.sort((a, b) => a - b); v.gap = gaps.length ? gaps[Math.floor(gaps.length / 2)] : 0;
+        v.recurring = v.n >= 3 && v.months.length >= 3 && v.gap >= 20 && v.gap <= 45; return v; });
+      V.sort((a, b) => b.total - a.total);
+      TOTAL = V.reduce((s, v) => s + v.total, 0);
+      // galaxies = parent tags, biggest first
+      const byG = new Map(); V.forEach((v, i) => { const g = byG.get(v.tag) || { tag: v.tag, total: 0, ids: [] }; g.total += v.total; g.ids.push(i); byG.set(v.tag, g); });
+      G = [...byG.values()].sort((a, b) => b.total - a.total); G.forEach((g, gi) => g.ids.forEach(i => { V[i].g = gi; }));
+      MONTHS = [...new Set(rows.map(r => mkey(r.dt)))].sort((a, b) => a - b);
+      layout(); renderStats(); renderLegend(); sel = -1; selG = -1; focus = null; HL = new Set();
+      $("info").innerHTML = '<span class="muted">Tap a star, or a category below.</span>';
+      $("source").textContent = `${kind === "expense" ? "Spending" : "Income"} · ${rows.length} entries · ${V.length} ${kind === "expense" ? "vendors" : "sources"} · ${G.length} galaxies`;
+      fit();
+    }
+    // GALAXY LAYOUT (same idea as the Louverse): the biggest category sits at the core, the rest walk out along 4
+    // spiral arms until they clear the previous one; inside a galaxy the vendors sit on a sunflower spiral, big ones
+    // near the middle. Month beads ring the core. Everything is scaled to 0..1000.
+    function layout() {
+      const B_SP = 0.30, ARMS = 4, GAP = 0.004;
+      const grad = g => 0.02 * Math.sqrt(g.ids.length) + 0.012 + 0.03 * Math.sqrt(g.total / (TOTAL || 1));
+      // placed circles: [x, y, r]. The core galaxy + the month ring count as one big circle at the origin, and every
+      // later galaxy walks out its arm until it clears EVERY placed circle (not just the last one on its arm).
+      const mr = Math.max(0.03, (G[0] ? grad(G[0]) : 0.03) + 0.05);   // month ring just outside the core galaxy
+      const placed = [[0, 0, mr + 0.01]], centers = [], armR = Array(ARMS).fill(mr + 0.03);
+      G.forEach((g, k) => { const rr = grad(g);
+        if (k === 0) { centers.push([0, 0]); return; }
+        const arm = (k - 1) % ARMS; let r = armR[arm], x, y;
+        for (;;) { const th = Math.log(Math.max(r, 1e-4) / 0.02) / B_SP + arm * 2 * Math.PI / ARMS; x = r * Math.cos(th); y = r * Math.sin(th);
+          if (placed.every(([px, py, pr]) => Math.hypot(x - px, y - py) >= pr + rr + GAP)) break; r += 0.002; }
+        centers.push([x, y]); armR[arm] = r; placed.push([x, y, rr]); });
+      G.forEach((g, k) => { const [cx0, cy0] = centers[k], rr = grad(g), n = g.ids.length;
+        g.cx = cx0; g.cy = cy0; g.r = rr;
+        g.ids.forEach((i, j) => { const a = j * 2.399963, d = rr * Math.sqrt((j + 0.5) / n) * 0.92; V[i].x = cx0 + d * Math.cos(a); V[i].y = cy0 + d * Math.sin(a); }); });
+      const xs = V.map(v => v.x).concat(MONTHS.map((_, j) => mr * Math.cos(j))), ys = V.map(v => v.y).concat(MONTHS.map((_, j) => mr * Math.sin(j)));
+      const x0 = Math.min(...xs, -mr), x1 = Math.max(...xs, mr), y0 = Math.min(...ys, -mr), y1 = Math.max(...ys, mr), span = Math.max(x1 - x0, y1 - y0) || 1;
+      const S = (x, y) => [(x - (x0 + x1) / 2) / span * 1000 + 500, (y - (y0 + y1) / 2) / span * 1000 + 500];
+      V.forEach(v => { [v.px, v.py] = S(v.x, v.y); v.rad = 1.2 + 6 * Math.sqrt(v.total / (V[0] ? V[0].total : 1)); });
+      G.forEach(g => { [g.px, g.py] = S(g.cx, g.cy); g.prad = g.r / span * 1000; });
+      MONTHS.forEach((k, j) => { const a = -Math.PI / 2 + j / MONTHS.length * 2 * Math.PI; });
+      MB = MONTHS.map((k, j) => { const a = -Math.PI / 2 + j / MONTHS.length * 2 * Math.PI; const [x, y] = S(mr * Math.cos(a), mr * Math.sin(a)); return { k, x, y, label: mlabel(k) }; });
+    }
+    let MB = [];
+    const HUE = {}; SPENDING_TAGS.forEach((t, i) => { HUE[t.tag] = Math.round(i * 360 / SPENDING_TAGS.length + 20); });
+    const hueOf = tag => HUE[tag] ?? 0;
+    const col = (tag, a) => tag === "❓" ? `rgba(170,180,200,${a})` : `hsla(${hueOf(tag)},80%,${isLight() ? 42 : 66}%,${a})`;
+    const cadence = v => !v.n ? "" : v.n === 1 ? "one charge" : v.recurring ? `about every ${Math.round(v.gap)} days · ${v.n} times` : `${v.n} times · ${v.months.length} month${v.months.length > 1 ? "s" : ""}`;
+
+    function renderStats() {
+      const rec = V.filter(v => v.recurring), recTotal = rec.reduce((s, v) => s + v.total, 0), top = G[0];
+      $("stats").innerHTML = `<span><b>${money0(TOTAL)}</b> ${kind === "expense" ? "spent" : "in"}</span><span><b>${V.length}</b> ${kind === "expense" ? "vendors" : "sources"}</span>
+        <span><b>${rec.length}</b> recurring (${money0(recTotal)}, ${TOTAL ? Math.round(recTotal / TOTAL * 100) : 0}%)</span>${top ? `<span>biggest: <b>${esc(top.tag)} ${esc(tagLabel(top.tag) || "untagged")}</b> ${money0(top.total)}</span>` : ""}`;
+    }
+    function renderLegend() {
+      $("legend").innerHTML = G.map((g, gi) => `<button type="button" data-g="${gi}"><i style="background:${col(g.tag, .95)}"></i>${esc(g.tag)} ${esc(tagLabel(g.tag) || (g.tag === "❓" ? "untagged" : ""))} <span class="n">${money0(g.total)}</span></button>`).join("");
+    }
+
+    // ---- drawing (ported from the Louverse code map) ----
+    const cv = $("map"), cx = cv.getContext("2d");
+    let view = { s: 1, ox: 0, oy: 0, dpr: 1 }, base = null, sky = null;
+    function fit() {
+      const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+      cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
+      const pad = 14 * dpr, s = Math.min((cv.width - 2 * pad) / 1000, (cv.height - 2 * pad) / 1000);
+      view = { s, ox: (cv.width - 1000 * s) / 2, oy: (cv.height - 1000 * s) / 2, dpr }; base = Object.assign({}, view); sky = null; draw();
+    }
+    const P = v => [view.ox + v.px * view.s, view.oy + v.py * view.s];
+    function makeSky() {
+      sky = document.createElement("canvas"); sky.width = cv.width; sky.height = cv.height;
+      const g = sky.getContext("2d"), rnd = (() => { let a = 7; return () => (a = (a * 16807) % 2147483647) / 2147483647; })();
+      g.fillStyle = tok("--bg") || "#05060d"; g.fillRect(0, 0, sky.width, sky.height);
+      const light = isLight(); for (let k = 0; k < 700; k++) { const r = rnd() * 1.1 * (view.dpr || 1);
+        g.fillStyle = light ? `rgba(60,70,110,${0.08 + rnd() * 0.25})` : `rgba(200,210,255,${0.15 + rnd() * 0.45})`; g.beginPath(); g.arc(rnd() * sky.width, rnd() * sky.height, r, 0, 6.283); g.fill(); }
+    }
+    function wrap(text, maxW, maxLines) {
+      const words = String(text || "").split(/\s+/), lines = []; let cur = "";
+      for (const w of words) { const t = cur ? cur + " " + w : w; if (cx.measureText(t).width > maxW && cur) { lines.push(cur); cur = w; if (lines.length === maxLines) break; } else cur = t; }
+      if (lines.length < maxLines && cur) lines.push(cur); return lines;
+    }
+    function draw() {
+      if (!cv.width) return;
+      if (!sky || sky.width !== cv.width || sky.height !== cv.height) makeSky();
+      const dpr = view.dpr || 1, zoom = base ? view.s / base.s : 1, light = isLight(), ink = tok("--text") || "#e8ecff", mut = tok("--muted") || "#9aa3b2";
+      cx.drawImage(sky, 0, 0);
+      if (!V.length) return;
+      const F = focus;
+      // galaxy glows
+      for (const g of G) { const [x, y] = [view.ox + g.px * view.s, view.oy + g.py * view.s], R = Math.max(12 * dpr, g.prad * view.s * 1.25);
+        const gr = cx.createRadialGradient(x, y, 0, x, y, R); gr.addColorStop(0, col(g.tag, light ? .14 : .16)); gr.addColorStop(1, col(g.tag, 0));
+        cx.fillStyle = gr; cx.beginPath(); cx.arc(x, y, R, 0, 6.283); cx.fill(); }
+      // month beads + the recurring links
+      const beadR = Math.max(3, Math.min(9, 2.2 * Math.sqrt(zoom))) * dpr, beadPos = MB.map(b => [view.ox + b.x * view.s, view.oy + b.y * view.s]);
+      cx.lineWidth = 0.7 * dpr; cx.strokeStyle = light ? "rgba(60,70,110,.14)" : "rgba(150,170,255,.13)"; cx.beginPath();
+      V.forEach((v, i) => { if (!v.recurring || i === sel) return; const [x, y] = P(v); for (const k of v.months) { const j = MONTHS.indexOf(k); if (j < 0) continue; cx.moveTo(x, y); cx.lineTo(beadPos[j][0], beadPos[j][1]); } });
+      cx.stroke();
+      if (sel >= 0) { const v = V[sel], [x, y] = P(v); cx.lineWidth = 1.6 * dpr; cx.strokeStyle = "rgba(255,207,122,.9)"; cx.beginPath();
+        for (const k of v.months) { const j = MONTHS.indexOf(k); if (j < 0) continue; cx.moveTo(x, y); cx.lineTo(beadPos[j][0], beadPos[j][1]); } cx.stroke(); }
+      MB.forEach((b, j) => { const [x, y] = beadPos[j]; cx.fillStyle = light ? "rgba(60,70,110,.75)" : "rgba(220,228,255,.75)"; cx.beginPath(); cx.arc(x, y, beadR, 0, 6.283); cx.fill();
+        if (zoom >= 1.6 || MONTHS.length <= 12) { cx.font = `600 ${10 * dpr}px system-ui, sans-serif`; cx.fillStyle = mut; cx.textAlign = "center"; cx.fillText(b.label, x, y - beadR - 4 * dpr); cx.textAlign = "start"; } });
+      // stars
+      const BR = 3.2 * view.s; if (BR > 30 * dpr) { drawBubbles(dpr, zoom); return; }
+      cx.globalCompositeOperation = light ? "source-over" : "lighter";
+      V.forEach((v, i) => { const [x, y] = P(v); if (x < -20 || y < -20 || x > cv.width + 20 || y > cv.height + 20) return;
+        const on = !F || F.has(i), r = Math.min(26, v.rad * Math.sqrt(zoom)) * dpr;
+        cx.fillStyle = col(v.tag, on ? (light ? .10 : .07) : .02); cx.beginPath(); cx.arc(x, y, r * 2.6, 0, 6.283); cx.fill(); });
+      cx.globalCompositeOperation = "source-over";
+      V.forEach((v, i) => { const [x, y] = P(v); if (x < -20 || y < -20 || x > cv.width + 20 || y > cv.height + 20) return;
+        const on = !F || F.has(i), r = Math.min(26, v.rad * Math.sqrt(zoom)) * dpr;
+        cx.fillStyle = col(v.tag, on ? .92 : .15); cx.beginPath(); cx.arc(x, y, r, 0, 6.283); cx.fill();
+        if (v.recurring) { cx.strokeStyle = col(v.tag, on ? .7 : .15); cx.lineWidth = 1 * dpr; cx.beginPath(); cx.arc(x, y, r + 3 * dpr, 0, 6.283); cx.stroke(); }
+        if (HL.has(i)) { cx.strokeStyle = "#facc15"; cx.lineWidth = 2.5 * dpr; cx.beginPath(); cx.arc(x, y, r + 5 * dpr, 0, 6.283); cx.stroke(); } });
+      // names: galaxies when zoomed out, the bigger vendors when in
+      cx.textAlign = "center";
+      if (zoom < 3) G.forEach((g, k) => { if (k > 9 && zoom < 1.5) return; const [x, y] = [view.ox + g.px * view.s, view.oy + g.py * view.s];
+        cx.font = `600 ${(k < 3 ? 13 : 11) * dpr}px system-ui, sans-serif`; cx.fillStyle = light ? "rgba(30,36,60,.7)" : "rgba(232,236,255,.6)";
+        cx.fillText(`${g.tag} ${tagLabel(g.tag) || (g.tag === "❓" ? "untagged" : "")}`, x, y - (g.prad * view.s + 10 * dpr)); });
+      cx.textAlign = "start";
+      if (zoom >= 3) { cx.font = `${11 * dpr}px system-ui, sans-serif`; cx.fillStyle = light ? "rgba(30,36,60,.8)" : "rgba(220,228,255,.75)"; let shown = 0;
+        for (let i = 0; i < V.length && shown < 220; i++) { const v = V[i], [x, y] = P(v); if (x > 0 && y > 0 && x < cv.width - 40 * dpr && y < cv.height && (zoom >= 6 || v.rad > 2.2)) { cx.fillText(v.name, x + v.rad * dpr + 5 * dpr, y + 4 * dpr); shown++; } } }
+      if (sel >= 0) { const v = V[sel], [x, y] = P(v); cx.strokeStyle = "#ffcf7a"; cx.lineWidth = 2.5 * dpr; cx.beginPath(); cx.arc(x, y, Math.min(26, v.rad * Math.sqrt(zoom)) * dpr + 6 * dpr, 0, 6.283); cx.stroke();
+        cx.font = `700 ${13 * dpr}px system-ui, sans-serif`; cx.fillStyle = light ? "#5a3d00" : "#fff4dc"; const lbl = `${v.name} · ${money0(v.total)}`, w = cx.measureText(lbl).width;
+        cx.fillText(lbl, Math.min(Math.max(4 * dpr, x - w / 2), cv.width - w - 4 * dpr), y > 40 * dpr ? y - 22 * dpr : y + 32 * dpr); }
+    }
+    function drawBubbles(dpr, zoom) {   // deep zoom: every star becomes a circle with its numbers inside
+      const R = Math.min(3.2 * view.s, 150 * dpr), light = isLight(), F = focus;
+      V.forEach((v, i) => { const [x, y] = P(v); if (x < -R || y < -R || x > cv.width + R || y > cv.height + R) return;
+        const on = !F || F.has(i), rr = R * (0.55 + 0.45 * Math.min(1, v.rad / 7)); cx.globalAlpha = on ? 1 : .25;
+        const g = cx.createRadialGradient(x, y - rr * .3, rr * .1, x, y, rr); g.addColorStop(0, col(v.tag, .32)); g.addColorStop(1, col(v.tag, .10));
+        cx.fillStyle = g; cx.beginPath(); cx.arc(x, y, rr, 0, 6.283); cx.fill();
+        cx.lineWidth = (i === sel ? 3 : v.recurring ? 2 : 1.2) * dpr; cx.strokeStyle = i === sel ? "#ffcf7a" : col(v.tag, .85); if (v.recurring) cx.setLineDash([6 * dpr, 4 * dpr]); cx.stroke(); cx.setLineDash([]);
+        const nameSize = Math.max(10, Math.min(15, rr / dpr / 6)) * dpr, body = Math.max(9, Math.min(13, rr / dpr / 7.5)) * dpr;
+        cx.textAlign = "center"; cx.fillStyle = light ? "#141a2e" : "#ffffff"; cx.font = `700 ${nameSize}px system-ui, sans-serif`;
+        const nm = wrap(v.name, rr * 1.6, 1)[0] || v.name; cx.fillText(nm, x, y - body * .6);
+        cx.font = `400 ${body}px system-ui, sans-serif`; cx.fillStyle = light ? "rgba(20,26,46,.85)" : "rgba(232,236,255,.88)";
+        cx.fillText(money0(v.total), x, y + body * .9);
+        if (rr > 55 * dpr) cx.fillText(cadence(v), x, y + body * 2.2);
+        if (rr > 85 * dpr) { cx.fillStyle = light ? "rgba(20,26,46,.6)" : "rgba(200,210,255,.6)"; cx.fillText(`last ${v.rows[v.rows.length - 1].dt.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" })} · ${money(v.rows[v.rows.length - 1].amt)}`, x, y + body * 3.5); }
+        cx.textAlign = "start"; cx.globalAlpha = 1; });
+    }
+
+    // ---- cards ----
+    function show(i) {
+      sel = i; selG = -1; const v = V[i]; focus = new Set(G[v.g].ids);
+      const last = v.rows.slice(-8).reverse();
+      $("info").innerHTML = `<div class="mk">${esc(v.name)}</div><div class="sub">${esc(v.tag)} ${esc(tagLabel(v.tag) || "untagged")}${v.recurring ? " · recurring" : ""}</div>
+        <div class="kv"><b>Total</b><span>${money(v.total)} (${TOTAL ? (v.total / TOTAL * 100).toFixed(1) : 0}% of ${kind === "expense" ? "spending" : "income"})</span>
+        <b>Charges</b><span>${cadence(v)}</span><b>Average</b><span>${money(v.total / v.n)}</span>
+        <b>First / last</b><span>${v.rows[0].dt.toLocaleDateString(undefined, { timeZone: "UTC" })} → ${v.rows[v.rows.length - 1].dt.toLocaleDateString(undefined, { timeZone: "UTC" })}</span></div>
+        <div class="tx">${last.map(r => `<div><span>${r.dt.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "2-digit", timeZone: "UTC" })}</span><span>${esc(r.name)}${r.sub ? " · " + esc(r.sub) : ""}</span><span>${money(r.amt)}</span></div>`).join("")}${v.rows.length > 8 ? `<div class="muted">+${v.rows.length - 8} more</div>` : ""}</div>`;
+      flyTo([v], Math.max(view.s, base.s * 3));
+    }
+    function showGalaxy(gi) {
+      selG = gi; sel = -1; const g = G[gi]; focus = new Set(g.ids);
+      const top = g.ids.slice(0, 10);
+      $("info").innerHTML = `<div class="mk">${esc(g.tag)} ${esc(tagLabel(g.tag) || "untagged")}</div><div class="sub">${g.ids.length} ${kind === "expense" ? "vendors" : "sources"}</div>
+        <div class="kv"><b>Total</b><span>${money(g.total)} (${TOTAL ? (g.total / TOTAL * 100).toFixed(1) : 0}%)</span><b>Recurring</b><span>${g.ids.filter(i => V[i].recurring).length}</span></div>
+        <div class="chips">${top.map(i => `<button type="button" data-v="${i}"><i style="background:${col(V[i].tag, .95)};width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px"></i>${esc(V[i].name)} <span class="n">${money0(V[i].total)}</span></button>`).join("")}</div>`;
+      flyTo(g.ids.map(i => V[i]), base.s * 1.2);
+    }
+    let anim = 0;
+    function flyTo(items, minS) {
+      if (!base) return; let target = Object.assign({}, base);
+      if (items && items.length) { const xs = items.map(v => v.px), ys = items.map(v => v.py), pad = 60 * view.dpr;
+        const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+        const sw = (cv.width - 2 * pad) / Math.max(30, x1 - x0), sh = (cv.height - 2 * pad) / Math.max(30, y1 - y0);
+        const s = items.length === 1 ? minS : Math.max(minS || base.s, Math.min(base.s * 8, sw, sh));
+        target = { s, dpr: view.dpr, ox: cv.width / 2 - (x0 + x1) / 2 * s, oy: cv.height / 2 - (y0 + y1) / 2 * s }; }
+      const from = Object.assign({}, view), t0 = performance.now(), dur = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 450, id = ++anim;
+      const step = now => { if (id !== anim) return; const k = dur ? Math.min(1, (now - t0) / dur) : 1, e = 1 - Math.pow(1 - k, 3);
+        view.s = from.s + (target.s - from.s) * e; view.ox = from.ox + (target.ox - from.ox) * e; view.oy = from.oy + (target.oy - from.oy) * e; draw(); if (k < 1) requestAnimationFrame(step); };
+      requestAnimationFrame(step);
+    }
+    function clearFocus(fly) { focus = null; sel = -1; selG = -1; $("info").innerHTML = '<span class="muted">Tap a star, or a category below.</span>'; if (fly) flyTo(null); else draw(); }
+
+    // ---- zoom / pan / tap (Louverse rules: two fingers, middle button or shift-drag always move the map) ----
+    let drag = null, pinch = null, moved = false, mid = null; const ptr = new Map();
+    function zoomAt(px, py, f) { if (!base) return; const ns = Math.max(base.s * 0.8, Math.min(base.s * 160, view.s * f)); f = ns / view.s;
+      view.ox = px - (px - view.ox) * f; view.oy = py - (py - view.oy) * f; view.s = ns; draw(); }
+    const toC = e => { const r = cv.getBoundingClientRect(), d = view.dpr || 1; return [(e.clientX - r.left) * d, (e.clientY - r.top) * d]; };
+    function hitAt(mx, my) { const dpr = view.dpr || 1, zoom = base ? view.s / base.s : 1, br = 3.2 * view.s; let best = -1, bd = Infinity;
+      V.forEach((v, i) => { const [x, y] = P(v), reach = Math.max(22 * dpr, br > 30 * dpr ? Math.min(br, 150 * dpr) : Math.min(26, v.rad * Math.sqrt(zoom)) * dpr + 6 * dpr), d = (x - mx) ** 2 + (y - my) ** 2; if (d < reach ** 2 && d < bd) { bd = d; best = i; } });
+      return best; }
+    cv.addEventListener("wheel", e => { e.preventDefault(); const [x, y] = toC(e); zoomAt(x, y, Math.exp(-e.deltaY * 0.0015)); }, { passive: false });
+    cv.addEventListener("pointerdown", e => { cv.setPointerCapture(e.pointerId); ptr.set(e.pointerId, toC(e)); moved = false;
+      if (ptr.size === 1) { drag = toC(e); if (e.button === 1 || e.shiftKey) { e.preventDefault(); moved = true; } }
+      if (ptr.size === 2) { const [a, b] = [...ptr.values()]; pinch = Math.hypot(a[0] - b[0], a[1] - b[1]); mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; } });
+    cv.addEventListener("pointermove", e => { if (!ptr.has(e.pointerId)) return; const p = toC(e); ptr.set(e.pointerId, p);
+      if (ptr.size === 2 && pinch) { const [a, b] = [...ptr.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]), m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+        if (mid) { view.ox += m[0] - mid[0]; view.oy += m[1] - mid[1]; } zoomAt(m[0], m[1], d / pinch); pinch = d; mid = m; moved = true; }
+      else if (drag) { const dx = p[0] - drag[0], dy = p[1] - drag[1]; if (Math.abs(dx) + Math.abs(dy) > 6) moved = true; if (!moved) return; view.ox += dx; view.oy += dy; drag = p; draw(); } });
+    const up = e => { ptr.delete(e.pointerId); if (ptr.size < 2) { pinch = null; mid = null; drag = ptr.size ? [...ptr.values()][0] : null; } };
+    cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
+    cv.addEventListener("mousedown", e => { if (e.button === 1) e.preventDefault(); }); cv.addEventListener("auxclick", e => { if (e.button === 1) e.preventDefault(); });
+    cv.addEventListener("click", e => { if (moved) { moved = false; return; } const [mx, my] = toC(e), i = hitAt(mx, my);
+      if (i >= 0) { show(i); const r = $("info").getBoundingClientRect(); if (r.top > innerHeight - 80) $("info").scrollIntoView({ behavior: "smooth", block: "start" }); } else if (focus) clearFocus(); });
+    $("home").addEventListener("click", () => clearFocus(true));
+    $("legend").addEventListener("click", e => { const b = e.target.closest("button[data-g]"); if (b) showGalaxy(Number(b.dataset.g)); });
+    $("info").addEventListener("click", e => { const b = e.target.closest("button[data-v]"); if (b) show(Number(b.dataset.v)); });
+    $("win").addEventListener("click", e => { const b = e.target.closest("button[data-w]"); if (!b) return; win = b.dataset.w;
+      document.querySelectorAll("#win button[data-w]").forEach(x => x.classList.toggle("on", x === b)); if (ROWS.length) build(); });
+    $("kind").addEventListener("click", () => { kind = kind === "expense" ? "income" : "expense"; $("kind").textContent = kind === "expense" ? "Spending" : "Income"; if (ROWS.length) build(); });
+    $("find").addEventListener("input", e => { const t = e.target.value.trim().toLowerCase(); HL = new Set(); if (!t) { draw(); return; }
+      V.forEach((v, i) => { if (v.name.toLowerCase().includes(t) || v.key.includes(t)) HL.add(i); });
+      if (HL.size === 1) { const i = [...HL][0]; show(i); } else draw(); });
+    addEventListener("resize", fit);
+    new MutationObserver(() => { sky = null; draw(); }).observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    onAuthStateChanged(auth, user => { BASE_PATH = user ? user.uid : "public"; load(); });
+    fit();
+  </script>
+</body>
+</html>
