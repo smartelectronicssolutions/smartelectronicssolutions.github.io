@@ -1275,6 +1275,9 @@
             <div class="dc-panel" id="dc-in-panel">
                 <h4 style="font-size:0.62rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin:0 0 8px">Conversation</h4>
                 <div id="dc-insights" class="dc-insights"><span class="meta">reading the thread…</span></div>
+                <!-- member-chat retention (L 2026-10-04 "get rid of more than 90 days as a rule default, option in advanced settings"):
+                     the nightly chat-prune routine on se deletes share/chat messages older than this; 0 = keep forever -->
+                <label class="dc-chk" style="margin-top:10px;display:block" title="the daemon prunes member-chat messages older than this every night (0 = keep forever)">👥 Member chat keeps <input type="number" id="dc-chat-keep" min="0" max="3650" step="1" style="width:5.5em;font:inherit;font-size:16px;margin:0 4px"> days <small style="opacity:.6">(0 = forever · default 90)</small></label>
             </div>
         </div>
     </div>
@@ -5283,13 +5286,13 @@
         #dc-peer-split::before { content: ""; position: absolute; left: 50%; top: 50%; width: 4px; height: 46px; border-radius: 2px; background: var(--border); transform: translate(-50%, -50%); transition: background .15s; }
         #dc-peer-split:hover::before, #dc-peer-split.on::before { background: var(--dc-purple); }
         .dc-body.dc-split.psized:not(.pfull) > #dc-peer { flex: 0 0 var(--dc-peer-size, 50%); }
-        /* SYSTEM VIEW + THE PANE, at ANY width (L 2026-10-03: "the full system and themes section lays out wide - it should be up and
-           down; People should show the same way as with the console, split and adjustable"): the page-long System panels stack
-           above, the bar + pane stick to the bottom of the console and the bar drags up / down, phone or iPad or desktop. */
-        .dc-body.dc-split:has(> #dc-chat-panel:not(.active)) { flex-direction: column; }
-        .dc-body.dc-split > #dc-chat-panel:not(.active) ~ #dc-peer { position: sticky; bottom: 0; z-index: 3; background: var(--dc-panel, var(--bg)); border-left: 0; border-top: 1px solid var(--border); padding: 8px 0 0; flex: 0 0 var(--dc-peer-size, 46%); }
-        .dc-body.dc-split > #dc-chat-panel:not(.active) ~ #dc-peer-split { position: sticky; bottom: var(--dc-peer-size, 46%); z-index: 3; background: var(--dc-panel, var(--bg)); width: auto; height: 16px; cursor: ns-resize; }
-        .dc-body.dc-split > #dc-chat-panel:not(.active) ~ #dc-peer-split::before { width: 46px; height: 4px; }
+        /* SYSTEM VIEW + THE PANE (L 2026-10-03 "flex-direction: row is causing it"): in the row split the System panels were flex
+           siblings and spread out sideways. They live in #dc-sys-col now - display:contents normally (nothing changes), a
+           scrolling column on the left while split - so the pane sits to the right with the bar, exactly like the chat. */
+        #dc-sys-col { display: contents; }
+        .dc-body.dc-split > #dc-sys-col:has(.dc-panel.active) { display: block; flex: 1 1 0; min-width: 0; min-height: 0; overflow: auto; }   /* only while a System panel is showing - an empty column would squeeze the chat */
+        .dc-body.dc-split.pfull > #dc-sys-col { display: none; }
+        @media (max-width: 760px) { .dc-body.dc-split > #dc-sys-col { display: contents; } }   /* phone: the column layout + the sticky pane below handle it */
         @media (max-width: 760px) {
             .dc-body.dc-split { flex-direction: column; }
             .dc-body.dc-split > #dc-peer { border-left: 0; border-top: 1px solid var(--border); padding: 8px 0 0; flex: 0 0 46%; }
@@ -5417,6 +5420,11 @@
             <div id="dc-peer-log" class="dc-chat-log" hidden></div>
             <form id="dc-peer-form" class="dc-chat-input" hidden><span class="ps" aria-hidden="true">❯</span><textarea id="dc-peer-in" rows="2" placeholder="message…  (Enter sends)"></textarea><div id="dc-peer-ghost" class="dc-ghost" hidden></div><div class="dc-status dc-stat-pill" id="dc-peer-status"></div><button type="button" class="dc-emoji-btn" id="dc-peer-emoji" title="emoji (search at the top)" aria-label="emoji picker">🙂</button><button type="submit" class="dc-btn push">▲</button></form>`;   // SAME box as the Droplet chat (L 2026-09-27: "the chat boxes still look different")
         body.appendChild(pane);
+        {   // the System panels into one column (#dc-sys-col) so the row split keeps them stacked on the left
+            const col = document.createElement('div'); col.id = 'dc-sys-col';
+            const panels = [...body.querySelectorAll(':scope > .dc-panel:not(#dc-chat-panel)')];
+            if (panels.length) { body.insertBefore(col, panels[0]); panels.forEach(p => col.appendChild(p)); }
+        }
         {   // 🔑 chat word, in the pane's head right after the Share bar (L 2026-10-03 "right after share # chat"); memory only, typed every session
             const pw = document.createElement('input'); pw.type = 'password'; pw.id = 'dc-peer-word'; pw.placeholder = '🔑 chat word'; pw.autocomplete = 'off'; pw.setAttribute('autocapitalize', 'off');
             pw.title = 'Chat word: blank = automatic (your account key). Type a word and what you send in member chat locks under it; the other side types the same word, every session, or sees the blob.';
@@ -5428,7 +5436,7 @@
         {   // SPLIT BAR between the console chat and the pane (L 2026-10-03: "also between the panes for chat and member chat")
             const sp = document.createElement('div'); sp.id = 'dc-peer-split'; sp.title = 'drag to resize the panes · double-tap to reset';
             body.insertBefore(sp, pane);
-            const mq = matchMedia('(max-width: 760px)'), narrow = () => getComputedStyle(body).flexDirection === 'column', key = () => narrow() ? 'dc-peer-split-h' : 'dc-peer-split-w';   // column = the phone, or the System view at any width
+            const mq = matchMedia('(max-width: 760px)'), narrow = () => mq.matches, key = () => narrow() ? 'dc-peer-split-h' : 'dc-peer-split-w';
             const applySaved = () => { let v = 0; try { v = Number(localStorage.getItem(key())); } catch (_) {}
                 body.classList.toggle('psized', v > 0); if (v > 0) body.style.setProperty('--dc-peer-size', v + '%'); else body.style.removeProperty('--dc-peer-size'); };
             applySaved(); mq.addEventListener('change', applySaved);
@@ -5861,6 +5869,11 @@
         build();
         onValue(ref(database, `share/chatIndex/${P.me}`), s => { P.index = s.val() || {}; popNew(P.index); dots(); publishRemoteTabs(); if (!P.open) renderHome(); }, () => {});
         get(ref(database, `${P.me}/console/settings/peerPings`)).then(s => { P.pingOn = s.val() !== false; }).catch(() => {});
+        {   // member-chat retention: the number the nightly prune reads
+            const keep = $('#dc-chat-keep');
+            if (keep) { get(ref(database, `${P.me}/console/settings/chatRetainDays`)).then(s => { keep.value = s.val() == null ? 90 : Number(s.val()); }).catch(() => { keep.value = 90; });
+                keep.onchange = () => { const n = Math.max(0, Math.min(3650, Math.round(Number(keep.value) || 0))); keep.value = n; set(ref(database, `${P.me}/console/settings/chatRetainDays`), n).catch(e => alert('Not saved: ' + (e.code || e.message))); }; }
+        }
         onValue(ref(database, `${P.me}/console/shares`), s => { P.shares = s.val() || {};
             window.__dcMyShares = Object.values(P.shares).filter(x => x && x.topic).map(x => ({ topic: x.topic, name: x.name || P.dir[x.with] || 'them' }));
             window.__dcRenderTopics && window.__dcRenderTopics();
