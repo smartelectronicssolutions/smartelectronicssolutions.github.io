@@ -11,6 +11,8 @@
 //   - one finger scrolls the page natively (touch-action pan-y); two fingers pinch-zoom AND pan (midpoint follow);
 //     hold ~0.5 s then drag moves the map (empty space) or an object (what `hold` says); a drag never counts as a tap.
 //   - mouse: drag pans; middle button or Shift + left ALWAYS pans (never grabs / taps); double-click resets the view.
+//     panNeedsShift: true (2026-10-04, the budget galaxy - L "I have to be holding shift to move the map") = a plain mouse
+//     drag does NOT pan; only Shift + drag or the middle button does, so a plain drag is free for `grab` to move an object.
 //   - edge sliders mirror the view over `slExtent` (default: the world) and move it when dragged; hidden until zoomed.
 //   - draws are coalesced to one per animation frame (requestDraw); a full frame is drawn once the fingers lift.
 //   - a ResizeObserver re-fits when the canvas gets real size (a section that was display:none when mounted).
@@ -30,7 +32,7 @@
 // returns { view, base, world, fitted, moving, held, fit, draw, requestDraw, zoomAt, centerOn, reset, toC, P, unP,
 //           syncSliders, destroy }. view / base are mutated in place, so a map may keep a reference to them.
 export function mountCanvasView(cv, opts) {
-  const o = Object.assign({ pad: 14, minZoom: 0.8, maxZoom: 160, flipY: false, sliders: null, slVar: "--sl-h", holdMs: 480, dblclickReset: true, resize: true }, opts);
+  const o = Object.assign({ pad: 14, minZoom: 0.8, maxZoom: 160, flipY: false, sliders: null, slVar: "--sl-h", holdMs: 480, dblclickReset: true, resize: true, panNeedsShift: false }, opts);
   const view = { s: 1, ox: 0, oy: 0, dpr: 1 }, base = { s: 1, ox: 0, oy: 0, dpr: 1 };
   let W = null, fitted = false, raf = 0, slHeld = null;
   const ptr = new Map(); let drag = null, pinch = null, mid = null, moved = false, press = null, mov = null;   // mov = {kind:"pan"} | {kind:"drag", target}
@@ -120,7 +122,8 @@ export function mountCanvasView(cv, opts) {
       drag = p; requestDraw(); return; }
     if (Math.abs(dx) + Math.abs(dy) > 6) { moved = true; clearTimeout(press); press = null; }
     if (e.pointerType === "touch") { drag = p; return; }   // one finger without a hold: the browser scrolls the page, the map stays put
-    if (!moved) return; view.ox += dx; view.oy += dy; drag = p; requestDraw();   // a mouse drag pans
+    if (!moved) return; if (o.panNeedsShift && !e.shiftKey) return;   // panNeedsShift (the budget galaxy): a plain mouse drag does nothing - Shift (or the middle button) pans
+    view.ox += dx; view.oy += dy; drag = p; requestDraw();   // a mouse drag pans
   });
   const up = e => {
     ptr.delete(e.pointerId); clearTimeout(press); press = null;

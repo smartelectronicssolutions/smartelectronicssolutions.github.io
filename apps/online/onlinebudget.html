@@ -236,7 +236,7 @@
 <script type="module">
   import { auth, onAuthStateChanged, database, ref, get, set } from '../assets/js/firebase-init.js';
   import { SPENDING_TAGS, parentTag, tagLabel, normTag, isSpendingTag } from '../assets/js/taxonomy.js';
-  import { mountCanvasView } from '../assets/js/canvasview.js?v=20261003b';   // the one map engine (radar map, this galaxy, the Louverse)   // the galaxy groups by the same tags the budget rows use
+  import { mountCanvasView } from '../assets/js/canvasview.js?v=20261004a';   // the one map engine (radar map, this galaxy, the Louverse)   // the galaxy groups by the same tags the budget rows use
   // onIdTokenChanged is not re-exported by firebase-init.js; pull it from the
   // same (already-cached) auth module to catch token expiry live.
   import { onIdTokenChanged } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js';
@@ -1328,19 +1328,26 @@
     // the world follows the canvas shape (L 2026-10-04 "the left and right movement is limited"): a wide screen gets a wide world, a
     // tall phone a tall one, so a circle can sit anywhere on the visible map - not only inside a centred 1000 x 1000 square
     const worldExt = () => { const r = cv.getBoundingClientRect(), ar = r.height > 0 ? r.width / r.height : 1, w = ar >= 1 ? 1000 * ar : 1000, h = ar >= 1 ? 1000 : 1000 / ar; return { x0: (1000 - w) / 2, y0: (1000 - h) / 2, x1: (1000 + w) / 2, y1: (1000 + h) / 2 }; };
+    // WHAT A MOVE GRABS (L 2026-10-04 "don't let me take the smaller circles when I go to move - I was moving the little circles
+    // out, they were dim so I couldn't tell"): while the stars are dots, a hold or Ctrl-drag on one moves ITS CIRCLE; a star
+    // moves on its own only in the zoomed-in bubble view, where it is big and obvious. Taps are untouched (a dot still opens).
+    const bubbleMode = () => 3.2 * view.s > 30 * (view.dpr || 1);
+    const moveTarget = t => (t && t.star != null && !bubbleMode()) ? { galaxy: V[t.star].g } : t;
     const cvw = mountCanvasView(cv, { world: worldExt, pad: 14, minZoom: 0.6, maxZoom: 160,
       sliders: { x: $("slx"), y: $("sly") }, draw: () => draw(),
       // under the finger: the one big circle when zoomed out, else a star (only inside an OPEN circle), else the circle it is in
       hit: (mx, my) => { if (mergeOf() > .5) return { all: true }; const i = hitAt(mx, my); if (i >= 0) return { star: i }; const gi = galaxyAt(mx, my); return gi >= 0 ? { galaxy: gi } : null; },
       // Ctrl (or Cmd) + press on a circle or star = grab it right away, no hold (L 2026-10-04 "holding ctrl should use the circle grab")
-      grab: (t, e) => !!(t && (t.galaxy != null || t.star != null) && (e.ctrlKey || e.metaKey)),
+      // ... and with a mouse ANY press-and-drag on a circle moves it (L 2026-10-04 "instead of clicking to move the window inner area, Shift to move the map") - the map pans with Shift + drag or the middle button (panNeedsShift)
+      grab: (t, e) => !!(t && (t.galaxy != null || t.star != null) && (e.ctrlKey || e.metaKey || e.pointerType === "mouse")),
+      panNeedsShift: true,
       // hold half a second on a circle = move it (L 2026-10-03 "hold, move the circles"); a touch held anywhere else = move the map
       hold: (t, e) => t && (t.galaxy != null || t.star != null) ? "drag" : (e.pointerType === "touch" ? "pan" : null),   // ... or on a star once its circle is open (L: "move the small circle when they become visible too")
-      onDrag: (t, dx, dy) => { if (!t) return;
+      onDrag: (t0, dx, dy) => { const t = moveTarget(t0); if (!t) return;
         if (t.star != null) { const v = V[t.star], e = Math.max(.3, ease(openOf(G[v.g]))); v.px += dx / e; v.py += dy / e; hideTip(); return; }   // a star follows the finger even while its circle is still opening
         if (t.galaxy == null) return; const E = worldExt(), g = G[t.galaxy], nx = Math.max(E.x0, Math.min(E.x1, g.px + dx)), ny = Math.max(E.y0, Math.min(E.y1, g.py + dy)), ax = nx - g.px, ay = ny - g.py;   // anywhere on the visible map
         g.px = nx; g.py = ny; g.ids.forEach(i => { V[i].px += ax; V[i].py += ay; }); hideTip(); },
-      onDragEnd: (t, moved) => { if (!t || !moved) return;
+      onDragEnd: (t0, moved) => { const t = moveTarget(t0); if (!t || !moved) return;
         if (t.star != null) { const v = V[t.star], g = G[v.g]; STATE.starPos ||= {}; (STATE.starPos[g.tag] ||= {})[posKey(v.key)] = { dx: Math.round(v.px - g.px), dy: Math.round(v.py - g.py) }; saveToDB(); $("arrange").hidden = false; return; }
         if (t.galaxy == null) return; const g = G[t.galaxy]; STATE.galaxyPos ||= {}; STATE.galaxyPos[g.tag] = { x: Math.round(g.px), y: Math.round(g.py) }; saveToDB(); $("arrange").hidden = false; },
       onTap: (t, mx, my) => { const dot = dotAt(mx, my); if (dot) { tipAt(dot.x, dot.y, dotText(dot.row)); clearTimeout(tipTimer); tipTimer = setTimeout(hideTip, 2500); return; }
