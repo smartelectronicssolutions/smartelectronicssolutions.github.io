@@ -1132,9 +1132,9 @@
         #dc-look-panel .lk-hid { position: absolute; left: 50%; bottom: 0; width: 1px; height: 1px; opacity: 0; border: 0; padding: 0; pointer-events: none; }   /* not display:none - iOS won't open a hidden input's picker */
         #dc-look-panel .lk-prev-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: .72rem; color: var(--muted); }
         #dc-look-panel .lk-ops { display: flex; align-items: center; gap: 8px; margin: 8px 0 0; font-size: .74rem; color: var(--muted); }
-        #dc-look-panel .lk-ops select { font: inherit; font-size: .78rem; padding: 3px 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); }
         #dc-look-panel .lk-ops input[type=range] { flex: 1 1 0; min-width: 60px; margin: 0; }
         #dc-look-panel .lk-ops small { flex: 0 0 38px; text-align: right; font-variant-numeric: tabular-nums; }
+        #dc-look-panel .lk-ops .lk-opl { flex: 0 0 auto; text-align: left; opacity: .7; }
         @media (max-width: 640px) { #dc-look-panel .lk-l { width: 100%; } }
         /* the tokens the themes drive. font-family and letter-spacing INHERIT, so unlike the
            rem trap these reach every child without touching 45 rules. */
@@ -1235,7 +1235,7 @@
                     <label class="dc-bub drop lk-pick" for="lk-dp" title="tap to change the other side's colour"><span class="who">Droplet · now</span>This is how a reply looks. <span class="lk-tap">🎨 tap</span><input type="color" id="lk-dp" class="lk-hid"></label>
                     <label class="dc-bub me lk-pick" for="lk-me" title="tap to change your colour (also the tabs, send button, outlines)"><span class="who">You · now</span>And this is you. <span class="lk-tap">🎨 tap</span><input type="color" id="lk-me" class="lk-hid"></label>
                     <div class="lk-prev-foot">tap a bubble to change its colour <button type="button" class="lk-x" data-clear="both" title="back to the default colours">auto</button></div>
-                    <div class="lk-ops" title="opacity: the colour's 4th number - pick what it applies to"><select id="lk-optg" aria-label="what the opacity applies to"><option value="meop">Your bubble</option><option value="metx">Your text</option><option value="dpop">Other bubble</option><option value="dptx">Other text</option></select><input type="range" id="lk-op" min="10" max="100" step="5" aria-label="opacity"><small id="lk-opv">100%</small></div>
+                    <div class="lk-ops" title="opacity, the colour's 4th number: fades the bubbles (both sides) - on the Terminal shape there are no bubbles, so it fades the text"><span class="lk-l">Opacity</span><input type="range" id="lk-op" min="10" max="100" step="5" aria-label="opacity"><small id="lk-opv">100%</small><small id="lk-opl" class="lk-opl">bubbles</small></div>
                 </div>
                 <div class="lk-row"><span class="lk-l">Shape</span>
                     <button type="button" class="lk-b" data-shape="">Standard</button>
@@ -2899,8 +2899,10 @@
         // localStorage on purpose: how the console LOOKS is a property of the device, not the
         // account. The phone in the truck and the desktop at home want different text sizes.
         // Every read and write is guarded - a blocked or full store must not break the console.
-        const THEME_KEYS = { bg: 'dc_theme_bg', fs: 'dc_theme_fs', name: 'dc_theme_name', color: 'dc_theme_color', shape: 'dc_theme_shape', font: 'dc_theme_font', me: 'dc_theme_me', dp: 'dc_theme_dp', meop: 'dc_theme_meop', metx: 'dc_theme_metx', dpop: 'dc_theme_dpop', dptx: 'dc_theme_dptx' };
-        const OPS = [['meop', '--dc-me-op'], ['metx', '--dc-me-tx'], ['dpop', '--dc-dp-op'], ['dptx', '--dc-dp-tx']];   // opacity targets (2026-10-04): ONE slider, #lk-optg picks which
+        const THEME_KEYS = { bg: 'dc_theme_bg', fs: 'dc_theme_fs', name: 'dc_theme_name', color: 'dc_theme_color', shape: 'dc_theme_shape', font: 'dc_theme_font', me: 'dc_theme_me', dp: 'dc_theme_dp', op: 'dc_theme_op' };
+        const OP_VARS = { bubbles: ['--dc-me-op', '--dc-dp-op'], text: ['--dc-me-tx', '--dc-dp-tx'] };   // the ONE opacity slider (2026-10-04): the shape decides - Terminal has no bubbles, so it fades the text
+        const opTarget = () => themeGet('shape') === 'term' ? 'text' : 'bubbles';
+        try { ['dc_theme_meop', 'dc_theme_metx', 'dc_theme_dpop', 'dc_theme_dptx'].forEach(k => localStorage.removeItem(k)); } catch (_) {}   // the four-slider keys, retired
         // one-time: the old bundled theme -> its colour + shape (silver = sharp, blue = bubbly, lite = slim)
         try { const old = localStorage.getItem('dc_theme_name');
             if (old) { const m = { silver: ['silver', 'sharp'], fire: ['fire', ''], blue: ['blue', 'bubbly'], lite: ['', 'slim'] }[old] || ['', ''];
@@ -2947,7 +2949,8 @@
                     if (/^#[0-9a-f]{6}$/i.test(v)) { con.style.setProperty(bgv, v); con.style.setProperty(fgv, ink(v)); }
                     else { con.style.removeProperty(bgv); con.style.removeProperty(fgv); }
                 }
-                for (const [k, v] of OPS) { const n = Number(themeGet(k)); if (n > 0 && n < 100) con.style.setProperty(v, n + '%'); else con.style.removeProperty(v); }   // 100 or unset = solid
+                { const n = Number(themeGet('op')); for (const v of [...OP_VARS.bubbles, ...OP_VARS.text]) con.style.removeProperty(v);
+                  if (n > 0 && n < 100) for (const v of OP_VARS[opTarget()]) con.style.setProperty(v, n + '%'); }   // 100 or unset = solid
                 // MAIN is also the theme colour: the accent token (--dc-purple is the lead token's historical name) + what sits on it
                 const mv = themeGet('me');
                 if (/^#[0-9a-f]{6}$/i.test(mv)) { con.style.setProperty('--dc-purple', mv); con.style.setProperty('--dc-on-purple', ink(mv)); con.style.setProperty('--dc-purple-soft', mv + '2e'); }
@@ -2964,7 +2967,7 @@
             const me = $('#lk-me'), dp = $('#lk-dp');
             if (me) me.value = themeGet('me') || hex(cs && cs.getPropertyValue('--dc-purple'));   // main = the set's accent until you pick one
             if (dp) { const d = String(cs && cs.getPropertyValue('--dc-dp-bg') || '').trim(); dp.value = themeGet('dp') || (/^#[0-9a-f]{6}$/i.test(d) ? d : '#1b2638'); }
-            const tg = $('#lk-optg'), op = $('#lk-op'); if (tg && op) { op.value = Number(themeGet(tg.value)) || 100; const v = $('#lk-opv'); if (v) v.textContent = op.value + '%'; }
+            const op = $('#lk-op'); if (op) { op.value = Number(themeGet('op')) || 100; const v = $('#lk-opv'), l = $('#lk-opl'); if (v) v.textContent = op.value + '%'; if (l) l.textContent = opTarget(); }
         }
         {
             const pan = $('#dc-look-panel'), b = $('#dc-theme-bg');
@@ -2980,8 +2983,7 @@
                 });
                 $('#lk-me') && $('#lk-me').addEventListener('input', e => themeSet('me', e.target.value));
                 $('#lk-dp') && $('#lk-dp').addEventListener('input', e => themeSet('dp', e.target.value));
-                $('#lk-optg') && $('#lk-optg').addEventListener('change', paintLook);   // the slider jumps to the chosen target's value
-                $('#lk-op') && $('#lk-op').addEventListener('input', e => { const tg = $('#lk-optg'); if (tg) themeSet(tg.value, e.target.value); });
+                $('#lk-op') && $('#lk-op').addEventListener('input', e => themeSet('op', e.target.value));
             }
             applyTheme();   // before first paint of the log
         }
