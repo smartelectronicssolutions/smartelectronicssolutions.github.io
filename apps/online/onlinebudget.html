@@ -1379,7 +1379,7 @@
         if (op < 1) { cx.fillStyle = col(g.tag, (light ? .45 : .42) * (1 - op) * a); cx.beginPath(); cx.arc(x, y, R, 0, 6.283); cx.fill(); }   // CLOSED (small on screen): one solid circle; its name + amount are painted AFTER the stars (drawInsideLabels) so the dots never sit on the text
         budgetRing(x, y, ring, g.total, g.budget, dpr, zoom, light, a); }
       // stars
-      const BR = 3.2 * view.s; if (BR > 30 * dpr) { drawBubbles(dpr); drawNames(dpr, zoom, light); if (sel >= 0) drawBurst(dpr, zoom); return; }
+      const BR = 3.2 * view.s; if (BR > 30 * dpr) { if (sel >= 0) drawBurst(dpr, zoom); drawBubbles(dpr); drawNames(dpr, zoom, light); return; }   // burst first = under every label
       cx.globalCompositeOperation = light ? "source-over" : "lighter";
       V.forEach((v, i) => { const o = starOn(v, mg); if (o < .02) return; const [x, y] = P(v); if (x < -20 || y < -20 || x > cv.width + 20 || y > cv.height + 20) return;
         const on = !F || F.has(i), r = Math.min(26, v.rad * Math.sqrt(zoom)) * dpr;
@@ -1389,6 +1389,7 @@
         const on = !F || F.has(i), r = Math.min(26, v.rad * Math.sqrt(zoom)) * dpr;
         cx.fillStyle = col(v.tag, (on ? (light ? .85 : .6) : .12) * o); cx.beginPath(); cx.arc(x, y, r, 0, 6.283); cx.fill();   // the dot itself at 60% on the dark theme (was 92%)
         if (HL.has(i)) { cx.globalAlpha = o; cx.strokeStyle = "#facc15"; cx.lineWidth = 2.5 * dpr; cx.beginPath(); cx.arc(x, y, r + 5 * dpr, 0, 6.283); cx.stroke(); cx.globalAlpha = 1; } });
+      if (sel >= 0) drawBurst(dpr, zoom);   // a star's charge dots go UNDER every label (L 2026-10-04 "they block text when in front of text")
       drawInsideLabels(mg, dpr, light);   // the closed circles' name + amount, on top of the dots (L 2026-10-04 "the dots cover the text in the map")
       drawNames(dpr, zoom, light);
       if (mg > 0) drawAll(mg, dpr, zoom, light);
@@ -1396,8 +1397,7 @@
         for (let i = 0; i < V.length && shown < 220; i++) { const v = V[i], [x, y] = P(v); if (x > 0 && y > 0 && x < cv.width - 40 * dpr && y < cv.height && (zoom >= 6 || v.rad > 2.2)) { cx.fillText(v.name, x + v.rad * dpr + 5 * dpr, y + 4 * dpr); shown++; } } }
       if (sel >= 0) { const v = V[sel], [x, y] = P(v); cx.strokeStyle = "#ffcf7a"; cx.lineWidth = 2.5 * dpr; cx.beginPath(); cx.arc(x, y, Math.min(26, v.rad * Math.sqrt(zoom)) * dpr + 6 * dpr, 0, 6.283); cx.stroke();
         cx.font = `700 ${13 * dpr}px system-ui, sans-serif`; cx.fillStyle = light ? "#5a3d00" : "#fff4dc"; const lbl = `${v.name} · ${money0(v.total)}`, w = cx.measureText(lbl).width;
-        cx.fillText(lbl, Math.min(Math.max(4 * dpr, x - w / 2), cv.width - w - 4 * dpr), y > 40 * dpr ? y - 22 * dpr : y + 32 * dpr);
-        drawBurst(dpr, zoom); }
+        cx.fillText(lbl, Math.min(Math.max(4 * dpr, x - w / 2), cv.width - w - 4 * dpr), y > 40 * dpr ? y - 22 * dpr : y + 32 * dpr); }
     }
     // BURST (L 2026-10-03 "when I click an item, can the circle of how many of that come out of that circle, around it, in a
     // different colour"): the selected vendor's charges pop out of its star as dots - one per charge, sized by amount, pale
@@ -1417,7 +1417,7 @@
         const step = 2 * Math.max(...rows.slice(placed, placed + 64).map(dr)) * 1.25, cap = Math.max(6, Math.floor(2 * Math.PI * ringR / step)), slice = rows.slice(placed, placed + cap);
         slice.forEach((r, j) => { const a = -Math.PI / 2 + j / slice.length * 2 * Math.PI + ring * 0.35, d = dr(r);
           const px = x + Math.cos(a) * ringR * e, py = y + Math.sin(a) * ringR * e;
-          cx.globalAlpha = 0.25 + 0.75 * e; cx.fillStyle = "#fff4dc"; cx.strokeStyle = "#ffcf7a"; cx.beginPath(); cx.arc(px, py, d * (0.4 + 0.6 * e), 0, 6.283); cx.fill(); cx.stroke();
+          cx.globalAlpha = 0.25 + 0.75 * e; cx.fillStyle = "rgba(255,244,220,.42)"; cx.strokeStyle = "rgba(255,207,122,.75)"; cx.beginPath(); cx.arc(px, py, d * (0.4 + 0.6 * e), 0, 6.283); cx.fill(); cx.stroke();   // pale, see-through (L 2026-10-04 "less bright")
           if (k >= 1) burstDots.push({ x: px, y: py, r: d, row: r }); });
         placed += slice.length; ring++; ringR += step * 0.9;
       }
