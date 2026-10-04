@@ -23,6 +23,23 @@
       overflow: auto;
     }
     #note.tall { min-height: 75vh; max-height: 85vh; }
+    /* PHONE LAYOUT (L 2026-10-04 "in mobile view the buttons are merging into each other, the list is all wonky") */
+    .actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 6px; }
+    .actions button { margin: 0; white-space: nowrap; }
+    .opts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 0 0 8px; }
+    #enc-lbl { display: inline-flex; align-items: center; gap: 6px; flex: 1 1 240px; margin: 0; white-space: nowrap; }
+    #enc-lbl input { flex: 1 1 120px; min-width: 0; width: auto; margin: 0; }
+    .opts .auto { display: inline-flex; align-items: center; gap: 6px; margin: 0; white-space: nowrap; }
+    #note-list { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; padding: 0; }
+    #note-list li { list-style: none; display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; }
+    #note-list .note-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+    #note-list .note-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #note-list .note-meta { font-size: .8em; opacity: .75; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #note-list .note-del { flex: none; padding: 2px 8px; background: transparent; border: none; color: inherit; cursor: pointer; font-size: 1.05em; }
+    @media (max-width: 520px) {
+      .actions button { flex: 1 1 calc(33.333% - 6px); padding: 8px 4px; }   /* three a row, equal, thumb-sized */
+      #enc-lbl { flex-basis: 100%; }
+    }
   </style>
 </head>
 
@@ -48,20 +65,24 @@
         <label for="notes">Notes</label>
         <textarea name="notes" id="note" cols="30" rows="10"></textarea>
       </form>
-      <!-- WORDS, NOT JUST EMOJIS (L, 2026-09-26) -->
-      <button id="copy-btn" title="Copy the note text">📰 Copy</button>
-      <button id="paste-btn" title="Paste into the note">📋 Paste</button>
-      <button id="save-btn" title="Save this note">💾 Save</button>
-      <!-- PRIVATE / PUBLIC (L, 2026-09-26: "the notes app should work like the journals with saving - public and private, depending
-           on who's logged in; I can switch a note if public. Share is just to other users via the share node"). -->
-      <button id="scope-btn" type="button" title="Where this note is saved. On a saved note, tapping it MOVES the note.">Private</button>
-      <button class="clear-button" id="delete-btn" title="Delete this note">❌ Delete</button>
-      <button id="undo-btn" title="Undo the last change">↩️ Undo</button>
-      <button id="share-btn" title="Share this note with the other users (tap again to unshare)">📤 Share</button>
-      <label id="enc-lbl" title="Type your note, then type a secret word — a moment after you stop typing, the note auto-encrypts (AES-256) in place. Type the word again to open it. Empty word = plain note. Only the encrypted text is stored.">🔑 Lock word <input type="password" id="note-key" placeholder="secret word (auto-locks)" style="width:auto" autocomplete="off"></label>
-      <span id="enc-status" style="font-size:.85em;opacity:.75;margin-left:6px"></span>
-      <label for="autosave-checkbox" title="Off by default. When on, saves every 40s. Either way, closing the tab with unsaved changes will prompt you.">Auto-save:</label>
-      <input type="checkbox" id="autosave-checkbox">
+      <!-- WORDS, NOT JUST EMOJIS (L, 2026-09-26). Two rows, not loose inline buttons (L 2026-10-04 "in mobile view the buttons are
+           merging into each other"): .actions = the buttons (equal thirds on a phone), .opts = lock word + auto-save. Ids unchanged. -->
+      <div class="actions">
+        <button id="copy-btn" title="Copy the note text">📰 Copy</button>
+        <button id="paste-btn" title="Paste into the note">📋 Paste</button>
+        <button id="save-btn" title="Save this note">💾 Save</button>
+        <!-- PRIVATE / PUBLIC (L, 2026-09-26: "the notes app should work like the journals with saving - public and private, depending
+             on who's logged in; I can switch a note if public. Share is just to other users via the share node"). -->
+        <button id="scope-btn" type="button" title="Where this note is saved. On a saved note, tapping it MOVES the note.">Private</button>
+        <button class="clear-button" id="delete-btn" title="Delete this note">❌ Delete</button>
+        <button id="undo-btn" title="Undo the last change">↩️ Undo</button>
+        <button id="share-btn" title="Share this note with the other users (tap again to unshare)">📤 Share</button>
+      </div>
+      <div class="opts">
+        <label id="enc-lbl" title="Type your note, then type a secret word — a moment after you stop typing, the note auto-encrypts (AES-256) in place. Type the word again to open it. Empty word = plain note. Only the encrypted text is stored.">🔑 Lock word <input type="password" id="note-key" placeholder="secret word (auto-locks)" autocomplete="off"></label>
+        <span id="enc-status" style="font-size:.85em;opacity:.75"></span>
+        <label for="autosave-checkbox" class="auto" title="Off by default. When on, saves every 40s. Either way, closing the tab with unsaved changes will prompt you."><input type="checkbox" id="autosave-checkbox"> Auto-save</label>
+      </div>
       <!-- SHARE (L, 2026-09-26: same format as the origin + a flag): 📤 puts the SAVED note as stored at share/notes/<name>
            with sharedBy/sharedByName (an encrypted note stays encrypted); tap again to unshare. -->
       <small id="share-status" style="display:block;margin:4px 0"></small>
@@ -456,52 +477,28 @@
       unsub = () => { unOwn(); unPub(); if (unShared) unShared(); };
     };
 
+    // A ROW = name on the first line, the meta (when · Private/Public · shared by) under it, 🗑 on the right (L 2026-10-04:
+    // "in mobile view the list is all wonky" - the old inline spans + a floated button wrapped three ways on a phone).
+    const whenText = ts => { const d = new Date(ts); return isNaN(d) ? '' : d.toLocaleString(undefined, { month: 'numeric', day: 'numeric', year: '2-digit', hour: 'numeric', minute: '2-digit' }); };
     const createNoteListItem = (note) => {
-      const listItem = document.createElement('li');
-
-      const nameSpan = document.createElement('span');
-      nameSpan.style.fontWeight = 'bold';
-      nameSpan.textContent = note.name;
-
-      const timestampSpan = document.createElement('span');
-      timestampSpan.style.fontWeight = 'normal';
-      timestampSpan.style.marginLeft = '10px';
-      timestampSpan.textContent = ` (${new Date(note.timestamp).toLocaleString()})`;
-
-      listItem.appendChild(nameSpan);
-      listItem.appendChild(timestampSpan);
-      if (note.__scope === 'private' || note.__scope === 'public') {
-        const sc = document.createElement('span');
-        sc.textContent = note.__scope === 'public' ? ' · Public' : ' · Private';
-        sc.style.cssText = 'font-weight:normal;font-size:0.8em;margin-left:6px;opacity:.75';
-        listItem.appendChild(sc);
-      }
-
-      if (note.__mineShared) {
-        const t = document.createElement('span'); t.textContent = ' · shared'; t.style.cssText = 'font-weight:normal;font-size:0.8em;color:#4a90d9;margin-left:6px'; listItem.appendChild(t);
-      }
-      if (note.sharedBy) {
-        const shareTag = document.createElement('span');
-        shareTag.textContent = ' · shared' + (note.sharedByLabel ? ' by ' + note.sharedByLabel : '');
-        shareTag.style.cssText = 'font-weight:normal;font-size:0.8em;color:#4a90d9;margin-left:6px';
-        listItem.appendChild(shareTag);
-      }
-
-      if (isEncrypted(note.note)) {
-        const lockTag = document.createElement('span');
-        lockTag.textContent = '';   // a locked note carries no icon in the list (L 2026-10-04 "just the icon, not the encrypting")
-        lockTag.title = 'Encrypted — set the matching key to read';
-        lockTag.style.marginLeft = '6px';
-        listItem.appendChild(lockTag);
-      }
+      const listItem = document.createElement('li'); listItem.className = 'note-row';
+      const main = document.createElement('div'); main.className = 'note-main';
+      const nameSpan = document.createElement('span'); nameSpan.className = 'note-name'; nameSpan.textContent = note.name;
+      const meta = document.createElement('span'); meta.className = 'note-meta';
+      const bits = [whenText(note.timestamp || note.sharedAt)];
+      if (note.__scope === 'private' || note.__scope === 'public') bits.push(note.__scope === 'public' ? 'Public' : 'Private');
+      if (note.__mineShared) bits.push('shared');
+      if (note.sharedBy) bits.push('shared' + (note.sharedByLabel ? ' by ' + note.sharedByLabel : ''));
+      meta.textContent = bits.filter(Boolean).join(' · ');
+      if (isEncrypted(note.note)) meta.title = 'Encrypted — set the matching key to read';   // a locked note carries no icon in the list (L 2026-10-04 "just the icon, not the encrypting")
+      main.appendChild(nameSpan); main.appendChild(meta); listItem.appendChild(main);
 
       // 🗑 on my own notes (private + public). Notes others shared with me are theirs - no delete here.
       if (note.__scope === 'private' || (note.__scope === 'public' && !note.sharedBy)) {
         const del = document.createElement('button');
-        del.type = 'button'; del.textContent = '🗑'; del.title = 'Delete this note';
-        del.style.cssText = 'float:right;padding:0 8px;margin-left:8px;background:transparent;border:none;cursor:pointer;font-size:1.05em';
+        del.type = 'button'; del.className = 'note-del'; del.textContent = '🗑'; del.title = 'Delete this note';
         del.addEventListener('click', ev => { ev.stopPropagation(); deleteNote(note.name, note.__scope === 'public' ? 'public' : 'private'); });
-        listItem.insertBefore(del, listItem.firstChild);
+        listItem.appendChild(del);
       }
 
       listItem.addEventListener('click', () => {
