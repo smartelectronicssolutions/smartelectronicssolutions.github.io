@@ -124,6 +124,14 @@
     .gx-info .over { color: var(--danger); font-weight: 700; } .gx-info .under { color: var(--success); font-weight: 700; }
     .gx-info .tx { margin-top: 10px; display: grid; gap: 3px; font-size: .9rem; font-variant-numeric: tabular-nums; }
     .gx-info .tx div { display: grid; grid-template-columns: 6em 1fr 5.5em; gap: 8px; } .gx-info .tx div span:last-child { text-align: right; }
+    /* edit in the card (2026-10-04): a charge row is tappable and turns into fields; a category's monthly plan is a field */
+    .gx-info .tx .gx-tx { cursor: pointer; border-radius: 6px; padding: 1px 4px; margin: 0 -4px; } .gx-info .tx .gx-tx:hover { background: var(--hover, rgba(128,128,128,.12)); }
+    .gx-info .tx .gx-tx.editing { display: block; cursor: default; }
+    .gx-edit { display: grid; grid-template-columns: 1.2fr 1fr 6em 9.5em auto auto; gap: 4px; align-items: center; }
+    .gx-edit input { font: inherit; font-size: 16px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); min-width: 0; width: 100%; box-sizing: border-box; }
+    .gx-edit button { width: auto; margin: 0; padding: 4px 10px; } .gx-edit .st { grid-column: 1 / -1; color: var(--muted); font-size: .85rem; }
+    .gx-bud { white-space: nowrap; } .gx-bud input { width: 6em; font: inherit; font-size: 16px; padding: 2px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
+    @media (max-width: 640px) { .gx-edit { grid-template-columns: 1fr 1fr; } }
     .gx-info .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
     .gx-info .chips button { width: auto; margin: 0; font-size: .85rem; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; }
     .gx-hint { font-size: .85rem; color: var(--muted); }
@@ -234,7 +242,7 @@
 </body>
 
 <script type="module">
-  import { auth, onAuthStateChanged, database, ref, get, set } from '../assets/js/firebase-init.js';
+  import { auth, onAuthStateChanged, database, ref, get, set, update } from '../assets/js/firebase-init.js';
   import { SPENDING_TAGS, parentTag, tagLabel, normTag, isSpendingTag } from '../assets/js/taxonomy.js';
   import { mountCanvasView } from '../assets/js/canvasview.js?v=20261004a';   // the one map engine (radar map, this galaxy, the Louverse)   // the galaxy groups by the same tags the budget rows use
   // onIdTokenChanged is not re-exported by firebase-init.js; pull it from the
@@ -536,6 +544,7 @@
     await loadLedgerYear(); computeActuals();   // actuals are never stored - always the ledger's numbers
   }
 
+  const fbUpdate = update;   // Firebase's update (the galaxy block below declares its own update())
   async function saveToDB() {
     if (!canWrite()) return;
     try {
@@ -1332,7 +1341,8 @@
     // out, they were dim so I couldn't tell"): while the stars are dots, a hold or Ctrl-drag on one moves ITS CIRCLE; a star
     // moves on its own only in the zoomed-in bubble view, where it is big and obvious. Taps are untouched (a dot still opens).
     const bubbleMode = () => 3.2 * view.s > 30 * (view.dpr || 1);
-    const moveTarget = t => (t && t.star != null && !bubbleMode()) ? { galaxy: V[t.star].g } : t;
+    const starsGrab = () => bubbleMode() || (base && view.s / base.s >= 3);   // 3x in = the vendor names are on screen, you can see what you hold (L "zoomed into a category circle")
+    const moveTarget = t => (t && t.star != null && !starsGrab()) ? { galaxy: V[t.star].g } : t;
     const cvw = mountCanvasView(cv, { world: worldExt, pad: 14, minZoom: 0.6, maxZoom: 160,
       sliders: { x: $("slx"), y: $("sly") }, draw: () => draw(),
       // under the finger: the one big circle when zoomed out, else a star (only inside an OPEN circle), else the circle it is in
@@ -1394,7 +1404,7 @@
       cx.globalCompositeOperation = "source-over";
       V.forEach((v, i) => { const o = starOn(v, mg); if (o < .02) return; const [x, y] = P(v); if (x < -20 || y < -20 || x > cv.width + 20 || y > cv.height + 20) return;
         const on = !F || F.has(i), r = Math.min(26, v.rad * Math.sqrt(zoom)) * dpr;
-        cx.fillStyle = col(v.tag, (on ? (light ? .85 : .6) : .12) * o); cx.beginPath(); cx.arc(x, y, r, 0, 6.283); cx.fill();   // the dot itself at 60% on the dark theme (was 92%)
+        cx.fillStyle = col(v.tag, (on ? (light ? .85 : (zoom >= 3 ? .9 : .6)) : .12) * o); cx.beginPath(); cx.arc(x, y, r, 0, 6.283); cx.fill();   // 60% on the dark theme (was 92%); bright again from 3x in, where the dots are grabbable
         if (HL.has(i)) { cx.globalAlpha = o; cx.strokeStyle = "#facc15"; cx.lineWidth = 2.5 * dpr; cx.beginPath(); cx.arc(x, y, r + 5 * dpr, 0, 6.283); cx.stroke(); cx.globalAlpha = 1; } });
       if (sel >= 0) drawBurst(dpr, zoom);   // a star's charge dots go UNDER every label (L 2026-10-04 "they block text when in front of text")
       drawInsideLabels(mg, dpr, light);   // the closed circles' name + amount, on top of the dots (L 2026-10-04 "the dots cover the text in the map")
@@ -1498,18 +1508,43 @@
       sel = i; selG = -1; burstAt = performance.now(); const v = V[i]; focus = new Set(G[v.g].ids); const last = v.rows.slice().reverse();   // every charge, newest first (L 2026-10-04 "just show all of them")
       $("info").innerHTML = `<div class="mk">${esc(v.name)}</div><div class="sub">${esc(v.tag)} ${esc(label(v.tag))}</div>
         <div class="kv"><b>Total</b><span>${fmt.format(v.total)} (${TOTAL ? (v.total / TOTAL * 100).toFixed(1) : 0}% of spending)</span><b>Charges</b><span>${cadence(v)}</span><b>Average</b><span>${fmt.format(v.total / v.n)}</span></div>
-        <div class="tx">${last.map(r => `<div><span>${r.dt.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" })}</span><span>${esc(r.name)}${r.sub ? " · " + esc(r.sub) : ""}</span><span>${fmt.format(r.amt)}</span></div>`).join("")}</div>
+        <div class="tx">${last.map(r => `<div class="gx-tx" data-id="${esc(r.id)}" title="tap to edit"><span>${r.dt.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" })}</span><span>${esc(r.name)}${r.sub ? " · " + esc(r.sub) : ""}</span><span>${fmt.format(r.amt)}</span></div>`).join("")}</div>
         <div class="chips"><button type="button" data-g="${v.g}">← ${esc(v.tag)} galaxy</button></div>`;
-      flyTo([v], Math.max(view.s, base.s * 3));
+      wireTxEdit(v, i); flyTo([v], Math.max(view.s, base.s * 3));
+    }
+    // EDIT IN THE CARD (L 2026-10-04 "give me a way to edit info in the info grid after I click on an item"): tap a charge row ->
+    // name / detail / amount / date fields; Save writes ONLY those fields on that ledger row, then the shared ledger read refreshes
+    // (galaxy + the planner table). ✕ or any other tap = back to the card.
+    function wireTxEdit(v, i) {
+      $("info").querySelectorAll(".gx-tx").forEach(row => row.onclick = e => { e.stopPropagation(); if (row.querySelector("form")) return;
+        const r = v.rows.find(x => x.id === row.dataset.id); if (!r) return;
+        const day = r.dt.toISOString().slice(0, 10);
+        row.classList.add("editing"); row.innerHTML = `<form class="gx-edit"><input name="name" value="${esc(r.name)}" placeholder="name" required><input name="sub" value="${esc(r.sub || "")}" placeholder="detail"><input name="amt" type="number" step="0.01" min="0" inputmode="decimal" value="${r.amt}" required><input name="date" type="date" value="${day}" required><button type="submit">Save</button><button type="button" data-x title="cancel">✕</button><small class="st"></small></form>`;
+        const f = row.querySelector("form"); f.querySelector("[data-x]").onclick = () => show(i); f.onclick = ev => ev.stopPropagation();
+        f.onsubmit = async ev => { ev.preventDefault(); const st = f.querySelector(".st"); st.textContent = "saving…";
+          try { const fd = new FormData(f), d = String(fd.get("date")), ms = Date.UTC(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10), 12);
+            await saveTx(r, { name: String(fd.get("name")).trim(), sub: String(fd.get("sub")).trim(), amt: toMoney(fd.get("amt")), date: ms });
+            const j = V.findIndex(x => x.key === v.key); if (j >= 0) show(j); else $("info").innerHTML = '<span class="muted">Saved.</span>'; }
+          catch (err) { st.textContent = "not saved: " + (err.code || err.message || err); } }; });
+    }
+    async function saveTx(r, patch) {   // one ledger row, only the fields given (surgical); the cached year is dropped and re-read
+      if (!canWrite()) throw new Error("sign in to edit");
+      await fbUpdate(ref(database, `${TX_YEAR_PATH(DATABASE_BASE_PATH, STATE.year)}/${r.id}`), patch);
+      LEDGER.key = ""; await update(); if (typeof renderAll === "function") renderAll();
+    }
+    const catFor = tag => (STATE.categories || []).find(c => normTag(c.name) === tag) || (STATE.categories || []).find(c => parentTag(normTag(c.name)) === tag) || null;
+    function wireBudgetEdit(g) {   // the category card's monthly-plan field: saves on change, the table and the ring follow
+      const inp = $("info").querySelector(".gx-bud input"); if (!inp) return;
+      inp.onchange = async () => { const cat = catFor(g.tag); if (!cat) return; setBudgetMonthly(cat.name, inp.value); await saveToDB(); if (typeof renderAll === "function") renderAll(); build(false); const k = G.findIndex(x => x.tag === g.tag); if (k >= 0) showGalaxy(k); };
     }
     function showGalaxy(gi) {
       selG = gi; sel = -1; const g = G[gi]; focus = new Set(g.ids); const top = g.ids.slice(0, 10), diff = g.budget - g.total;
       $("info").innerHTML = `<div class="mk">${dot(g.tag)}${esc(g.tag)} ${esc(label(g.tag))}</div><div class="sub">${win === "ytd" ? "year to date" : MONTH[Number(win)]} · ${g.ids.length} vendors</div>
-        <div class="kv"><b>Budget</b><span>${g.budget ? fmt.format(g.budget) : "none set"}</span><b>Spent</b><span>${fmt.format(g.total)}</span>
+        <div class="kv"><b>Budget</b><span>${g.budget ? fmt.format(g.budget) : "none set"}${catFor(g.tag) ? ` <label class="gx-bud" title="this category's monthly plan - saves when you leave the field">· <input type="number" inputmode="decimal" step="1" min="0" value="${toMoney(catFor(g.tag).monthly)}"> / mo</label>` : ""}</span><b>Spent</b><span>${fmt.format(g.total)}</span>
         ${g.budget ? `<b>${diff >= 0 ? "Left" : "Over"}</b><span class="${diff >= 0 ? "under" : "over"}">${fmt.format(Math.abs(diff))} (${Math.round(g.total / g.budget * 100)}% used)</span>` : ""}</div>
         <div class="chips">${top.map(i => `<button type="button" data-v="${i}"><i style="background:${col(V[i].tag, .95)};width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px"></i>${esc(V[i].name)} <span class="n">${money0(V[i].total)}</span></button>`).join("")}</div>
         <div class="gx-hint" style="margin-top:8px">Change this budget in the table below.</div>`;
-      flyTo(g.ids.length ? g.ids.map(i => V[i]) : [{ px: g.px, py: g.py }], base.s * 1.2);
+      wireBudgetEdit(g); flyTo(g.ids.length ? g.ids.map(i => V[i]) : [{ px: g.px, py: g.py }], base.s * 1.2);
     }
     let anim = 0;
     function flyTo(items, minS) {
