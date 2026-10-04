@@ -154,3 +154,38 @@ export async function unstampImg(blob) {
     c.getContext("2d").drawImage(img, 0, 0);   // top-left aligned; the bottom strip falls off
     return toJpeg(c, "Crop");
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// THUMBNAILS (2026-10-04, from the Louverse board): a grid of 2048-px photos is the lag (and froze an iPad). thumbOf(photo, w)
+// fetches the file once, downsizes it in the decoder, keeps a small JPEG in the Cache API ("lv-thumbs-v1" - shared with the
+// board) and hands back an object URL; 2 in flight on Safari, 4 elsewhere; any failure falls back to the full URL.
+const THUMBS = new Map(); let _cacheP = null, _busy = 0; const _waiting = [];
+const IS_SAFARI = typeof navigator !== "undefined" && /Safari|iP(hone|ad|od)/.test(navigator.userAgent) && !/Chrome|CriOS|Edg|Firefox/.test(navigator.userAgent);
+const _cacheOpen = () => _cacheP ??= (typeof caches !== "undefined" ? caches.open("lv-thumbs-v1").catch(() => null) : Promise.resolve(null));
+const _slot = () => _busy < (IS_SAFARI ? 2 : 4) ? (_busy++, Promise.resolve()) : new Promise(r => _waiting.push(r)).then(() => { _busy++; });
+const _free = () => { _busy--; const n = _waiting.shift(); if (n) n(); };
+export function thumbOf(photo, w = 256) {
+    const key = photo?.path || photo?.fullPath || photo?.url; if (!key || !photo?.url) return Promise.resolve(photo?.url || "");
+    const k = `${key}@${w}`; if (THUMBS.has(k)) return THUMBS.get(k);
+    const p = (async () => {
+        const cache = await _cacheOpen(), ck = `https://thumbs.louverse.local/${encodeURIComponent(key)}?w=${w}`;
+        let blob = null;
+        if (cache) { try { const hit = await cache.match(ck); if (hit) blob = await hit.blob(); } catch (_) {} }
+        if (!blob) {
+            await _slot();
+            try {
+                const res = await fetch(photo.url, { mode: "cors" }); if (!res.ok) throw new Error("fetch " + res.status);
+                const full = await res.blob(); let bmp;
+                try { bmp = await createImageBitmap(full, { resizeWidth: w, resizeQuality: "medium", imageOrientation: "from-image" }); } catch (_) { bmp = await createImageBitmap(full); }
+                const tw = Math.min(w, bmp.width) || w, th = Math.max(1, Math.round(bmp.height * tw / bmp.width)) || tw;
+                const c = document.createElement("canvas"); c.width = tw; c.height = th; c.getContext("2d").drawImage(bmp, 0, 0, tw, th); bmp.close?.();
+                blob = await new Promise((ok, no) => c.toBlob(b => b ? ok(b) : no(new Error("thumb failed")), "image/jpeg", 0.82)); c.width = c.height = 0;
+                if (cache) cache.put(ck, new Response(blob, { headers: { "Content-Type": "image/jpeg" } })).catch(() => {});
+            } finally { _free(); }
+        }
+        return URL.createObjectURL(blob);
+    })().catch(e => { console.warn("[imgupload] thumb", e?.message || e); return photo.url; });
+    THUMBS.set(k, p); return p;
+}
+export async function forgetThumb(photo) { const key = photo?.path || photo?.fullPath || photo?.url; if (!key) return; for (const k of [...THUMBS.keys()]) if (k.startsWith(key + "@")) THUMBS.delete(k);
+    const cache = await _cacheOpen(); if (!cache) return; try { for (const r of await cache.keys()) if (r.url.includes(encodeURIComponent(key))) await cache.delete(r); } catch (_) {} }

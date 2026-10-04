@@ -243,8 +243,8 @@
                 <label for="markupTextInput">Markup Text (optional)</label>
                 <input type="text" id="markupTextInput" placeholder="Burned into the bottom of the image">
             </div>
-            <label class="check-row" for="centerMarkupCheckbox">
-                <input type="checkbox" id="centerMarkupCheckbox"> Center the markup text
+            <!-- (the "center the markup" option is gone 2026-10-04 - the shared bar is the one rule) -->
+            <label class="check-row" hidden>
             </label>
             <div class="button-row">
                 <button id="uploadButton">Upload Image</button>
@@ -302,11 +302,11 @@
         import {
             storage, storageRef, uploadBytesResumable, getDownloadURL,
             listAll, deleteObject, onAuthStateChanged, auth,
-            getBlob, uploadBytes, database, get, ref
+            getBlob, uploadBytes, database, get, ref, set
         } from '../assets/js/firebase-init.js';
     // base override (2026-10-04): the Louverse board opens this app on the tree it is reading (?base=<uid>) - local helper, not an import (a cached firebase-init would lack it)
     const basePathFor = u => { let b = ""; try { b = new URLSearchParams(location.search).get("base") || ""; } catch (_) {} return (u && /^[A-Za-z0-9_-]{6,64}$/.test(b)) ? b : (u ? u.uid : "public"); };
-        import { resizeImg, stampImg } from '../assets/js/imgupload.js?v=20261003a';   // THE photo rules - one copy for every app (2026-10-03)
+        import { resizeImg, stampImg, unstampImg, thumbOf, forgetThumb } from '../assets/js/imgupload.js?v=20261004c';   // THE photo rules - one copy for every app (2026-10-03); + unstamp / thumbs (2026-10-04)
 
         /* ===============================
            GLOBAL STATE
@@ -403,9 +403,14 @@
         /* ===============================
            AUTH
         ================================ */
-        onAuthStateChanged(auth, (user) => {
+        onAuthStateChanged(auth, async (user) => {
             DATABASE_BASE_PATH = user ? basePathFor(user) : 'public';
-            loadFolderOptions();
+            tasksCache = null;
+            await loadFolderOptions();
+            // ?task=<id> (the Louverse Photos tile): open on that visit's project folder - onlinejob's folder rule (spaces -> _)
+            const taskId = new URLSearchParams(location.search).get("task");
+            if (taskId) { try { const t = (await get(ref(database, `${DATABASE_BASE_PATH}/tasks/${taskId}`))).val(); const folder = String(t?.project || t?.customerName || "").trim().replace(/\s+/g, "_");
+                if (folder && [...folderDropdown.options].some(o => o.value === folder)) { showLoading("Loading images..."); await loadImages(folder); hideLoading(); } } catch (e) { console.warn("[gallery] task folder", e?.code || e); } }
         });
 
         /* ===============================
@@ -414,6 +419,31 @@
         function sanitizeInput(input) {
             return input.trim().replace(/\s+/g, "_").replace(/[^\w-]/gi, "");
         }
+        /* ===============================
+           THE RECORDS BEHIND A PHOTO (2026-10-04, delete-where-added): a device-row or daily-row photo is also an entry in
+           tasks/<id>/lists/<list>/<row>/images[] or tasks/<id>/tasks/<date>/images[] ({url, path, note, markup}). Every
+           file change here patches those entries too, so the Jobs / Details apps never show a dead thumbnail.
+        ================================ */
+        let tasksCache = null;
+        async function allTasks(fresh) { if (tasksCache && !fresh) return tasksCache; try { const snap = await get(ref(database, `${DATABASE_BASE_PATH}/tasks`)); tasksCache = snap.val() || {}; } catch (e) { console.warn("[gallery] tasks read", e?.code || e); tasksCache = {}; } return tasksCache; }
+        const imgsOf = r => Array.isArray(r?.images) ? r.images : Object.values(r?.images || {});
+        async function recordRefs(path, fresh) {
+            const tasks = await allTasks(fresh), hits = [];
+            for (const [tid, t] of Object.entries(tasks)) { if (!t || typeof t !== "object") continue;
+                for (const [lid, l] of Object.entries(t.lists || {})) { if (!l || typeof l !== "object") continue;
+                    for (const [rid, r] of Object.entries(l)) { if (["_name", "createdAt", "meta", "items"].includes(rid) || !r || typeof r !== "object") continue;
+                        const imgs = imgsOf(r); imgs.forEach((im, i) => { if (im && im.path === path) hits.push({ taskId: tid, kind: "device", label: `${l._name || lid} · ${r.id || r.label || rid}`, node: `${DATABASE_BASE_PATH}/tasks/${tid}/lists/${lid}/${rid}/images`, idx: i, images: imgs, entry: im }); }); } }
+                for (const [date, d] of Object.entries(t.tasks || {})) { const imgs = imgsOf(d); imgs.forEach((im, i) => { if (im && im.path === path) hits.push({ taskId: tid, kind: "daily", label: `daily ${date}`, node: `${DATABASE_BASE_PATH}/tasks/${tid}/tasks/${date}/images`, idx: i, images: imgs, entry: im }); }); } }
+            return hits;
+        }
+        // patch = fields to merge into the entry; null = remove the entry
+        async function syncRecords(path, patch) {
+            const hits = await recordRefs(path, true);
+            for (const h of hits) { const next = patch ? h.images.map((im, i) => i === h.idx ? { ...im, ...patch } : im) : h.images.filter((_, i) => i !== h.idx); await set(ref(database, h.node), next); }
+            if (hits.length) tasksCache = null;
+            return hits;
+        }
+        const bust = u => u + (u.includes("?") ? "&" : "?") + "v=" + Date.now();
 
         imageDropdown.addEventListener('change', () => {
             const selectedOption = imageDropdown.options[imageDropdown.selectedIndex];
@@ -459,17 +489,16 @@
                     file.name.split('.').slice(0, -1).join('_');
 
                 const markupText = markupTextInput.value.trim();
-                const fileExtension = file.name.split('.').pop();
-
-                let finalFileName = `${imageName}.${fileExtension}`;
+                // the blob below is a JPEG whatever came in - the file is named .jpg (the rule everywhere else)
+                let finalFileName = `${imageName}.jpg`;
                 const folderPath = `${DATABASE_BASE_PATH}/tasks/images/${folder}`;
 
                 const existingFiles = await listAll(storageRef(storage, folderPath));
                 const existingNames = new Set(existingFiles.items.map(i => i.name));
 
-                let counter = 1;
+                let counter = 2;   // onlinejob's collision rule: name.jpg, name_2.jpg, name_3.jpg ...
                 while (existingNames.has(finalFileName)) {
-                    finalFileName = `${imageName}_${counter++}.${fileExtension}`;
+                    finalFileName = `${imageName}_${counter++}.jpg`;
                 }
 
                 let blob = await resizeImage(file, 2048);
@@ -562,8 +591,10 @@
                 allItems.push(...subSnap.items);
             }
 
+            // photos only - the .keep / .init.txt folder markers live in the same folders (2026-10-04)
+            const photoItems = allItems.filter(item => /\.(jpe?g|png|webp|gif|heic|bmp)$/i.test(item.name));
             // Resolve all download URLs in parallel
-            currentImages = await Promise.all(allItems.map(async (item) => ({
+            currentImages = await Promise.all(photoItems.map(async (item) => ({
                 url: await getDownloadURL(item),
                 fullPath: item.fullPath,
                 name: item.name
@@ -598,9 +629,11 @@
                 const toRef = storageRef(storage, newPath);
 
                 await uploadBytes(toRef, blob);
-                await deleteObject(fromRef);
+                const movedUrl = bust(await getDownloadURL(toRef));
+                const hits = await syncRecords(fullPath, { path: newPath, url: movedUrl });   // the device / daily rows follow the file
+                await deleteObject(fromRef); forgetThumb({ path: fullPath });
 
-                alert(`Moved "${fileName}" to "${toFolder}"`);
+                alert(`Moved "${fileName}" to "${toFolder}"${hits.length ? ` (+ ${hits.length} record${hits.length === 1 ? "" : "s"} updated)` : ""}`);
 
                 modal.style.display = "none";
                 await loadImages(folderDropdown.value);
@@ -618,8 +651,8 @@
 
             currentImages.forEach(item => {
                 const img = document.createElement('img');
-                img.src = item.url;
-                img.className = "thumbnail";
+                img.className = "thumbnail"; img.alt = item.name; img.decoding = "async";
+                thumbOf(item, 256).then(u => { if (img.isConnected && u) img.src = u; });   // a cached 256-px thumb, not the 2048-px original (the lag fix from the board)
                 img.onclick = () => openModal(item);
                 gallery.appendChild(img);
 
@@ -645,7 +678,16 @@
             currentIndex = currentImages.findIndex(
                 i => i.fullPath === item.fullPath
             );
+            // the record behind it (device / daily row): its note and label, editable here too
+            noteRow.hidden = true; noteInput.value = ""; editMarkupInput.value = ""; modal.dataset.recordNote = "";
+            recordRefs(item.fullPath).then(hits => { if (modal.dataset.fullPath !== item.fullPath) return; const h = hits[0]; if (!h) { noteWhere.textContent = "loose photo (storage only)"; noteRow.hidden = false; noteInput.disabled = true; return; }
+                noteRow.hidden = false; noteInput.disabled = false; noteWhere.textContent = `${h.kind} photo · ${h.label}`; noteInput.value = h.entry.note || ""; editMarkupInput.value = h.entry.markup || ""; modal.dataset.recordNote = h.entry.note || ""; });
         }
+        const noteRow = document.createElement("div"); noteRow.id = "noteRow"; noteRow.hidden = true; noteRow.style.cssText = "margin:8px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap";
+        noteRow.innerHTML = `<span id="noteWhere" style="font-size:.8em;opacity:.75"></span><input id="noteInput" placeholder="note" style="flex:1;min-width:160px">`;
+        document.getElementById("markup-edit-section").before(noteRow);
+        const noteWhere = noteRow.querySelector("#noteWhere"), noteInput = noteRow.querySelector("#noteInput");
+        noteInput.addEventListener("change", async () => { const path = modal.dataset.fullPath, note = noteInput.value.trim(); if (!path || note === (modal.dataset.recordNote || "")) return; try { await syncRecords(path, { note }); modal.dataset.recordNote = note; } catch (e) { alert("Note not saved: " + (e?.message || e)); } });
 
         closeModalButton.onclick = () => modal.style.display = "none";
 
@@ -653,7 +695,9 @@
             if (!confirm("Delete this image?")) return;
             showLoading("Deleting...");
             try {
-                await deleteObject(storageRef(storage, modal.dataset.fullPath));
+                const hits = await syncRecords(modal.dataset.fullPath, null);   // delete-where-added: the device / daily row loses its entry too
+                await deleteObject(storageRef(storage, modal.dataset.fullPath)); forgetThumb({ path: modal.dataset.fullPath });
+                if (hits.length) console.info("[gallery] removed from", hits.map(h => h.label).join(", "));
                 modal.style.display = "none";
                 await loadImages(folderDropdown.value);
             } finally {
@@ -678,7 +722,8 @@
                 const refImage = storageRef(storage, modal.dataset.fullPath);
                 const blob = await getBlob(refImage);
                 const newBlob = await addTextToImage(blob, text);
-                await uploadBytes(refImage, newBlob);
+                await uploadBytes(refImage, newBlob, { contentType: "image/jpeg" });
+                await syncRecords(modal.dataset.fullPath, { url: bust(await getDownloadURL(refImage)), markup: text }); forgetThumb({ path: modal.dataset.fullPath });
                 modal.style.display = "none";
                 await loadImages(folderDropdown.value);
             } finally {
@@ -701,56 +746,9 @@
                 const imageRef = storageRef(storage, modal.dataset.fullPath);
                 const blob = await getBlob(imageRef);
 
-                const croppedBlob = await new Promise((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onerror = () => reject(reader.error || new Error("Failed to read image."));
-                    reader.onload = () => {
-                        const img = new Image();
-                        img.onerror = () => reject(new Error("Failed to decode image."));
-                        img.onload = () => {
-
-                            // 🔥 SAME FORMULA used in markup
-                            const barHeight = Math.floor(img.width * 0.12);
-
-                            // Safety check
-                            if (img.height <= barHeight) {
-                                reject(new Error("Image too small to remove markup."));
-                                return;
-                            }
-
-                            const canvas = document.createElement("canvas");
-                            canvas.width = img.width;
-                            canvas.height = img.height - barHeight;
-
-                            const ctx = canvas.getContext("2d");
-
-                            // Crop bottom portion off
-                            ctx.drawImage(
-                                img,
-                                0,
-                                0,
-                                img.width,
-                                img.height - barHeight,
-                                0,
-                                0,
-                                img.width,
-                                img.height - barHeight
-                            );
-
-                            canvas.toBlob((outBlob) => {
-                                if (!outBlob) {
-                                    reject(new Error("Failed to encode image."));
-                                    return;
-                                }
-                                resolve(outBlob);
-                            }, "image/jpeg", 0.95);
-                        };
-                        img.src = reader.result;
-                    };
-                    reader.readAsDataURL(blob);
-                });
-
-                await uploadBytes(imageRef, croppedBlob);
+                const croppedBlob = await unstampImg(blob);   // the shared strip (max(40, width/22)) - the same bar stampImg put on, no more 12% guess
+                await uploadBytes(imageRef, croppedBlob, { contentType: "image/jpeg" });
+                await syncRecords(modal.dataset.fullPath, { url: bust(await getDownloadURL(imageRef)), markup: "" }); forgetThumb({ path: modal.dataset.fullPath });
 
                 modal.style.display = "none";
                 await loadImages(folderDropdown.value);
