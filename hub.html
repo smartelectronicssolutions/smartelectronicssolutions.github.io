@@ -3784,12 +3784,24 @@
         $('#dc-droplet').onclick = () => { if (DC.dropletState && DC.dropletState !== 'up') dcWake(); };   // the pill is the wake button (L, 2026-09-25)
         // Workbench tab retired 2026-09-11 — its enhance lives inline in the Chat now (computeEnhance).
         $('#dc-pg-enabled').onchange = e => { paintPingRow(e.target.checked); set(ref(database, `${DC.base}/pings/settings`), { channel: 'telegram_dm', enabled: e.target.checked }); };
+        // FULL SYSTEM AS A SIDE PANE (L 2026-10-04): on a wide screen System opens beside the chat like 👥 - one side pane at a time
+        const SYS_PANELS = ['#dc-rt-panel', '#dc-in-panel', '#dc-bot-panel', '#dc-look-panel', '#dc-prof-panel'];
+        const sysSide = matchMedia('(min-width: 761px)'), sysPaneMode = () => sysSide.matches && !DC.isPhone();
+        const setSysPane = on => { const body = $('#dc-console .dc-body'); if (!body) return;
+            if (on) { window.__dcClosePeer && window.__dcClosePeer(); body.classList.add('dc-split', 'sysopen'); $('#dc-chat-panel').classList.add('active'); const ct = $('.dc-tab[data-tab="ch"]'); if (ct) ct.classList.add('active'); }
+            else { const peer = body.classList.contains('dc-split') && !body.classList.contains('sysopen'); body.classList.remove('sysopen'); if (!peer) body.classList.remove('dc-split'); } };
+        const closeSysPane = () => { const st = $('#dc-sys-tab'); if (st) st.classList.remove('active'); SYS_PANELS.forEach(id => $(id) && $(id).classList.remove('active')); setSysPane(false); };
+        window.__dcSysPane = { is: () => !!$('#dc-console .dc-body.sysopen'), close: closeSysPane };
+        sysSide.addEventListener('change', e => { if (!e.matches && window.__dcSysPane.is()) { setSysPane(false); $('#dc-chat-panel').classList.remove('active'); const ct = $('.dc-tab[data-tab="ch"]'); if (ct) ct.classList.remove('active'); } });   // squeezed to a phone: System becomes the full view
         document.querySelectorAll('.dc-tab').forEach(t => t.onclick = () => {
             const wasActive = t.classList.contains('active');
+            if (t.dataset.tab === 'sys' && window.__dcSysPane.is()) { closeSysPane(); return; }   // second tap = close the pane
             document.querySelectorAll('.dc-tab').forEach(x => x.classList.remove('active'));
             document.querySelectorAll('.dc-panel').forEach(x => x.classList.remove('active'));
             t.classList.add('active');
-            $('#dc-chat-panel').classList.toggle('active', t.dataset.tab === 'ch');
+            const sysPane = t.dataset.tab === 'sys' && sysPaneMode();
+            $('#dc-chat-panel').classList.toggle('active', t.dataset.tab === 'ch' || sysPane);
+            if (t.dataset.tab === 'ch') setSysPane(false);
             if (t.dataset.tab === 'ch' && !wasActive) { snapChatEnd($('#dc-chat-log'), newestFirst()); if (!DC.isPhone()) setTimeout(() => $('#dc-chat-in') && $('#dc-chat-in').focus(), 50); }
             // System = one tab: account + daemon line, then Routines, then Fleet (with Pings) - both panels show together
             $('#dc-rt-panel').classList.toggle('active', t.dataset.tab === 'sys');
@@ -3797,7 +3809,7 @@
             $('#dc-bot-panel') && $('#dc-bot-panel').classList.toggle('active', t.dataset.tab === 'sys');
             $('#dc-look-panel') && $('#dc-look-panel').classList.toggle('active', t.dataset.tab === 'sys');
             $('#dc-prof-panel') && $('#dc-prof-panel').classList.toggle('active', t.dataset.tab === 'sys');
-            if (t.dataset.tab === 'sys') { renderInsights(); renderBotPanel(); }   // insights read once + cached; the bot panel re-reads (4 small gets)
+            if (t.dataset.tab === 'sys') { renderInsights(); renderBotPanel(); if (sysPane) setSysPane(true); }   // insights read once + cached; the bot panel re-reads (4 small gets)
             // Full system lives in the ⚙ menu now: picking it closes the menu (its own click never reaches document)
             if (t.dataset.tab === 'sys') { const gp = $('#dc-gear-pop'); if (gp && !gp.hidden) { gp.hidden = true; $('#dc-gear').classList.remove('open'); } }
         });
@@ -5309,8 +5321,16 @@
            siblings and spread out sideways. They live in #dc-sys-col now - display:contents normally (nothing changes), a
            scrolling column on the left while split - so the pane sits to the right with the bar, exactly like the chat. */
         #dc-sys-col { display: contents; }
-        .dc-body.dc-split > #dc-sys-col:has(.dc-panel.active) { display: block; flex: 1 1 0; min-width: 0; min-height: 0; overflow: auto; }   /* only while a System panel is showing - an empty column would squeeze the chat */
+        .dc-body.dc-split:not(.sysopen) > #dc-sys-col:has(.dc-panel.active) { display: block; flex: 1 1 0; min-width: 0; min-height: 0; overflow: auto; }   /* only while a System panel is showing - an empty column would squeeze the chat */
         .dc-body.dc-split.pfull > #dc-sys-col { display: none; }
+        /* FULL SYSTEM AS A SIDE PANE (L 2026-10-04 "open in a pane on the left or right as long as I only have 1 open already"): on a
+           wide screen the System column opens beside the chat exactly like 👥 - same split bar, same saved size - and People closes
+           first (one side pane at a time). The phone keeps the switch (System replaces the chat). */
+        .dc-body.dc-split.sysopen > #dc-chat-panel { order: 1; }
+        .dc-body.dc-split.sysopen > #dc-peer-split { order: 2; display: block; }
+        .dc-body.dc-split.sysopen > #dc-sys-col:has(.dc-panel.active) { order: 3; display: block; flex: 1 1 0; min-width: 0; min-height: 0; overflow: auto; border-left: 1px solid var(--border); padding-left: 12px; box-sizing: border-box; }
+        .dc-body.dc-split.sysopen.psized > #dc-sys-col:has(.dc-panel.active) { flex: 0 0 var(--dc-peer-size, 50%); }
+        .dc-body.dc-split.sysopen > #dc-peer { display: none; }
         @media (max-width: 760px) { .dc-body.dc-split > #dc-sys-col { display: contents; } }   /* phone: the column layout + the sticky pane below handle it */
         @media (max-width: 760px) {
             .dc-body.dc-split { flex-direction: column; }
@@ -5438,7 +5458,7 @@
         // 👥 opens the SIDE PANE itself (L, 2026-09-27: "when I click the icon have it open the pane and have the options in there -
         // make it more options for that part"): a People home (conversations, members, share this tab, shared with me, settings)
         // and a conversation view with ‹ back to the home.
-        btn.onclick = e => { e.stopPropagation(); const split = $('#dc-console .dc-body').classList.contains('dc-split'); if (split && !P.open) closePeer(); else showHome(); };
+        btn.onclick = e => { e.stopPropagation(); const b = $('#dc-console .dc-body'), split = b.classList.contains('dc-split') && !b.classList.contains('sysopen'); if (split && !P.open) closePeer(); else showHome(); };
         const pane = document.createElement('div'); pane.id = 'dc-peer';
         pane.innerHTML = `<div id="dc-peer-head"><button type="button" id="dc-peer-back" title="back to People" hidden>‹</button><span id="dc-peer-name"></span><div id="dc-peer-bar" hidden></div><span class="sp"></span><button type="button" id="dc-peer-x" title="close the pane">✕</button></div>
             <div id="dc-peer-home"></div>
@@ -5467,7 +5487,7 @@
                 body.classList.toggle('psized', v > 0); if (v > 0) body.style.setProperty('--dc-peer-size', v + '%'); else body.style.removeProperty('--dc-peer-size'); };
             applySaved(); mq.addEventListener('change', applySaved);
             let pid = null, p0 = 0, s0 = 0, main = 1;
-            sp.addEventListener('pointerdown', e => { const r = pane.getBoundingClientRect(), b = body.getBoundingClientRect(), cs = getComputedStyle(body);
+            sp.addEventListener('pointerdown', e => { const side = body.classList.contains('sysopen') ? (body.querySelector('#dc-sys-col') || pane) : pane, r = side.getBoundingClientRect(), b = body.getBoundingClientRect(), cs = getComputedStyle(body);
                 if (narrow()) { p0 = e.clientY; s0 = r.height; main = b.height - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom); }
                 else { p0 = e.clientX; s0 = r.width; main = b.width - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight); }
                 if (!(main > 300)) return;   // nothing to split yet
@@ -5558,7 +5578,7 @@
     function showHome(mode) {
         if (P.unsub) { P.unsub(); P.unsub = null; }
         P.open = null; P.other = null;
-        $('#dc-console .dc-body').classList.add('dc-split');
+        peerSplit();   // one side pane at a time: a System pane closes first (2026-10-04)
         $('#dc-peer-home').hidden = false; $('#dc-peer-log').hidden = true; $('#dc-peer-form').hidden = true; $('#dc-peer-back').hidden = true;
         $('#dc-peer-name').textContent = mode === 'pick' ? '📺 Share a tab' : '👥 People';
         renderHome(mode); dots();
@@ -5799,7 +5819,7 @@
         $('#dc-peer-name').textContent = title;
         renderBar();
         $('#dc-peer-in').placeholder = tid.startsWith('tab-') ? 'chat here (only the console box talks to Droplet)…' : 'message…  (Enter sends)';
-        $('#dc-console .dc-body').classList.add('dc-split');
+        peerSplit();   // one side pane at a time: a System pane closes first (2026-10-04)
         $('#dc-peer-log').innerHTML = '<div style="opacity:.6;text-align:center;padding:10px">loading…</div>';
         P.unsub = onValue(query(ref(database, `share/chat/${tid}/messages`), limitToLast(100)), s => renderMsgs(s.val() || {}),
             e => { $('#dc-peer-log').innerHTML = `<div style="opacity:.7;padding:10px">Can't read this chat: ${esc(e.code || e.message)}</div>`; });
@@ -5899,6 +5919,8 @@
         finally { box.disabled = false; box.placeholder = ph; }
     }
 
+    function peerSplit() { if (window.__dcSysPane && window.__dcSysPane.is()) window.__dcSysPane.close(); $('#dc-console .dc-body').classList.add('dc-split'); }
+    window.__dcClosePeer = () => closePeer();
     function closePeer() {
         if (P.unsub) { P.unsub(); P.unsub = null; }
         P.open = null; P.other = null;
