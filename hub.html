@@ -5330,6 +5330,11 @@
         .pprof label { display: grid; gap: 2px; font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; opacity: .75; }
         .pprof input { font: inherit; font-size: 16px; text-transform: none; letter-spacing: 0; opacity: 1; padding: 6px 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); width: 100%; box-sizing: border-box; }
         .pprof-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+        .pprof-acct { display: grid; gap: 3px; font-size: .8rem; padding: 2px 0 4px; }
+        .pprof-acct div { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+        .pprof-acct b { opacity: .6; font-weight: 600; font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; flex: 0 0 64px; }
+        .pprof-acct span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+        .pprof-acct .pf-uid { cursor: copy; font-family: var(--font-mono); font-size: .74rem; }
         .pprof-foot small { opacity: .65; font-size: .75rem; }
         .dc-peer-row .pago { float: right; font-size: .7rem; opacity: .5; margin-left: 8px; }
         #dc-peer-back { font-size: 1.3rem !important; line-height: 1; padding: 0 4px; }
@@ -5577,10 +5582,12 @@
             const pf = P.profDraft || P.info || {}, dn = P.profDraft ? P.profDraft.dirName : (P.dir[P.me] || P.myName || '');
             html += `<div class="pprof">
                 <label>Shown to members<input id="pf-dir" value="${esc(dn)}" placeholder="your name in chats" autocomplete="off"></label>
+                <label>Username<input id="pf-user" value="${esc(pf.username || '')}" autocomplete="off"></label>
                 <label>Name<input id="pf-name" value="${esc(pf.name || '')}" autocomplete="off"></label>
                 <label>Phone<input id="pf-phone" value="${esc(pf.phone || '')}" inputmode="tel" autocomplete="off"></label>
                 <label>Email<input id="pf-email" value="${esc(pf.email || '')}" inputmode="email" autocomplete="off"></label>
                 <label>Address<input id="pf-address" value="${esc(pf.address || '')}" autocomplete="off"></label>
+                <div class="pprof-acct"><div><b>Account</b><span>${esc((auth.currentUser && auth.currentUser.email) || '')}</span></div><div><b>UID</b><span class="pf-uid" title="tap to copy">${esc(P.me)}</span></div><div><b>Since</b><span>${esc((auth.currentUser && auth.currentUser.metadata && auth.currentUser.metadata.creationTime) ? new Date(auth.currentUser.metadata.creationTime).toLocaleDateString() : '')}</span></div></div>
                 <div class="pprof-foot"><small id="pf-st">${P.info ? '' : 'loading…'}</small><button type="button" class="pbar-b" id="pf-save">Save</button></div></div>`;
             // 5. settings
             html += H('Settings', 'settings');
@@ -5609,12 +5616,13 @@
         // profile: load the info node once, keep what is being typed across re-renders, Save = update() on info + the directory name
         if ($('#pf-save') && P.me) {
             if (!P.info && !P.infoLoading) { P.infoLoading = true; get(ref(database, `${P.me}/info`)).then(sn => { P.info = sn.val() || {}; P.infoLoading = false; if (!P.open) renderHome(); }).catch(() => { P.info = {}; P.infoLoading = false; }); }
-            const grab = () => ({ dirName: $('#pf-dir').value.trim(), name: $('#pf-name').value.trim(), phone: $('#pf-phone').value.trim(), email: $('#pf-email').value.trim(), address: $('#pf-address').value.trim() });
+            const grab = () => ({ dirName: $('#pf-dir').value.trim(), username: $('#pf-user').value.trim(), name: $('#pf-name').value.trim(), phone: $('#pf-phone').value.trim(), email: $('#pf-email').value.trim(), address: $('#pf-address').value.trim() });
+            const uidEl = home.querySelector('.pf-uid'); if (uidEl) uidEl.onclick = async () => { try { await navigator.clipboard.writeText(P.me); uidEl.textContent = 'copied'; setTimeout(() => { uidEl.textContent = P.me; }, 1200); } catch (_) {} };
             home.querySelectorAll('.pprof input').forEach(i => { i.addEventListener('input', () => { P.profDraft = grab(); $('#pf-st').textContent = 'unsaved'; }); i.addEventListener('pointerdown', e => e.stopPropagation()); });
             $('#pf-save').onclick = async () => { const d = grab(), st = $('#pf-st'); st.textContent = 'saving…';
-                try { await update(ref(database, `${P.me}/info`), { name: d.name, phone: d.phone, email: d.email, address: d.address });
+                try { await update(ref(database, `${P.me}/info`), { username: d.username, name: d.name, phone: d.phone, email: d.email, address: d.address });
                     if (d.dirName && d.dirName !== (P.dir[P.me] || '')) { await set(ref(database, `share/directory/${P.me}/name`), d.dirName); P.dir[P.me] = d.dirName; P.myName = d.dirName; }
-                    P.info = { ...(P.info || {}), name: d.name, phone: d.phone, email: d.email, address: d.address }; P.profDraft = null; st.textContent = 'saved'; }
+                    P.info = { ...(P.info || {}), username: d.username, name: d.name, phone: d.phone, email: d.email, address: d.address }; P.profDraft = null; st.textContent = 'saved'; }
                 catch (e) { st.textContent = 'not saved: ' + (e.code || e.message); } };
         }
     }
