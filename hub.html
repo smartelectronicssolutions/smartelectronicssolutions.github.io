@@ -5615,7 +5615,7 @@
             if (convs.length) {
                 html += H('Conversations', 'convs');
                 html += convs.map(([t, x]) => { const tab = t.startsWith('tab-');
-                    return `<div class="pswipe" data-conv="${esc(t)}"><button type="button" class="pclr" title="clear this conversation for you (they keep theirs)">🗑 Clear</button><button type="button" class="dc-peer-row" ${tab ? `data-open="${esc(t)}" data-title="📺 ${esc(x.name)}"` : `data-u="${esc(x.with)}"`}>${tab ? '📺 ' : '💬 '}${esc(x.name || P.dir[x.with] || '?')}${unread(t) ? '<span class="dot"></span>' : ''}<span class="pago">${ago(x.ts)}</span><small>${esc(x.from === P.me ? 'you: ' : x.from === 'droplet' ? 'Droplet: ' : '')}${esc(x.last || '')}</small></button></div>`; }).join('');
+                    return `<div class="pswipe" data-conv="${esc(t)}"><button type="button" class="pclr" title="clear this conversation for you (they keep theirs)">🗑 Clear</button><button type="button" class="dc-peer-row" ${tab ? `data-open="${esc(t)}" data-title="📺 ${esc(x.name)}"` : `data-u="${esc(x.with)}"`}>${tab ? '📺 ' : '💬 '}${esc(tab ? (x.name || '?') : (P.dir[x.with] || x.name || '?'))}${unread(t) ? '<span class="dot"></span>' : ''}<span class="pago">${ago(x.ts)}</span><small>${esc(x.from === P.me ? 'you: ' : x.from === 'droplet' ? 'Droplet: ' : '')}${esc(x.last || '')}</small></button></div>`; }).join('');
             }
             // 2. share this tab (owner)
             if (topic && topic !== '★') {
@@ -5910,6 +5910,9 @@
         if (!u || P.me) return;
         P.me = u.uid;
         try { const d = (await get(ref(database, 'share/directory'))).val() || {}; for (const [k, v] of Object.entries(d)) P.dir[k] = (v && v.name) || k.slice(0, 6); } catch (_) {}
+        // the name members see IS the account's display name (L 2026-10-04): each account mirrors its own at sign-in - other
+        // accounts' display names are not readable from a browser, so the directory is how they reach everyone else
+        { const dn = String(u.displayName || '').trim(); if (dn && dn !== (P.dir[P.me] || '')) { set(ref(database, `share/directory/${P.me}/name`), dn).catch(() => {}); P.dir[P.me] = dn; } }
         P.myName = P.dir[P.me] || (u.email || '').split('@')[0] || 'me';
         build();
         onValue(ref(database, `share/chatIndex/${P.me}`), s => { P.index = s.val() || {}; popNew(P.index); dots(); publishRemoteTabs(); if (!P.open) renderHome(); }, () => {});
