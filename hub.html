@@ -1131,9 +1131,10 @@
         #dc-look-panel .lk-tap { font-size: .68rem; opacity: .7; margin-left: 6px; white-space: nowrap; }
         #dc-look-panel .lk-hid { position: absolute; left: 50%; bottom: 0; width: 1px; height: 1px; opacity: 0; border: 0; padding: 0; pointer-events: none; }   /* not display:none - iOS won't open a hidden input's picker */
         #dc-look-panel .lk-prev-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: .72rem; color: var(--muted); }
-        #dc-look-panel .lk-ops { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 8px 0 0; font-size: .74rem; color: var(--muted); }
-        #dc-look-panel .lk-ops label { display: inline-flex; align-items: center; gap: 5px; }
-        #dc-look-panel .lk-ops input[type=range] { width: 84px; margin: 0; }
+        #dc-look-panel .lk-ops { display: flex; align-items: center; gap: 8px; margin: 8px 0 0; font-size: .74rem; color: var(--muted); }
+        #dc-look-panel .lk-ops select { font: inherit; font-size: .78rem; padding: 3px 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); }
+        #dc-look-panel .lk-ops input[type=range] { flex: 1 1 0; min-width: 60px; margin: 0; }
+        #dc-look-panel .lk-ops small { flex: 0 0 38px; text-align: right; font-variant-numeric: tabular-nums; }
         @media (max-width: 640px) { #dc-look-panel .lk-l { width: 100%; } }
         /* the tokens the themes drive. font-family and letter-spacing INHERIT, so unlike the
            rem trap these reach every child without touching 45 rules. */
@@ -1228,7 +1229,7 @@
                     <label class="dc-bub drop lk-pick" for="lk-dp" title="tap to change the other side's colour"><span class="who">Droplet · now</span>This is how a reply looks. <span class="lk-tap">🎨 tap</span><input type="color" id="lk-dp" class="lk-hid"></label>
                     <label class="dc-bub me lk-pick" for="lk-me" title="tap to change your colour (also the tabs, send button, outlines)"><span class="who">You · now</span>And this is you. <span class="lk-tap">🎨 tap</span><input type="color" id="lk-me" class="lk-hid"></label>
                     <div class="lk-prev-foot">tap a bubble to change its colour <button type="button" class="lk-x" data-clear="both" title="back to the default colours">auto</button></div>
-                    <div class="lk-ops" title="opacity: the colour's 4th number"><label>You <input type="range" id="lk-meop" min="10" max="100" step="5"><small>bubble</small></label><label><input type="range" id="lk-metx" min="30" max="100" step="5"><small>text</small></label><label>Other <input type="range" id="lk-dpop" min="10" max="100" step="5"><small>bubble</small></label><label><input type="range" id="lk-dptx" min="30" max="100" step="5"><small>text</small></label></div>
+                    <div class="lk-ops" title="opacity: the colour's 4th number - pick what it applies to"><select id="lk-optg" aria-label="what the opacity applies to"><option value="meop">Your bubble</option><option value="metx">Your text</option><option value="dpop">Other bubble</option><option value="dptx">Other text</option></select><input type="range" id="lk-op" min="10" max="100" step="5" aria-label="opacity"><small id="lk-opv">100%</small></div>
                 </div>
                 <div class="lk-row"><span class="lk-l">Shape</span>
                     <button type="button" class="lk-b" data-shape="">Standard</button>
@@ -2893,7 +2894,7 @@
         // account. The phone in the truck and the desktop at home want different text sizes.
         // Every read and write is guarded - a blocked or full store must not break the console.
         const THEME_KEYS = { bg: 'dc_theme_bg', fs: 'dc_theme_fs', name: 'dc_theme_name', color: 'dc_theme_color', shape: 'dc_theme_shape', font: 'dc_theme_font', me: 'dc_theme_me', dp: 'dc_theme_dp', meop: 'dc_theme_meop', metx: 'dc_theme_metx', dpop: 'dc_theme_dpop', dptx: 'dc_theme_dptx' };
-        const OPS = [['meop', '--dc-me-op', 'lk-meop'], ['metx', '--dc-me-tx', 'lk-metx'], ['dpop', '--dc-dp-op', 'lk-dpop'], ['dptx', '--dc-dp-tx', 'lk-dptx']];   // the opacity sliders (2026-10-04)
+        const OPS = [['meop', '--dc-me-op'], ['metx', '--dc-me-tx'], ['dpop', '--dc-dp-op'], ['dptx', '--dc-dp-tx']];   // opacity targets (2026-10-04): ONE slider, #lk-optg picks which
         // one-time: the old bundled theme -> its colour + shape (silver = sharp, blue = bubbly, lite = slim)
         try { const old = localStorage.getItem('dc_theme_name');
             if (old) { const m = { silver: ['silver', 'sharp'], fire: ['fire', ''], blue: ['blue', 'bubbly'], lite: ['', 'slim'] }[old] || ['', ''];
@@ -2957,7 +2958,7 @@
             const me = $('#lk-me'), dp = $('#lk-dp');
             if (me) me.value = themeGet('me') || hex(cs && cs.getPropertyValue('--dc-purple'));   // main = the set's accent until you pick one
             if (dp) { const d = String(cs && cs.getPropertyValue('--dc-dp-bg') || '').trim(); dp.value = themeGet('dp') || (/^#[0-9a-f]{6}$/i.test(d) ? d : '#1b2638'); }
-            for (const [k, , id] of OPS) { const el = $('#' + id); if (el) el.value = Number(themeGet(k)) || 100; }
+            const tg = $('#lk-optg'), op = $('#lk-op'); if (tg && op) { op.value = Number(themeGet(tg.value)) || 100; const v = $('#lk-opv'); if (v) v.textContent = op.value + '%'; }
         }
         {
             const pan = $('#dc-look-panel'), b = $('#dc-theme-bg');
@@ -2973,7 +2974,8 @@
                 });
                 $('#lk-me') && $('#lk-me').addEventListener('input', e => themeSet('me', e.target.value));
                 $('#lk-dp') && $('#lk-dp').addEventListener('input', e => themeSet('dp', e.target.value));
-                for (const [k, , id] of OPS) $('#' + id) && $('#' + id).addEventListener('input', e => themeSet(k, e.target.value));
+                $('#lk-optg') && $('#lk-optg').addEventListener('change', paintLook);   // the slider jumps to the chosen target's value
+                $('#lk-op') && $('#lk-op').addEventListener('input', e => { const tg = $('#lk-optg'); if (tg) themeSet(tg.value, e.target.value); });
             }
             applyTheme();   // before first paint of the log
         }
