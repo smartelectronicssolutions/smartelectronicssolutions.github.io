@@ -5565,12 +5565,12 @@
     // the workspace Account card: Display name = the auth displayName (updateProfile), Phone/Address/Bio/Website = {uid}/profile
     // (update() never set() - role lives there too). data-pf attributes, not ids, so both copies can be in the DOM at once.
     function profileHTML() {
-        const pf = P.profDraft || P.info || {}, dn = P.profDraft ? P.profDraft.dirName : (P.dir[P.me] || P.myName || '');
-        const pfName = P.profDraft ? P.profDraft.name : ((auth.currentUser && auth.currentUser.displayName) || '');
+        const pf = P.profDraft || P.info || {};
+        // Display name = the auth displayName = the name members see (share/directory) - one field, both written on Save (L 2026-10-04)
+        const pfName = P.profDraft ? P.profDraft.name : ((auth.currentUser && auth.currentUser.displayName) || P.dir[P.me] || '');
         const u = auth.currentUser, since = (u && u.metadata && u.metadata.creationTime) ? new Date(u.metadata.creationTime).toLocaleDateString() : '';
         return `<div class="pprof">
-            <label>Shown to members<input data-pf="dir" value="${esc(dn)}" placeholder="your name in chats" autocomplete="off"></label>
-            <label>Display name<input data-pf="name" value="${esc(pfName)}" placeholder="your name" autocomplete="off"></label>
+            <label>Display name<input data-pf="name" value="${esc(pfName)}" placeholder="your name - what members see" autocomplete="off"></label>
             <label>Phone<input data-pf="phone" value="${esc(pf.phoneNumber || '')}" inputmode="tel" autocomplete="off"></label>
             <label>Address<input data-pf="address" value="${esc(pf.address || '')}" autocomplete="off"></label>
             <label>Bio<input data-pf="bio" value="${esc(pf.bio || '')}" placeholder="a line about you" autocomplete="off"></label>
@@ -5582,14 +5582,14 @@
         const q = sel => root.querySelector(sel), save = q('.pf-save'); if (!save || !P.me) return;
         if (!P.info && !P.infoLoading) { P.infoLoading = true; get(ref(database, `${P.me}/profile`)).then(sn => { P.info = sn.val() || {}; P.infoLoading = false; renderProfiles(); }).catch(() => { P.info = {}; P.infoLoading = false; }); }
         const g = k => { const el = q(`[data-pf="${k}"]`); return el ? el.value.trim() : ''; };
-        const grab = () => ({ dirName: g('dir'), name: g('name'), phoneNumber: g('phone'), address: g('address'), bio: g('bio'), website: g('website') });
+        const grab = () => ({ name: g('name'), phoneNumber: g('phone'), address: g('address'), bio: g('bio'), website: g('website') });
         const uidEl = q('.pf-uid'); if (uidEl) uidEl.onclick = async () => { try { await navigator.clipboard.writeText(P.me); uidEl.textContent = 'copied'; setTimeout(() => { uidEl.textContent = P.me; }, 1200); } catch (_) {} };
         root.querySelectorAll('.pprof input').forEach(i => { i.addEventListener('input', () => { P.profDraft = grab(); q('.pf-st').textContent = 'unsaved'; }); i.addEventListener('pointerdown', e => e.stopPropagation()); });
         save.onclick = async () => { const d = grab(), st = q('.pf-st'); st.textContent = 'saving…';
             try { const fields = { phoneNumber: d.phoneNumber, address: d.address, bio: d.bio, website: d.website };
                 if (auth.currentUser && d.name !== (auth.currentUser.displayName || '')) await updateProfile(auth.currentUser, { displayName: d.name });
                 await update(ref(database, `${P.me}/profile`), { ...fields, updatedAt: Date.now() });
-                if (d.dirName && d.dirName !== (P.dir[P.me] || '')) { await set(ref(database, `share/directory/${P.me}/name`), d.dirName); P.dir[P.me] = d.dirName; P.myName = d.dirName; }
+                if (d.name && d.name !== (P.dir[P.me] || '')) { await set(ref(database, `share/directory/${P.me}/name`), d.name); P.dir[P.me] = d.name; P.myName = d.name; }   // the shown name follows
                 P.info = { ...(P.info || {}), ...fields }; P.profDraft = null; renderProfiles(); }
             catch (e) { st.textContent = 'not saved: ' + (e.code || e.message); } };
     }
