@@ -1325,7 +1325,10 @@
     // ---- drawing ----
     // THE VIEWPORT + INPUT = ../assets/js/canvasview.js (L 2026-10-03: one engine for every map). World = 0..1000.
     let sky = null;
-    const cvw = mountCanvasView(cv, { world: () => ({ x0: 0, y0: 0, x1: 1000, y1: 1000 }), pad: 14, minZoom: 0.6, maxZoom: 160,
+    // the world follows the canvas shape (L 2026-10-04 "the left and right movement is limited"): a wide screen gets a wide world, a
+    // tall phone a tall one, so a circle can sit anywhere on the visible map - not only inside a centred 1000 x 1000 square
+    const worldExt = () => { const r = cv.getBoundingClientRect(), ar = r.height > 0 ? r.width / r.height : 1, w = ar >= 1 ? 1000 * ar : 1000, h = ar >= 1 ? 1000 : 1000 / ar; return { x0: (1000 - w) / 2, y0: (1000 - h) / 2, x1: (1000 + w) / 2, y1: (1000 + h) / 2 }; };
+    const cvw = mountCanvasView(cv, { world: worldExt, pad: 14, minZoom: 0.6, maxZoom: 160,
       sliders: { x: $("slx"), y: $("sly") }, draw: () => draw(),
       // under the finger: the one big circle when zoomed out, else a star (only inside an OPEN circle), else the circle it is in
       hit: (mx, my) => { if (mergeOf() > .5) return { all: true }; const i = hitAt(mx, my); if (i >= 0) return { star: i }; const gi = galaxyAt(mx, my); return gi >= 0 ? { galaxy: gi } : null; },
@@ -1335,7 +1338,7 @@
       hold: (t, e) => t && (t.galaxy != null || t.star != null) ? "drag" : (e.pointerType === "touch" ? "pan" : null),   // ... or on a star once its circle is open (L: "move the small circle when they become visible too")
       onDrag: (t, dx, dy) => { if (!t) return;
         if (t.star != null) { const v = V[t.star], e = Math.max(.3, ease(openOf(G[v.g]))); v.px += dx / e; v.py += dy / e; hideTip(); return; }   // a star follows the finger even while its circle is still opening
-        if (t.galaxy == null) return; const g = G[t.galaxy], nx = Math.max(0, Math.min(1000, g.px + dx)), ny = Math.max(0, Math.min(1000, g.py + dy)), ax = nx - g.px, ay = ny - g.py;
+        if (t.galaxy == null) return; const E = worldExt(), g = G[t.galaxy], nx = Math.max(E.x0, Math.min(E.x1, g.px + dx)), ny = Math.max(E.y0, Math.min(E.y1, g.py + dy)), ax = nx - g.px, ay = ny - g.py;   // anywhere on the visible map
         g.px = nx; g.py = ny; g.ids.forEach(i => { V[i].px += ax; V[i].py += ay; }); hideTip(); },
       onDragEnd: (t, moved) => { if (!t || !moved) return;
         if (t.star != null) { const v = V[t.star], g = G[v.g]; STATE.starPos ||= {}; (STATE.starPos[g.tag] ||= {})[posKey(v.key)] = { dx: Math.round(v.px - g.px), dy: Math.round(v.py - g.py) }; saveToDB(); $("arrange").hidden = false; return; }
@@ -1481,10 +1484,10 @@
 
     // ---- cards ----
     function show(i) {
-      sel = i; selG = -1; burstAt = performance.now(); const v = V[i]; focus = new Set(G[v.g].ids); const last = v.rows.slice(-8).reverse();
+      sel = i; selG = -1; burstAt = performance.now(); const v = V[i]; focus = new Set(G[v.g].ids); const last = v.rows.slice().reverse();   // every charge, newest first (L 2026-10-04 "just show all of them")
       $("info").innerHTML = `<div class="mk">${esc(v.name)}</div><div class="sub">${esc(v.tag)} ${esc(label(v.tag))}</div>
         <div class="kv"><b>Total</b><span>${fmt.format(v.total)} (${TOTAL ? (v.total / TOTAL * 100).toFixed(1) : 0}% of spending)</span><b>Charges</b><span>${cadence(v)}</span><b>Average</b><span>${fmt.format(v.total / v.n)}</span></div>
-        <div class="tx">${last.map(r => `<div><span>${r.dt.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" })}</span><span>${esc(r.name)}${r.sub ? " · " + esc(r.sub) : ""}</span><span>${fmt.format(r.amt)}</span></div>`).join("")}${v.rows.length > 8 ? `<div class="muted">+${v.rows.length - 8} more</div>` : ""}</div>
+        <div class="tx">${last.map(r => `<div><span>${r.dt.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" })}</span><span>${esc(r.name)}${r.sub ? " · " + esc(r.sub) : ""}</span><span>${fmt.format(r.amt)}</span></div>`).join("")}</div>
         <div class="chips"><button type="button" data-g="${v.g}">← ${esc(v.tag)} galaxy</button></div>`;
       flyTo([v], Math.max(view.s, base.s * 3));
     }
@@ -1524,7 +1527,7 @@
     $("zin").addEventListener("click", () => cvw.zoomAt(cv.width / 2, cv.height / 2, 1.6));      // zoom buttons (L 2026-10-03)
     $("zout").addEventListener("click", () => cvw.zoomAt(cv.width / 2, cv.height / 2, 1 / 1.6));
     $("arrange").addEventListener("click", () => { STATE.galaxyPos = {}; STATE.starPos = {}; saveToDB(); layout(); draw(); });   // every circle and star back to the layout (2026-10-03)
-    window.__gx = () => ({ G, V, view, base, STATE, openOf, mergeOf, GP, P });   // test hook
+    window.__gx = () => ({ G, V, view, base, STATE, openOf, mergeOf, GP, P, worldExt });   // test hook
     // TIPS (L 2026-10-03 "mouse hover shows info on them"): hover a burst dot -> that charge (date, name, amount); hover a star
     // -> name, total, charges. On touch a tap on a dot shows the tip for 2.5 s. Canvas px -> CSS px for the overlay.
     const tipEl = $("tip"); let tipTimer = 0;
