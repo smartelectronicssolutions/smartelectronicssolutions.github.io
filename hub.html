@@ -1099,7 +1099,8 @@
         html #dc-console.s-term { --dc-r-sm: 0px; --dc-r-md: 0px; --dc-r-lg: 0px; --dc-r-pill: 0px; --dc-bw: 0px; --dc-letter: 0; }
         html #dc-console.s-term .dc-chat-log * { box-shadow: none !important; }
         html #dc-console.s-term .dc-chat-log { padding: 6px 4px; gap: 3px; }
-        html #dc-console.s-term .dc-bub { max-width: 100%; min-width: 0; padding: 4px 8px; line-height: 1.45; background: transparent !important; border: 1px solid color-mix(in srgb, currentColor 32%, transparent) !important; border-radius: 0 !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }   /* a thin rule around each message (L 2026-10-03 "still put a thin border around the message") */
+        html #dc-console.s-term .dc-bub { max-width: 100%; min-width: 0; padding: 4px 8px; line-height: 1.45; background: transparent !important; border: 1px solid transparent !important; border-radius: 0 !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+        html #dc-console.s-term .dc-bub:has(.dc-fav.on) { border-color: color-mix(in srgb, var(--dc-amber, #f59e0b) 70%, transparent) !important; }   /* the thin rule marks a FAVORITED reply only (L 2026-10-03 "border on when it's favorited") */
         html #dc-console.s-term .dc-bub.me { color: color-mix(in srgb, var(--dc-me-bg, #9be59b) 55%, #ffffff); }
         html #dc-console.s-term .dc-bub.drop { color: color-mix(in srgb, var(--dc-dp-bg, #d7e3f4) 45%, #ffffff); }
         html #dc-console.s-term .dc-bub::before { content: "$ "; opacity: .75; font-weight: 700; }
@@ -5249,13 +5250,17 @@
          A separate module on purpose: it imports Firebase itself, so an error here can't take the console down with it. -->
     <style>
         #dc-peer-btn { position: relative; background: none; border: 1px solid var(--border); color: inherit; border-radius: 8px; padding: 2px 8px; cursor: pointer; font-size: 1rem; }
+        /* CHAT WORD in the top bar, after Chat (L 2026-10-03): the bare input, its placeholder says what it is; amber ring = a word is set */
+        #dc-peer-word { width: 104px; font: inherit; font-size: .82rem; padding: 3px 9px; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: inherit; margin: 0 4px; }
+        #dc-peer-word.set { border-color: var(--dc-amber, #f59e0b); }
+        @media (max-width: 640px) { #dc-peer-word { width: 84px; font-size: 16px; padding: 1px 8px; } }
         #dc-peer-btn.flash { animation: dcPeerFlash 1s ease-in-out infinite; }
         @keyframes dcPeerFlash { 0%, 100% { background: transparent; border-color: var(--border); box-shadow: none; }
                                  50% { background: rgba(240, 80, 110, .35); border-color: #f0506e; box-shadow: 0 0 10px rgba(240, 80, 110, .7); } }
         @media (prefers-reduced-motion: reduce) { #dc-peer-btn.flash { animation: none; background: rgba(240, 80, 110, .35); border-color: #f0506e; } }
         #dc-peer-btn .dot, .dc-peer-row .dot { position: absolute; top: -3px; right: -3px; width: 9px; height: 9px; border-radius: 50%; background: #f0506e; }
         #dc-peer-menu { position: absolute; z-index: 30; margin-top: 6px; min-width: 220px; background: var(--dc-panel, #111827); border: 1px solid var(--border); border-radius: 10px; padding: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
-        .dc-peer-row { position: relative; display: block; width: 100%; text-align: left; background: none; border: 0; color: inherit; padding: 8px 10px; border-radius: 8px; cursor: pointer; font: inherit; }
+        .dc-peer-row { position: relative; display: block; width: 100%; box-sizing: border-box; text-align: left; background: none; border: 0; color: inherit; padding: 8px 10px; border-radius: 8px; cursor: pointer; font: inherit; }   /* border-box: the LABEL rows were 100% + padding = 20px wider than the pane ("shows up extra wide", L 2026-10-03) */
         .dc-peer-row:hover { background: var(--dc-inset, rgba(255,255,255,.06)); }
         /* SWIPE TO CLEAR (2026-09-27, L: "swipe to delete in the previous screen"): the row slides left over a red Clear button */
         .pswipe { position: relative; overflow: hidden; border-radius: 8px; }
@@ -5390,6 +5395,13 @@
         const btn = document.createElement('button');
         btn.id = 'dc-peer-btn'; btn.type = 'button'; btn.title = 'chat with members'; btn.innerHTML = '👥<span class="dot" hidden></span>';
         bar.insertBefore(btn, bar.querySelector('.dc-sp'));
+        {   // 🔑 chat word, right after the Chat tab (memory only, typed every session); see sendSecret / readSecret
+            const pw = document.createElement('input'); pw.type = 'password'; pw.id = 'dc-peer-word'; pw.placeholder = '🔑 chat word'; pw.autocomplete = 'off'; pw.setAttribute('autocapitalize', 'off');
+            pw.title = 'Chat word: blank = automatic (your account key). Type a word and what you send in member chat locks under it; the other side types the same word, every session, or sees the blob.';
+            const chatTab = bar.querySelector('.dc-tab[data-tab="ch"]'); if (chatTab) chatTab.insertAdjacentElement('afterend', pw); else bar.insertBefore(pw, btn);
+            pw.oninput = () => { P.word = pw.value.trim(); pw.classList.toggle('set', !!P.word); E2E.plain.clear(); if (P.open) renderMsgs(lastMsgs); };   // the word changes what opens: forget what was opened, draw again
+            pw.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); pw.blur(); } };
+        }
         // 👥 opens the SIDE PANE itself (L, 2026-09-27: "when I click the icon have it open the pane and have the options in there -
         // make it more options for that part"): a People home (conversations, members, share this tab, shared with me, settings)
         // and a conversation view with ‹ back to the home.
@@ -5544,7 +5556,6 @@
             html += `<label class="dc-peer-row" style="cursor:pointer"><input type="checkbox" id="dc-peer-ping" ${P.pingOn !== false ? 'checked' : ''}> 📣 Telegram ping when someone writes<small>via the console bot; the ⚙ Telegram pings switch still wins</small></label>`;
             const np = ('Notification' in window) ? Notification.permission : 'unsupported';
             html += `<label class="dc-peer-row" style="cursor:pointer"><input type="checkbox" id="dc-peer-pop" ${popOn() && np === 'granted' ? 'checked' : ''} ${np === 'unsupported' || np === 'denied' ? 'disabled' : ''}> 🔔 Pop-up alerts on this device<small>${np === 'denied' ? 'blocked in this browser - allow notifications for luissolutions.us in the site settings' : np === 'unsupported' ? 'this browser has no notifications' : 'a system pop-up when someone writes, while the hub is open (even minimised)'}</small></label>`;
-            html += `<label class="dc-peer-row" style="cursor:text">🔑 Chat word <input type="password" id="dc-peer-word" value="${esc(P.word)}" placeholder="blank = automatic" autocomplete="off" style="width:58%;margin-left:6px"><small>${P.word ? 'set for this session: what you send locks under it; the other side types the same word to read it' : 'blank = automatic (your account). Type a word and what you send locks under it; the other side must type the same word, every session, or sees the blob.'}</small></label>`;
             html += `<button type="button" class="dc-peer-row" data-readall="1">✓ Mark everything read</button>`;
             html += `<div class="pnote">Members come from the share list (the same one Notes uses). Chats are private to the people in them; nothing typed here reaches the daemon.</div>`;
         }
@@ -5564,8 +5575,6 @@
             if (pp.checked) try { new Notification('🔔 Alerts on', { body: 'New messages will pop up here while the hub is open.' }); } catch (_) {}
         };
         const pc = $('#dc-peer-ping'); if (pc) pc.onchange = () => { P.pingOn = pc.checked; set(ref(database, `${P.me}/console/settings/peerPings`), pc.checked).catch(() => {}); };
-        const pw = $('#dc-peer-word'); if (pw) { pw.oninput = () => { P.word = pw.value.trim(); E2E.plain.clear(); if (P.open) renderMsgs(lastMsgs); };   // the word changes what opens: forget what was opened, draw again
-            pw.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); pw.blur(); } }; }
     }
     const renderMenu = () => renderHome();   // older call sites
 
@@ -5735,7 +5744,7 @@
         const lastMine = [...asc].reverse().find(m => m.from === P.me);
         log.innerHTML = list.length ? list.map(m => { const me = m.from === P.me, tm = stamp(m.ts);
             const who = me ? 'You' : m.from === 'droplet' ? '💧 Droplet' : (m.name || P.dir[m.from] || 'them');
-            const edit = me && lastMine && m.__k === lastMine.__k ? '<button type="button" class="dc-edit" title="edit this message">✎</button>' : '';
+            const edit = (me || P.me === OWNER) && !m.snap ? '<button type="button" class="dc-edit" title="edit this message">✎</button>' : '';   // every own message, every message for the owner (L 2026-10-03 "edit every message in people's")
             const cap = m.img && m.text === '📷 photo' ? '' : lk(esc(m.text));
             const body = m.snap ? `<details class="psnap"><summary>📋 # ${esc(m.snap.topic)} · ${m.snap.lines} messages (tap to read)</summary>${lk(esc(m.text))}</details>`
                 : m.img && /^https:\/\//.test(m.img) ? `<div class="dc-snaps"><img src="${esc(m.img)}" alt="photo" loading="lazy"></div>${cap}` : cap;   // .dc-snaps = tap for the full-size swipe viewer
@@ -5767,7 +5776,8 @@
         if (S && S.enhanceOn()) text = S.tidy(text);   // ✨ on: the same tidy the console box gets (spaces, capital, final period)
         if (P.editing) {
             const k = P.editing;
-            try { const e2e = isE2EThread(P.open); await update(ref(database, `share/chat/${P.open}/messages/${k}`), { text: e2e ? await encText(sendSecret(), text) : text, ...(e2e ? { enc: encMode() } : {}), edited: Date.now() }); E2E.plain.delete(k); stopEdit(); }
+            try { const e2e = isE2EThread(P.open), m0 = lastMsgs[k] || {}, sec = P.word || secretFor(m0.from || P.me);   // their message stays under THEIR key (or the chat word)
+                await update(ref(database, `share/chat/${P.open}/messages/${k}`), { text: e2e ? await encText(sec, text) : text, ...(e2e ? { enc: encMode() } : {}), edited: Date.now() }); E2E.plain.delete(k); stopEdit(); }
             catch (e) { alert('Not saved: ' + (e.code || e.message)); }
             return;
         }
