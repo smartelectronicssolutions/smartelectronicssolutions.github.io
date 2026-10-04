@@ -55,7 +55,11 @@ export async function updateVisitCount(ipAddress) {
         // Now: write-only fields + a server-side increment; firstSeen is write-once in the rules (set fails quietly
         // after the first visit). The log is readable by L only; the hub reads the rollup the daemon builds.
         await update(ref(db, `public/log/visits/${sip}`), { ip, lastSeen: now, lastPage: page, count: increment(1) });
-        set(ref(db, `public/log/visits/${sip}/firstSeen`), now).catch(() => {});
+        // firstSeen is write-once in the rules, so a repeat visit is DENIED by design - and the SDK prints every denial as a
+        // FIREBASE WARNING (L saw it in the console 2026-10-04). Remember "already set from this browser" so only the first
+        // visit from a browser tries; a denial means the IP already has one, so that is remembered too.
+        const seenKey = `vl_first_${sip}`; let seen = false; try { seen = !!localStorage.getItem(seenKey); } catch (_) {}
+        if (!seen) { const mark = () => { try { localStorage.setItem(seenKey, '1'); } catch (_) {} }; set(ref(db, `public/log/visits/${sip}/firstSeen`), now).then(mark, mark); }
 
         const el = document.getElementById('visit-counter');
         if (el && txGlobal.snapshot) el.textContent = ` | Visits: ${txGlobal.snapshot.val()}`;
