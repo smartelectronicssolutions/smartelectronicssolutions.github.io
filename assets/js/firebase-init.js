@@ -70,3 +70,8 @@ export {
   createUserWithEmailAndPassword, limitToLast, query, child, EmailAuthProvider, reauthenticateWithCredential, updatePassword, updateProfile, initializeAuth, getStorage, storageRef, uploadBytes, getDownloadURL, listAll,
   uploadBytesResumable, deleteObject, getMetadata, updateMetadata, getFunctions, httpsCallable, signInAnonymously, getBlob, getBytes
 };
+
+// BASE OVERRIDE (2026-10-04): the Louverse board can open an app on the tree it is reading (?base=<uid>) - e.g. the Telaid tree
+// while signed in as Luis. Only the signed-in rules decide whether that tree is readable; signed out, the override is ignored.
+export const BASE_OVERRIDE = (() => { try { return /^[A-Za-z0-9_-]{6,64}$/.test(new URLSearchParams(location.search).get("base") || "") ? new URLSearchParams(location.search).get("base") : ""; } catch (_) { return ""; } })();
+export const basePathFor = user => (user && BASE_OVERRIDE) ? BASE_OVERRIDE : (user ? user.uid : "public");
