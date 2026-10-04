@@ -1221,6 +1221,12 @@
                 </div>
             </div>
             <!-- SYSTEM tab = account line + ROUTINES panel + FLEET panel (both toggled together) -->
+            <!-- PROFILE (L 2026-10-04 "I need a place here to edit my profile info"): the SAME record as the workspace Account card
+                 (auth displayName + {uid}/profile). The member module fills #dc-prof; the People pane shows the same form. -->
+            <div class="dc-panel" id="dc-prof-panel">
+                <h4 style="font-size:0.62rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin:0 0 8px">Profile <span style="text-transform:none;letter-spacing:0;margin-left:8px;opacity:.7">your account's info · the same record as Workspace › Account</span></h4>
+                <div id="dc-prof"><span class="meta">loading…</span></div>
+            </div>
             <div class="dc-panel" id="dc-look-panel">
                 <h4 style="font-size:0.62rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin:0 0 8px">Look <span style="text-transform:none;letter-spacing:0;margin-left:8px;opacity:.7">this device · each part separately</span></h4>
                 <!-- COLOURS = TAP A BUBBLE (L 2026-09-29): the example bubbles are the pickers. MAIN (you) = your bubble AND the theme
@@ -3788,6 +3794,7 @@
             $('#dc-in-panel') && $('#dc-in-panel').classList.toggle('active', t.dataset.tab === 'sys');
             $('#dc-bot-panel') && $('#dc-bot-panel').classList.toggle('active', t.dataset.tab === 'sys');
             $('#dc-look-panel') && $('#dc-look-panel').classList.toggle('active', t.dataset.tab === 'sys');
+            $('#dc-prof-panel') && $('#dc-prof-panel').classList.toggle('active', t.dataset.tab === 'sys');
             if (t.dataset.tab === 'sys') { renderInsights(); renderBotPanel(); }   // insights read once + cached; the bot panel re-reads (4 small gets)
             // Full system lives in the ⚙ menu now: picking it closes the menu (its own click never reaches document)
             if (t.dataset.tab === 'sys') { const gp = $('#dc-gear-pop'); if (gp && !gp.hidden) { gp.hidden = true; $('#dc-gear').classList.remove('open'); } }
@@ -5337,6 +5344,7 @@
         #dc-peer-home .ph:first-child { margin-top: 4px; }
         #dc-peer-home .pnote { font-size: .78rem; opacity: .65; padding: 6px 10px; line-height: 1.4; }
         .pprof { display: grid; gap: 6px; padding: 4px 10px 8px; }
+        #dc-prof .pprof { padding: 0; max-width: 560px; }
         .pprof label { display: grid; gap: 2px; font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; opacity: .75; }
         .pprof input { font: inherit; font-size: 16px; text-transform: none; letter-spacing: 0; opacity: 1; padding: 6px 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); width: 100%; box-sizing: border-box; }
         .pprof-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -5440,6 +5448,7 @@
             const panels = [...body.querySelectorAll(':scope > .dc-panel:not(#dc-chat-panel)')];
             if (panels.length) { body.insertBefore(col, panels[0]); panels.forEach(p => col.appendChild(p)); }
         }
+        renderProfiles();   // System > Profile gets the form now; the People pane paints its own copy on showHome
         {   // 🔑 chat word, in the pane's head right after the Share bar (L 2026-10-03 "right after share # chat"); memory only, typed every session
             const pw = document.createElement('input'); pw.type = 'password'; pw.id = 'dc-peer-word'; pw.placeholder = '🔑 chat word'; pw.autocomplete = 'off'; pw.setAttribute('autocapitalize', 'off');
             pw.title = 'Chat word: blank = automatic (your account key). Type a word and what you send in member chat locks under it; the other side types the same word, every session, or sees the blob.';
@@ -5552,6 +5561,42 @@
         $('#dc-peer-name').textContent = mode === 'pick' ? '📺 Share a tab' : '👥 People';
         renderHome(mode); dots();
     }
+    // PROFILE FORM (2026-10-04): one html + one wiring, shown in the People pane AND in System > Profile (#dc-prof). Same record as
+    // the workspace Account card: Display name = the auth displayName (updateProfile), Phone/Address/Bio/Website = {uid}/profile
+    // (update() never set() - role lives there too). data-pf attributes, not ids, so both copies can be in the DOM at once.
+    function profileHTML() {
+        const pf = P.profDraft || P.info || {}, dn = P.profDraft ? P.profDraft.dirName : (P.dir[P.me] || P.myName || '');
+        const pfName = P.profDraft ? P.profDraft.name : ((auth.currentUser && auth.currentUser.displayName) || '');
+        const u = auth.currentUser, since = (u && u.metadata && u.metadata.creationTime) ? new Date(u.metadata.creationTime).toLocaleDateString() : '';
+        return `<div class="pprof">
+            <label>Shown to members<input data-pf="dir" value="${esc(dn)}" placeholder="your name in chats" autocomplete="off"></label>
+            <label>Display name<input data-pf="name" value="${esc(pfName)}" placeholder="your name" autocomplete="off"></label>
+            <label>Phone<input data-pf="phone" value="${esc(pf.phoneNumber || '')}" inputmode="tel" autocomplete="off"></label>
+            <label>Address<input data-pf="address" value="${esc(pf.address || '')}" autocomplete="off"></label>
+            <label>Bio<input data-pf="bio" value="${esc(pf.bio || '')}" placeholder="a line about you" autocomplete="off"></label>
+            <label>Website<input data-pf="website" value="${esc(pf.website || '')}" inputmode="url" placeholder="https://…" autocomplete="off"></label>
+            <div class="pprof-acct"><div><b>Account</b><span>${esc((u && u.email) || '')}</span></div><div><b>UID</b><span class="pf-uid" title="tap to copy">${esc(P.me)}</span></div><div><b>Since</b><span>${esc(since)}</span></div></div>
+            <div class="pprof-foot"><small class="pf-st">${P.profDraft ? 'unsaved' : P.info ? '' : 'loading…'}</small><button type="button" class="pbar-b pf-save">Save</button></div></div>`;
+    }
+    function wireProfile(root) {
+        const q = sel => root.querySelector(sel), save = q('.pf-save'); if (!save || !P.me) return;
+        if (!P.info && !P.infoLoading) { P.infoLoading = true; get(ref(database, `${P.me}/profile`)).then(sn => { P.info = sn.val() || {}; P.infoLoading = false; renderProfiles(); }).catch(() => { P.info = {}; P.infoLoading = false; }); }
+        const g = k => { const el = q(`[data-pf="${k}"]`); return el ? el.value.trim() : ''; };
+        const grab = () => ({ dirName: g('dir'), name: g('name'), phoneNumber: g('phone'), address: g('address'), bio: g('bio'), website: g('website') });
+        const uidEl = q('.pf-uid'); if (uidEl) uidEl.onclick = async () => { try { await navigator.clipboard.writeText(P.me); uidEl.textContent = 'copied'; setTimeout(() => { uidEl.textContent = P.me; }, 1200); } catch (_) {} };
+        root.querySelectorAll('.pprof input').forEach(i => { i.addEventListener('input', () => { P.profDraft = grab(); q('.pf-st').textContent = 'unsaved'; }); i.addEventListener('pointerdown', e => e.stopPropagation()); });
+        save.onclick = async () => { const d = grab(), st = q('.pf-st'); st.textContent = 'saving…';
+            try { const fields = { phoneNumber: d.phoneNumber, address: d.address, bio: d.bio, website: d.website };
+                if (auth.currentUser && d.name !== (auth.currentUser.displayName || '')) await updateProfile(auth.currentUser, { displayName: d.name });
+                await update(ref(database, `${P.me}/profile`), { ...fields, updatedAt: Date.now() });
+                if (d.dirName && d.dirName !== (P.dir[P.me] || '')) { await set(ref(database, `share/directory/${P.me}/name`), d.dirName); P.dir[P.me] = d.dirName; P.myName = d.dirName; }
+                P.info = { ...(P.info || {}), ...fields }; P.profDraft = null; renderProfiles(); }
+            catch (e) { st.textContent = 'not saved: ' + (e.code || e.message); } };
+    }
+    function renderProfiles() {   // both places show the same record (+ the same unsaved draft)
+        const sys = $('#dc-prof'); if (sys && P.me) { sys.innerHTML = profileHTML(); wireProfile(sys); }
+        if (!P.open) renderHome();
+    }
     function renderHome(mode) {
         const home = $('#dc-peer-home'); if (!home || home.hidden) return;
         const topic = curTopic(), owner = P.me === OWNER, sh = topic && P.shares[slug(topic)];
@@ -5587,20 +5632,9 @@
             html += H('Members', 'members');
             html += others.length ? others.map(([u, n]) => `<button type="button" class="dc-peer-row" data-u="${esc(u)}">💬 ${esc(n)}</button>`).join('')
                 : '<div class="pnote">No members in the list yet.</div>';
-            // 4b. profile (L 2026-10-03/04): what the others see + the account's own info - the SAME record as the workspace
-            // Account card ("Your Information"): Display Name = the auth displayName, the rest = {uid}/profile. No second node.
+            // 4b. profile (L 2026-10-03/04): what the others see + the account's own info - the shared form (also System > Profile)
             html += H('Profile', 'profile');
-            const pf = P.profDraft || P.info || {}, dn = P.profDraft ? P.profDraft.dirName : (P.dir[P.me] || P.myName || '');
-            const pfName = P.profDraft ? P.profDraft.name : ((auth.currentUser && auth.currentUser.displayName) || '');
-            html += `<div class="pprof">
-                <label>Shown to members<input id="pf-dir" value="${esc(dn)}" placeholder="your name in chats" autocomplete="off"></label>
-                <label>Display name<input id="pf-name" value="${esc(pfName)}" placeholder="your name" autocomplete="off"></label>
-                <label>Phone<input id="pf-phone" value="${esc(pf.phoneNumber || '')}" inputmode="tel" autocomplete="off"></label>
-                <label>Address<input id="pf-address" value="${esc(pf.address || '')}" autocomplete="off"></label>
-                <label>Bio<input id="pf-bio" value="${esc(pf.bio || '')}" placeholder="a line about you" autocomplete="off"></label>
-                <label>Website<input id="pf-web" value="${esc(pf.website || '')}" inputmode="url" placeholder="https://…" autocomplete="off"></label>
-                <div class="pprof-acct"><div><b>Account</b><span>${esc((auth.currentUser && auth.currentUser.email) || '')}</span></div><div><b>UID</b><span class="pf-uid" title="tap to copy">${esc(P.me)}</span></div><div><b>Since</b><span>${esc((auth.currentUser && auth.currentUser.metadata && auth.currentUser.metadata.creationTime) ? new Date(auth.currentUser.metadata.creationTime).toLocaleDateString() : '')}</span></div></div>
-                <div class="pprof-foot"><small id="pf-st">${P.info ? '' : 'loading…'}</small><button type="button" class="pbar-b" id="pf-save">Save</button></div></div>`;
+            html += profileHTML();
             // 5. settings
             html += H('Settings', 'settings');
             html += `<label class="dc-peer-row" style="cursor:pointer"><input type="checkbox" id="dc-peer-ping" ${P.pingOn !== false ? 'checked' : ''}> 📣 Telegram ping when someone writes<small>via the console bot; the ⚙ Telegram pings switch still wins</small></label>`;
@@ -5625,21 +5659,7 @@
             if (pp.checked) try { new Notification('🔔 Alerts on', { body: 'New messages will pop up here while the hub is open.' }); } catch (_) {}
         };
         const pc = $('#dc-peer-ping'); if (pc) pc.onchange = () => { P.pingOn = pc.checked; set(ref(database, `${P.me}/console/settings/peerPings`), pc.checked).catch(() => {}); };
-        // profile: load {uid}/profile once (the workspace Account card's node), keep what is being typed across re-renders,
-        // Save = updateProfile(displayName) + update() on profile (never set - role etc. live there too) + the directory name
-        if ($('#pf-save') && P.me) {
-            if (!P.info && !P.infoLoading) { P.infoLoading = true; get(ref(database, `${P.me}/profile`)).then(sn => { P.info = sn.val() || {}; P.infoLoading = false; if (!P.open) renderHome(); }).catch(() => { P.info = {}; P.infoLoading = false; }); }
-            const grab = () => ({ dirName: $('#pf-dir').value.trim(), name: $('#pf-name').value.trim(), phoneNumber: $('#pf-phone').value.trim(), address: $('#pf-address').value.trim(), bio: $('#pf-bio').value.trim(), website: $('#pf-web').value.trim() });
-            const uidEl = home.querySelector('.pf-uid'); if (uidEl) uidEl.onclick = async () => { try { await navigator.clipboard.writeText(P.me); uidEl.textContent = 'copied'; setTimeout(() => { uidEl.textContent = P.me; }, 1200); } catch (_) {} };
-            home.querySelectorAll('.pprof input').forEach(i => { i.addEventListener('input', () => { P.profDraft = grab(); $('#pf-st').textContent = 'unsaved'; }); i.addEventListener('pointerdown', e => e.stopPropagation()); });
-            $('#pf-save').onclick = async () => { const d = grab(), st = $('#pf-st'); st.textContent = 'saving…';
-                try { const fields = { phoneNumber: d.phoneNumber, address: d.address, bio: d.bio, website: d.website };
-                    if (auth.currentUser && d.name !== (auth.currentUser.displayName || '')) await updateProfile(auth.currentUser, { displayName: d.name });
-                    await update(ref(database, `${P.me}/profile`), { ...fields, updatedAt: Date.now() });
-                    if (d.dirName && d.dirName !== (P.dir[P.me] || '')) { await set(ref(database, `share/directory/${P.me}/name`), d.dirName); P.dir[P.me] = d.dirName; P.myName = d.dirName; }
-                    P.info = { ...(P.info || {}), ...fields }; P.profDraft = null; st.textContent = 'saved'; }
-                catch (e) { st.textContent = 'not saved: ' + (e.code || e.message); } };
-        }
+        wireProfile(home);   // the shared profile form (load once, draft kept across re-renders, Save)
     }
     const renderMenu = () => renderHome();   // older call sites
 
