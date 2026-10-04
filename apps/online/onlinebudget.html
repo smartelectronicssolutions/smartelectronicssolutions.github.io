@@ -1376,25 +1376,20 @@
       for (const g of G) { const a = 1 - mg; if (a <= .01) break; const [x, y] = GP(g), R = Math.max(14 * dpr, g.prad * view.s), ring = R * 1.18, op = openOf(g);
         const gr = cx.createRadialGradient(x, y, 0, x, y, R); gr.addColorStop(0, col(g.tag, (light ? .14 : .16) * a)); gr.addColorStop(1, col(g.tag, 0));
         cx.fillStyle = gr; cx.beginPath(); cx.arc(x, y, R, 0, 6.283); cx.fill();
-        if (op < 1) {   // CLOSED (small on screen): one solid circle with the name and amount inside; it opens into its stars as it grows
-          cx.fillStyle = col(g.tag, (light ? .45 : .42) * (1 - op) * a); cx.beginPath(); cx.arc(x, y, R, 0, 6.283); cx.fill();
-          if (R > 22 * dpr) { cx.globalAlpha = (1 - op) * a; cx.textAlign = "center"; cx.textBaseline = "middle"; const fs = Math.max(10, Math.min(16, R / dpr / 5.2)) * dpr, lh = fs * 1.15;
-            cx.fillStyle = light ? "#141a2e" : "#ffffff"; cx.font = `700 ${fs}px system-ui, sans-serif`; const lines = wrap(`${g.tag} ${label(g.tag)}`, R * 1.7, 2), top = y - (lines.length + 1) * lh / 2;
-            lines.forEach((ln, j) => txt(ln, x, top + lh * (j + .5), light, dpr));
-            cx.font = `500 ${fs * .9}px system-ui, sans-serif`; cx.fillStyle = light ? "rgba(20,26,46,.95)" : "rgba(240,243,255,.96)"; txt(money0(g.total), x, top + lh * (lines.length + .5), light, dpr);
-            cx.textAlign = "start"; cx.textBaseline = "alphabetic"; cx.globalAlpha = 1; } }
+        if (op < 1) { cx.fillStyle = col(g.tag, (light ? .45 : .42) * (1 - op) * a); cx.beginPath(); cx.arc(x, y, R, 0, 6.283); cx.fill(); }   // CLOSED (small on screen): one solid circle; its name + amount are painted AFTER the stars (drawInsideLabels) so the dots never sit on the text
         budgetRing(x, y, ring, g.total, g.budget, dpr, zoom, light, a); }
       // stars
       const BR = 3.2 * view.s; if (BR > 30 * dpr) { drawBubbles(dpr); drawNames(dpr, zoom, light); if (sel >= 0) drawBurst(dpr, zoom); return; }
       cx.globalCompositeOperation = light ? "source-over" : "lighter";
       V.forEach((v, i) => { const o = starOn(v, mg); if (o < .02) return; const [x, y] = P(v); if (x < -20 || y < -20 || x > cv.width + 20 || y > cv.height + 20) return;
         const on = !F || F.has(i), r = Math.min(26, v.rad * Math.sqrt(zoom)) * dpr;
-        cx.fillStyle = col(v.tag, (on ? (light ? .10 : .07) : .02) * o); cx.beginPath(); cx.arc(x, y, r * 2.6, 0, 6.283); cx.fill(); });
+        cx.fillStyle = col(v.tag, (on ? (light ? .08 : .045) : .015) * o); cx.beginPath(); cx.arc(x, y, r * 2.6, 0, 6.283); cx.fill(); });   // softer glow (L 2026-10-04 "the charge circles are bright")
       cx.globalCompositeOperation = "source-over";
       V.forEach((v, i) => { const o = starOn(v, mg); if (o < .02) return; const [x, y] = P(v); if (x < -20 || y < -20 || x > cv.width + 20 || y > cv.height + 20) return;
         const on = !F || F.has(i), r = Math.min(26, v.rad * Math.sqrt(zoom)) * dpr;
-        cx.fillStyle = col(v.tag, (on ? .92 : .15) * o); cx.beginPath(); cx.arc(x, y, r, 0, 6.283); cx.fill();
+        cx.fillStyle = col(v.tag, (on ? (light ? .85 : .6) : .12) * o); cx.beginPath(); cx.arc(x, y, r, 0, 6.283); cx.fill();   // the dot itself at 60% on the dark theme (was 92%)
         if (HL.has(i)) { cx.globalAlpha = o; cx.strokeStyle = "#facc15"; cx.lineWidth = 2.5 * dpr; cx.beginPath(); cx.arc(x, y, r + 5 * dpr, 0, 6.283); cx.stroke(); cx.globalAlpha = 1; } });
+      drawInsideLabels(mg, dpr, light);   // the closed circles' name + amount, on top of the dots (L 2026-10-04 "the dots cover the text in the map")
       drawNames(dpr, zoom, light);
       if (mg > 0) drawAll(mg, dpr, zoom, light);
       if (zoom >= 3) { cx.font = `${11 * dpr}px system-ui, sans-serif`; cx.fillStyle = light ? "rgba(30,36,60,.8)" : "rgba(220,228,255,.75)"; let shown = 0;
@@ -1454,6 +1449,15 @@
     // every label on the map: a soft rounded halo under the text (dark on the dark theme, white on the light one) so it reads over any
     // circle colour or star field (L 2026-10-04 "make the text more visible in the circles")
     function txt(s, x, y, light, dpr) { cx.lineJoin = "round"; cx.lineWidth = 3.5 * dpr; cx.strokeStyle = light ? "rgba(255,255,255,.9)" : "rgba(6,8,18,.78)"; cx.strokeText(s, x, y); cx.fillText(s, x, y); }
+    function drawInsideLabels(mg, dpr, light) {   // a CLOSED circle's name + amount - painted after the stars so the dots sit under the text, fading out as it opens
+      const a = 1 - mg; if (a <= .01) return;
+      for (const g of G) { const op = openOf(g); if (op >= 1) continue; const [x, y] = GP(g), R = Math.max(14 * dpr, g.prad * view.s); if (R <= 22 * dpr) continue;
+        cx.globalAlpha = (1 - op) * a; cx.textAlign = "center"; cx.textBaseline = "middle"; const fs = Math.max(10, Math.min(16, R / dpr / 5.2)) * dpr, lh = fs * 1.15;
+        cx.fillStyle = light ? "#141a2e" : "#ffffff"; cx.font = `700 ${fs}px system-ui, sans-serif`; const lines = wrap(`${g.tag} ${label(g.tag)}`, R * 1.7, 2), top = y - (lines.length + 1) * lh / 2;
+        lines.forEach((ln, j) => txt(ln, x, top + lh * (j + .5), light, dpr));
+        cx.font = `500 ${fs * .9}px system-ui, sans-serif`; cx.fillStyle = light ? "rgba(20,26,46,.95)" : "rgba(240,243,255,.96)"; txt(money0(g.total), x, top + lh * (lines.length + .5), light, dpr); }
+      cx.textAlign = "start"; cx.textBaseline = "alphabetic"; cx.globalAlpha = 1;
+    }
     function drawNames(dpr, zoom, light) {   // galaxy name + "$spent / $budget" under each ring (a closed circle carries its label inside instead)
       const mg = mergeOf(); if (mg >= 1) return; cx.textAlign = "center"; cx.globalAlpha = 1 - mg;
       G.forEach((g, k) => { if (k > 11 && zoom < 1.5) return; const [x, y] = GP(g), R0 = Math.max(14 * dpr, g.prad * view.s), R = R0 * 1.18, op = openOf(g); if (op < .5 && R0 > 22 * dpr) return;
