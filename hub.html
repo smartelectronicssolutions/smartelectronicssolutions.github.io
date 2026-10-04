@@ -1084,6 +1084,23 @@
         html #dc-console.s-slim .dc-bub { max-width: 100%; min-width: 0; padding: 4px 8px; line-height: 1.4; }
 
         html #dc-console.s-slim #dc-chat-in, html #dc-console.s-slim #dc-peer-in { padding: 4px 6px; }
+        /* TERMINAL (L 2026-10-03 "resemble a terminal" - no colours forced, his stay): flat full-width lines, no bubbles, corners,
+           borders or shadows; a prompt glyph per side ("> " you, "$ " the other side); the who-line in brackets; his bubble
+           colours become the line colours (lightened so they read on any dark background). Pair it with Font = Mono. */
+        html #dc-console.s-term { --dc-r-sm: 0px; --dc-r-md: 0px; --dc-r-lg: 0px; --dc-r-pill: 0px; --dc-bw: 0px; --dc-letter: 0; }
+        html #dc-console.s-term .dc-chat-log * { box-shadow: none !important; }
+        html #dc-console.s-term .dc-chat-log { padding: 6px 4px; gap: 3px; }
+        html #dc-console.s-term .dc-bub { max-width: 100%; min-width: 0; padding: 2px 6px 2px 0; line-height: 1.45; background: transparent !important; border: 0 !important; border-radius: 0 !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+        html #dc-console.s-term .dc-bub.me { color: color-mix(in srgb, var(--dc-me-bg, #9be59b) 55%, #ffffff); }
+        html #dc-console.s-term .dc-bub.drop { color: color-mix(in srgb, var(--dc-dp-bg, #d7e3f4) 45%, #ffffff); }
+        html #dc-console.s-term .dc-bub::before { content: "$ "; opacity: .75; font-weight: 700; }
+        html #dc-console.s-term .dc-bub.me::before { content: "> "; }
+        html #dc-console.s-term .dc-bub .who { display: inline; opacity: .6; font-size: .8em; margin-right: 6px; }
+        html #dc-console.s-term .dc-bub .who::before { content: "["; } html #dc-console.s-term .dc-bub .who::after { content: "]"; }
+        html #dc-console.s-term .dc-bub .ts { display: none; }
+        html #dc-console.s-term .dc-chat-input textarea { border-radius: 0; }
+        /* MONO (the Font row): the terminal font, on its own or with any shape; declared after the shapes so it wins over Sharp's font */
+        html #dc-console.f-mono { --dc-font: ui-monospace, 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace; --dc-letter: 0; }
         /* your own bubble colours (System > Look > Bubbles) */
         /* NOT #dc-console-scoped (2026-09-27, L: "some different styling in the chat boxes"): the id made this outrank the glass
            style below, so with a background image replies went solid while your bubbles stayed glass. */
@@ -1204,12 +1221,16 @@
                     <button type="button" class="lk-b" data-shape="bubbly">Bubbly</button>
                     <button type="button" class="lk-b" data-shape="slim">Slim</button>
                     <button type="button" class="lk-b" data-shape="bulky">Bulky</button>
-                    <button type="button" class="lk-b" data-shape="sharp">Sharp</button></div>
+                    <button type="button" class="lk-b" data-shape="sharp">Sharp</button>
+                    <button type="button" class="lk-b" data-shape="term" title="flat lines with a prompt, no bubbles - pair with Font: Mono">Terminal</button></div>
                 <div class="lk-row"><span class="lk-l">Text</span>
                     <button type="button" class="lk-b" data-fs="sm">Small</button>
                     <button type="button" class="lk-b" data-fs="">Normal</button>
                     <button type="button" class="lk-b" data-fs="xl">Large</button>
                     <button type="button" class="lk-b" data-fs="xxl">Extra large</button></div>
+                <div class="lk-row"><span class="lk-l">Font</span>
+                    <button type="button" class="lk-b" data-font="">Default</button>
+                    <button type="button" class="lk-b" data-font="mono" title="monospace, like a terminal">Mono</button></div>
                 <div class="lk-row" title="which voice reads a reply aloud when you tap Play. Auto guesses from the text."><span class="lk-l">Voice language</span><select id="dc-tts-lang" style="font:inherit"><option value="auto">Auto</option><option value="en">English</option><option value="es">Español</option></select></div>   <!-- moved from the gear (L, 2026-09-27: "language can also go in there") -->
                 <div class="lk-row"><span class="lk-l">Background</span><input type="url" id="dc-theme-bg" placeholder="image https://... (empty = none)" style="flex:1;min-width:0;font:inherit"></div>
                 <div class="lk-row"><button type="button" class="lk-x" id="lk-reset">reset everything to default</button></div>
@@ -2854,7 +2875,7 @@
         // localStorage on purpose: how the console LOOKS is a property of the device, not the
         // account. The phone in the truck and the desktop at home want different text sizes.
         // Every read and write is guarded - a blocked or full store must not break the console.
-        const THEME_KEYS = { bg: 'dc_theme_bg', fs: 'dc_theme_fs', name: 'dc_theme_name', color: 'dc_theme_color', shape: 'dc_theme_shape', me: 'dc_theme_me', dp: 'dc_theme_dp' };
+        const THEME_KEYS = { bg: 'dc_theme_bg', fs: 'dc_theme_fs', name: 'dc_theme_name', color: 'dc_theme_color', shape: 'dc_theme_shape', font: 'dc_theme_font', me: 'dc_theme_me', dp: 'dc_theme_dp' };
         // one-time: the old bundled theme -> its colour + shape (silver = sharp, blue = bubbly, lite = slim)
         try { const old = localStorage.getItem('dc_theme_name');
             if (old) { const m = { silver: ['silver', 'sharp'], fire: ['fire', ''], blue: ['blue', 'bubbly'], lite: ['', 'slim'] }[old] || ['', ''];
@@ -2884,10 +2905,11 @@
             // Setting them on <body> (what the first version did) missed the tokens entirely.
             const con = document.getElementById('dc-console');
             if (con) {
-                con.classList.remove('c-silver', 'c-fire', 'c-blue', 's-sharp', 's-bubbly', 's-bulky', 's-slim', 'fs-sm', 'fs-xl', 'fs-xxl');
-                const color = themeGet('color'), shape = themeGet('shape');
+                con.classList.remove('c-silver', 'c-fire', 'c-blue', 's-sharp', 's-bubbly', 's-bulky', 's-slim', 's-term', 'f-mono', 'fs-sm', 'fs-xl', 'fs-xxl');
+                const color = themeGet('color'), shape = themeGet('shape'), font = themeGet('font');
                 if (color) con.classList.add('c-' + color);
                 if (shape) con.classList.add('s-' + shape);
+                if (font) con.classList.add('f-' + font);
                 if (fs) con.classList.add('fs-' + fs);
                 // your own bubble colours: text colour picked for contrast so any choice stays readable
                 const ink = hex => { const n = parseInt(hex.slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255; return (0.299 * r + 0.587 * g + 0.114 * b) > 150 ? '#111418' : '#f5f7fa'; };
@@ -2906,7 +2928,7 @@
         // the Look panel's buttons light up to show what is chosen
         function paintLook() {
             const pan = document.getElementById('dc-look-panel'); if (!pan) return;
-            for (const k of ['color', 'shape', 'fs']) pan.querySelectorAll(`[data-${k}]`).forEach(b => b.classList.toggle('on', b.dataset[k] === themeGet(k)));
+            for (const k of ['color', 'shape', 'fs', 'font']) pan.querySelectorAll(`[data-${k}]`).forEach(b => b.classList.toggle('on', b.dataset[k] === themeGet(k)));
             const con = document.getElementById('dc-console'), cs = con ? getComputedStyle(con) : null;
             const hex = v => { v = String(v || '').trim(); return /^#[0-9a-f]{6}$/i.test(v) ? v : '#3b2260'; };
             const me = $('#lk-me'), dp = $('#lk-dp');
@@ -2920,7 +2942,7 @@
                 pan.addEventListener('click', e => {
                     const x = e.target.closest('button'); if (!x) return;
                     if ('color' in x.dataset) { try { localStorage.removeItem(THEME_KEYS.me); localStorage.removeItem(THEME_KEYS.dp); } catch (_) {} themeSet('color', x.dataset.color); return; }   // a set = a fresh start
-                    for (const k of ['shape', 'fs']) if (k in x.dataset) { themeSet(k, x.dataset[k]); return; }
+                    for (const k of ['shape', 'fs', 'font']) if (k in x.dataset) { themeSet(k, x.dataset[k]); return; }
                     if (x.dataset.clear === 'both') { try { localStorage.removeItem(THEME_KEYS.me); localStorage.removeItem(THEME_KEYS.color); } catch (_) {} themeSet('dp', ''); return; }
                     if (x.dataset.clear) { themeSet(x.dataset.clear, ''); return; }
                     if (x.id === 'lk-reset') { Object.values(THEME_KEYS).forEach(k => { try { localStorage.removeItem(k); } catch (_) {} }); if (b) b.value = ''; applyTheme(); }
@@ -5244,6 +5266,11 @@
             .dc-body.dc-split.psized:not(.pfull) > #dc-peer { flex: 0 0 var(--dc-peer-size, 46%); }
             #dc-peer-split { width: auto; height: 16px; cursor: ns-resize; }
             #dc-peer-split::before { width: 46px; height: 4px; }
+            /* System view + the pane (L 2026-10-03 "with the slider, when I have settings and people open"): the System panels are
+               page-height blocks, so the bar and the pane sat 5,000 px down, out of sight. Now they stick to the bottom of the
+               console while the panels scroll above - the same picture as with the chat. */
+            .dc-body.dc-split > #dc-chat-panel:not(.active) ~ #dc-peer { position: sticky; bottom: 0; z-index: 3; background: var(--dc-panel, var(--bg)); }
+            .dc-body.dc-split > #dc-chat-panel:not(.active) ~ #dc-peer-split { position: sticky; bottom: var(--dc-peer-size, 46%); z-index: 3; background: var(--dc-panel, var(--bg)); }
         }
         #dc-peer-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; font-weight: 600; padding: 2px 0 6px; touch-action: none; }
         .dc-body.dc-split.pfull > #dc-chat-panel { display: none; }   /* swipe up on the pane head = the pane covers the console chat; X backs out */
