@@ -63,6 +63,7 @@ body.rm-embed-page header.top-actions { display: none !important; }
 .rmap #rm-legend { order: -2; } .rmap .hint { order: -1; }
 .rmap #rm-job { width: 100% !important; max-width: 640px; margin: 0 !important; font-size: 1rem; padding: 8px; }
 .rmap.embed #rm-jobrow { display: none !important; }
+.rmap #rm-jobq { width: 100% !important; max-width: 640px; margin: 0 !important; font-size: 16px; padding: 8px; box-sizing: border-box; }   /* job search (L 2026-10-05) - 16px: no iOS zoom */
 /* SLIDERS (L 2026-10-02 "maybe have a slider on bottom and right"): a native range along the bottom (left-right) and one
    up the right edge (up-down). One finger on either moves the map, no gesture fight; they mirror pinch/drag, and only
    show once the map is bigger than its box. The vertical one is a horizontal range turned 90 degrees. */
@@ -97,7 +98,7 @@ function injectCss() {
   const st = document.createElement("style"); st.id = "rmap-css"; st.textContent = CSS; document.head.appendChild(st);
 }
 const TEMPLATE = `<div class="app-shell">
-      <div class="rm-row" id="rm-jobrow"><select id="rm-job" aria-label="Job"><option value="">Loading jobs...</option></select></div>
+      <div class="rm-row" id="rm-jobrow"><input type="search" id="rm-jobq" placeholder="Search jobs (store #, customer, PRJTASK, WO)" autocomplete="off" aria-label="Search jobs" /><select id="rm-job" aria-label="Job"><option value="">Loading jobs...</option></select></div>
       <div class="muted" id="rm-source">Sign in to load the site.</div>
       <div class="card stats" id="rm-stats"></div>
       <div class="rm-row" id="rm-hubs"></div>
@@ -704,9 +705,25 @@ export function mountRadarMap(root, opts = {}) {
       const { sites } = await listSites(user);
       if (!sites.length) { selEl.innerHTML = '<option value="">No jobs found</option>'; return; }
       const cur = sites.find(g => g.ids.includes(TASK));
-      selEl.innerHTML = sites.map(g => `<option value="${g.id}"${cur === g ? " selected" : ""}>${g.hasSensors ? "" : "(no sensors) "}${esc(g.label)}</option>`).join("");
+      JOBS = sites; renderJobs();
       if (cur && cur.id !== TASK) setTaskId(cur.id);   // a sibling-night id -> the site's canonical record
     }
+    // JOB SEARCH (L 2026-10-05 "add search filter for map job select dropdown"): every word typed must appear in the row
+    // (customer, project, the visit count). The open job stays in the list even when it doesn't match, so the select never
+    // jumps; one match while typing opens it.
+    let JOBS = [];
+    function renderJobs() {
+      const selEl = $("job"); if (!selEl) return;
+      const words = ($("jobq").value || "").toLowerCase().split(/\s+/).filter(Boolean);
+      const cur = JOBS.find(g => g.ids.includes(TASK));
+      const hits = JOBS.filter(g => g === cur || words.every(w => `${g.label} ${g.hasSensors ? "" : "no sensors"}`.toLowerCase().includes(w)));
+      const n = hits.filter(g => g !== cur).length;
+      selEl.innerHTML = (words.length ? `<option value="" disabled>${n} match${n === 1 ? "" : "es"} for "${esc(words.join(" "))}"</option>` : "")
+        + hits.map(g => `<option value="${g.id}"${cur === g ? " selected" : ""}>${g.hasSensors ? "" : "(no sensors) "}${esc(g.label)}</option>`).join("");
+      return hits.filter(g => g !== cur);
+    }
+    $("jobq").addEventListener("input", () => { const only = renderJobs();
+      if (only && only.length === 1 && $("jobq").value.trim().length >= 2) { $("job").value = only[0].id; $("job").dispatchEvent(new Event("change")); } });
     $("job").addEventListener("change", e => { const t = e.target.value; if (!t) return;
       try { localStorage.setItem("sensorTask", JSON.stringify({ task: t, name: e.target.selectedOptions[0].text, at: Date.now() })); } catch (_) {}
       try { const u = new URL(location.href); u.searchParams.set("task", t); history.replaceState(null, "", u); } catch (_) {}
