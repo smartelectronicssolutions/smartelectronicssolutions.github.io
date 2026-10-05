@@ -194,14 +194,15 @@ export function mountRadarMap(root, opts = {}) {
       TABLES = tablesFor(task, TASK); SWITCHES = TABLES ? TABLES.switches : {};
       if (!TABLES && layout === "wiring") { layout = "floor"; root.querySelectorAll("#rm-views button").forEach(x => x.classList.toggle("on", x.dataset.v === "floor")); }
       S = sensorRows(meta).map(s => ({ ...s, plan: [s.x, s.y], idf: idfOf(TABLES, s.m), zone: zoneOf(TABLES, s.m), photos: 0, items: [] }))
-        .filter(s => s.x != null && s.y != null);
+        .filter(s => (s.x != null && s.y != null) || s.pos);   // a sensor placed on the drawing shows even without readable m1/m2
       S.forEach(s => { if (s.pos) { s.x = s.pos.x; s.y = s.pos.y; } });   // hold-to-move override (as built) wins over the plan
       if (TABLES) { assignSwitches(); wiringLayout(); }
       OWNER = owner; TASKREC = task;
       // older jobs (Old Navy) measured each sensor off a building grid line ("J - 47' 8\"") - without the grid's own
       // positions the dots are offsets, not a true floor layout; say so instead of pretending (L 2026-10-05)
-      const refs = [...new Set(Object.values(meta || {}).flatMap(v => [gridRef(v?.m1), gridRef(v?.m2)]).filter(Boolean))].sort();
-      const line = `${task.customerName || "Job " + TASK} \u00b7 ${S.length} sensors${refs.length ? ` \u00b7 measured off grid lines ${refs.join(", ")} - positions are offsets, approximate` : ""} \u00b7 loaded ${new Date().toLocaleTimeString()}${TABLES ? ` \u00b7 site plan: ${TABLES.from}` : ""}${RO() ? ` \u00b7 shared copy by ${task.sharedByName || "?"} (read-only)` : ""}`;
+      // ...unless the sensors have been placed on the drawing (pos on most of them) - then the layout is real
+      const placed = S.filter(s => s.pos).length, refs = placed * 2 >= S.length ? [] : [...new Set(Object.values(meta || {}).flatMap(v => [gridRef(v?.m1), gridRef(v?.m2)]).filter(Boolean))].sort();
+      const line = `${task.customerName || "Job " + TASK} \u00b7 ${S.length} sensors${S.length && placed * 2 >= S.length ? " · placed on the drawing" : ""}${refs.length ? ` \u00b7 measured off grid lines ${refs.join(", ")} - positions are offsets, approximate` : ""} \u00b7 loaded ${new Date().toLocaleTimeString()}${TABLES ? ` \u00b7 site plan: ${TABLES.from}` : ""}${RO() ? ` \u00b7 shared copy by ${task.sharedByName || "?"} (read-only)` : ""}`;
       $("source").textContent = line + " \u00b7 photos loading\u2026";
       renderHubs(); renderStats(); fit(false);
       // PHOTOS IN THE BACKGROUND (L 2026-10-03, "did you freeze?": on a network that could not resolve
@@ -616,6 +617,7 @@ export function mountRadarMap(root, opts = {}) {
     }
     async function resetPos(i) {
       const s = S[i]; if (!s || !OWNER) return;
+      if (s.plan[0] == null || s.plan[1] == null) { alert("This sensor has no readable plan X/Y to go back to - its spot comes from the drawing."); return; }
       try { await patchSensor(OWNER, TASK, s.m, { pos: null, posAt: null }); s.pos = null; s.x = s.plan[0]; s.y = s.plan[1]; show(i); }
       catch (e) { alert("Couldn't reset: " + (e.code || e.message || e)); }
     }
