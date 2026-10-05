@@ -190,7 +190,10 @@ export function mountRadarMap(root, opts = {}) {
       PLAN = null; planImg = null; planDark = null; planFast = null; $("plan").hidden = true;
       $("source").textContent = "Loading...";
       const { owner, task, meta } = await loadJob(user, TASK);
-      if (!meta) { $("source").textContent = "No sensor data found for this job."; return; }
+      // nothing to show for this job (or this account can't see it): CLEAR the map - it used to keep the last job's drawing
+      // and dots, which read as "the map didn't change" (L 2026-10-05)
+      if (!meta) { $("source").textContent = "No sensor data found for this job" + (task ? "." : " in this account - pick the account that has it (Account, in the sign-in section).");
+        $("stats").innerHTML = ""; renderHubs(); draw(); return; }
       TABLES = tablesFor(task, TASK); SWITCHES = TABLES ? TABLES.switches : {};
       if (!TABLES && layout === "wiring") { layout = "floor"; root.querySelectorAll("#rm-views button").forEach(x => x.classList.toggle("on", x.dataset.v === "floor")); }
       S = sensorRows(meta).map(s => ({ ...s, plan: [s.x, s.y], idf: idfOf(TABLES, s.m), zone: zoneOf(TABLES, s.m), photos: 0, items: [] }))
