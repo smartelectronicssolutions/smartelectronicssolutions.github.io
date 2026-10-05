@@ -7,7 +7,7 @@
 // Extras: a child with data-in-login goes INSIDE the login section (the checklist's MS + OneDrive blocks);
 // any other child stays in the header after it (the dashboard's MS block). data-logo="no" drops the logo.
 // Load it from <head> as <script type="module" src="./assets/js/telaid-shell.js"> next to login.js.
-import { auth, onAuthStateChanged, userLine } from "./telaid-data.js?v=1005e";
+import { auth, onAuthStateChanged, userLine, ACCOUNTS, LUIS_UID, pickedOwner, treeFor } from "./telaid-data.js?v=20261005f";
 
 const LOGO = "./assets/img/telaid_logo.png";
 export function mountShell(header) {
@@ -35,7 +35,19 @@ export function mountShell(header) {
   const host = header.dataset.loginIn && document.querySelector(header.dataset.loginIn);
   if (host) { host.appendChild(sec); host.classList.add("has-login"); }
   after.forEach(e => header.appendChild(e));
-  onAuthStateChanged(auth, u => { const st = (host || header).querySelector("#firebaseStatus"); if (st) st.textContent = userLine(u); if (host) host.classList.toggle("signed-in", !!u); });
+  onAuthStateChanged(auth, u => { const st = (host || header).querySelector("#firebaseStatus"); if (st) st.textContent = userLine(u); if (host) host.classList.toggle("signed-in", !!u);
+    // ACCOUNT dropdown - Luis only: whose tree these pages open (telaid-data pickedOwner). A change reloads the page on it.
+    let sel = header.querySelector("#telaidAcct") || (host && host.querySelector("#telaidAcct"));
+    if (u && u.uid === LUIS_UID) {
+      if (!sel) { sel = document.createElement("select"); sel.id = "telaidAcct"; sel.title = "Whose data the Telaid apps open (Luis only)"; sel.setAttribute("aria-label", "Account");
+        sel.style.cssText = "width:auto;max-width:100%;margin:0;padding:4px 8px;font-size:14px;border-radius:8px";
+        sel.innerHTML = '<option value="">Account: Telaid (default)</option>' + ACCOUNTS.map(([id, label]) => `<option value="${id}">Account: ${label}</option>`).join("");
+        sel.addEventListener("change", () => { try { if (sel.value) localStorage.setItem("telaidOwner", sel.value); else localStorage.removeItem("telaidOwner"); } catch (_) {} location.reload(); });
+        const row = (host || header).querySelector(".auth-row") || header; row.appendChild(sel); }
+      sel.value = pickedOwner(u) || "";
+    } else if (sel) sel.remove();
+  });
   return header;
 }
+window.telaidTreeFor = treeFor;   // the inline pages (checklist, dashboard, scanner) read their tree through this
 document.querySelectorAll("header[data-shell]").forEach(mountShell);

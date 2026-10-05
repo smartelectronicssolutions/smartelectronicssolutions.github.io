@@ -52,7 +52,17 @@ export async function readOnce(path) { const s = await get(ref(database, path));
 // tree these tools look in - ?task=<id> then works for anyone. A shared copy is read-only here (no uploads, flags, moves).
 export const SHARE_ROOT = "share";
 export const isShared = owner => owner === SHARE_ROOT;
-export const ownersFor = user => [...new Set([user?.uid, TELAID_UID, SHARE_ROOT].filter(Boolean))];
+// ACCOUNT PICKER (L 2026-10-05 "the map opens the telaid firebase node, can I get a dropdown to select user, would only work
+// with luis account" / "for all Telaid apps"): signed in as Luis, the header's Account dropdown picks whose tree every Telaid
+// page reads + writes (rules let Luis into every uid). Anyone else: their own tree as before. Kept per device.
+export const LUIS_UID = "7cIh8rrhVNOjjj5CBDgb3IlqzEh2", TECH_UID = "YHIJWVQOmefgigMVCcvueIZidze2";
+export const ACCOUNTS = [[TELAID_UID, "Telaid - lcurbelo"], [TECH_UID, "Telaid - tech (telaid@telaid.com)"], [LUIS_UID, "Luis"]];
+export function pickedOwner(user) {
+  if (!user || user.uid !== LUIS_UID) return null;
+  try { const v = localStorage.getItem("telaidOwner"); return ACCOUNTS.some(a => a[0] === v) ? v : null; } catch (_) { return null; }
+}
+export const treeFor = user => pickedOwner(user) || (user ? user.uid : "public");
+export const ownersFor = user => { const p = pickedOwner(user); return p ? [p, SHARE_ROOT] : [...new Set([user?.uid, TELAID_UID, SHARE_ROOT].filter(Boolean))]; };
 
 /** All job records visible to this user: {owner, tasks} from the first tree that has any. */
 export async function loadTasks(user) {
