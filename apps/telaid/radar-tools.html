@@ -3268,7 +3268,7 @@
       function initProjectEvents() {
         $("projectList")?.addEventListener("change", async () => {
           const id = $("projectList")?.value;
-          if (id) await loadProject(id);
+          if (id) { try { localStorage.setItem("lastProject", id); } catch (_) { } await loadProject(id); }   // remembered for the next visit (L 2026-10-05)
         });
 
         $("projectSearch")?.addEventListener("input", filterProjects);
@@ -3480,6 +3480,13 @@
         // Always populate — public/tasks is readable without auth, so the dropdown
         // works for signed-out browsing; signing in switches to the user's own tree.
         await populateProjects();
+        // L 2026-10-05 "the Telaid apps should remember last selected job and go into them on load": ?task= first,
+        // else the site picked last on this device - opened straight away (only if it is in this tree's list).
+        if (!state.currentProject) {
+          const want = new URLSearchParams(location.search).get("task") || (() => { try { return localStorage.getItem("lastProject"); } catch (_) { return null; } })();
+          const id = want && (state.projectGroupOf?.[want] || want);
+          if (id && $("projectList") && [...$("projectList").options].some(o => o.value === id)) { $("projectList").value = id; await loadProject(id); }
+        }
       });
 
       async function uploadAllImagesToOneDrive() {
