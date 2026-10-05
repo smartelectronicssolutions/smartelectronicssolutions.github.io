@@ -475,37 +475,31 @@ export function mountRadarMap(root, opts = {}) {
       sel = i; selHub = null; const s = S[i];
       $("info").innerHTML = `<div class="mk">#${s.m}</div><div class="kv">
         <b>Serial</b><span>${esc(s.serial) || "-"}</span>
-        <b>Position</b><span>X ${fmtFt(s.x)} · Y ${fmtFt(s.y)}</span>
-        <b>Height</b><span>${fmtFt(s.z)}</span>
+        <b>Position</b><span>X <input name="x" value="${esc(ftIn(s.x))}" form="rm-measure" inputmode="text" autocomplete="off" style="width:7.5em" /> · Y <input name="y" value="${esc(ftIn(s.y))}" form="rm-measure" inputmode="text" autocomplete="off" style="width:7.5em" /></span>
+        <b>Height</b><span><input name="z" value="${esc(ftIn(s.z))}" form="rm-measure" inputmode="text" autocomplete="off" style="width:7.5em" /> <button type="submit" form="rm-measure" id="rm-measureSave" class="primary" hidden>Save</button> <span class="muted" id="rm-measureState"></span></span>
         ${s.idf ? `<b>IDF / zone</b><span>IDF ${s.idf} · zone ${s.zone}</span>` : ""}
         ${s.sw ? `<b>Switch</b><span>${s.sw === "new" ? "3rd switch needed (not on site yet)" : "#" + s.sw}${s.port ? " · port " + s.port : ""} (planned)</span>` : ""}
         <b>Run</b><span>${s.runDoneAt ? "complete, " + new Date(s.runDoneAt).toLocaleString() : "not yet"}</span>
         <b>Labeled</b><span>${s.labeledAt ? "yes, " + new Date(s.labeledAt).toLocaleString() : "not yet"}</span>
         <b>Photos</b><span>${s.photos || PHOTOS === "ok" ? `${s.photos} of 2` : PHOTOS === "loading" ? "loading\u2026" : "can't reach Storage on this network"}</span></div>
-        <form id="rm-measure" class="kv" hidden style="margin:8px 0;align-items:center">
-          <b>X</b><input name="x" value="${esc(ftIn(s.x))}" inputmode="text" autocomplete="off" placeholder="e.g. -2'-4&quot;" />
-          <b>Y</b><input name="y" value="${esc(ftIn(s.y))}" inputmode="text" autocomplete="off" placeholder="e.g. 198'-5 1/2&quot;" />
-          <b>Z</b><input name="z" value="${esc(ftIn(s.z))}" inputmode="text" autocomplete="off" placeholder="e.g. 12'-11&quot;" />
-          <span></span><span><button type="submit" class="primary">Save measurements</button> <button type="button" id="rm-measureCancel">Cancel</button> <span class="muted" id="rm-measureState"></span></span>
-        </form>
+        <form id="rm-measure"></form>
         <div class="photos" id="rm-photos"></div>
         <div class="acts">
           <label class="btn primary">&#128247; Take / choose photo<input type="file" id="rm-addPhoto" accept="image/*" hidden /></label>
           <label class="muted"><input type="checkbox" id="rm-mark" checked /> label bar</label>
           <button type="button" id="rm-runBtn" class="${s.runDoneAt ? "done" : ""}">${s.runDoneAt ? "&#10003; Run complete" : "Mark run complete"}</button>
           <button type="button" id="rm-labBtn" class="${s.labeledAt ? "done" : ""}">${s.labeledAt ? "&#10003; Labeled" : "Mark labeled"}</button>
-          <button type="button" id="rm-editMeasure">&#9998; Measurements</button>
           <span class="muted" id="rm-upState"></span>
         </div>
         <div class="note">Photos save like radar-tools: "${esc(photoPrefix(TASKREC))}_${String(s.m).padStart(2, "0")}-${esc(s.serial || "serial")}.jpg" with the label bar.</div>`;
-      if (RO()) readOnlyCard(); else {
+      if (RO()) { readOnlyCard(); root.querySelectorAll('[form="rm-measure"]').forEach(x => { x.readOnly = true; if (x.tagName === "BUTTON") x.remove(); }); } else {
         $("addPhoto").onchange = e => addPhoto(e.target.files[0]);
         $("runBtn").onclick = () => setFlag("runDoneAt", !s.runDoneAt);
         $("labBtn").onclick = () => setFlag("labeledAt", !s.labeledAt);
         if ($("resetPos")) $("resetPos").onclick = () => resetPos(i);
-        $("editMeasure").onclick = () => { const fm = $("measure"); fm.hidden = !fm.hidden; if (!fm.hidden) fm.x.focus(); };
-        $("measureCancel").onclick = () => { $("measure").hidden = true; };
-        $("measure").onsubmit = e => { e.preventDefault(); saveMeasure(i, e.target); };
+        // the boxes ARE the measurements: Save shows once one changes; Enter in a box saves too
+        const fm = $("measure"); $("info").oninput = e => { if (e.target.form !== fm) return; $("measureSave").hidden = false; $("measureState").textContent = ""; };   // the boxes sit in the card, not inside the form - their events bubble to the card
+        fm.onsubmit = e => { e.preventDefault(); saveMeasure(i, fm); };
       }
       thumbs(s);
       draw();
