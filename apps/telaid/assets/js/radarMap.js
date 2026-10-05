@@ -344,13 +344,19 @@ export function mountRadarMap(root, opts = {}) {
       for (const s of S) { const [x, y] = P(s); if (x < -20 || y < -20 || x > cv.width + 20 || y > cv.height + 20) continue;
         cx.fillStyle = colorOf(s); cx.beginPath(); cx.arc(x, y, r, 0, 6.283); cx.fill();
         if (s.photos) { cx.strokeStyle = "#ffffff"; cx.lineWidth = 1.6 * dpr; cx.beginPath(); cx.arc(x, y, r + 2.5 * dpr, 0, 6.283); cx.stroke(); } }
-      if (zoom >= 2.2 && !cvw.moving) {   // number labels wait until the move ends (fillText x241 is what the iPad trips on)
+      if (!cvw.moving) {   // number labels wait until the move ends (fillText x241 is what the iPad trips on)
         // clear of the rings (photo ring r+2.5, highlight r+4, selection beyond) and outlined in the background colour, so a
-        // number never sits on a white ring (L 2026-10-05 "the numbers are sometimes hard to see next to the white circle")
-        cx.font = `700 ${11 * dpr}px system-ui, sans-serif`; cx.fillStyle = css("--textColor") || "#e5e7eb";
+        // number never sits on a white ring (L 2026-10-05 "the numbers are sometimes hard to see next to the white circle").
+        // ALWAYS ON now (L 2026-10-05 "I need to see the number even zoomed out" - they used to wait for 2.2x): smaller when
+        // zoomed out (9 px floor), and a label that would land on one already drawn is skipped - zoom in and it appears.
+        const fs = Math.max(9, Math.min(11, 9 + (zoom - 1) * 1.6)) * dpr, gap = (zoom < 2.2 ? 4 : 8) * dpr;
+        cx.font = `700 ${fs}px system-ui, sans-serif`; cx.fillStyle = css("--textColor") || "#e5e7eb";
         cx.strokeStyle = css("--secondaryBackgroundColor") || "#0f172a"; cx.lineWidth = 3 * dpr; cx.lineJoin = "round";
-        for (const s of S) { const [x, y] = P(s); if (x > 0 && y > 0 && x < cv.width && y < cv.height) { const tx = x + r + 8 * dpr, ty = y + 4 * dpr;
-          cx.strokeText(String(s.m), tx, ty); cx.fillText(String(s.m), tx, ty); } }
+        const boxes = [], order = sel >= 0 ? [S[sel], ...S.filter((_, i) => i !== sel)] : S;   // the picked sensor's number always wins
+        for (const s of order) { const [x, y] = P(s); if (!(x > 0 && y > 0 && x < cv.width && y < cv.height)) continue;
+          const t = String(s.m), tx = x + r + gap, ty = y + fs * 0.35, w = cx.measureText(t).width, bx = [tx - 2 * dpr, ty - fs, tx + w + 2 * dpr, ty + 2 * dpr];
+          if (boxes.some(o => bx[0] < o[2] && o[0] < bx[2] && bx[1] < o[3] && o[1] < bx[3])) continue;
+          boxes.push(bx); cx.strokeText(t, tx, ty); cx.fillText(t, tx, ty); }
       }
       if (HL.size) { cx.strokeStyle = "#facc15"; cx.lineWidth = 2.5 * dpr;
         for (const i of HL) { const [x, y] = P(S[i]); cx.beginPath(); cx.arc(x, y, r + 4 * dpr, 0, 6.283); cx.stroke(); } }
