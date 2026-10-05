@@ -8,7 +8,7 @@
 // labeledAt, runDoneAt} + Storage {owner}/tasks/images/<project>/sensors (<prefix>_<mark>-<serial>[_n].jpg) and
 // /MDF, /IDF1..IDF6 (site photos). History: floor map, photos/add/run complete, wiring view, IDF photos (all 2026-10-02).
 import { onAuthStateChanged } from "../../../assets/js/firebase-init.js";
-import { auth, HUBS, hubLabel, esc, fmtFt, clean, loadJob, sensorRows, patchSensor, listSites, listPhotos, photoUrl,
+import { auth, HUBS, hubLabel, esc, fmtFt, feet, clean, loadJob, sensorRows, patchSensor, listSites, listPhotos, photoUrl,
   sensorMarkOf, photoPrefix, uploadSensorPhoto, uploadHubPhoto, deletePhoto, watchJob, tablesFor, zoneOf, idfOf, loadFloorPlan, saveHubPos } from "./telaid-data.js?v=1003c";
 import { openPhotoViewer } from "../../../assets/js/photoviewer.js?v=20261003a";
 import { mountCanvasView } from "../../../assets/js/canvasview.js?v=20261003b";
@@ -475,20 +475,26 @@ export function mountRadarMap(root, opts = {}) {
       sel = i; selHub = null; const s = S[i];
       $("info").innerHTML = `<div class="mk">#${s.m}</div><div class="kv">
         <b>Serial</b><span>${esc(s.serial) || "-"}</span>
-        <b>Position</b><span>X ${fmtFt(s.x)} · Y ${fmtFt(s.y)}${s.pos ? ` <span class="muted">(moved ${Math.hypot(s.x - s.plan[0], s.y - s.plan[1]).toFixed(1)} ft from plan X ${fmtFt(s.plan[0])} · Y ${fmtFt(s.plan[1])})</span>` : ""}</span>
+        <b>Position</b><span>X ${fmtFt(s.x)} · Y ${fmtFt(s.y)}</span>
         <b>Height</b><span>${fmtFt(s.z)}</span>
         ${s.idf ? `<b>IDF / zone</b><span>IDF ${s.idf} · zone ${s.zone}</span>` : ""}
         ${s.sw ? `<b>Switch</b><span>${s.sw === "new" ? "3rd switch needed (not on site yet)" : "#" + s.sw}${s.port ? " · port " + s.port : ""} (planned)</span>` : ""}
         <b>Run</b><span>${s.runDoneAt ? "complete, " + new Date(s.runDoneAt).toLocaleString() : "not yet"}</span>
         <b>Labeled</b><span>${s.labeledAt ? "yes, " + new Date(s.labeledAt).toLocaleString() : "not yet"}</span>
         <b>Photos</b><span>${s.photos || PHOTOS === "ok" ? `${s.photos} of 2` : PHOTOS === "loading" ? "loading\u2026" : "can't reach Storage on this network"}</span></div>
+        <form id="rm-measure" class="kv" hidden style="margin:8px 0;align-items:center">
+          <b>X</b><input name="x" value="${esc(ftIn(s.x))}" inputmode="text" autocomplete="off" placeholder="e.g. -2'-4&quot;" />
+          <b>Y</b><input name="y" value="${esc(ftIn(s.y))}" inputmode="text" autocomplete="off" placeholder="e.g. 198'-5 1/2&quot;" />
+          <b>Z</b><input name="z" value="${esc(ftIn(s.z))}" inputmode="text" autocomplete="off" placeholder="e.g. 12'-11&quot;" />
+          <span></span><span><button type="submit" class="primary">Save measurements</button> <button type="button" id="rm-measureCancel">Cancel</button> <span class="muted" id="rm-measureState"></span></span>
+        </form>
         <div class="photos" id="rm-photos"></div>
         <div class="acts">
           <label class="btn primary">&#128247; Take / choose photo<input type="file" id="rm-addPhoto" accept="image/*" hidden /></label>
           <label class="muted"><input type="checkbox" id="rm-mark" checked /> label bar</label>
           <button type="button" id="rm-runBtn" class="${s.runDoneAt ? "done" : ""}">${s.runDoneAt ? "&#10003; Run complete" : "Mark run complete"}</button>
           <button type="button" id="rm-labBtn" class="${s.labeledAt ? "done" : ""}">${s.labeledAt ? "&#10003; Labeled" : "Mark labeled"}</button>
-          ${s.pos ? '<button type="button" id="rm-resetPos">Back to plan spot</button>' : ""}
+          <button type="button" id="rm-editMeasure">&#9998; Measurements</button>
           <span class="muted" id="rm-upState"></span>
         </div>
         <div class="note">Photos save like radar-tools: "${esc(photoPrefix(TASKREC))}_${String(s.m).padStart(2, "0")}-${esc(s.serial || "serial")}.jpg" with the label bar.</div>`;
@@ -497,6 +503,9 @@ export function mountRadarMap(root, opts = {}) {
         $("runBtn").onclick = () => setFlag("runDoneAt", !s.runDoneAt);
         $("labBtn").onclick = () => setFlag("labeledAt", !s.labeledAt);
         if ($("resetPos")) $("resetPos").onclick = () => resetPos(i);
+        $("editMeasure").onclick = () => { const fm = $("measure"); fm.hidden = !fm.hidden; if (!fm.hidden) fm.x.focus(); };
+        $("measureCancel").onclick = () => { $("measure").hidden = true; };
+        $("measure").onsubmit = e => { e.preventDefault(); saveMeasure(i, e.target); };
       }
       thumbs(s);
       draw();
@@ -511,17 +520,40 @@ export function mountRadarMap(root, opts = {}) {
     // ---------- zoom / pan / tap ----------
     // HOLD-TO-MOVE (L 2026-10-02 "a way to move these sensors around, like hold 'em and move each object around"):
     // hold a sensor or cabinet ~0.5 s without moving, then drag it. Floor view only. A sensor's new spot is saved as
-    // sensorMeta/<mark>/pos (as built) - m1/m2 keep the plan - and its card offers "Back to plan". A cabinet's spot
+    // straight into the measurements m1/m2 (2026-10-04: the measurement IS the spot - no separate as-built pos). A cabinet's spot
     // saves to siteTables/hubs. Screen delta -> plan feet goes through the inverse of the rotate.
     const unrot = (dx, dy) => ROT === 90 ? [dy, -dx] : ROT === 180 ? [-dx, -dy] : ROT === 270 ? [-dy, dx] : [dx, dy];
     async function endMove(m) {   // the engine's onDragEnd: save the moved sensor / cabinet
       if (!m || !OWNER) return;
       try {
         if (m.kind === "sensor") { const s = S[m.i]; s.pos = { x: Math.round(s.x * 100) / 100, y: Math.round(s.y * 100) / 100 }; s.x = s.pos.x; s.y = s.pos.y;
-          await patchSensor(OWNER, TASK, s.m, { pos: s.pos, posAt: Date.now() }); if (sel === m.i) show(m.i); }
+          s.pos = null; s.plan = [s.x, s.y];   // the new spot IS the measurement (L 2026-10-04 "just enter what it is")
+          await patchSensor(OWNER, TASK, s.m, { m1: "X " + ftIn(s.x), m2: "Y " + ftIn(s.y), pos: null, posAt: null, updatedAt: Date.now() }); if (sel === m.i) show(m.i); }
         else { const xy = TABLES.hubs[m.h]; xy[0] = Math.round(xy[0] * 10) / 10; xy[1] = Math.round(xy[1] * 10) / 10; await saveHubPos(OWNER, TASK, m.h, xy); }
       } catch (e) { alert("Couldn't save the new spot: " + (e.code || e.message || e)); }
       draw();
+    }
+    // EDIT MEASUREMENTS (L 2026-10-04 "in the map I need to be able to edit the measurements"): X / Y / Z in feet-inches
+    // (-2'-4", 198'-5 1/2", 12'-11"; a bare number = feet) -> m1/m2/m3 as "X ...", "Y ...", "Z ..." (the sheet's own format).
+    // A blank box clears that measurement; anything unreadable stops the save and says which box.
+    function ftIn(v) {
+      if (v == null || !Number.isFinite(v)) return "";
+      const neg = v < 0, t = Math.round(Math.abs(v) * 12 * 8) / 8; let ft = Math.floor(t / 12), inch = t - ft * 12;
+      const whole = Math.floor(inch), frac = inch - whole, fr = frac ? ` ${frac * 8 % 2 ? frac * 8 + "/8" : frac * 4 % 2 ? frac * 4 + "/4" : "1/2"}` : "";
+      return `${neg ? "-" : ""}${ft}'-${whole}${fr}"`;
+    }
+    const readFt = t => { t = String(t || "").trim(); if (!t) return { v: null, txt: "" };
+      if (/^-?\d+(\.\d+)?$/.test(t)) { const v = Number(t); return { v, txt: ftIn(v) }; }
+      const v = feet(t); return v == null ? null : { v, txt: t.replace(/^[XYZ]\s*/i, "") }; };
+    async function saveMeasure(i, fm) {
+      const s = S[i]; if (!s || !OWNER) return; const st = $("measureState");
+      const vals = {}; for (const k of ["x", "y", "z"]) { const r = readFt(fm[k].value); if (r === null) { st.textContent = `${k.toUpperCase()} isn't a measurement - use 12'-6" or 12.5`; fm[k].focus(); return; } vals[k] = r; }
+      st.textContent = "saving\u2026";
+      try {
+        await patchSensor(OWNER, TASK, s.m, { m1: vals.x.txt ? "X " + vals.x.txt : "", m2: vals.y.txt ? "Y " + vals.y.txt : "", m3: vals.z.txt ? "Z " + vals.z.txt : "", pos: null, posAt: null, updatedAt: Date.now() });
+        s.pos = null; s.plan = [vals.x.v, vals.y.v]; s.z = vals.z.v; s.x = vals.x.v; s.y = vals.y.v;   // the measurement is the spot
+        show(i); renderStats();
+      } catch (e) { st.textContent = "not saved: " + (e.code || e.message || e); }
     }
     async function resetPos(i) {
       const s = S[i]; if (!s || !OWNER) return;
