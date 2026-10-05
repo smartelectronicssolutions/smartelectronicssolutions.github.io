@@ -85,9 +85,10 @@ body.rm-embed-page header.top-actions { display: none !important; }
 .rmap .rm-sp .thumbs { display: flex; gap: 8px; overflow-x: auto; }
 .rmap .rm-sp .thumbs img { height: 90px; width: auto; border-radius: 6px; border: 2px solid var(--borderColor); cursor: pointer; background: #0003; }
 .rmap .rm-sp .thumbs img.on { border-color: var(--primaryColor); }
-.rmap .rm-sp .stage { position: relative; overflow: auto; max-height: 62vh; border: 1px solid var(--borderColor); border-radius: 8px; }
-.rmap .rm-sp .stage img { display: block; width: 100%; height: auto; cursor: crosshair; }
-.rmap .rm-sp .pin { position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 0 0 2px #000; pointer-events: none;
+.rmap .rm-sp .stage { overflow: auto; max-height: 62vh; border: 1px solid var(--borderColor); border-radius: 8px; }
+.rmap .rm-sp .spwrap { position: relative; }   /* pins live in the IMAGE box, not the scroller (L 2026-10-05 "it puts them elsewhere") */
+.rmap .rm-sp .stage img { display: block; width: 100%; height: auto; cursor: crosshair; touch-action: pan-x pan-y; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.rmap .rm-sp .pin { position: absolute; width: 24px; height: 24px; margin: -12px 0 0 -12px; z-index: 2; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 0 0 2px #000; pointer-events: none;
   display: grid; place-items: center; font: 700 10px system-ui; color: #fff; }
 .rmap .rm-sp .pin.a { background: #dc2626; } .rmap .rm-sp .pin.b { background: #2563eb; }
 .rmap .rm-sp input[type=number] { width: 90px !important; margin: 0 !important; }
@@ -119,7 +120,7 @@ const TEMPLATE = `<div class="app-shell">
             <button type="button" class="tgt" data-t="b">B &#9679;</button> sensor # <input type="number" id="rm-spb" min="1" />
             <span class="muted" id="rm-spcalc"></span><span style="flex:1"></span>
             <button type="button" id="rm-spsave" disabled>Save as the floor plan</button></div>
-          <div class="stage" id="rm-spstage"><img id="rm-spimg" alt="the drawing" /></div>
+          <div class="stage"><div class="spwrap" id="rm-spstage"><img id="rm-spimg" alt="the drawing" /></div></div>
         </div>
       </div></div>
       <div class="rm-row modes" id="rm-modes">
@@ -684,9 +685,16 @@ export function mountRadarMap(root, opts = {}) {
     $("spfile").addEventListener("change", e => { const f = e.target.files[0]; if (f) spUse(f, f.name).catch(err => spMsg("Could not read that file: " + (err.message || err))); });
     root.querySelectorAll("#rm-sp .tgt").forEach(b => b.addEventListener("click", () => { SP.t = b.dataset.t; spPins(); }));
     $("spa").addEventListener("input", spCalc); $("spb").addEventListener("input", spCalc);
-    $("spimg").addEventListener("click", e => { const r = e.target.getBoundingClientRect();
-      SP[SP.t] = { u: (e.clientX - r.left) / r.width * SP.w, v: (e.clientY - r.top) / r.height * SP.h };
-      if (SP.t === "a" && !SP.b) SP.t = "b"; spPins(); spCalc(); });
+    // TAP = pointerdown + pointerup within 10 px (L 2026-10-05 "when I tap to place the a and b it doesn't work": the
+    // click event never reached the image on his device). A drag still scrolls the drawing.
+    let spDown = null;
+    $("spimg").addEventListener("pointerdown", e => { spDown = { x: e.clientX, y: e.clientY }; });
+    $("spimg").addEventListener("pointerup", e => { if (!spDown || Math.hypot(e.clientX - spDown.x, e.clientY - spDown.y) > 10) { spDown = null; return; } spDown = null;
+      const r = $("spimg").getBoundingClientRect(); if (!r.width || !SP.w) return;
+      SP[SP.t] = { u: Math.max(0, Math.min(SP.w, (e.clientX - r.left) / r.width * SP.w)), v: Math.max(0, Math.min(SP.h, (e.clientY - r.top) / r.height * SP.h)) };
+      const placed = SP.t.toUpperCase(); if (SP.t === "a" && !SP.b) SP.t = "b"; spPins(); spCalc();
+      spMsg(`${SP.name} \u00b7 ${placed} placed${SP.a && SP.b ? " - both set; tap again to move the highlighted one" : " - now tap where sensor B is"}`); });
+    $("spimg").addEventListener("dragstart", e => e.preventDefault());
     $("spsave").addEventListener("click", async () => {
       if (!SP.fit || !SP.img) return;
       if (PLAN && !confirm("This job already has a floor plan. Replace it?")) return;
