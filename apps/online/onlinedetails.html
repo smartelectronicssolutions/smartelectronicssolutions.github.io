@@ -534,7 +534,8 @@
     // base override (2026-10-04): the Louverse board opens this app on the tree it is reading (?base=<uid>) - local helper, not an import (a cached firebase-init would lack it)
     const basePathFor = u => { let b = ""; try { b = new URLSearchParams(location.search).get("base") || ""; } catch (_) {} return (u && /^[A-Za-z0-9_-]{6,64}$/.test(b)) ? b : (u ? u.uid : "public"); };
 
-    import { resizeImg, stampImg } from "../assets/js/imgupload.js?v=20261003a";   // THE photo rules - one copy for every app (2026-10-03)
+    import { resizeImg, stampImg } from "../assets/js/imgupload.js?v=20261003a";
+    import { sensorMetaOf, patchSensor, readOnce as readTask } from "../telaid/assets/js/telaid-data.js?v=20261005h";   // the Sensors list (2026-10-05)   // THE photo rules - one copy for every app (2026-10-03)
 
     import {
       accessToken,
@@ -631,6 +632,11 @@
       return metaOwnerTaskId;
     }
 
+    // THE SENSORS LIST (L 2026-10-05 "1-3", step 3): sensor data reads the job's "Sensors" device list first (the old
+    // sensorMeta sheet as the fallback) and every save goes to both - the same data layer as the Telaid apps
+    // (telaid-data.js sensorMetaOf / patchSensor), so this page and the Checklist / Layout / Scanner never disagree.
+    async function sensorMetaAll() { return sensorMetaOf(await readTask(`${DATABASE_BASE_PATH}/tasks/${metaOwnerTaskId}`)) || {}; }
+    async function sensorMetaOne(num) { return (await sensorMetaAll())[num] || null; }
     function sensorMetaBasePath() {
       return `${DATABASE_BASE_PATH}/tasks/${metaOwnerTaskId}/sensorMeta`;
     }
@@ -1291,11 +1297,8 @@
         const num = e.target.value;
         if (!num || !currentProject) return;
 
-        const snap = await get(
-          dbRef(database, `${sensorMetaBasePath()}/${num}`),
-        );
-        if (snap.exists()) {
-          const data = snap.val();
+        const data = await sensorMetaOne(num);
+        if (data) {
           document.getElementById("sensorMetaSerial").value =
             data.serial || "";
           document.getElementById("sensorMetaM1").value = data.m1 || "";
@@ -1321,12 +1324,9 @@
       if (!num || !serial)
         return alert("Sensor number and serial are required.");
 
-      const deviceData = { serial, m1, m2, m3 };
       try {
-        await set(
-          dbRef(database, `${sensorMetaBasePath()}/${num}`),
-          deviceData,
-        );
+        // field-level, list row + sheet (the old set() replaced the whole record and dropped labeled / run-complete)
+        await patchSensor(DATABASE_BASE_PATH, metaOwnerTaskId, Number(num), { serial, m1, m2, m3 });
         alert("Sensor info saved!");
       } catch (err) {
         console.error("Save sensor info failed:", err);
@@ -1346,10 +1346,8 @@
           return;
         }
 
-        const snap = await get(
-          dbRef(database, `${sensorMetaBasePath()}/${num}`),
-        );
-        serialEl.value = snap.exists() ? snap.val().serial || "" : "";
+        const one = await sensorMetaOne(num);
+        serialEl.value = one ? one.serial || "" : "";
       });
 
     // -------------------- SITE IMAGES (unchanged logic) --------------------
@@ -1689,11 +1687,8 @@
 
           // ✅ Upload device CSV (ONLY in deliverables mode) - path unchanged (metaOwner stays same)
           if (!isSensor) {
-            const refPath = `${sensorMetaBasePath()}`;
-            const snapshot = await get(dbRef(database, refPath));
-
-            if (snapshot.exists()) {
-              const data = snapshot.val();
+            const data = await sensorMetaAll();
+            if (Object.keys(data).length) {
               const headers = [
                 "Sensor #",
                 "Serial",
@@ -1858,15 +1853,11 @@
           return;
         }
 
-        const refPath = `${sensorMetaBasePath()}`;
-        const snapshot = await get(dbRef(database, refPath));
-
-        if (!snapshot.exists()) {
+        const data = await sensorMetaAll();
+        if (!Object.keys(data).length) {
           alert("No device data found.");
           return;
         }
-
-        const data = snapshot.val();
         const headers = ["Device #", "Serial", "Info 1", "Info 2", "Info 3"];
         const rows = [headers];
 
