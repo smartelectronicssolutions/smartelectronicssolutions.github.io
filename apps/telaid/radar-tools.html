@@ -1283,6 +1283,7 @@
               const project = (task.project || "").trim();
               if (!customer && !project) return null;
               const time = bestTime(task, id);
+              const own = time + metaRank(task);
               const lastUpload = Math.max(
                 parseUploadTs(task.lastUploadedQC),
                 parseUploadTs(task.lastUploadedImages),
@@ -1294,6 +1295,7 @@
                 notes: String(task.notes || "").trim(),
                 label: `${customer || "(No Customer)"} — ${project || "(No Project)"}`,
                 time,
+                own,
                 // Red flag only for sites that have NEVER been uploaded to OneDrive.
                 // Once any QC or image upload has succeeded, the marker exists and
                 // we treat the site as "uploaded" regardless of later edits.
@@ -1319,7 +1321,7 @@
             const key = `${normKey(r.customer)}|${normKey(r.project)}`;
             const g = groups.get(key);
             if (!g) {
-              groups.set(key, { ...r, visits: 1, firstTime: r.time, lastTime: r.time, ids: [r.id],
+              groups.set(key, { ...r, visits: 1, firstTime: r.time, lastTime: r.time, ownKey: r.own, ids: [r.id],
                                 latestNotes: notesTs > -1 ? r.notes : "",
                                 latestNotesTime: notesTs,
                                 latestNotesId: notesTs > -1 ? r.id : "" });
@@ -1333,7 +1335,8 @@
             }
             // A site is only "never uploaded" when NOT ONE of its visits has been.
             g.needsUpload = g.needsUpload && r.needsUpload;
-            if (r.time < g.firstTime) { g.firstTime = r.time; g.id = r.id; }
+            if (r.time < g.firstTime) g.firstTime = r.time;
+            if (r.own < g.ownKey) { g.ownKey = r.own; g.id = r.id; }   // the record holding the data, earliest among those
             if (r.time > g.lastTime) { g.lastTime = r.time; }
             g.time = g.lastTime;   // sort sites by most recent activity
           }
@@ -1446,6 +1449,7 @@
         );
       }
 
+      function metaRank(t) { return (t && (t.sensorMeta || t.lists || t.qcData_radar || t.qcData_remote)) ? 0 : 1e15; }   // the record holding the data wins over an empty night, whatever the edit times (2026-10-05)
       async function resolveMetaOwnerTaskId() {
         state.metaOwnerTaskId = state.currentProject;
 
@@ -1463,7 +1467,7 @@
 
         if (!matches.length) return state.metaOwnerTaskId;
 
-        matches.sort((a, b) => bestTime(a[1], a[0]) - bestTime(b[1], b[0]));
+        matches.sort((a, b) => (bestTime(a[1], a[0]) + metaRank(a[1])) - (bestTime(b[1], b[0]) + metaRank(b[1])));
         state.metaOwnerTaskId = matches[0][0];
         return state.metaOwnerTaskId;
       }

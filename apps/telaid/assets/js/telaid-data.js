@@ -58,15 +58,18 @@ export async function loadTasks(user) {
 /** One row per site, newest activity first: {id (canonical = earliest record), customer, project, ids, visits,
  *  first, last, hasSensors, label}. Same grouping + canonical rule as radar-tools' populateProjects/resolveMetaOwnerTaskId. */
 export function groupSites(tasks) {
+  function metaRank(t) { return (t && (t.sensorMeta || t.lists || t.qcData_radar || t.qcData_remote)) ? 0 : 1e15; }   // the record holding the data wins over an empty night, whatever the edit times (2026-10-05)
   const groups = new Map();
   for (const [id, t] of Object.entries(tasks || {})) {
     if (!t || typeof t !== "object") continue;
     const customer = String(t.customerName || "").trim(), project = String(t.project || "").trim();
     if (!customer && !project) continue;
     const time = bestTime(t, id), key = normKey(customer) + "|" + normKey(project), g = groups.get(key);
-    if (!g) { groups.set(key, { id, customer, project, ids: [id], visits: 1, first: time, last: time, hasSensors: !!t.sensorMeta }); continue; }
+    const own = time + metaRank(t);
+    if (!g) { groups.set(key, { id, customer, project, ids: [id], visits: 1, first: time, last: time, own, hasSensors: !!t.sensorMeta }); continue; }
     g.visits++; g.ids.push(id); g.hasSensors = g.hasSensors || !!t.sensorMeta;
-    if (time < g.first) { g.first = time; g.id = id; }
+    if (time < g.first) g.first = time;
+    if (own < g.own) { g.own = own; g.id = id; }
     if (time > g.last) g.last = time;
   }
   const list = [...groups.values()].sort((a, b) => b.last - a.last);
