@@ -41,12 +41,14 @@ export function mountShell(header) {
     if (u && u.uid === LUIS_UID) {
       if (!sel) { sel = document.createElement("select"); sel.id = "telaidAcct"; sel.title = "Whose data the Telaid apps open (Luis only)"; sel.setAttribute("aria-label", "Account");
         sel.style.cssText = "width:auto;max-width:100%;margin:0;padding:4px 8px;font-size:14px;border-radius:8px";
-        sel.innerHTML = ACCOUNTS.map(([id, label]) => `<option value="${id}">Account: ${label}</option>`).join("");
+        // ONE control (L 2026-10-05 "combine them, it will show who's logged in in the dropdown anyway"): the signed-in line is
+        // replaced by the dropdown, whose first choice is you (your email)
+        sel.innerHTML = ACCOUNTS.map(([id, label]) => `<option value="${id}">${id === LUIS_UID ? (u.email || "Luis") + " (signed in)" : "Viewing: " + label}</option>`).join("");
         sel.addEventListener("change", () => { try { localStorage.setItem("telaidOwner", sel.value); } catch (_) {} location.reload(); });
         // in the sign-in block next to Logout (L 2026-10-05 "put it in the login section")
         const row = (host || header).querySelector(".auth-row") || header; row.appendChild(sel); }
-      sel.value = pickedOwner(u);
-    } else if (sel) sel.remove();
+      sel.value = pickedOwner(u); if (st) st.style.display = "none";
+    } else { if (sel) sel.remove(); if (st) st.style.display = ""; }
   });
   return header;
 }
