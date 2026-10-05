@@ -43,7 +43,8 @@ export function mountShell(header) {
         sel.style.cssText = "width:auto;max-width:100%;margin:0;padding:4px 8px;font-size:14px;border-radius:8px";
         sel.innerHTML = '<option value="">Account: Telaid (default)</option>' + ACCOUNTS.map(([id, label]) => `<option value="${id}">Account: ${label}</option>`).join("");
         sel.addEventListener("change", () => { try { if (sel.value) localStorage.setItem("telaidOwner", sel.value); else localStorage.removeItem("telaidOwner"); } catch (_) {} location.reload(); });
-        const row = (host || header).querySelector(".auth-row") || header; row.appendChild(sel); }
+        sel.style.cssText += ";display:block;margin:6px auto 0;color:#111;background:#fff";   // under the title, always visible (the login block hides behind Menu)
+        header.appendChild(sel); }
       sel.value = pickedOwner(u) || "";
     } else if (sel) sel.remove();
   });

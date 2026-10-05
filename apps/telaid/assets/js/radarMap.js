@@ -727,7 +727,9 @@ export function mountRadarMap(root, opts = {}) {
       const selEl = $("job"); if (EMBED || !user || !selEl) return;
       const { sites } = await listSites(user);
       if (!sites.length) { selEl.innerHTML = '<option value="">No jobs found</option>'; return; }
-      const cur = sites.find(g => g.ids.includes(TASK));
+      let cur = sites.find(g => g.ids.includes(TASK));
+      // the remembered job isn't in this account's list (Account dropdown switched trees): open its first job with sensors
+      if (!cur) { cur = sites.find(g => g.hasSensors) || sites[0]; if (cur) setTaskId(cur.id); }
       JOBS = sites; renderJobs();
       if (cur && cur.id !== TASK) setTaskId(cur.id);   // a sibling-night id -> the site's canonical record
     }
