@@ -56,10 +56,11 @@ export const isShared = owner => owner === SHARE_ROOT;
 // with luis account" / "for all Telaid apps"): signed in as Luis, the header's Account dropdown picks whose tree every Telaid
 // page reads + writes (rules let Luis into every uid). Anyone else: their own tree as before. Kept per device.
 export const LUIS_UID = "7cIh8rrhVNOjjj5CBDgb3IlqzEh2", TECH_UID = "YHIJWVQOmefgigMVCcvueIZidze2";
-export const ACCOUNTS = [[TELAID_UID, "Telaid - lcurbelo"], [TECH_UID, "Telaid - tech (telaid@telaid.com)"], [LUIS_UID, "Luis"]];
+export const ACCOUNTS = [[LUIS_UID, "Luis (signed in)"], [TELAID_UID, "Telaid - lcurbelo"], [TECH_UID, "Telaid - tech (telaid@telaid.com)"]];
 export function pickedOwner(user) {
   if (!user || user.uid !== LUIS_UID) return null;
-  try { const v = localStorage.getItem("telaidOwner"); return ACCOUNTS.some(a => a[0] === v) ? v : null; } catch (_) { return null; }
+  // no "default" (L 2026-10-05): nothing picked = the account you are signed in as; the browser keeps the last pick
+  try { const v = localStorage.getItem("telaidOwner"); return ACCOUNTS.some(a => a[0] === v) ? v : LUIS_UID; } catch (_) { return LUIS_UID; }
 }
 export const treeFor = user => pickedOwner(user) || (user ? user.uid : "public");
 export const ownersFor = user => { const p = pickedOwner(user); return p ? [p, SHARE_ROOT] : [...new Set([user?.uid, TELAID_UID, SHARE_ROOT].filter(Boolean))]; };
