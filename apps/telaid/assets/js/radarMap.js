@@ -345,8 +345,12 @@ export function mountRadarMap(root, opts = {}) {
         cx.fillStyle = colorOf(s); cx.beginPath(); cx.arc(x, y, r, 0, 6.283); cx.fill();
         if (s.photos) { cx.strokeStyle = "#ffffff"; cx.lineWidth = 1.6 * dpr; cx.beginPath(); cx.arc(x, y, r + 2.5 * dpr, 0, 6.283); cx.stroke(); } }
       if (zoom >= 2.2 && !cvw.moving) {   // number labels wait until the move ends (fillText x241 is what the iPad trips on)
-        cx.font = `600 ${11 * dpr}px system-ui, sans-serif`; cx.fillStyle = css("--textColor") || "#e5e7eb";
-        for (const s of S) { const [x, y] = P(s); if (x > 0 && y > 0 && x < cv.width && y < cv.height) cx.fillText(String(s.m), x + r + 2 * dpr, y + 4 * dpr); }
+        // clear of the rings (photo ring r+2.5, highlight r+4, selection beyond) and outlined in the background colour, so a
+        // number never sits on a white ring (L 2026-10-05 "the numbers are sometimes hard to see next to the white circle")
+        cx.font = `700 ${11 * dpr}px system-ui, sans-serif`; cx.fillStyle = css("--textColor") || "#e5e7eb";
+        cx.strokeStyle = css("--secondaryBackgroundColor") || "#0f172a"; cx.lineWidth = 3 * dpr; cx.lineJoin = "round";
+        for (const s of S) { const [x, y] = P(s); if (x > 0 && y > 0 && x < cv.width && y < cv.height) { const tx = x + r + 8 * dpr, ty = y + 4 * dpr;
+          cx.strokeText(String(s.m), tx, ty); cx.fillText(String(s.m), tx, ty); } }
       }
       if (HL.size) { cx.strokeStyle = "#facc15"; cx.lineWidth = 2.5 * dpr;
         for (const i of HL) { const [x, y] = P(S[i]); cx.beginPath(); cx.arc(x, y, r + 4 * dpr, 0, 6.283); cx.stroke(); } }
