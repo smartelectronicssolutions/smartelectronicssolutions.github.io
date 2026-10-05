@@ -9,7 +9,7 @@
 // /MDF, /IDF1..IDF6 (site photos). History: floor map, photos/add/run complete, wiring view, IDF photos (all 2026-10-02).
 import { onAuthStateChanged } from "../../../assets/js/firebase-init.js";
 import { auth, HUBS, hubLabel, esc, fmtFt, feet, clean, loadJob, sensorRows, patchSensor, listSites, listPhotos, photoUrl,
-  sensorMarkOf, photoPrefix, uploadSensorPhoto, uploadHubPhoto, deletePhoto, watchJob, tablesFor, zoneOf, idfOf, loadFloorPlan, saveHubPos } from "./telaid-data.js?v=1005a";
+  sensorMarkOf, photoPrefix, uploadSensorPhoto, uploadHubPhoto, deletePhoto, watchJob, tablesFor, zoneOf, idfOf, loadFloorPlan, saveFloorPlan, resizeImage, saveHubPos } from "./telaid-data.js?v=1005a";
 import { openPhotoViewer } from "../../../assets/js/photoviewer.js?v=20261003a";
 import { mountCanvasView } from "../../../assets/js/canvasview.js?v=20261003b";
 
@@ -74,7 +74,23 @@ body.rm-embed-page header.top-actions { display: none !important; }
   border: 1px solid var(--borderColor); background: var(--cardBackground); color: var(--textColor); cursor: pointer; box-shadow: none !important; }
 .rmap .mapwrap .rm-slx { left: 8px; bottom: 4px; width: calc(100% - 40px) !important; }
 .rmap .mapwrap .rm-sly { top: 8px; left: calc(100% - 6px); width: var(--rm-slh, 300px) !important; transform: rotate(90deg); transform-origin: left top; }
-.rmap.embed #rm-map { height: min(62vh, 560px); }`;
+.rmap.embed #rm-map { height: min(62vh, 560px); }
+/* SET PLAN (L 2026-10-05 "1 and 2"): a site image becomes the floor plan - pick it, tap two sensors on it, save */
+.rmap .rm-sp { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.6); display: grid; place-items: center; padding: 12px; }
+.rmap .rm-sp[hidden] { display: none !important; }
+.rmap .rm-sp .box { background: var(--cardBackground); color: var(--textColor); border: 1px solid var(--borderColor); border-radius: 12px; padding: 12px;
+  width: min(980px, 100%); max-height: 94vh; overflow: auto; display: grid; gap: 10px; }
+.rmap .rm-sp .thumbs { display: flex; gap: 8px; overflow-x: auto; }
+.rmap .rm-sp .thumbs img { height: 90px; width: auto; border-radius: 6px; border: 2px solid var(--borderColor); cursor: pointer; background: #0003; }
+.rmap .rm-sp .thumbs img.on { border-color: var(--primaryColor); }
+.rmap .rm-sp .stage { position: relative; overflow: auto; max-height: 62vh; border: 1px solid var(--borderColor); border-radius: 8px; }
+.rmap .rm-sp .stage img { display: block; width: 100%; height: auto; cursor: crosshair; }
+.rmap .rm-sp .pin { position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 0 0 2px #000; pointer-events: none;
+  display: grid; place-items: center; font: 700 10px system-ui; color: #fff; }
+.rmap .rm-sp .pin.a { background: #dc2626; } .rmap .rm-sp .pin.b { background: #2563eb; }
+.rmap .rm-sp input[type=number] { width: 90px !important; margin: 0 !important; }
+.rmap .rm-sp button { width: auto !important; margin: 0 !important; }
+.rmap .rm-sp .tgt.on { outline: 2px solid var(--primaryColor); }`;
 function injectCss() {
   if (document.getElementById("rmap-css")) return;
   const st = document.createElement("style"); st.id = "rmap-css"; st.textContent = CSS; document.head.appendChild(st);
@@ -87,7 +103,23 @@ const TEMPLATE = `<div class="app-shell">
       <div class="rm-row" id="rm-views"><span class="muted">View:</span>
         <button data-v="floor" class="on">Floor</button><button data-v="wiring">Wiring</button>
         <button type="button" id="rm-rot" title="Rotate the floor map 90&deg;">&#8635; Rotate</button>
-        <button type="button" id="rm-plan" title="Floor plan under the dots" hidden>&#128506; Plan: dim</button></div>
+        <button type="button" id="rm-plan" title="Floor plan under the dots" hidden>&#128506; Plan: dim</button>
+        <button type="button" id="rm-setplan" title="Use a site image (or a file) as the floor plan under the dots">&#128444; Set plan</button></div>
+      <div class="rm-sp" id="rm-sp" hidden><div class="box">
+        <div class="rm-row"><b>Floor plan from a site image</b><span style="flex:1"></span><button type="button" id="rm-spclose">Close</button></div>
+        <div class="muted" id="rm-spmsg">1. Pick one of this job's Site Images, or a file.</div>
+        <div class="thumbs" id="rm-spthumbs"></div>
+        <div class="rm-row"><input type="file" id="rm-spfile" accept="image/*" /></div>
+        <div id="rm-spfit" hidden>
+          <div class="muted">2. Type a sensor # in A, tap where that sensor is on the drawing; same for B. Pick two far apart (opposite corners is best).</div>
+          <div class="rm-row">
+            <button type="button" class="tgt on" data-t="a">A &#9679;</button> sensor # <input type="number" id="rm-spa" min="1" />
+            <button type="button" class="tgt" data-t="b">B &#9679;</button> sensor # <input type="number" id="rm-spb" min="1" />
+            <span class="muted" id="rm-spcalc"></span><span style="flex:1"></span>
+            <button type="button" id="rm-spsave" disabled>Save as the floor plan</button></div>
+          <div class="stage" id="rm-spstage"><img id="rm-spimg" alt="the drawing" /></div>
+        </div>
+      </div></div>
       <div class="rm-row modes" id="rm-modes">
         <span class="muted">Color by:</span>
         <button data-m="idf" class="on">IDF</button>
@@ -591,6 +623,74 @@ export function mountRadarMap(root, opts = {}) {
       $("rot").title = `Rotated ${ROT}° - tap to turn again`; if (layout === "floor") fit(false); });
     $("plan").addEventListener("click", () => { planMode = planMode === "dim" ? "full" : planMode === "full" ? "off" : "dim";
       try { localStorage.setItem("rm-plan-mode", planMode); } catch (_) {} planLabel(); draw(); });
+    // ---------- SET PLAN (L 2026-10-05 "1 and 2"): any Site Image (or a file) becomes this job's floor plan ----------
+    // Same storage + model as the Walmart 54 key map (telaid-data saveFloorPlan: tasks_plans/<record>/floorPlan, plan
+    // feet = (x0 + u/k, y0 - v/k)). The fit comes from two sensors tapped on the drawing, against their plan X/Y
+    // (m1/m2) - no rotation, one scale: drawings are square to the building.
+    const SP = { img: null, w: 0, h: 0, name: "", a: null, b: null, t: "a", fit: null };
+    const spMsg = t => { $("spmsg").textContent = t; };
+    async function spUse(blob, name) {
+      spMsg("Preparing the drawing\u2026");
+      const small = await resizeImage(blob, 2400);   // the plan lives in the database - keep it ~1 MB
+      const url = await new Promise((ok, no) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = no; fr.readAsDataURL(small); });
+      const im = new Image(); await new Promise((ok, no) => { im.onload = ok; im.onerror = no; im.src = url; });
+      Object.assign(SP, { img: url, w: im.naturalWidth, h: im.naturalHeight, name, a: null, b: null, t: "a", fit: null });
+      $("spimg").src = url; $("spfit").hidden = false; spPins(); spCalc();
+      spMsg(`${name} \u00b7 ${SP.w}\u00d7${SP.h} px`);
+    }
+    function spPins() {
+      $("spstage").querySelectorAll(".pin").forEach(x => x.remove());
+      for (const t of ["a", "b"]) { const p = SP[t]; if (!p) continue; const d = document.createElement("i"); d.className = "pin " + t; d.textContent = t.toUpperCase();
+        d.style.left = (p.u / SP.w * 100) + "%"; d.style.top = (p.v / SP.h * 100) + "%"; $("spstage").appendChild(d); }
+      root.querySelectorAll("#rm-sp .tgt").forEach(x => x.classList.toggle("on", x.dataset.t === SP.t));
+    }
+    function spCalc() {
+      SP.fit = null; $("spsave").disabled = true;
+      const ma = Number($("spa").value), mb = Number($("spb").value);
+      const A = S.find(s => s.m === ma), B2 = S.find(s => s.m === mb);
+      if (!SP.a || !SP.b || !A || !B2 || ma === mb) { $("spcalc").textContent = (ma && !A) || (mb && !B2) ? "that sensor # has no plan X/Y" : ""; return; }
+      const [XA, YA] = A.plan, [XB, YB] = B2.plan;
+      const dpx = Math.hypot(SP.b.u - SP.a.u, SP.b.v - SP.a.v), dft = Math.hypot(XB - XA, YB - YA);
+      if (dpx < 20 || dft < 5) { $("spcalc").textContent = "pick two sensors further apart"; return; }
+      const k = dpx / dft;
+      const x0 = ((XA - SP.a.u / k) + (XB - SP.b.u / k)) / 2, y0 = ((YA + SP.a.v / k) + (YB + SP.b.v / k)) / 2;
+      // how square the drawing is to the plan: compare the tap direction with the plan direction
+      const ang = Math.abs(Math.atan2(-(SP.b.v - SP.a.v), SP.b.u - SP.a.u) - Math.atan2(YB - YA, XB - XA)) * 180 / Math.PI;
+      const off = Math.min(ang, 360 - ang);
+      SP.fit = { k: +k.toFixed(5), x0: +x0.toFixed(2), y0: +y0.toFixed(2), ma, mb };
+      $("spcalc").textContent = `${k.toFixed(2)} px/ft` + (off > 4 ? ` \u00b7 \u26a0 ${off.toFixed(0)}\u00b0 off square - check the two taps` : " \u00b7 square \u2713");
+      $("spsave").disabled = false;
+    }
+    $("setplan").addEventListener("click", async () => {
+      if (!OWNER || RO()) { alert(RO() ? "This is a shared (read-only) copy - the floor plan is set from the sharer's account." : "Open a site first."); return; }
+      $("sp").hidden = false; $("spfit").hidden = true; $("spthumbs").innerHTML = '<span class="muted">loading site images\u2026</span>';
+      spMsg("1. Pick one of this job's Site Images, or a file.");
+      try {
+        const items = (await listPhotos(OWNER, TASKREC, "siteImages")).filter(it => /\.(png|jpe?g|webp)$/i.test(it.name));
+        if (!items.length) { $("spthumbs").innerHTML = '<span class="muted">This job has no Site Images (onlinedetails \u2192 Site Images) - choose a file instead.</span>'; return; }
+        const urls = await Promise.all(items.map(photoUrl));
+        $("spthumbs").innerHTML = urls.map((u, i) => `<img src="${esc(u)}" data-i="${i}" title="${esc(items[i].name)}" alt="">`).join("");
+        $("spthumbs").onclick = async e => { const t = e.target.closest("img[data-i]"); if (!t) return;
+          $("spthumbs").querySelectorAll("img").forEach(x => x.classList.toggle("on", x === t));
+          try { await spUse(await (await fetch(urls[+t.dataset.i])).blob(), items[+t.dataset.i].name); } catch (err) { spMsg("Could not load that image: " + (err.message || err)); } };
+      } catch (err) { $("spthumbs").innerHTML = `<span class="muted">Could not list Site Images (${esc(err.code || err.message || err)}) - choose a file instead.</span>`; }
+    });
+    $("spclose").addEventListener("click", () => { $("sp").hidden = true; });
+    $("spfile").addEventListener("change", e => { const f = e.target.files[0]; if (f) spUse(f, f.name).catch(err => spMsg("Could not read that file: " + (err.message || err))); });
+    root.querySelectorAll("#rm-sp .tgt").forEach(b => b.addEventListener("click", () => { SP.t = b.dataset.t; spPins(); }));
+    $("spa").addEventListener("input", spCalc); $("spb").addEventListener("input", spCalc);
+    $("spimg").addEventListener("click", e => { const r = e.target.getBoundingClientRect();
+      SP[SP.t] = { u: (e.clientX - r.left) / r.width * SP.w, v: (e.clientY - r.top) / r.height * SP.h };
+      if (SP.t === "a" && !SP.b) SP.t = "b"; spPins(); spCalc(); });
+    $("spsave").addEventListener("click", async () => {
+      if (!SP.fit || !SP.img) return;
+      if (PLAN && !confirm("This job already has a floor plan. Replace it?")) return;
+      $("spsave").disabled = true; spMsg("Saving\u2026");
+      const meta = { at: Date.now(), w: SP.w, h: SP.h, k: SP.fit.k, x0: SP.fit.x0, y0: SP.fit.y0, bytes: SP.img.length,
+        src: `${SP.name}, fitted on marks ${SP.fit.ma},${SP.fit.mb} (set in the Radar Map)` };
+      try { await saveFloorPlan(OWNER, TASK, meta, SP.img); $("sp").hidden = true; planMode = "dim"; load(auth.currentUser); }
+      catch (err) { spMsg("Save failed: " + (err.code || err.message || err)); $("spsave").disabled = false; }
+    });
     $("hubs").addEventListener("click", e => { const b = e.target.closest("button[data-h]"); if (b) showHub(b.dataset.h); });
     $("views").addEventListener("click", e => { const b = e.target.closest("button[data-v]"); if (!b) return;
       if (b.dataset.v === "wiring" && !TABLES) { alert("The wiring view needs a site plan (zones, IDF per sensor, switches) on this job's record - this site has none yet."); return; }

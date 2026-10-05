@@ -1433,6 +1433,17 @@
         console.warn("[siteImages] list error:", e);
         siteImages = [];
       }
+      // The job's MAP floor plan is a site image too (L 2026-10-05 "it's basically the same as the map we have saved in
+      // the Walmart54"): the Radar Map keeps it in the database at tasks_plans/<record>/floorPlan (+ its scale in
+      // floorPlanMeta). Shown first, read-only here - it is edited from the map.
+      try {
+        const owner = metaOwnerTaskId || currentProject;
+        const pm = (await get(dbRef(database, `${DATABASE_BASE_PATH}/tasks_plans/${owner}/floorPlanMeta`))).val();
+        if (pm) {
+          const img = (await get(dbRef(database, `${DATABASE_BASE_PATH}/tasks_plans/${owner}/floorPlan/img`))).val();
+          if (img) siteImages.unshift({ name: "Floor plan (from the map)", url: img, plan: true });
+        }
+      } catch (e) { console.warn("[siteImages] floor plan:", e); }
 
       currentSiteIndex = Math.min(getSiteIndex(), siteImages.length - 1);
       if (currentSiteIndex < 0) currentSiteIndex = 0;
@@ -1545,7 +1556,7 @@
       img.style.transform = "rotate(0deg)";
       img.style.opacity = 0.01;
 
-      const src = `${url}${url.includes("?") ? "&" : "?"}t=${Date.now()}`;
+      const src = url.startsWith("data:") ? url : `${url}${url.includes("?") ? "&" : "?"}t=${Date.now()}`;   // the map plan is a data URL
       const pre = new Image();
 
       const safetyTimer = setTimeout(() => {
@@ -1801,6 +1812,10 @@
         const currentImage = siteImages[currentSiteIndex];
         if (!currentImage) return alert("Image not found.");
 
+        if (currentImage.url.startsWith("data:")) {   // the map plan: browsers block opening a data: URL - hand them a blob
+          fetch(currentImage.url).then(r => r.blob()).then(b => window.open(URL.createObjectURL(b), "_blank", "noopener"));
+          return;
+        }
         const sep = currentImage.url.includes("?") ? "&" : "?";
         window.open(
           `${currentImage.url}${sep}t=${Date.now()}`,
