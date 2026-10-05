@@ -208,10 +208,10 @@ export function mountRadarMap(root, opts = {}) {
       if (!n) return; renderStats(); draw(); if (sel >= 0) show(sel); else if (selHub) showHub(selHub);
     }
     function renderStats() {
-      const lab = S.filter(s => s.labeledAt).length, ph2 = S.filter(s => s.photos >= 2).length, ph0 = S.filter(s => !s.photos).length,
+      const lab = S.filter(s => s.labeledAt).length, ph2 = S.filter(s => s.photos >= 4).length, ph0 = S.filter(s => !s.photos).length,
         runs = S.filter(s => s.runDoneAt).length;
       // L 2026-10-02 "0 with both photos - this isn't true": never print a photo count we have not actually fetched
-      const photoBits = PHOTOS === "ok" ? `<span><b>${ph2}</b> with both photos</span><span><b>${ph0}</b> with no photos</span>`
+      const photoBits = PHOTOS === "ok" ? `<span><b>${ph2}</b> with all 4 photos</span><span><b>${ph0}</b> with no photos</span>`
         : PHOTOS === "loading" ? `<span class="muted">photos loading\u2026</span>` : `<span class="muted">photos: can't reach Storage on this network</span>`;
       $("stats").innerHTML = `<span><b>${S.length}</b> sensors</span><span><b>${runs}</b> runs complete</span><span><b>${lab}</b> labeled</span>${photoBits}`;
     }
@@ -222,7 +222,7 @@ export function mountRadarMap(root, opts = {}) {
     const IDF_COL = { 1: "#e8742c", 2: "#3b82f6", 3: "#22c55e", 4: "#eab308", 5: "#a855f7", 6: "#ec4899" };
     function colorOf(s) {
       if (mode === "idf") return IDF_COL[s.idf] || "#94a3b8";
-      if (mode === "photos") return s.photos >= 2 ? "#22c55e" : s.photos === 1 ? "#f59e0b" : "#ef4444";
+      if (mode === "photos") return s.photos >= 4 ? "#22c55e" : s.photos ? "#f59e0b" : "#ef4444";
       if (mode === "labeled") return s.labeledAt ? "#22c55e" : "#ef4444";
       if (mode === "height") { const t = Math.max(0, Math.min(1, ((s.z ?? 12) - 7) / 10)); return `hsl(${220 - t * 200},75%,55%)`; }
       if (mode === "switch") return s.sw === "new" ? "#ef4444" : `hsl(${((Number(s.sw) || 0) * 47) % 360},70%,58%)`;
@@ -231,7 +231,7 @@ export function mountRadarMap(root, opts = {}) {
     function legend() {
       const L = {
         idf: Object.entries(IDF_COL).map(([k, c]) => [c, "IDF " + k]),
-        photos: [["#22c55e", "2+ photos"], ["#f59e0b", "1 photo"], ["#ef4444", "none"]],
+        photos: [["#22c55e", "all 4 photos"], ["#f59e0b", "1-3 photos"], ["#ef4444", "none"]],
         labeled: [["#22c55e", "labeled"], ["#ef4444", "not yet"]],
         height: [["hsl(220,75%,55%)", "7 ft"], ["hsl(120,75%,55%)", "12 ft"], ["hsl(20,75%,55%)", "17 ft"]],
         switch: [["#ef4444", "needs the 3rd switch (IDF 2 / 5)"], ["#94a3b8", "each color = one switch #"]],
@@ -431,10 +431,10 @@ export function mountRadarMap(root, opts = {}) {
     }
     // PHOTO RULES = the checklist's uploadSensor (L 2026-10-03 "make it all the same as the checklist"): camera-or-library
     // picker (no capture=), 2048 px JPEG, "<customer> NN - serial" bar unless unticked, <prefix>_NN-serial.jpg into the
-    // job's sensors folder, a confirm once the sensor already has its 2 photos.
+    // job's sensors folder, a confirm once the sensor already has its 4 photos.
     async function addPhoto(file) {
       const s = S[sel]; if (!s || !file || !OWNER || RO()) return;
-      if (s.photos >= 2 && !confirm(`Sensor ${String(s.m).padStart(2, "0")} already has ${s.photos} photos. Upload another?`)) { if ($("addPhoto")) $("addPhoto").value = ""; return; }
+      if (s.photos >= 4 && !confirm(`Sensor ${String(s.m).padStart(2, "0")} already has ${s.photos} photos. Upload another?`)) { if ($("addPhoto")) $("addPhoto").value = ""; return; }
       let serial = clean(s.serial);
       if (!serial) { serial = clean(prompt(`Sensor #${s.m} has no serial yet. Serial number:`) || ""); if (!serial) return;
         await patchSensor(OWNER, TASK, s.m, { serial, updatedAt: Date.now() }).catch(() => {}); s.serial = serial; }
@@ -446,11 +446,11 @@ export function mountRadarMap(root, opts = {}) {
     }
     function showHub(h) {
       selHub = h; sel = -1; const items = HUBPH[h] || [], idf = h === "MDF" ? null : Number(h.slice(3));
-      const rs = idf ? S.filter(s => s.idf === idf) : S, runs = rs.filter(s => s.runDoneAt).length, ph = rs.filter(s => s.photos >= 2).length;
+      const rs = idf ? S.filter(s => s.idf === idf) : S, runs = rs.filter(s => s.runDoneAt).length, ph = rs.filter(s => s.photos >= 4).length;
       $("info").innerHTML = `<div class="mk">${hubLabel(h)}</div><div class="kv">
         <b>Sensors</b><span>${rs.length}</span>
         <b>Runs complete</b><span>${runs} / ${rs.length}</span>
-        <b>Sensor photos</b><span>${PHOTOS === "ok" ? `${ph} / ${rs.length} with both` : PHOTOS === "loading" ? "loading\u2026" : "can't reach Storage"}</span>
+        <b>Sensor photos</b><span>${PHOTOS === "ok" ? `${ph} / ${rs.length} with all 4` : PHOTOS === "loading" ? "loading\u2026" : "can't reach Storage"}</span>
         ${idf && TABLES && SWITCHES[idf] ? `<b>Switches</b><span>${SWITCHES[idf].map(w => w === "new" ? "3rd needed" : "#" + w).join(", ")}</span>` : ""}
         <b>Photos</b><span>${items.length || PHOTOS === "ok" ? items.length : PHOTOS === "loading" ? "loading\u2026" : "can't reach Storage"}</span></div>
         <div class="photos" id="rm-photos"></div>
