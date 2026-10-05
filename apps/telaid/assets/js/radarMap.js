@@ -683,7 +683,8 @@ export function mountRadarMap(root, opts = {}) {
     });
     $("spclose").addEventListener("click", () => { $("sp").hidden = true; });
     $("spfile").addEventListener("change", e => { const f = e.target.files[0]; if (f) spUse(f, f.name).catch(err => spMsg("Could not read that file: " + (err.message || err))); });
-    root.querySelectorAll("#rm-sp .tgt").forEach(b => b.addEventListener("click", () => { SP.t = b.dataset.t; spPins(); }));
+    root.querySelectorAll("#rm-sp .tgt").forEach(b => { const pick = e => { e.preventDefault(); SP.t = b.dataset.t; SP.picked = true; spPins(); spMsg(`${SP.name} \u00b7 tap the drawing to place ${SP.t.toUpperCase()}`); };
+      b.addEventListener("pointerup", pick); b.addEventListener("click", pick); });
     $("spa").addEventListener("input", spCalc); $("spb").addEventListener("input", spCalc);
     // TAP = pointerdown + pointerup within 10 px (L 2026-10-05 "when I tap to place the a and b it doesn't work": the
     // click event never reached the image on his device). A drag still scrolls the drawing.
@@ -691,9 +692,11 @@ export function mountRadarMap(root, opts = {}) {
     $("spimg").addEventListener("pointerdown", e => { spDown = { x: e.clientX, y: e.clientY }; });
     $("spimg").addEventListener("pointerup", e => { if (!spDown || Math.hypot(e.clientX - spDown.x, e.clientY - spDown.y) > 10) { spDown = null; return; } spDown = null;
       const r = $("spimg").getBoundingClientRect(); if (!r.width || !SP.w) return;
+      // both pins down: the tap moves whichever pin is NEARER (L 2026-10-05 "after A is placed I can't go back to move it")
+      if (SP.a && SP.b && !SP.picked) { const d = q => Math.hypot(r.left + q.u / SP.w * r.width - e.clientX, r.top + q.v / SP.h * r.height - e.clientY); SP.t = d(SP.a) <= d(SP.b) ? "a" : "b"; }
       SP[SP.t] = { u: Math.max(0, Math.min(SP.w, (e.clientX - r.left) / r.width * SP.w)), v: Math.max(0, Math.min(SP.h, (e.clientY - r.top) / r.height * SP.h)) };
-      const placed = SP.t.toUpperCase(); if (SP.t === "a" && !SP.b) SP.t = "b"; spPins(); spCalc();
-      spMsg(`${SP.name} \u00b7 ${placed} placed${SP.a && SP.b ? " - both set; tap again to move the highlighted one" : " - now tap where sensor B is"}`); });
+      const placed = SP.t.toUpperCase(); SP.picked = false; if (SP.t === "a" && !SP.b) SP.t = "b"; spPins(); spCalc();
+      spMsg(`${SP.name} \u00b7 ${placed} placed${SP.a && SP.b ? " - both set; tap near a pin to move it (or pick A / B first)" : " - now tap where sensor B is"}`); });
     $("spimg").addEventListener("dragstart", e => e.preventDefault());
     $("spsave").addEventListener("click", async () => {
       if (!SP.fit || !SP.img) return;
