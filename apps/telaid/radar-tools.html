@@ -10,7 +10,7 @@
     <link rel="icon" href="./assets/img/favicon.ico" type="image/x-icon" />
     <link rel="stylesheet" href="./assets/css/radartools.css?v=20261005h" />
     <script type="module" src="../assets/js/microsoftAuth.js"></script>
-    <script type="module" src="./assets/js/telaid-shell.js?v=20261005i"></script>
+    <script type="module" src="./assets/js/telaid-shell.js?v=20261005j"></script>
     <script type="module" src="../assets/js/login.js"></script>
     <script src="../assets/js/sidebar.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -342,6 +342,9 @@
 
       import { resizeImg, stampImg } from "../assets/js/imgupload.js?v=20261003a";   // THE photo rules - one copy for every app (2026-10-03)
       import { initImageModule } from "./assets/js/imageModule.js?v=20261003b";
+      // THE SENSORS LIST (2026-10-04): device data lives in the "Sensors" device list on the meta-owner task; the data layer
+      // reads it (sensorMeta as the fallback) and mirrors every write back to sensorMeta for the SES apps
+      import { sensorMetaOf, patchSensor, linkSensorPhoto, sensorListPhotos, unlinkSensorPhoto, readOnce as readTask } from "./assets/js/telaid-data.js?v=20261005h";
       const CONFIG = {
         MAX_NIGHTS: 10,
         DEFAULT_NIGHTS: 5,
@@ -662,6 +665,24 @@
       function sensorMetaBasePath() {
         return `${state.basePath}/tasks/${state.metaOwnerTaskId}/sensorMeta`;
       }
+      // the sheet as the pages know it ({mark: {serial, m1, m2, m3, labeledAt, ...}}), read off the Sensors list (one task read,
+      // cached until a write); readOnce(sensorMetaBasePath()) and readOnce(`${...}/${num}`) became these two
+      const sensorCache = { task: "", meta: null };
+      async function sensorMetaAll(fresh) {
+        if (!state.metaOwnerTaskId) return null;
+        if (!fresh && sensorCache.task === state.metaOwnerTaskId && sensorCache.meta) return sensorCache.meta;
+        const task = await readTask(`${state.basePath}/tasks/${state.metaOwnerTaskId}`);
+        sensorCache.task = state.metaOwnerTaskId; sensorCache.meta = sensorMetaOf(task) || {}; return sensorCache.meta;
+      }
+      async function sensorMetaOne(num) { return (await sensorMetaAll())?.[num] || {}; }
+      // payload keys "<num>/<field>" (the old field-level patch) -> one patchSensor per mark (row + sheet mirror)
+      async function patchSensorMeta(payload) {
+        const byMark = {}; for (const [k, v] of Object.entries(payload)) { const [num, field] = k.split("/"); (byMark[num] ||= {})[field] = v; }
+        saveTracker.begin();
+        try { for (const [num, fields] of Object.entries(byMark)) await patchSensor(state.basePath, state.metaOwnerTaskId, Number(num), fields); saveTracker.success(); }
+        catch (err) { saveTracker.fail(err); throw err; }
+        finally { sensorCache.meta = null; }
+      }
 
       function getFavorites() {
         try {
@@ -831,8 +852,7 @@
 
       async function loadSensorMeta(sensorNum) {
         if (!sensorNum || !state.metaOwnerTaskId) return;
-        const data =
-          (await readOnce(`${sensorMetaBasePath()}/${sensorNum}`)) || {};
+        const data = await sensorMetaOne(sensorNum);
 
         if ($("sensorMetaSerial"))
           $("sensorMetaSerial").value = data.serial || "";
@@ -859,7 +879,7 @@
 
         // field-level paths, not `[sensorNum]: {…}` - a whole-record write dropped every other field on the sensor
         // (sensor-lookup's `labeledAt`, 2026-09-26). update() is shallow at the given path.
-        await patch(sensorMetaBasePath(), {
+        await patchSensorMeta({
           [`${sensorNum}/serial`]: $("sensorMetaSerial")?.value.trim() || "",
           [`${sensorNum}/m1`]: $("sensorMetaM1")?.value.trim() || "",
           [`${sensorNum}/m2`]: $("sensorMetaM2")?.value.trim() || "",
@@ -907,7 +927,7 @@
         rows.push([]);
 
         // Device metadata
-        const snapshot = await readOnce(sensorMetaBasePath());
+        const snapshot = await sensorMetaAll(true);
         if (snapshot) {
           /* RTDB hands back an ARRAY, not an object, when the keys are numeric and
              near-contiguous from 0 - and sensorMeta is keyed by device number. With
@@ -948,6 +968,26 @@
         return m ? parseInt(m[1], 10) : 0;
       }
 
+      // SENSOR PHOTOS = THE LIST (L 2026-10-04 "the radar tool just uses the lists instead of the images section, based on the
+      // details app"): Sensors mode reads each Sensors-list row's images[] - the same photos Details / Jobs show on the row - not
+      // a listing of the storage folder. A job with no Sensors list still lists the folder. Deliverables stay the folder (the
+      // images-section kind - "the 2 types of image areas makes sense").
+      async function sensorPhotoItems() {
+        const task = state.metaOwnerTaskId ? await readTask(`${state.basePath}/tasks/${state.metaOwnerTaskId}`).catch(() => null) : null;
+        const fromList = task ? sensorListPhotos(task) : null;
+        if (!fromList) return listStorageItems(getImagesPath("sensors")).catch(() => []);
+        // SELF-HEAL: a photo the SES radar-tools put in the folder (it never touches the list) is linked onto its row here, once -
+        // only for a mark the list has; the list stays the one source this page shows
+        const have = new Set(fromList.map(i => i.fullPath)), rows = new Set(Object.keys(sensorMetaOf(task) || {}).map(Number));
+        const loose = (await listStorageItems(getImagesPath("sensors")).catch(() => [])).filter(it => !have.has(it.fullPath) && rows.has(sensorNumOf(it.name)));
+        for (const it of loose) {
+          try { if (await linkSensorPhoto(state.basePath, state.metaOwnerTaskId, sensorNumOf(it.name), { url: it.url, path: it.fullPath, note: "", markup: "" }))
+            fromList.push({ name: it.name, fullPath: it.fullPath, url: it.url, mark: sensorNumOf(it.name), rowId: "linked", note: "" }); } catch (_) {}
+        }
+        return fromList;
+      }
+      const markOfItem = item => item.mark || sensorNumOf(item.name);
+
       async function updateGallery() {
         if (!state.currentProject) return;
 
@@ -958,7 +998,7 @@
 
         let items = [];
         try {
-          items = await listStorageItems(base);
+          items = mode === "sensors" ? await sensorPhotoItems() : await listStorageItems(base);
         } catch {
           items = [];
         }
@@ -1021,7 +1061,7 @@
           const countMap = {};
 
           items.forEach((item) => {
-            const idx = sensorNumOf(item.name);
+            const idx = markOfItem(item);
             if (idx) countMap[idx] = (countMap[idx] || 0) + 1;
           });
 
@@ -1118,7 +1158,7 @@
         try {
           const paddedNum = String(num).padStart(2, "0");
           const folderPath = getImagesPath("sensors");
-          const existing = await listStorageItems(folderPath).catch(() => []);
+          const existing = await sensorPhotoItems();
           const prefix = sanitize(
             state.currentCustomerName ||
               state.currentProjectName ||
@@ -1126,7 +1166,7 @@
           );
 
           // exact device number - startsWith("_10") also matched 100-109
-          const matchCount = existing.filter((item) => sensorNumOf(item.name) === Number(num)).length;
+          const matchCount = existing.filter((item) => markOfItem(item) === Number(num)).length;
           if (matchCount >= CONFIG.SENSOR_IMAGE_COUNT_REQUIRED) {
             const proceed = confirm(
               `Sensor ${paddedNum} already has ${CONFIG.SENSOR_IMAGE_COUNT_REQUIRED} uploads. Upload another?`,
@@ -1160,7 +1200,9 @@
           // LIVE marker (2026-10-03): tells any open radar map to re-list this folder - see telaid-data watchJob
           set(dbRef(database, `${state.basePath}/tasks/${state.metaOwnerTaskId}/photosAt`), { at: Date.now(), sub: "sensors", name: filename }).catch(() => {});
 
-          await patch(sensorMetaBasePath(), {   // field-level (see saveSensorMeta) - keeps labeledAt and anything else on the record
+          // the photo onto the sensor's row too (Jobs / Details / Gallery see it as a device photo) - no-op without a list
+          try { await linkSensorPhoto(state.basePath, state.metaOwnerTaskId, Number(num), { url: await getDownloadURL(storageRef(storage, `${folderPath}/${filename}`)), path: `${folderPath}/${filename}`, note: "", markup: skipMarkup ? "" : `${(state.currentCustomerName || state.currentProjectName || state.currentProject).trim()} ${paddedNum} - ${serial}` }); } catch (e) { console.warn("[radar-tools] photo not linked to the row", e?.code || e); }
+          await patchSensorMeta({   // field-level (see saveSensorMeta) - keeps labeledAt and anything else on the record
             [`${num}/serial`]: $("serialNumber")?.value.trim() || "",
             [`${num}/m1`]: $("sensorMetaM1")?.value.trim() || "",
             [`${num}/m2`]: $("sensorMetaM2")?.value.trim() || "",
@@ -1243,7 +1285,9 @@
           return;
         }
 
-        await deleteObject(storageRef(storage, item.fullPath));
+        // a list photo comes off its row first (delete where added), then the file - the folder copy the SES apps list goes too
+        if (item.rowId) await unlinkSensorPhoto(state.basePath, state.metaOwnerTaskId, item.mark, item.fullPath);
+        if (!/^https?:/.test(item.fullPath)) await deleteObject(storageRef(storage, item.fullPath)).catch(e => { if (e?.code !== "storage/object-not-found") throw e; });
         closeModal();
         await updateGallery();
       }
@@ -3152,7 +3196,7 @@
         rows.push([]);
 
         // ── Device metadata ──
-        const snapshot = await readOnce(sensorMetaBasePath());
+        const snapshot = await sensorMetaAll(true);
         if (snapshot) {
           /* RTDB hands back an ARRAY, not an object, when the keys are numeric and
              near-contiguous from 0 - and sensorMeta is keyed by device number. With
@@ -3304,8 +3348,7 @@
           const sensorNum = $("sensorNumberDropdown")?.value;
           if (!sensorNum) return;
 
-          const data =
-            (await readOnce(`${sensorMetaBasePath()}/${sensorNum}`)) || {};
+          const data = await sensorMetaOne(sensorNum);
           // ALWAYS write the field, blank included. The old test only assigned when the new
           // device HAD a serial, so picking one without a serial kept the PREVIOUS device's -
           // and that value is baked into the filename, stamped onto the image, and saved into

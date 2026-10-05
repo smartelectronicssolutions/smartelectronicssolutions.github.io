@@ -16,7 +16,7 @@
   <title>Sensor Lookup</title>
   <link rel="icon" href="./assets/img/favicon.ico" type="image/x-icon" />
   <link rel="stylesheet" href="./assets/css/radartools.css?v=20261005h" />
-  <script type="module" src="./assets/js/telaid-shell.js?v=20261005i"></script>
+  <script type="module" src="./assets/js/telaid-shell.js?v=20261005j"></script>
   <script type="module" src="../assets/js/login.js"></script>
   <script src="../assets/js/sidebar.js"></script>
   <style>
@@ -121,6 +121,7 @@
 
   <script type="module">
     import { auth, database, ref, get, set, update, onAuthStateChanged } from "../assets/js/firebase-init.js";
+    import { sensorMetaOf, patchSensor, readOnce } from "./assets/js/telaid-data.js?v=20261005h";   // the Sensors list (2026-10-04), sheet as fallback
 
     // ── what this page reads ──
     const TELAID_UID = "SDN0vKPQ1qfN5vxkvhR3auVhDYq1";   // Telaid apps live under this uid by design
@@ -158,7 +159,7 @@
     const canCloud = () => !!(cloudOwner && auth.currentUser && PUBLISHERS.includes(auth.currentUser.uid));
     function cloudWrite(mark, ts) {
       if (!canCloud()) return;
-      set(ref(database, `${cloudOwner}/tasks/${TASK}/sensorMeta/${mark}/labeledAt`), ts)
+      patchSensor(cloudOwner, TASK, Number(mark), { labeledAt: ts })
         .catch(e => { $("source").textContent += ` · ⚠ label not saved to the task (${e.code || e.message})`; });
     }
     function mergeLabels(meta, owner, user) {
@@ -169,7 +170,7 @@
       for (const m of Object.keys(labeled)) if (!(meta && meta[m] && meta[m].labeledAt)) up[`${m}/labeledAt`] = labeled[m];
       if (down) { save(DONE_KEY, labeled); renderStats(); }
       if (Object.keys(up).length && user && PUBLISHERS.includes(user.uid))
-        update(ref(database, `${owner}/tasks/${TASK}/sensorMeta`), up).then(() => { $("source").textContent += ` · ${Object.keys(up).length} label(s) saved to the task`; }).catch(() => { });
+        Promise.all(Object.keys(up).map(k => patchSensor(owner, TASK, Number(k.split("/")[0]), { labeledAt: up[k] }))).then(() => { $("source").textContent += ` · ${Object.keys(up).length} label(s) saved to the task`; }).catch(() => { });
       if (down) $("source").textContent += ` · ${down} label(s) restored from the task`;
     }
 
@@ -222,7 +223,7 @@
         const picked = window.telaidTreeFor && window.telaidTreeFor(user);   // the Account dropdown (Luis) picks the tree
         for (const owner of picked && picked !== user.uid ? [picked] : [...new Set([user.uid, TELAID_UID])]) {
           try {
-            const meta = (await get(ref(database, `${owner}/tasks/${TASK}/sensorMeta`))).val();
+            const meta = sensorMetaOf(await readOnce(`${owner}/tasks/${TASK}`));
             const t = buildTable(meta);
             if (!Object.keys(t).length) { why.push(`${owner.slice(0, 6)}: no serials`); continue; }
             save(CACHE_KEY, { t, at: Date.now() });
@@ -230,7 +231,7 @@
             cloudOwner = owner; mergeLabels(meta, owner, user);
             if (PUBLISHERS.includes(user.uid) && !sameTable(t, pub && pub.serials)) {
               try {
-                await set(ref(database, `public/sensorLookup/${TASK}`), { serials: t, count: Object.keys(t).length, updatedAt: Date.now(), source: `${owner}/tasks/${TASK}/sensorMeta`, name: TASK_NAME || "" });
+                await set(ref(database, `public/sensorLookup/${TASK}`), { serials: t, count: Object.keys(t).length, updatedAt: Date.now(), source: `${owner}/tasks/${TASK}/lists/Sensors`, name: TASK_NAME || "" });
                 $("source").textContent += " · crew copy refreshed";
               } catch (e) { $("source").textContent += ` · ⚠ crew copy NOT refreshed (${e.code || e.message})`; }
             }
@@ -438,7 +439,7 @@
     let resetArmed = false;
     $("reset-btn").addEventListener("click", () => {
       if (!resetArmed) { resetArmed = true; $("reset-confirm").hidden = false; setTimeout(() => { resetArmed = false; $("reset-confirm").hidden = true; }, 4000); return; }
-      if (canCloud()) { const clr = {}; for (const m of Object.keys(labeled)) clr[`${m}/labeledAt`] = null; if (Object.keys(clr).length) update(ref(database, `${cloudOwner}/tasks/${TASK}/sensorMeta`), clr).catch(() => { }); }
+      if (canCloud()) { for (const m of Object.keys(labeled)) patchSensor(cloudOwner, TASK, Number(m), { labeledAt: null }).catch(() => { }); }
       labeled = {}; save(DONE_KEY, labeled); lastTicked = null; resetArmed = false; $("reset-confirm").hidden = true; renderStats();
     });
     $("reload-btn").addEventListener("click", () => pull(auth.currentUser));

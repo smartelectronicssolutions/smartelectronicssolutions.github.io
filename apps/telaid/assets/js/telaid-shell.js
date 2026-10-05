@@ -7,7 +7,7 @@
 // Extras: a child with data-in-login goes INSIDE the login section (the checklist's MS + OneDrive blocks);
 // any other child stays in the header after it (the dashboard's MS block). data-logo="no" drops the logo.
 // Load it from <head> as <script type="module" src="./assets/js/telaid-shell.js"> next to login.js.
-import { auth, onAuthStateChanged, userLine, ACCOUNTS, LUIS_UID, pickedOwner, treeFor } from "./telaid-data.js?v=20261005g";
+import { auth, onAuthStateChanged, userLine, ACCOUNTS, LUIS_UID, pickedOwner, treeFor } from "./telaid-data.js?v=20261005h";
 
 const LOGO = "./assets/img/telaid_logo.png";
 export function mountShell(header) {

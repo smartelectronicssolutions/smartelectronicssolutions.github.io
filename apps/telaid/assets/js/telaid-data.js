@@ -3,7 +3,10 @@
 // the Firebase shape. Pages and modules import it; a path change is one edit here.
 //
 //   {owner}/tasks/<id>                       the job record (customerName, project, startTime, notes, sensorMeta ...)
-//   {owner}/tasks/<id>/sensorMeta/<mark>     {serial, m1 "X ..", m2 "Y ..", m3 "Z ..", labeledAt, runDoneAt, updatedAt}
+//   {owner}/tasks/<id>/lists/<listId>        a device list named "Sensors" (2026-10-04): row = {id: "<mark>", mark, serial,
+//                                            m1 "X ..", m2 "Y ..", m3 "Z ..", notes, images[], counted, labeledAt?, runDoneAt?, pos?, posAt?, updatedAt?}
+//   {owner}/tasks/<id>/sensorMeta/<mark>     the LEGACY sheet {serial, m1, m2, m3, labeledAt, runDoneAt, updatedAt} - read when a task has
+//                                            no Sensors list, and MIRRORED on every write while the SES apps still read it
 //   Storage {owner}/tasks/images/<proj>/sensors        <prefix>_<NN>-<serial>[_n].jpg   (device photos, 2 per sensor)
 //   Storage {owner}/tasks/images/<proj>/MDF|IDF1..IDF6  site photos        /deliverables, /Materials, /Install ...
 //
@@ -84,8 +87,8 @@ export function groupSites(tasks) {
     if (!customer && !project) continue;
     const time = bestTime(t, id), key = normKey(customer) + "|" + normKey(project), g = groups.get(key);
     const own = time + metaRank(t);
-    if (!g) { groups.set(key, { id, customer, project, ids: [id], visits: 1, first: time, last: time, own, hasSensors: !!t.sensorMeta }); continue; }
-    g.visits++; g.ids.push(id); g.hasSensors = g.hasSensors || !!t.sensorMeta;
+    if (!g) { groups.set(key, { id, customer, project, ids: [id], visits: 1, first: time, last: time, own, hasSensors: !!t.sensorMeta || !!sensorsListOf(t) }); continue; }
+    g.visits++; g.ids.push(id); g.hasSensors = g.hasSensors || !!t.sensorMeta || !!sensorsListOf(t);
     if (time < g.first) g.first = time;
     if (own < g.own) { g.own = own; g.id = id; }
     if (time > g.last) g.last = time;
@@ -98,12 +101,37 @@ export const listSites = async user => { const { owner, tasks } = await loadTask
 /** The canonical (earliest) record id for whatever job id you were handed - a sibling night resolves to the site. */
 export const canonicalId = (sites, id) => (sites.find(g => g.ids.includes(String(id))) || {}).id || String(id);
 
-/** The job record + its sensorMeta, trying each owner tree: {owner, task, meta}. */
+// ---------- THE SENSORS LIST (L 2026-10-04 "direct device data to the current lists") ----------
+// The rows live in a device list named "Sensors" on the canonical task, in the Jobs app's row shape, so sensors are
+// devices like any other (notes, photos on the row, counted). sensorMetaOf() hands the list back in the sensorMeta
+// shape every reader already knows ({mark: {serial, m1, m2, m3, labeledAt, runDoneAt, pos, posAt, updatedAt, _row}});
+// a task without a list still reads its sensorMeta sheet. Writes go to the row AND the sheet (mirror) until the SES
+// radar apps retire - they only know the sheet.
+const LIST_RESERVED = new Set(["_name", "createdAt", "meta", "items"]);
+export const isSensorsList = l => String(l?._name || "").trim().toLowerCase() === "sensors";
+export function sensorsListOf(task) { for (const [listId, l] of Object.entries(task?.lists || {})) if (l && typeof l === "object" && isSensorsList(l)) return { listId, list: l }; return null; }
+export const markOf = r => Number(r?.mark ?? r?.id ?? r?.label) || 0;
+export function sensorMetaOf(task) {
+  const sl = sensorsListOf(task); if (!sl) return task?.sensorMeta || null;
+  const meta = {};
+  for (const [rowId, r] of Object.entries(sl.list)) { if (LIST_RESERVED.has(rowId) || !r || typeof r !== "object") continue; const m = markOf(r); if (m) meta[m] = { ...r, _row: rowId }; }
+  return meta;
+}
+const rowIndex = new Map();   // `${owner}/${taskId}` -> {listId, rows: {mark: rowId}} | null (no list)
+export function indexSensors(owner, taskId, task) {
+  const sl = sensorsListOf(task), key = `${owner}/${taskId}`;
+  if (!sl) { rowIndex.set(key, null); return null; }
+  const rows = {}; for (const [rowId, r] of Object.entries(sl.list)) { if (LIST_RESERVED.has(rowId) || !r || typeof r !== "object") continue; const m = markOf(r); if (m) rows[m] = rowId; }
+  const ix = { listId: sl.listId, rows }; rowIndex.set(key, ix); return ix;
+}
+export async function sensorIndex(owner, taskId) { const key = `${owner}/${taskId}`; if (!rowIndex.has(key)) indexSensors(owner, taskId, await readOnce(`${owner}/tasks/${taskId}`)); return rowIndex.get(key); }
+export const sensorRowPath = (owner, taskId, ix, rowId) => `${owner}/tasks/${taskId}/lists/${ix.listId}/${rowId}`;
+/** The job record + its sensors (list first, sheet as fallback), trying each owner tree: {owner, task, meta, index}. */
 export async function loadJob(user, taskId) {
   for (const o of ownersFor(user)) {
-    try { const task = await readOnce(`${o}/tasks/${taskId}`); if (task) return { owner: o, task, meta: task.sensorMeta || null }; } catch (_) {}
+    try { const task = await readOnce(`${o}/tasks/${taskId}`); if (task) return { owner: o, task, meta: sensorMetaOf(task), index: indexSensors(o, taskId, task) }; } catch (_) {}
   }
-  return { owner: null, task: null, meta: null };
+  return { owner: null, task: null, meta: null, index: null };
 }
 
 /** sensorMeta rows -> [{m, serial, x, y, z (feet), labeledAt, runDoneAt, updatedAt}] sorted by mark. */
@@ -116,9 +144,42 @@ export const sensorRows = meta => Object.entries(meta || {}).map(([k, v]) => ({ 
 // ---------- writes (field-level: update() at the sensorMeta node never clobbers a sibling field) ----------
 export const sensorMetaPath = (owner, taskId) => `${owner}/tasks/${taskId}/sensorMeta`;
 /** patchSensor(owner, task, 120, {runDoneAt: Date.now()}) - flags: labeledAt / runDoneAt (ms or null), serial, m1-m3 */
-export function patchSensor(owner, taskId, mark, fields) {
+export async function patchSensor(owner, taskId, mark, fields) {
+  if (isShared(owner)) throw new Error("Shared copy - read-only.");
+  const ix = await sensorIndex(owner, taskId), writes = [];
+  if (ix) {   // the Sensors list row (made on the spot for a mark the list does not have yet)
+    let rowId = ix.rows[mark];
+    if (!rowId) { rowId = String(Date.now()); await set(ref(database, sensorRowPath(owner, taskId, ix, rowId)), { id: String(mark), mark: Number(mark), serial: "", m1: "", m2: "", m3: "", notes: "", images: [], counted: false }); ix.rows[mark] = rowId; }
+    writes.push(update(ref(database, sensorRowPath(owner, taskId, ix, rowId)), fields));
+  }
+  // MIRROR to the legacy sheet while the SES radar apps still read it (drop this line when they retire)
   const payload = {}; for (const [k, v] of Object.entries(fields)) payload[`${mark}/${k}`] = v;
-  return update(ref(database, sensorMetaPath(owner, taskId)), payload);
+  writes.push(update(ref(database, sensorMetaPath(owner, taskId)), payload));
+  await Promise.all(writes);
+}
+/** A photo onto the sensor's row (images[] entry the Jobs app / Details / Gallery understand) - no-op without a list. */
+export async function linkSensorPhoto(owner, taskId, mark, entry) {
+  const ix = await sensorIndex(owner, taskId); if (!ix) return false;
+  const rowId = ix.rows[mark]; if (!rowId) return false;
+  const p = `${sensorRowPath(owner, taskId, ix, rowId)}/images`, cur = await readOnce(p), arr = Array.isArray(cur) ? cur : Object.values(cur || {});
+  if (arr.some(im => im && (im.path === entry.path || im.url === entry.url))) return true;
+  await set(ref(database, p), [...arr, entry]); return true;
+}
+/** The sensor photos off the Sensors list - each row's images[] (L 2026-10-04 "the radar tool uses the lists instead of the
+ *  images section, based on the details app"). [{name, fullPath, url, mark, rowId, note}], or null when the job has no list
+ *  (the caller falls back to the folder). The files stay where they are; the row holds their path + download link. */
+export function sensorListPhotos(task) {
+  const sl = sensorsListOf(task); if (!sl) return null; const out = [];
+  for (const [rowId, r] of Object.entries(sl.list)) { if (LIST_RESERVED.has(rowId) || !r || typeof r !== "object") continue; const m = markOf(r); if (!m) continue;
+    for (const im of (Array.isArray(r.images) ? r.images : Object.values(r.images || {}))) if (im && im.url)
+      out.push({ name: String(im.path || "").split("/").pop() || `sensor ${m}`, fullPath: im.path || im.url, url: im.url, mark: m, rowId, note: im.note || "" }); }
+  return out;
+}
+/** Take a photo off its sensor row (by path or url) - the delete-where-added half; the caller deletes the file. */
+export async function unlinkSensorPhoto(owner, taskId, mark, pathOrUrl) {
+  const ix = await sensorIndex(owner, taskId), rowId = ix?.rows[mark]; if (!rowId) return false;
+  const p = `${sensorRowPath(owner, taskId, ix, rowId)}/images`, cur = await readOnce(p), arr = Array.isArray(cur) ? cur : Object.values(cur || {});
+  await set(ref(database, p), arr.filter(im => im && im.path !== pathOrUrl && im.url !== pathOrUrl)); return true;
 }
 
 // ---------- photos ----------
@@ -178,13 +239,18 @@ export const photosAtPath = (owner, taskId) => `${owner}/tasks/${taskId}/photosA
 export function watchJob(owner, taskId, { onPhotos, onMeta } = {}) {
   let firstP = true, firstM = true;
   const u1 = onValue(ref(database, photosAtPath(owner, taskId)), snap => { if (firstP) { firstP = false; return; } const v = snap.val(); if (v && onPhotos) onPhotos(v); }, () => {});
-  const u2 = onValue(ref(database, sensorMetaPath(owner, taskId)), snap => { if (firstM) { firstM = false; return; } if (onMeta) onMeta(snap.val() || {}); }, () => {});
+  const ix = rowIndex.get(`${owner}/${taskId}`);   // the list when the job has one (loadJob indexed it), the sheet otherwise
+  const u2 = ix
+    ? onValue(ref(database, `${owner}/tasks/${taskId}/lists/${ix.listId}`), snap => { if (firstM) { firstM = false; return; } const l = snap.val() || {}; if (onMeta) onMeta(sensorMetaOf({ lists: { [ix.listId]: { _name: "Sensors", ...l } } }) || {}); }, () => {})
+    : onValue(ref(database, sensorMetaPath(owner, taskId)), snap => { if (firstM) { firstM = false; return; } if (onMeta) onMeta(snap.val() || {}); }, () => {});
   return () => { u1(); u2(); };
 }
 /** A device photo for sensor <mark>: "<prefix>_NN-serial.jpg", bar "<customer> NN - serial". */
-export const uploadSensorPhoto = ({ owner, task, mark, serial, file, bar = true, id }) => { const nn = String(mark).padStart(2, "0");
-  return uploadPhoto({ owner, task, id, sub: "sensors", file, name: `${photoPrefix(task)}_${nn}-${clean(serial)}.jpg`,
-    label: bar ? `${String(task?.customerName || task?.project || "").trim()} ${nn} - ${clean(serial)}` : null }); };
+export const uploadSensorPhoto = async ({ owner, task, mark, serial, file, bar = true, id }) => { const nn = String(mark).padStart(2, "0");
+  const label = bar ? `${String(task?.customerName || task?.project || "").trim()} ${nn} - ${clean(serial)}` : null;
+  const r = await uploadPhoto({ owner, task, id, sub: "sensors", file, name: `${photoPrefix(task)}_${nn}-${clean(serial)}.jpg`, label });
+  if (id) { try { await linkSensorPhoto(owner, id, Number(mark), { url: await getDownloadURL(r), path: r.fullPath, note: "", markup: label || "" }); } catch (e) { console.warn("[telaid-data] photo not linked to the row", e?.code || e); } }
+  return r; };
 /** A site photo for MDF / IDFn: "YYYY_MM_DD_<prefix>_<hub>.jpg", bar "<customer> IDF n". */
 export const uploadHubPhoto = ({ owner, task, hub, file, bar = true, id }) => { const d = new Date(),
   stamp = `${d.getFullYear()}_${String(d.getMonth() + 1).padStart(2, "0")}_${String(d.getDate()).padStart(2, "0")}`;
