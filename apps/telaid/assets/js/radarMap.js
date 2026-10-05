@@ -475,8 +475,8 @@ export function mountRadarMap(root, opts = {}) {
       sel = i; selHub = null; const s = S[i];
       $("info").innerHTML = `<div class="mk">#${s.m}</div><div class="kv">
         <b>Serial</b><span>${esc(s.serial) || "-"}</span>
-        <b>Position</b><span>X <input name="x" value="${esc(ftIn(s.x))}" form="rm-measure" inputmode="text" autocomplete="off" style="width:7.5em" /> · Y <input name="y" value="${esc(ftIn(s.y))}" form="rm-measure" inputmode="text" autocomplete="off" style="width:7.5em" /></span>
-        <b>Height</b><span><input name="z" value="${esc(ftIn(s.z))}" form="rm-measure" inputmode="text" autocomplete="off" style="width:7.5em" /> <button type="submit" form="rm-measure" id="rm-measureSave" class="primary" hidden>Save</button> <span class="muted" id="rm-measureState"></span></span>
+        <b>Position</b><span>X <input name="x" value="${esc(ftIn(s.x))}" form="rm-measure" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="width:7.5em" /> · Y <input name="y" value="${esc(ftIn(s.y))}" form="rm-measure" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="width:7.5em" /></span>
+        <b>Height</b><span><input name="z" value="${esc(ftIn(s.z))}" form="rm-measure" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="width:7.5em" /> <button type="submit" form="rm-measure" id="rm-measureSave" class="primary" hidden>Save</button> <span class="muted" id="rm-measureState"></span></span>
         ${s.idf ? `<b>IDF / zone</b><span>IDF ${s.idf} · zone ${s.zone}</span>` : ""}
         ${s.sw ? `<b>Switch</b><span>${s.sw === "new" ? "3rd switch needed (not on site yet)" : "#" + s.sw}${s.port ? " · port " + s.port : ""} (planned)</span>` : ""}
         <b>Run</b><span>${s.runDoneAt ? "complete, " + new Date(s.runDoneAt).toLocaleString() : "not yet"}</span>
@@ -536,12 +536,29 @@ export function mountRadarMap(root, opts = {}) {
       const whole = Math.floor(inch), frac = inch - whole, fr = frac ? ` ${frac * 8 % 2 ? frac * 8 + "/8" : frac * 4 % 2 ? frac * 4 + "/4" : "1/2"}` : "";
       return `${neg ? "-" : ""}${ft}'-${whole}${fr}"`;
     }
-    const readFt = t => { t = String(t || "").trim(); if (!t) return { v: null, txt: "" };
-      if (/^-?\d+(\.\d+)?$/.test(t)) { const v = Number(t); return { v, txt: ftIn(v) }; }
-      const v = feet(t); return v == null ? null : { v, txt: t.replace(/^[XYZ]\s*/i, "") }; };
+    // FORGIVING (L 2026-10-04 "can the input box not be so picky"): the iPhone keyboard turns ' and " into curly quotes,
+    // which the strict sheet parser refused. Takes 12'-6", 12'6, 12' 6", 12 6, 12-6, 12ft 6in, 12', 6", 7.8", 12'-6 1/2",
+    // 12 6 1/2, -2'-4", 12.5 (feet) - with straight or curly quotes. Saves the canonical form (12'-6 1/2") so the sheet stays uniform.
+    const parseLen = raw => {
+      let t = String(raw || "").replace(/[\u2018\u2019\u2032\u00B4`]/g, "'").replace(/[\u201C\u201D\u2033]/g, '"').replace(/''/g, '"')
+        .replace(/^\s*[XYZ]\s*[:=]?\s*/i, "").replace(/\s*(feet|foot|ft)\.?/gi, "'").replace(/\s*(inches|inch|in)\.?/gi, '"').trim();
+      if (!t) return { v: null };
+      const neg = /^[-\u2212\u2013]/.test(t); t = t.replace(/^[-\u2212\u2013]\s*/, "");
+      const num = "(\\d+(?:\\.\\d+)?)", frac = "(?:\\s*(\\d+)\\s*/\\s*(\\d+))?";
+      let m, ft = 0, inch = 0;
+      if ((m = t.match(new RegExp("^" + num + "$")))) ft = Number(m[1]);                                                   // 12.5 = feet
+      else if ((m = t.match(new RegExp("^" + num + frac + '\\s*"$')))) inch = Number(m[1]) + (m[2] ? m[2] / m[3] : 0);       // 6" / 7.8" / 6 1/2"
+      else if ((m = t.match(new RegExp("^" + num + "\\s*'?\\s*[-\\s]?\\s*(?:" + num + frac + '\\s*"?)?$')))) {           // 12'-6 1/2" / 12 6 / 12-6 / 12'
+        ft = Number(m[1]); inch = (m[2] ? Number(m[2]) : 0) + (m[3] ? m[3] / m[4] : 0);
+        if (!/'/.test(t) && m[2] == null) return null;   // "12 " with nothing after - ambiguous, not a length
+      } else return null;
+      if (!Number.isFinite(ft) || !Number.isFinite(inch) || inch >= 12 && /'/.test(t)) return null;
+      const v = (ft + inch / 12) * (neg ? -1 : 1); return { v };
+    };
+    const readFt = t => { const r = parseLen(t); if (r === null) return null; return r.v == null ? { v: null, txt: "" } : { v: r.v, txt: ftIn(r.v) }; };
     async function saveMeasure(i, fm) {
       const s = S[i]; if (!s || !OWNER) return; const st = $("measureState");
-      const vals = {}; for (const k of ["x", "y", "z"]) { const r = readFt(fm[k].value); if (r === null) { st.textContent = `${k.toUpperCase()} isn't a measurement - use 12'-6" or 12.5`; fm[k].focus(); return; } vals[k] = r; }
+      const vals = {}; for (const k of ["x", "y", "z"]) { const r = readFt(fm[k].value); if (r === null) { st.textContent = `Couldn't read ${k.toUpperCase()} "${fm[k].value}" - try 12'6, 12 6, 12'-6 1/2" or 12.5 (feet)`; fm[k].focus(); return; } vals[k] = r; }
       st.textContent = "saving\u2026";
       try {
         await patchSensor(OWNER, TASK, s.m, { m1: vals.x.txt ? "X " + vals.x.txt : "", m2: vals.y.txt ? "Y " + vals.y.txt : "", m3: vals.z.txt ? "Z " + vals.z.txt : "", pos: null, posAt: null, updatedAt: Date.now() });
