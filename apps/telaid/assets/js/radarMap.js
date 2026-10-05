@@ -39,6 +39,7 @@ padding: 6px 12px; border-radius: 999px; border: 1px solid var(--borderColor); b
 .rmap #rm-views button { width: auto !important; margin: 0 !important; box-shadow: none !important; display: inline-block; font-size: .9rem; line-height: 1.2;
 padding: 6px 12px; border-radius: 8px; border: 1px solid var(--borderColor); background: transparent; color: var(--textColor); cursor: pointer; }
 .rmap #rm-views button.on { background: var(--primaryColor); border-color: var(--primaryColor); color: #fff; }
+.rmap #rm-views button[hidden] { display: none !important; }   /* the display rule above beat the hidden attribute: "Plan" showed on jobs with no plan */
 .rmap .photos { display: flex; gap: 8px; overflow-x: auto; margin-top: 10px; padding-bottom: 4px; }
 .rmap .photos a { flex: none; cursor: zoom-in; }
 .rmap .photos img { height: 110px; width: auto; border-radius: 8px; border: 1px solid var(--borderColor); display: block; background: #0003; }
