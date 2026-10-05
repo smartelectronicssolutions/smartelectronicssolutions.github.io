@@ -9,7 +9,7 @@
 // /MDF, /IDF1..IDF6 (site photos). History: floor map, photos/add/run complete, wiring view, IDF photos (all 2026-10-02).
 import { onAuthStateChanged } from "../../../assets/js/firebase-init.js";
 import { auth, HUBS, hubLabel, esc, fmtFt, feet, clean, loadJob, sensorRows, patchSensor, listSites, listPhotos, photoUrl,
-  sensorMarkOf, photoPrefix, uploadSensorPhoto, uploadHubPhoto, deletePhoto, watchJob, tablesFor, zoneOf, idfOf, loadFloorPlan, saveFloorPlan, resizeImage, saveHubPos } from "./telaid-data.js?v=1005a";
+  sensorMarkOf, photoPrefix, uploadSensorPhoto, uploadHubPhoto, deletePhoto, watchJob, tablesFor, zoneOf, idfOf, loadFloorPlan, saveFloorPlan, resizeImage, saveHubPos, gridRef } from "./telaid-data.js?v=1005e";
 import { openPhotoViewer } from "../../../assets/js/photoviewer.js?v=20261003a";
 import { mountCanvasView } from "../../../assets/js/canvasview.js?v=20261003b";
 
@@ -195,7 +195,10 @@ export function mountRadarMap(root, opts = {}) {
       S.forEach(s => { if (s.pos) { s.x = s.pos.x; s.y = s.pos.y; } });   // hold-to-move override (as built) wins over the plan
       if (TABLES) { assignSwitches(); wiringLayout(); }
       OWNER = owner; TASKREC = task;
-      const line = `${task.customerName || "Job " + TASK} \u00b7 ${S.length} sensors \u00b7 loaded ${new Date().toLocaleTimeString()}${TABLES ? ` \u00b7 site plan: ${TABLES.from}` : ""}${RO() ? ` \u00b7 shared copy by ${task.sharedByName || "?"} (read-only)` : ""}`;
+      // older jobs (Old Navy) measured each sensor off a building grid line ("J - 47' 8\"") - without the grid's own
+      // positions the dots are offsets, not a true floor layout; say so instead of pretending (L 2026-10-05)
+      const refs = [...new Set(Object.values(meta || {}).flatMap(v => [gridRef(v?.m1), gridRef(v?.m2)]).filter(Boolean))].sort();
+      const line = `${task.customerName || "Job " + TASK} \u00b7 ${S.length} sensors${refs.length ? ` \u00b7 measured off grid lines ${refs.join(", ")} - positions are offsets, approximate` : ""} \u00b7 loaded ${new Date().toLocaleTimeString()}${TABLES ? ` \u00b7 site plan: ${TABLES.from}` : ""}${RO() ? ` \u00b7 shared copy by ${task.sharedByName || "?"} (read-only)` : ""}`;
       $("source").textContent = line + " \u00b7 photos loading\u2026";
       renderHubs(); renderStats(); fit(false);
       // PHOTOS IN THE BACKGROUND (L 2026-10-03, "did you freeze?": on a network that could not resolve

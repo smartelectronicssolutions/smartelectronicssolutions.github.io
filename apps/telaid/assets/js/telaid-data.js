@@ -29,12 +29,19 @@ export const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;",
 
 // "X 306'-1 1/2\"" / "-117'-4 1/2\"" -> feet (number) ; fmtFt(feet) -> 306'-1.5"
 export function feet(s) {
-  const t = String(s || "").replace(/^[XYZ]\s*/i, "").trim(); if (!t) return null;
-  const neg = t.startsWith("-"), m = t.replace(/^-/, "").match(/(\d+)'\s*-?\s*(\d+)?(?:\s+(\d+)\/(\d+))?/);
-  if (!m) return null;
-  const v = Number(m[1]) + ((Number(m[2] || 0) + (m[3] ? Number(m[3]) / Number(m[4]) : 0)) / 12);
-  return neg ? -v : v;
+  // forgiving (L 2026-10-05 "can I load old radar jobs like the old navy"): the Old Navy sheets wrote 37’1” (curly),
+  // 12.3 / 42.10 (feet.inches), 11' / 13’ (feet only) and "J - 47' 8"" (measured off grid line J - the letter is kept by
+  // gridRef(), the number is the offset). Walmart 54's X 85'-10 1/2" form reads as before.
+  let t = String(s || "").replace(/[‘’′]/g, "'").replace(/[“”″]/g, '"').replace(/^[XYZ]\s*/i, "").trim();
+  t = t.replace(/^[A-Z]{1,2}\s*[-:]?\s*(?=-?\d)/i, "").trim(); if (!t) return null;
+  const neg = t.startsWith("-"); t = t.replace(/^-/, "");
+  let v = null, m = t.match(/(\d+)'\s*-?\s*(\d+)?(?:\s+(\d+)\/(\d+))?/);
+  if (m) v = Number(m[1]) + ((Number(m[2] || 0) + (m[3] ? Number(m[3]) / Number(m[4]) : 0)) / 12);
+  else if ((m = t.match(/^(\d+)\.(\d{1,2})$/)) && Number(m[2]) <= 11) v = Number(m[1]) + Number(m[2]) / 12;   // 42.10 = 42'10"
+  else if ((m = t.match(/^(\d+(?:\.\d+)?)$/))) v = Number(m[1]);
+  return v == null ? null : neg ? -v : v;
 }
+export const gridRef = s => { const m = String(s || "").trim().match(/^([A-Z]{1,2})\s*[-:]?\s*(?=-?\d)/i); return m && !/^[XYZ]$/i.test(m[1]) ? m[1].toUpperCase() : null; };
 export const fmtFt = v => v == null ? "-" : `${Math.trunc(v)}'-${(Math.abs(v % 1) * 12).toFixed(1).replace(/\.0$/, "")}"`;
 
 // ---------- reads ----------
