@@ -105,8 +105,8 @@ export const canonicalId = (sites, id) => (sites.find(g => g.ids.includes(String
 // The rows live in a device list named "Sensors" on the canonical task, in the Jobs app's row shape, so sensors are
 // devices like any other (notes, photos on the row, counted). sensorMetaOf() hands the list back in the sensorMeta
 // shape every reader already knows ({mark: {serial, m1, m2, m3, labeledAt, runDoneAt, pos, posAt, updatedAt, _row}});
-// a task without a list still reads its sensorMeta sheet. Writes go to the row AND the sheet (mirror) until the SES
-// radar apps retire - they only know the sheet.
+// a task without a list still reads its sensorMeta sheet. Writes go to the row only (sheet retired 2026-10-05); a task
+// with no list still writes its sheet.
 const LIST_RESERVED = new Set(["_name", "createdAt", "meta", "items"]);
 export const isSensorsList = l => String(l?._name || "").trim().toLowerCase() === "sensors";
 export function sensorsListOf(task) { for (const [listId, l] of Object.entries(task?.lists || {})) if (l && typeof l === "object" && isSensorsList(l)) return { listId, list: l }; return null; }
@@ -152,9 +152,11 @@ export async function patchSensor(owner, taskId, mark, fields) {
     if (!rowId) { rowId = String(Date.now()); await set(ref(database, sensorRowPath(owner, taskId, ix, rowId)), { id: String(mark), mark: Number(mark), serial: "", m1: "", m2: "", m3: "", notes: "", images: [], counted: false }); ix.rows[mark] = rowId; }
     writes.push(update(ref(database, sensorRowPath(owner, taskId, ix, rowId)), fields));
   }
-  // MIRROR to the legacy sheet while the SES radar apps still read it (drop this line when they retire)
-  const payload = {}; for (const [k, v] of Object.entries(fields)) payload[`${mark}/${k}`] = v;
-  writes.push(update(ref(database, sensorMetaPath(owner, taskId)), payload));
+  // THE SHEET IS RETIRED (L 2026-10-05 "step 5, go"): a job with a Sensors list saves to the list ONLY - every reader is
+  // list-first now and all 28 sheets were checked into their lists the same day (sheets stay as a frozen backup). A job
+  // with no list yet (e.g. a brand-new site record) still keeps its data in its sheet, so nothing is ever written nowhere.
+  if (!ix) { const payload = {}; for (const [k, v] of Object.entries(fields)) payload[`${mark}/${k}`] = v;
+    writes.push(update(ref(database, sensorMetaPath(owner, taskId)), payload)); }
   await Promise.all(writes);
 }
 /** A photo onto the sensor's row (images[] entry the Jobs app / Details / Gallery understand) - no-op without a list. */
