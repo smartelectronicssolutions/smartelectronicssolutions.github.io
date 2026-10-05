@@ -30,8 +30,12 @@ export function mountShell(header) {
     </section>`;
   const sec = header.querySelector("#login-section");
   inLogin.forEach(e => sec.appendChild(e));
+  // data-login-in="#sel" (L 2026-10-05 "can the telaid tools page have the login in the body"): the sign-in block moves
+  // out of the header into that element on the page - same ids, so auth.js / sidebar.js find it as before
+  const host = header.dataset.loginIn && document.querySelector(header.dataset.loginIn);
+  if (host) { host.appendChild(sec); host.classList.add("has-login"); }
   after.forEach(e => header.appendChild(e));
-  onAuthStateChanged(auth, u => { const st = header.querySelector("#firebaseStatus"); if (st) st.textContent = userLine(u); });
+  onAuthStateChanged(auth, u => { const st = (host || header).querySelector("#firebaseStatus"); if (st) st.textContent = userLine(u); if (host) host.classList.toggle("signed-in", !!u); });
   return header;
 }
 document.querySelectorAll("header[data-shell]").forEach(mountShell);
