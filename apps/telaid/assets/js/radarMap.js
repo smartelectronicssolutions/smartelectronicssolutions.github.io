@@ -77,6 +77,10 @@ body.rm-embed-page header.top-actions { display: none !important; }
 .rmap .mapwrap .rm-slx { left: 8px; bottom: 4px; width: calc(100% - 40px) !important; }
 .rmap .mapwrap .rm-sly { top: 8px; left: calc(100% - 6px); width: var(--rm-slh, 300px) !important; transform: rotate(90deg); transform-origin: left top; }
 .rmap.embed #rm-map { height: min(62vh, 560px); }
+.rmap .mapwrap .rm-pulse { position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; pointer-events: none; z-index: 1;
+  border: 3px solid #facc15; box-shadow: 0 0 10px 3px rgba(250, 204, 21, .85); animation: rmPulse 1.3s ease-out infinite; }
+@keyframes rmPulse { 0% { transform: scale(.9); opacity: 1; } 70% { transform: scale(2.6); opacity: 0; } 100% { transform: scale(2.6); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .rmap .mapwrap .rm-pulse { animation: none; transform: scale(1.6); } }
 .rmap #rm-info .mk .rm-nav { width: 34px !important; height: 30px; margin: 0 !important; padding: 0; font-size: 1.3rem; line-height: 1; border-radius: 8px; border: 1px solid var(--borderColor); background: var(--cardBackground); color: var(--textColor); box-shadow: none !important; vertical-align: middle; }
 .rmap #rm-info .mk .rm-nav:disabled { opacity: .3; }
 .rmap #rm-info { touch-action: pan-y; }   /* the card keeps vertical scroll; horizontal swipes are ours */
@@ -334,6 +338,17 @@ export function mountRadarMap(root, opts = {}) {
     // plan Y grows upward; the screen grows downward, so flip it
     const P = s => [view.ox + (X(s) - B.x0) * view.s, view.oy + (B.y1 - Y(s)) * view.s];
     const PP = ([x, y]) => [view.ox + (x - B.x0) * view.s, view.oy + (B.y1 - y) * view.s];
+    // PULSE on the picked sensor (L 2026-10-05 "the currently selected sensor, can it glow or pulse to help find it when
+    // glancing"): a CSS-animated halo laid over the canvas at the sensor's spot - the canvas itself is NOT redrawn per frame
+    // (the iPad's fillText budget), the halo just follows every draw.
+    let pulseEl = null;
+    function placePulse(dpr) {
+      if (!pulseEl) { pulseEl = document.createElement("div"); pulseEl.className = "rm-pulse"; pulseEl.setAttribute("aria-hidden", "true"); cv.parentElement.appendChild(pulseEl); }
+      if (sel < 0 || !S[sel] || selHub) { pulseEl.style.display = "none"; return; }
+      const [x, y] = P(S[sel]), cx0 = x / dpr + cv.offsetLeft, cy0 = y / dpr + cv.offsetTop;
+      if (x < 0 || y < 0 || x > cv.width || y > cv.height) { pulseEl.style.display = "none"; return; }
+      pulseEl.style.display = ""; pulseEl.style.left = cx0 + "px"; pulseEl.style.top = cy0 + "px";
+    }
     function draw() {
       cx.fillStyle = css("--secondaryBackgroundColor") || "#0f172a"; cx.fillRect(0, 0, cv.width, cv.height);
       if (!S.length || !B) return;
@@ -369,6 +384,7 @@ export function mountRadarMap(root, opts = {}) {
         for (const i of HL) { const [x, y] = P(S[i]); cx.beginPath(); cx.arc(x, y, r + 4 * dpr, 0, 6.283); cx.stroke(); } }
       if (sel >= 0) { const s = S[sel], [x, y] = P(s); cx.strokeStyle = css("--textColor") || "#fff"; cx.lineWidth = 2.5 * dpr;
         cx.beginPath(); cx.arc(x, y, r + 5 * dpr, 0, 6.283); cx.stroke(); }
+      placePulse(dpr);
       cvw.syncSliders();
       if (layout === "wiring") return;
       // scale bar
