@@ -149,7 +149,7 @@ const TEMPLATE = `<div class="app-shell">
         <input type="range" id="rm-slx" class="rm-sl rm-slx" min="0" max="1000" value="0" aria-label="Move the map left or right" hidden />
         <input type="range" id="rm-sly" class="rm-sl rm-sly" min="0" max="1000" value="0" aria-label="Move the map up or down" hidden /></div>
       <div class="legend" id="rm-legend"></div>
-      <div class="muted hint">Pinch, or Shift + scroll, to zoom · one finger scrolls the page; to move the map: hold half a second on empty floor then drag, two fingers, the edge sliders, or a mouse drag · tap a sensor or cabinet for its photos · hold one ~half a second, then drag, to move it · double-tap to reset the view. Numbers appear as you zoom in.</div>
+      <div class="muted hint">Pinch, or Shift + scroll, to zoom · one finger scrolls the page; to move the map: hold half a second on empty floor then drag, two fingers, the edge sliders, or a mouse drag · tap a sensor or cabinet for its photos · hold one ~half a second, then drag, to move it · double-tap to reset the view, triple-tap to rotate.</div>
       <div class="card" id="rm-info"><span class="muted">Tap a sensor to see its details.</span></div>
     </div>`;
 
@@ -672,6 +672,12 @@ export function mountRadarMap(root, opts = {}) {
     // ZOOM BUTTONS (L 2026-10-03 "add a zoom and unzoom button onscreen"): 1.6x per tap, about the centre of the view
     $("zin").addEventListener("click", () => cvw.zoomAt(cv.width / 2, cv.height / 2, 1.6));
     $("zout").addEventListener("click", () => cvw.zoomAt(cv.width / 2, cv.height / 2, 1 / 1.6));
+    // TRIPLE TAP / TRIPLE CLICK = rotate 90 deg (L 2026-10-06 "can I have a triple click rotate the map"): three quick taps
+    // close together on the map; counted by hand so it works on phones too (tap counts in event.detail are unreliable there)
+    let taps = [];
+    cv.addEventListener("pointerup", e => { const now = e.timeStamp;
+      taps = taps.filter(t => now - t.t < 600 && Math.hypot(t.x - e.clientX, t.y - e.clientY) < 30); taps.push({ t: now, x: e.clientX, y: e.clientY });
+      if (taps.length >= 3) { taps = []; $("rot").click(); } });
     $("rot").addEventListener("click", () => { ROT = (ROT + 90) % 360; try { localStorage.setItem("rm-rot", String(ROT)); } catch (_) {}
       $("rot").title = `Rotated ${ROT}° - tap to turn again`; if (layout === "floor") fit(false); });
     $("plan").addEventListener("click", () => { planMode = planMode === "dim" ? "full" : planMode === "full" ? "off" : "dim";
