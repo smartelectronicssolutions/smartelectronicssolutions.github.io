@@ -164,7 +164,8 @@ export async function linkSensorPhoto(owner, taskId, mark, entry) {
   const ix = await sensorIndex(owner, taskId); if (!ix) return false;
   const rowId = ix.rows[mark]; if (!rowId) return false;
   const p = `${sensorRowPath(owner, taskId, ix, rowId)}/images`, cur = await readOnce(p), arr = Array.isArray(cur) ? cur : Object.values(cur || {});
-  if (arr.some(im => im && (im.path === entry.path || im.url === entry.url))) return true;
+  const fileOf = im => String(im?.path || im?.url || "").split("?")[0].split("/").pop().replace(/^.*%2F/, "");
+  if (arr.some(im => im && (im.path === entry.path || im.url === entry.url || fileOf(im) === fileOf(entry)))) return true;   // same file = already linked (L 2026-10-05 "141 says 5 photos, I see 4")
   await set(ref(database, p), [...arr, entry]); return true;
 }
 /** The sensor photos off the Sensors list - each row's images[] (L 2026-10-04 "the radar tool uses the lists instead of the
@@ -173,7 +174,8 @@ export async function linkSensorPhoto(owner, taskId, mark, entry) {
 export function sensorListPhotos(task) {
   const sl = sensorsListOf(task); if (!sl) return null; const out = [];
   for (const [rowId, r] of Object.entries(sl.list)) { if (LIST_RESERVED.has(rowId) || !r || typeof r !== "object") continue; const m = markOf(r); if (!m) continue;
-    for (const im of (Array.isArray(r.images) ? r.images : Object.values(r.images || {}))) if (im && im.url)
+    const seen = new Set();   // a row listing the same file twice counts it once (doubled links made 141 say 5 photos for 4)
+    for (const im of (Array.isArray(r.images) ? r.images : Object.values(r.images || {}))) if (im && im.url && !seen.has(String(im.path || im.url).split("?")[0]) && seen.add(String(im.path || im.url).split("?")[0]))
       out.push({ name: String(im.path || "").split("/").pop() || `sensor ${m}`, fullPath: im.path || im.url, url: im.url, mark: m, rowId, note: im.note || "" }); }
   return out;
 }
