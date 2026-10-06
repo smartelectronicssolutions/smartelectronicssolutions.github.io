@@ -112,7 +112,8 @@
     <main class="gal">
         <aside class="side">
             <div class="panel" id="foldersPanel">
-                <div><h2>Jobs</h2> <span id="folderCount" class="muted"></span></div>
+                <div class="chips" id="srcChips"><button type="button" class="chip" data-src="jobs">📋 Jobs</button><button type="button" class="chip" data-src="ledger">🧾 Ledger</button></div>
+                <div><h2 id="folderHead">Jobs</h2> <span id="folderCount" class="muted"></span></div>
                 <input type="search" id="folderSearch" placeholder="Find a job (customer, project)" autocomplete="off">
                 <select id="folderDropdown"><option value="">-- Select a job --</option></select>
                 <div id="folderList"><div class="muted">loading…</div></div>
@@ -189,7 +190,7 @@
     <script type="module">
         import {
             storage, storageRef, getDownloadURL, listAll, deleteObject, onAuthStateChanged, auth,
-            getBlob, uploadBytes, database, get, ref, set
+            getBlob, uploadBytes, database, get, ref, set, update
         } from '../assets/js/firebase-init.js';
         // base override (2026-10-04): the Louverse board opens this app on the tree it is reading (?base=<uid>) - local helper, not an import (a cached firebase-init would lack it)
         const basePathFor = u => { let b = ""; try { b = new URLSearchParams(location.search).get("base") || ""; } catch (_) {} return (u && /^[A-Za-z0-9_-]{6,64}$/.test(b)) ? b : (u ? u.uid : "public"); };
@@ -201,7 +202,14 @@
         const $ = id => document.getElementById(id);
         const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
         let BASE = "public", user = null;
-        let folders = [];                 // [{ name, meta }] - meta from the tasks that use the folder (customer, project, dates, jobs)
+        let folders = [];                 // [{ name, paths, meta }] - paths = storage dirs under BASE; meta from the tasks that use the folder (customer, project, dates, jobs)
+        // SOURCES (L 2026-10-06 "see more than just the job app photos - ledger photos also"): Jobs = {base}/tasks/images/<job>;
+        // Ledger = one folder per year from images/<yyyy> + txImages/<yyyy> (the ledger apps' receipt uploads) + gas/ (onlinegas).
+        // A ledger photo's record is its ledger / gas row (img = url, imgPath = path) - every file change patches that row too.
+        let SRC = (() => { try { return new URLSearchParams(location.search).get("src") || localStorage.getItem("gal-src") || "jobs"; } catch (_) { return "jobs"; } })();
+        if (!["jobs", "ledger"].includes(SRC)) SRC = "jobs";
+        const folderOf = name => folders.find(f => f.name === name);
+        const dirOf = name => `${BASE}/${(folderOf(name)?.paths || [`tasks/images/${name}`])[0]}`;   // where an upload / move into that folder lands
         const cur = { folder: "", sub: "", q: "" };
         let photos = [];                  // [{ name, fullPath, sub, ref, url, rec }] for the open folder (+ its subfolders)
         const selected = new Set();       // fullPaths picked in the grid
@@ -242,14 +250,34 @@
                     for (const [rid, r] of Object.entries(l)) { if (RESERVED.has(rid) || !r || typeof r !== "object") continue;
                         const imgs = imgsOf(r); imgs.forEach((im, i) => im && add(im.path, { taskId: tid, kind: "device", label: `${l._name || lid} · ${r.id || r.label || rid}`, node: `${BASE}/tasks/${tid}/lists/${lid}/${rid}/images`, idx: i, images: imgs, entry: im })); } }
                 for (const [date, d] of Object.entries(t.tasks || {})) { const imgs = imgsOf(d); imgs.forEach((im, i) => im && add(im.path, { taskId: tid, kind: "daily", label: `daily ${date}`, node: `${BASE}/tasks/${tid}/tasks/${date}/images`, idx: i, images: imgs, entry: im })); } }
+            if (SRC === "ledger") for (const [node, r] of Object.entries(await moneyRows(fresh))) {
+                const path = r.imgPath || pathOfUrl(r.img); if (!path) continue;
+                const d = rowDate(r), amt = Number(r.amt), lab = [d, r.name || "(no name)", Number.isFinite(amt) ? "$" + amt.toFixed(2) : ""].filter(Boolean).join(" · ");
+                add(path, { kind: "ledger", label: lab, node, entry: { note: "", markup: r.imgMarkup || "" }, row: r });
+            }
             recIndex = idx; return idx;
+        }
+        // ledger + gas rows that carry a photo: { "<BASE>/money/ledger/<year>/<id>": row } (gas rows nest the same way)
+        let moneyCache = null;
+        const pathOfUrl = u => { const m = /\/o\/([^?]+)/.exec(String(u || "")); try { return m ? decodeURIComponent(m[1]) : ""; } catch (_) { return ""; } };
+        const rowDate = r => { const d = r?.date; if (d == null || d === "") return ""; const n = Number(d); const dt = Number.isFinite(n) && String(d).length > 8 ? new Date(n) : new Date(String(d).slice(0, 10) + "T12:00:00Z"); return isNaN(dt) ? "" : dt.toISOString().slice(0, 10); };
+        async function moneyRows(fresh) {
+            if (moneyCache && !fresh) return moneyCache; const out = {};
+            for (const top of ["ledger", "gas"]) { let v = null; try { v = (await get(ref(database, `${BASE}/money/${top}`))).val(); } catch (e) { console.warn("[gallery] money read", e?.code || e); }
+                const walk = (o, p, depth) => { if (!o || typeof o !== "object" || depth > 3) return; if (o.img || o.imgPath) { out[p] = o; return; } for (const [k, c] of Object.entries(o)) walk(c, `${p}/${k}`, depth + 1); };
+                walk(v, `${BASE}/money/${top}`, 0); }
+            return (moneyCache = out);
         }
         async function recordRefs(path, fresh) { return (await recordIndex(fresh)).get(path) || []; }
         // patch = fields to merge into the entry; null = remove the entry
         async function syncRecords(path, patch) {
             const hits = await recordRefs(path, true);
-            for (const h of hits) { const next = patch ? h.images.map((im, i) => i === h.idx ? { ...im, ...patch } : im) : h.images.filter((_, i) => i !== h.idx); await set(ref(database, h.node), next); }
-            if (hits.length) { tasksCache = null; recIndex = null; }
+            for (const h of hits) {
+                if (h.kind === "ledger") {   // the row keeps its fields; only the photo pointers change (gone = blank, like the ledger apps leave it)
+                    const w = patch ? { ...(patch.url ? { img: patch.url } : {}), ...(patch.path ? { imgPath: patch.path } : {}), ...("markup" in patch ? { imgMarkup: patch.markup } : {}) } : { img: "", imgPath: "", imgMarkup: null };
+                    if (Object.keys(w).length) await update(ref(database, h.node), w); continue; }
+                const next = patch ? h.images.map((im, i) => i === h.idx ? { ...im, ...patch } : im) : h.images.filter((_, i) => i !== h.idx); await set(ref(database, h.node), next); }
+            if (hits.length) { tasksCache = null; recIndex = null; moneyCache = null; }
             return hits;
         }
         // a task's photo folder is its project with spaces -> _ (onlinejob's rule); the folder list reads customer / dates from it
@@ -265,21 +293,37 @@
         /* ===============================
            FOLDERS - the list (desktop) and the dropdown (phone) say more than the project: customer · project · month · jobs
         ================================ */
-        const optLabel = f => f.meta ? `${f.meta.customer || f.name} · ${f.meta.project || f.name} · ${fmtMY(f.meta.last)}${f.meta.n > 1 ? ` · ${f.meta.n} jobs` : ""}` : `${f.name} · (no job record)`;
+        const optLabel = f => f.meta?.ledger ? f.meta.customer : f.meta ? `${f.meta.customer || f.name} · ${f.meta.project || f.name} · ${fmtMY(f.meta.last)}${f.meta.n > 1 ? ` · ${f.meta.n} jobs` : ""}` : `${f.name} · (no job record)`;
         async function loadFolders() {
-            let prefixes = [];
-            try { prefixes = (await listAll(storageRef(storage, `${BASE}/tasks/images`))).prefixes; } catch (e) { console.error("[gallery] folders", e); }
-            const meta = await folderMeta();
-            folders = prefixes.map(p => ({ name: p.name, meta: meta.get(p.name) || null }));
+            const dirs = async p => { try { return (await listAll(storageRef(storage, `${BASE}/${p}`))); } catch (e) { console.warn("[gallery] list " + p, e?.code || e); return { prefixes: [], items: [] }; } };
+            if (SRC === "ledger") {   // a folder per year (images/<yyyy> + txImages/<yyyy>), then gas
+                const years = new Map(), addY = (y, p) => { if (!years.has(y)) years.set(y, []); years.get(y).push(p); };
+                for (const root of ["images", "txImages"]) for (const p of (await dirs(root)).prefixes) if (/^\d{4}$/.test(p.name)) addY(p.name, `${root}/${p.name}`);
+                folders = [...years].sort((a, b) => b[0].localeCompare(a[0])).map(([y, paths]) => ({ name: y, paths, meta: { customer: `Receipts ${y}`, project: paths.join(" + "), last: `${y}-12-31`, first: "", n: 0, taskIds: [], ledger: true } }));
+                if ((await dirs("gas")).items.length) folders.push({ name: "gas", paths: ["gas"], meta: { customer: "Gas receipts", project: "gas", last: "", first: "", n: 0, taskIds: [], ledger: true } });
+                return renderFolders();
+            }
+            const prefixes = (await dirs("tasks/images")).prefixes, meta = await folderMeta();
+            folders = prefixes.map(p => ({ name: p.name, paths: [`tasks/images/${p.name}`], meta: meta.get(p.name) || null }));
             renderFolders();
         }
+        function setSource(s, keepUrl) {
+            SRC = s; try { localStorage.setItem("gal-src", s); } catch (_) {}
+            $("srcChips").querySelectorAll(".chip").forEach(c => c.classList.toggle("on", c.dataset.src === s));
+            const L = s === "ledger"; $("folderHead").textContent = L ? "Ledger" : "Jobs"; $("folderSearch").placeholder = L ? "Find a year" : "Find a job (customer, project)";
+            $("uploadPanel").hidden = L || !user;   // ledger photos are added from the ledger apps (they create the row); here they are viewed + edited
+            $("folderDropdown").options[0] && ($("folderDropdown").options[0].textContent = L ? "-- Select a year --" : "-- Select a job --");
+            cur.folder = ""; cur.sub = ""; photos = []; recIndex = null; $("gallery").innerHTML = ""; $("subChips").innerHTML = ""; $("galleryNote").textContent = ""; $("folderTitle").textContent = L ? "Pick a year" : "Pick a job"; $("jobLink").hidden = true;
+            if (!keepUrl) try { const qs = new URLSearchParams(location.search); qs.delete("folder"); qs.delete("task"); qs.set("src", s); history.replaceState(null, "", "?" + qs.toString()); } catch (_) {}
+        }
+        $("srcChips").addEventListener("click", async e => { const c = e.target.closest(".chip"); if (!c || c.dataset.src === SRC) return; setSource(c.dataset.src); showLoading("Loading..."); try { await loadFolders(); } finally { hideLoading(); } });
         function renderFolders() {
             const q = $("folderSearch").value.trim().toLowerCase(), sort = $("folderSort").value;
             const list = folders.filter(f => !q || f.name.toLowerCase().includes(q) || (f.meta?.customer || "").toLowerCase().includes(q) || (f.meta?.project || "").toLowerCase().includes(q));
             list.sort(sort === "name" ? (a, b) => natural(a.name, b.name) : (a, b) => (b.meta?.last || "").localeCompare(a.meta?.last || "") || natural(a.name, b.name));
             $("folderCount").textContent = `· ${list.length}${list.length !== folders.length ? " of " + folders.length : ""}`;
-            $("folderList").innerHTML = list.map(f => { const m = f.meta; return `<div class="fo${f.name === cur.folder ? " on" : ""}" data-f="${esc(f.name)}" title="${esc(f.name)}"><span class="n">${esc(m?.customer || f.name)}</span><span class="c">${m ? esc(fmtD(m.last)) : ""}</span><span class="s">${m ? `${esc(m.project || f.name)} · ${m.n} job${m.n === 1 ? "" : "s"}${m.first && m.first !== m.last ? " · from " + esc(fmtD(m.first)) : ""}` : "no job record"}</span></div>`; }).join("") || `<div class="muted">no jobs${q ? " match" : ""}</div>`;
-            $("folderDropdown").innerHTML = `<option value="">-- Select a job --</option>` + list.map(f => `<option value="${esc(f.name)}"${f.name === cur.folder ? " selected" : ""}>${esc(optLabel(f))}</option>`).join("");
+            $("folderList").innerHTML = list.map(f => { const m = f.meta; return `<div class="fo${f.name === cur.folder ? " on" : ""}" data-f="${esc(f.name)}" title="${esc(f.name)}"><span class="n">${esc(m?.customer || f.name)}</span><span class="c">${m && !m.ledger ? esc(fmtD(m.last)) : ""}</span><span class="s">${m?.ledger ? esc(m.project) : m ? `${esc(m.project || f.name)} · ${m.n} job${m.n === 1 ? "" : "s"}${m.first && m.first !== m.last ? " · from " + esc(fmtD(m.first)) : ""}` : "no job record"}</span></div>`; }).join("") || `<div class="muted">no ${SRC === "ledger" ? "ledger photos" : "jobs"}${q ? " match" : ""}</div>`;
+            $("folderDropdown").innerHTML = `<option value="">-- Select a ${SRC === "ledger" ? "year" : "job"} --</option>` + list.map(f => `<option value="${esc(f.name)}"${f.name === cur.folder ? " selected" : ""}>${esc(optLabel(f))}</option>`).join("");
             const all = [...folders].sort((a, b) => natural(a.name, b.name)), dest = all.map(f => `<option value="${esc(f.name)}">${esc(optLabel(f))}</option>`).join("");
             $("moveToFolder").innerHTML = `<option value="">-- destination --</option>` + dest; $("batchMoveTo").innerHTML = `<option value="">move to…</option>` + dest;
             $("folderNames").innerHTML = all.map(f => `<option value="${esc(f.name)}">`).join("");
@@ -295,18 +339,23 @@
         async function loadImages(folder, sub = "") {
             const my = ++loadToken; cur.folder = folder; cur.sub = sub || ""; selected.clear(); updateSel(); renderFolders();
             const m = folders.find(f => f.name === folder)?.meta;
-            $("folderTitle").textContent = m ? `${m.customer || folder} · ${m.project || folder}` : folder; $("folderTitle").title = folder;
+            $("folderTitle").textContent = m?.ledger ? m.customer : m ? `${m.customer || folder} · ${m.project || folder}` : folder; $("folderTitle").title = folder;
             const link = $("jobLink"); if (m?.taskIds?.length) { const latest = [...m.taskIds].sort((a, b) => b[0].localeCompare(a[0]))[0][1]; link.href = `onlinejob.html?task=${encodeURIComponent(latest)}`; link.hidden = false; } else link.hidden = true;
             $("uploadHint").textContent = `to ${folder}`; $("imageLabel").placeholder = folder;
-            try { const qs = new URLSearchParams(location.search); qs.delete("task"); qs.set("folder", folder); history.replaceState(null, "", "?" + qs.toString()); } catch (_) {}
+            try { const qs = new URLSearchParams(location.search); qs.delete("task"); qs.set("folder", folder); qs.set("src", SRC); history.replaceState(null, "", "?" + qs.toString()); } catch (_) {}
             $("gallery").innerHTML = `<div class="muted">loading…</div>`; $("subChips").innerHTML = ""; photos = [];
             let items = [];
             try {
-                const root = await listAll(storageRef(storage, `${BASE}/tasks/images/${folder}`)); if (my !== loadToken) return;
-                items = root.items.map(i => ({ ref: i, sub: "" }));
-                const subs = await Promise.all(root.prefixes.slice(0, 40).map(async p => { try { return (await listAll(p)).items.map(i => ({ ref: i, sub: p.name })); } catch (_) { return []; } })); if (my !== loadToken) return;
-                for (const s of subs) items.push(...s);
-            } catch (e) { console.error("[gallery] folder", e); $("gallery").innerHTML = `<div class="muted">could not read the job (${esc(e?.code || e?.message || e)})</div>`; return; }
+                const paths = folderOf(folder)?.paths || [`tasks/images/${folder}`];
+                for (const dir of paths) {   // a ledger year can span two roots (images/ + txImages/) - the chips name the root then
+                    const root = await listAll(storageRef(storage, `${BASE}/${dir}`)); if (my !== loadToken) return;
+                    const tag = paths.length > 1 ? dir.split("/")[0] : "";
+                    items.push(...root.items.map(i => ({ ref: i, sub: tag })));
+                    if (SRC === "ledger") continue;
+                    const subs = await Promise.all(root.prefixes.slice(0, 40).map(async p => { try { return (await listAll(p)).items.map(i => ({ ref: i, sub: p.name })); } catch (_) { return []; } })); if (my !== loadToken) return;
+                    for (const s of subs) items.push(...s);
+                }
+            } catch (e) { console.error("[gallery] folder", e); $("gallery").innerHTML = `<div class="muted">could not read the folder (${esc(e?.code || e?.message || e)})</div>`; return; }
             const idx = await recordIndex(); if (my !== loadToken) return;
             photos = items.filter(it => PHOTO_RE.test(it.ref.name)).map(it => ({ name: it.ref.name, fullPath: it.ref.fullPath, sub: it.sub, ref: it.ref, url: "", rec: (idx.get(it.ref.fullPath) || [])[0] || null }));
             renderGrid();
@@ -348,7 +397,7 @@
         async function batch(what, fn) { const list = picked(); if (!list.length) return alert("Select some photos first."); if (!needWrite() || busy) return; busy = true; showLoading(`${what} 1 / ${list.length}…`); let n = 0, bad = 0; try { for (const p of list) { showLoading(`${what} ${n + bad + 1} / ${list.length}…`); try { await fn(p); n++; } catch (e) { console.error("[gallery] " + what, e); bad++; } } } finally { busy = false; hideLoading(); } selected.clear(); document.body.classList.remove("selecting"); $("selectToggle").classList.remove("on"); await loadImages(cur.folder, cur.sub); if (bad) alert(`${n} done, ${bad} failed (see console)`); }
         $("batchApply").addEventListener("click", () => { const t = $("batchLabel").value.trim(); if (!t) return alert("Type the label text first."); batch("labelling", p => relabelPhoto(p, t)); });
         $("batchUnlabel").addEventListener("click", () => { if (!confirm("Crop the label bar off the selected photos?")) return; batch("unlabelling", p => rewrite(p, b => unstampImg(b), { markup: "" })); });
-        $("batchMove").addEventListener("click", () => { const to = $("batchMoveTo").value; if (!to) return alert("Pick a destination job."); batch("moving", p => movePhoto(p, `${BASE}/tasks/images/${to}/${p.name}`)); });
+        $("batchMove").addEventListener("click", () => { const to = $("batchMoveTo").value; if (!to) return alert("Pick a destination job."); batch("moving", p => movePhoto(p, `${dirOf(to)}/${p.name}`)); });
         $("batchDelete").addEventListener("click", () => { const n = selected.size; if (!n || !confirm(`Delete ${n} photo${n === 1 ? "" : "s"}? Device / daily rows lose them too.`)) return; batch("deleting", p => deletePhoto(p)); });
 
         /* ===============================
@@ -416,7 +465,7 @@
             lbList = visible(); curIdx = lbList.findIndex(x => x.fullPath === p.fullPath);
             modal.classList.add("open"); modal.dataset.fullPath = p.fullPath; modalImage.removeAttribute("src");
             $("modalFileName").textContent = p.name; $("lbCount").textContent = `${curIdx + 1} / ${lbList.length}`; $("renameInput").value = p.name.replace(/\.[^.]+$/, ""); $("fileInfo").textContent = p.sub ? `in ${p.sub}` : "";
-            const r = p.rec; $("noteWhere").textContent = r ? `${r.kind} photo · ${r.label}` : "loose photo (storage only - no device / daily row)"; $("noteInput").value = r?.entry?.note || ""; $("noteInput").disabled = !r; $("editMarkupInput").value = r?.entry?.markup || ""; modal.dataset.recordNote = r?.entry?.note || "";
+            const r = p.rec; $("noteWhere").textContent = r ? `${r.kind} photo · ${r.label}` : "loose photo (storage only - no device / daily row)"; $("noteInput").value = r?.entry?.note || ""; $("noteInput").disabled = !r || r.kind === "ledger"; $("editMarkupInput").value = r?.entry?.markup || ""; modal.dataset.recordNote = r?.entry?.note || "";
             modalImage.onload = () => { if (modal.dataset.fullPath === p.fullPath) $("fileInfo").textContent = `${modalImage.naturalWidth} × ${modalImage.naturalHeight}${p.sub ? " · in " + p.sub : ""}`; };
             await urlOf(p); if (modal.dataset.fullPath !== p.fullPath) return; if (p.url) modalImage.src = p.url;
             if (curIdx + 1 < lbList.length) urlOf(lbList[curIdx + 1]);   // the next one's url is ready before the tap
@@ -438,7 +487,7 @@
         $("rotR").addEventListener("click", () => edit("Rotating...", p => rewrite(p, keepLabel(p, b => rotateImg(b, 90)), {})));
         $("resizeButton").addEventListener("click", () => { const w = Number($("resizeTo").value); if (!w) return alert("Pick a width."); edit(`Resizing to ${w} px...`, p => rewrite(p, keepLabel(p, b => resizeImg(b, w)), {})); });
         $("renameButton").addEventListener("click", () => { const p = current(); if (!p) return; const base = sanitize($("renameInput").value); if (!base) return alert("Type a name."); const ext = (p.name.match(/\.[^.]+$/) || [".jpg"])[0]; let name = base + ext; if (name === p.name) return; if (photos.some(x => x !== p && x.sub === p.sub && x.name === name)) return alert("That name is taken in this job."); edit("Renaming...", x => movePhoto(x, x.fullPath.replace(/[^/]+$/, name))); });
-        $("moveButton").addEventListener("click", () => { const to = $("moveToFolder").value; if (!to) return alert("Pick a destination job."); const p = current(); if (!p) return; edit("Moving...", async x => { await movePhoto(x, `${BASE}/tasks/images/${to}/${x.name}`); closeModal(); await loadImages(cur.folder, cur.sub); }); });
+        $("moveButton").addEventListener("click", () => { const to = $("moveToFolder").value; if (!to) return alert("Pick a destination job."); const p = current(); if (!p) return; edit("Moving...", async x => { await movePhoto(x, `${dirOf(to)}/${x.name}`); closeModal(); await loadImages(cur.folder, cur.sub); }); });
         $("downloadButton").addEventListener("click", async () => { const p = current(); if (!p) return; showLoading("Fetching..."); try { const blob = await getBlob(storageRef(storage, p.fullPath)), u = URL.createObjectURL(blob), a = document.createElement("a"); a.href = u; a.download = p.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 10000); } catch (e) { window.open(p.url, "_blank"); } finally { hideLoading(); } });
         $("deleteButton").addEventListener("click", () => { const p = current(); if (!p || !confirm(`Delete ${p.name}?${p.rec ? " Its " + p.rec.kind + " row loses it too." : ""}`)) return; edit("Deleting...", async x => { await deletePhoto(x); closeModal(); renderGrid(); }); });
 
@@ -447,7 +496,7 @@
            visit's project folder - onlinejob's folder rule (spaces -> _)
         ================================ */
         onAuthStateChanged(auth, async (u) => {
-            user = u; BASE = u ? basePathFor(u) : "public"; tasksCache = null; recIndex = null; $("uploadPanel").hidden = !u;
+            user = u; BASE = u ? basePathFor(u) : "public"; tasksCache = null; recIndex = null; moneyCache = null; setSource(SRC, true);
             await loadFolders();
             const qs = new URLSearchParams(location.search); let folder = qs.get("folder") || "";
             const taskId = qs.get("task"); if (taskId) { try { const t = (await get(ref(database, `${BASE}/tasks/${taskId}`))).val(); folder = folderKey(t) || folder; } catch (e) { console.warn("[gallery] task folder", e?.code || e); } }
