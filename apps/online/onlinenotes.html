@@ -355,7 +355,7 @@
     };
 
     // --- Share (2026-09-26): the saved note as stored at share/notes/<name> + sharedBy; tap again to unshare ---
-    let mineShared = {};
+    let mineShared = {}, mineSharedData = {};   // mineSharedData: my share/notes copies (to spot ones whose note I deleted)
     async function toggleShareNote() {
       const st = document.getElementById('share-status');
       if (DATABASE_BASE_PATH === 'public') { alert('Sign in to share a note.'); return; }
@@ -462,6 +462,9 @@
                       ...(mineShared[k] ? { ...n, __mineShared: true } : n), __scope: 'private' })) : [];
         const all = [...mine,
                      ...Object.values(pub || {}).filter(n => n && n.name).map(n => ({ ...n, __scope: 'public', ...(mineShared[n.name] ? { __mineShared: true } : {}) })),   // a public note I also shared carries the 'shared' tag too (2026-10-04)
+                     // a note I shared and then deleted leaves its shared copy behind - show it to me so I can remove it (L 2026-10-05
+                     // "I see two shared by Luis notes but I can't delete them, can't find them on the Luis account")
+                     ...Object.entries(mineSharedData || {}).filter(([k, n]) => n && String(n.name || '').trim() && !(own || {})[k] && !(pub || {})[k]).map(([k, n]) => ({ ...n, __scope: 'orphan-share' })),
                      ...Object.values(shared || {}).filter(n => n && String(n.name || '').trim()).map(n => ({ ...n, sharedByLabel: n.sharedByName || 'someone', __shared: true, __scope: 'shared' }))];
         if (!all.length) { noteList.innerHTML = '<li>No notes found</li>'; return; }
         all.sort((a, b) => new Date(b.timestamp || b.sharedAt) - new Date(a.timestamp || a.sharedAt)).forEach(note => createNoteListItem(note));
@@ -472,8 +475,8 @@
       // loads it, and saving makes it your own note. Mine are tagged "shared" on my own row.
       const unShared = DATABASE_BASE_PATH !== 'public'
         ? onValue(ref(database, 'share/notes'), snap => {
-            const all = snap.val() || {}; shared = {}; mineShared = {};
-            for (const [k, n] of Object.entries(all)) { if (!n) continue; if (n.sharedBy === DATABASE_BASE_PATH) mineShared[k] = true; else shared[k] = n; }
+            const all = snap.val() || {}; shared = {}; mineShared = {}; mineSharedData = {};
+            for (const [k, n] of Object.entries(all)) { if (!n) continue; if (n.sharedBy === DATABASE_BASE_PATH) { mineShared[k] = true; mineSharedData[k] = n; } else shared[k] = n; }
             draw();
           }, () => { })
         : null;
@@ -490,6 +493,7 @@
       const meta = document.createElement('span'); meta.className = 'note-meta';
       const bits = [whenText(note.timestamp || note.sharedAt)];
       if (note.__scope === 'private' || note.__scope === 'public') bits.push(note.__scope === 'public' ? 'Public' : 'Private');
+      if (note.__scope === 'orphan-share') bits.push('shared copy - your note is gone');
       if (note.__mineShared) bits.push('shared');
       if (note.sharedBy) bits.push('shared' + (note.sharedByLabel ? ' by ' + note.sharedByLabel : ''));
       meta.textContent = bits.filter(Boolean).join(' · ');
@@ -497,6 +501,12 @@
       main.appendChild(nameSpan); main.appendChild(meta); listItem.appendChild(main);
 
       // 🗑 on my own notes (private + public). Notes others shared with me are theirs - no delete here.
+      if (note.__scope === 'orphan-share') {   // 🗑 = unshare (remove the leftover share/notes copy)
+        const del = document.createElement('button'); del.className = 'note-del'; del.type = 'button'; del.textContent = '🗑'; del.title = 'Remove this shared copy';
+        del.addEventListener('click', async ev => { ev.stopPropagation(); if (!confirm(`Remove the shared copy of "${note.name}"? Its original is already gone - this is the last copy.`)) return;
+          try { await remove(ref(database, `share/notes/${note.name}`)); } catch (e) { alert('Could not remove it: ' + (e.code || e.message)); } });
+        listItem.appendChild(del);
+      }
       if (note.__scope === 'private' || (note.__scope === 'public' && !note.sharedBy)) {
         const del = document.createElement('button');
         del.type = 'button'; del.className = 'note-del'; del.textContent = '🗑'; del.title = 'Delete this note';
