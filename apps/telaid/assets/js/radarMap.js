@@ -556,7 +556,7 @@ export function mountRadarMap(root, opts = {}) {
         ${s.sw ? `<b>Switch</b><span>${s.sw === "new" ? "3rd switch needed (not on site yet)" : "#" + s.sw}${s.port ? " · port " + s.port : ""} (planned)</span>` : ""}
         <b>Run</b><span>${s.runDoneAt ? "complete, " + new Date(s.runDoneAt).toLocaleString() : "not yet"}</span>
         <b>Labeled</b><span>${s.labeledAt ? "yes, " + new Date(s.labeledAt).toLocaleString() : "not yet"}</span>
-        <b>Photos</b><span>${s.photos || PHOTOS === "ok" ? `${s.photos} of 2` : PHOTOS === "loading" ? "loading\u2026" : "can't reach Storage on this network"}</span></div>
+        <b>Photos</b><span>${s.photos || PHOTOS === "ok" ? `${s.photos} of 4` : PHOTOS === "loading" ? "loading\u2026" : "can't reach Storage on this network"}</span></div>
         <form id="rm-measure"></form>
         <div class="photos" id="rm-photos"></div>
         <div class="acts">
