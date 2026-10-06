@@ -77,6 +77,9 @@ body.rm-embed-page header.top-actions { display: none !important; }
 .rmap .mapwrap .rm-slx { left: 8px; bottom: 4px; width: calc(100% - 40px) !important; }
 .rmap .mapwrap .rm-sly { top: 8px; left: calc(100% - 6px); width: var(--rm-slh, 300px) !important; transform: rotate(90deg); transform-origin: left top; }
 .rmap.embed #rm-map { height: min(62vh, 560px); }
+.rmap #rm-info .mk .rm-nav { width: 34px !important; height: 30px; margin: 0 !important; padding: 0; font-size: 1.3rem; line-height: 1; border-radius: 8px; border: 1px solid var(--borderColor); background: var(--cardBackground); color: var(--textColor); box-shadow: none !important; vertical-align: middle; }
+.rmap #rm-info .mk .rm-nav:disabled { opacity: .3; }
+.rmap #rm-info { touch-action: pan-y; }   /* the card keeps vertical scroll; horizontal swipes are ours */
 /* SET PLAN (L 2026-10-05 "1 and 2"): a site image becomes the floor plan - pick it, tap two sensors on it, save */
 .rmap .rm-sp { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.6); display: grid; place-items: center; padding: 12px; }
 .rmap .rm-sp[hidden] { display: none !important; }
@@ -525,7 +528,7 @@ export function mountRadarMap(root, opts = {}) {
     }
     function show(i) {
       sel = i; selHub = null; const s = S[i];
-      $("info").innerHTML = `<div class="mk">#${s.m}</div><div class="kv">
+      $("info").innerHTML = `<div class="mk"><button type="button" class="rm-nav" data-nav="-1" aria-label="Previous sensor" title="Previous sensor (or swipe right)"${i > 0 ? "" : " disabled"}>&#8249;</button> #${s.m} <button type="button" class="rm-nav" data-nav="1" aria-label="Next sensor" title="Next sensor (or swipe left)"${i < S.length - 1 ? "" : " disabled"}>&#8250;</button></div><div class="kv">
         <b>Serial</b><span>${esc(s.serial) || "-"}</span>
         <b>Position</b><span>X <input name="x" value="${esc(ftIn(s.x))}" form="rm-measure" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="width:7.5em" /> · Y <input name="y" value="${esc(ftIn(s.y))}" form="rm-measure" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="width:7.5em" /></span>
         <b>Height</b><span><input name="z" value="${esc(ftIn(s.z))}" form="rm-measure" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="width:7.5em" /> <button type="submit" form="rm-measure" id="rm-measureSave" class="primary" hidden>Save</button> <span class="muted" id="rm-measureState"></span></span>
@@ -636,6 +639,16 @@ export function mountRadarMap(root, opts = {}) {
       const i = S.findIndex(s => s.m === Number(t));
       if (i >= 0 && (HL.size === 1 || t.length >= 3)) { centerOn(i, 4); show(i); } else draw();
     });
+    // NEXT / PREVIOUS SENSOR from the card (L 2026-10-05 "on mobile a left and right swipe that takes me to the next or previous
+    // sensor"): swipe the card left = next, right = previous (by sensor #); the ‹ › buttons do the same on a desktop. A swipe
+    // that starts on a field, button or the photo strip is left alone (typing, tapping, scrolling photos).
+    const goSensor = d => { if (sel < 0 || selHub) return; const i = sel + d; if (i < 0 || i >= S.length) return; centerOn(i); show(i); };
+    $("info").addEventListener("click", e => { const b = e.target.closest(".rm-nav"); if (b) goSensor(Number(b.dataset.nav)); });
+    let swipe = null;
+    $("info").addEventListener("touchstart", e => { swipe = null; if (sel < 0 || selHub || e.touches.length !== 1 || e.target.closest("input,textarea,select,button,.photos")) return;
+      swipe = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }, { passive: true });
+    $("info").addEventListener("touchend", e => { if (!swipe) return; const c = e.changedTouches[0], dx = c.clientX - swipe.x, dy = c.clientY - swipe.y; swipe = null;
+      if (Math.abs(dx) >= 60 && Math.abs(dx) > 1.5 * Math.abs(dy)) goSensor(dx < 0 ? 1 : -1); }, { passive: true });
     $("find").addEventListener("change", e => { const i = S.findIndex(s => s.m === Number(e.target.value)); if (i < 0) return; centerOn(i, 4); show(i); });
     // ZOOM BUTTONS (L 2026-10-03 "add a zoom and unzoom button onscreen"): 1.6x per tap, about the centre of the view
     $("zin").addEventListener("click", () => cvw.zoomAt(cv.width / 2, cv.height / 2, 1.6));
