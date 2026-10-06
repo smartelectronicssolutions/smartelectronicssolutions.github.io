@@ -137,7 +137,7 @@ export async function loadJob(user, taskId) {
 /** sensorMeta rows -> [{m, serial, x, y, z (feet), labeledAt, runDoneAt, updatedAt}] sorted by mark. */
 export const sensorRows = meta => Object.entries(meta || {}).map(([k, v]) => ({ m: Number(k), serial: v?.serial || "",
   x: feet(v?.m1), y: feet(v?.m2), z: feet(v?.m3), labeledAt: v?.labeledAt || null, runDoneAt: v?.runDoneAt || null,
-  updatedAt: v?.updatedAt || null,
+  updatedAt: v?.updatedAt || null, m1s: v?.m1 || "", m2s: v?.m2 || "",   // the measurement as written (shown when the dot was dragged elsewhere)
   pos: v?.pos && Number.isFinite(Number(v.pos.x)) && Number.isFinite(Number(v.pos.y)) ? { x: Number(v.pos.x), y: Number(v.pos.y) } : null   // as-built override (map hold-to-move); m1/m2 stay the plan
 })).filter(s => s.m).sort((a, b) => a.m - b.m);
 

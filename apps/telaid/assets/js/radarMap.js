@@ -9,7 +9,7 @@
 // /MDF, /IDF1..IDF6 (site photos). History: floor map, photos/add/run complete, wiring view, IDF photos (all 2026-10-02).
 import { onAuthStateChanged } from "../../../assets/js/firebase-init.js";
 import { auth, HUBS, hubLabel, esc, fmtFt, feet, clean, loadJob, sensorRows, patchSensor, listSites, listPhotos, photoUrl,
-  sensorMarkOf, photoPrefix, uploadSensorPhoto, uploadHubPhoto, deletePhoto, watchJob, tablesFor, zoneOf, idfOf, loadFloorPlan, saveFloorPlan, resizeImage, saveHubPos, gridRef } from "./telaid-data.js?v=20261005j";
+  sensorMarkOf, photoPrefix, uploadSensorPhoto, uploadHubPhoto, deletePhoto, watchJob, tablesFor, zoneOf, idfOf, loadFloorPlan, saveFloorPlan, resizeImage, saveHubPos, gridRef } from "./telaid-data.js?v=20261006a";
 import { openPhotoViewer } from "../../../assets/js/photoviewer.js?v=20261003a";
 import { mountCanvasView } from "../../../assets/js/canvasview.js?v=20261003b";
 
@@ -550,6 +550,7 @@ export function mountRadarMap(root, opts = {}) {
       $("info").innerHTML = `<div class="mk"><button type="button" class="rm-nav" data-nav="-1" aria-label="Previous sensor" title="Previous sensor (or swipe right)"${i > 0 ? "" : " disabled"}>&#8249;</button> #${s.m} <button type="button" class="rm-nav" data-nav="1" aria-label="Next sensor" title="Next sensor (or swipe left)"${i < S.length - 1 ? "" : " disabled"}>&#8250;</button></div><div class="kv">
         <b>Serial</b><span>${esc(s.serial) || "-"}</span>
         <b>Position</b><span>X <input name="x" value="${esc(ftIn(s.x))}" form="rm-measure" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="width:7.5em" /> · Y <input name="y" value="${esc(ftIn(s.y))}" form="rm-measure" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="width:7.5em" /></span>
+        ${s.pos && (s.m1s || s.m2s) ? `<b>Measured</b><span>${esc(s.m1s)} · ${esc(s.m2s)} <small class="muted">(field; the dot is where you placed it)</small></span>` : ""}
         <b>Height</b><span><input name="z" value="${esc(ftIn(s.z))}" form="rm-measure" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="width:7.5em" /> <button type="submit" form="rm-measure" id="rm-measureSave" class="primary" hidden>Save</button> <span class="muted" id="rm-measureState"></span></span>
         ${s.idf ? `<b>IDF / zone</b><span>IDF ${s.idf} · zone ${s.zone}</span>` : ""}
         ${s.sw ? `<b>Switch</b><span>${s.sw === "new" ? "3rd switch needed (not on site yet)" : "#" + s.sw}${s.port ? " · port " + s.port : ""} (planned)</span>` : ""}
