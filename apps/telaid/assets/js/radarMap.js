@@ -77,6 +77,9 @@ body.rm-embed-page header.top-actions { display: none !important; }
 .rmap .mapwrap .rm-slx { left: 8px; bottom: 4px; width: calc(100% - 40px) !important; }
 .rmap .mapwrap .rm-sly { top: 8px; left: calc(100% - 6px); width: var(--rm-slh, 300px) !important; transform: rotate(90deg); transform-origin: left top; }
 .rmap.embed #rm-map { height: min(62vh, 560px); }
+/* the Take / choose photo inputs: visually hidden but RENDERED - iOS (Safari AND Chrome, both WebKit) will not open the camera
+   for a display:none / [hidden] file input (L 2026-10-05 "take picture not working in Chrome mobile"; same scar as 2026-09-22) */
+.rmap label.btn { position: relative; }
 .rmap .mapwrap .rm-pulse { position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; pointer-events: none; z-index: 1;
   border: 3px solid #facc15; box-shadow: 0 0 10px 3px rgba(250, 204, 21, .85); animation: rmPulse 1.3s ease-out infinite; }
 @keyframes rmPulse { 0% { transform: scale(.9); opacity: 1; } 70% { transform: scale(2.6); opacity: 0; } 100% { transform: scale(2.6); opacity: 0; } }
@@ -526,7 +529,7 @@ export function mountRadarMap(root, opts = {}) {
         <b>Photos</b><span>${items.length || PHOTOS === "ok" ? items.length : PHOTOS === "loading" ? "loading\u2026" : "can't reach Storage"}</span></div>
         <div class="photos" id="rm-photos"></div>
         <div class="acts">
-          <label class="btn primary">&#128247; Take / choose ${hubLabel(h)} photo<input type="file" id="rm-addHubPhoto" accept="image/*" hidden /></label>
+          <label class="btn primary">&#128247; Take / choose ${hubLabel(h)} photo<input type="file" id="rm-addHubPhoto" accept="image/*" class="file-input" /></label>
           <label class="muted"><input type="checkbox" id="rm-mark" checked /> label bar</label>
           <span class="muted" id="rm-upState"></span>
         </div>
@@ -556,7 +559,7 @@ export function mountRadarMap(root, opts = {}) {
         <form id="rm-measure"></form>
         <div class="photos" id="rm-photos"></div>
         <div class="acts">
-          <label class="btn primary">&#128247; Take / choose photo<input type="file" id="rm-addPhoto" accept="image/*" hidden /></label>
+          <label class="btn primary">&#128247; Take / choose photo<input type="file" id="rm-addPhoto" accept="image/*" class="file-input" /></label>
           <label class="muted"><input type="checkbox" id="rm-mark" checked /> label bar</label>
           <button type="button" id="rm-runBtn" class="${s.runDoneAt ? "done" : ""}">${s.runDoneAt ? "&#10003; Run complete" : "Mark run complete"}</button>
           <button type="button" id="rm-labBtn" class="${s.labeledAt ? "done" : ""}">${s.labeledAt ? "&#10003; Labeled" : "Mark labeled"}</button>
