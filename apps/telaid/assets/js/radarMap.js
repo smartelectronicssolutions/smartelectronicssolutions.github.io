@@ -514,7 +514,10 @@ export function mountRadarMap(root, opts = {}) {
         await patchSensor(OWNER, TASK, s.m, { serial, updatedAt: Date.now() }).catch(() => {}); s.serial = serial; }
       const st = $("upState"), inp = $("addPhoto"); if (st) st.textContent = "Uploading..."; if (inp) inp.disabled = true;   // one at a time (sensor-83 scar)
       try {
-        s.items.push(await uploadSensorPhoto({ owner: OWNER, task: TASKREC, id: TASK, mark: s.m, serial, file, bar: !$("mark") || $("mark").checked })); s.photos++;
+        // the live refresh (photosAt watch) may already have listed the new file - only add it if it isn't there yet
+        // (L 2026-10-06 "I have 4 images when I've only taken 3": the photo was counted twice when the refresh won the race)
+        const it = await uploadSensorPhoto({ owner: OWNER, task: TASKREC, id: TASK, mark: s.m, serial, file, bar: !$("mark") || $("mark").checked });
+        if (!s.items.some(x => (x.name || x.fullPath) === (it.name || it.fullPath))) { s.items.push(it); s.photos = s.items.length; }
         renderStats(); show(sel);
       } catch (e) { if (st) st.textContent = ""; if (inp) { inp.disabled = false; inp.value = ""; } alert("Upload failed: " + (e.code || e.message || e)); }
     }
@@ -541,7 +544,8 @@ export function mountRadarMap(root, opts = {}) {
       if (!file || !OWNER || RO()) return;
       const st = $("upState"), inp = $("addHubPhoto"); if (st) st.textContent = "Uploading..."; if (inp) inp.disabled = true;
       try {
-        (HUBPH[h] = HUBPH[h] || []).push(await uploadHubPhoto({ owner: OWNER, task: TASKREC, id: TASK, hub: h, file, bar: !$("mark") || $("mark").checked }));
+        { const it = await uploadHubPhoto({ owner: OWNER, task: TASKREC, id: TASK, hub: h, file, bar: !$("mark") || $("mark").checked }), arr = (HUBPH[h] = HUBPH[h] || []);
+          if (!arr.some(x => (x.name || x.fullPath) === (it.name || it.fullPath))) arr.push(it); }   // the live refresh may have listed it already
         renderHubs(); showHub(h);
       } catch (e) { if (st) st.textContent = ""; if (inp) { inp.disabled = false; inp.value = ""; } alert("Upload failed: " + (e.code || e.message || e)); }
     }
