@@ -39,12 +39,12 @@ padding: 6px 12px; border-radius: 999px; border: 1px solid var(--borderColor); b
 .rmap #rm-views button { width: auto !important; margin: 0 !important; box-shadow: none !important; display: inline-block; font-size: .9rem; line-height: 1.2;
 padding: 6px 12px; border-radius: 8px; border: 1px solid var(--borderColor); background: transparent; color: var(--textColor); cursor: pointer; }
 .rmap #rm-views button.on { background: var(--primaryColor); border-color: var(--primaryColor); color: #fff; }
-.rmap #rm-views button[hidden] { display: none !important; }
-/* UNDO MOVE (L 2026-10-07 "an undo for the last move I may have done on the map like a sensor or IDF"): a bigger hit on a phone */
-.rmap #rm-views #rm-undo { min-height: 36px; font-weight: 600; }
-.rmap #rm-views #rm-undo:disabled { opacity: .5; cursor: default; }
+.rmap #rm-views button[hidden] { display: none !important; }   /* the display rule above beat the hidden attribute: "Plan" showed on jobs with no plan */
+/* UNDO / REDO MOVE (L 2026-10-07 "an undo for the last move..." + "And a redo, no text needed on buttons"): icon-only, a 44px phone hit */
+.rmap #rm-views #rm-undo, .rmap #rm-views #rm-redo { min-width: 44px; min-height: 44px; padding: 4px 10px; font-size: 1.3rem; line-height: 1; font-weight: 600; text-align: center; }
+.rmap #rm-views #rm-undo:disabled, .rmap #rm-views #rm-redo:disabled { opacity: .5; cursor: default; }
 .rmap #rm-undoState { font-size: .85rem; }
-.rmap #rm-map:focus:not(:focus-visible) { outline: none; }   /* the display rule above beat the hidden attribute: "Plan" showed on jobs with no plan */
+.rmap #rm-map:focus:not(:focus-visible) { outline: none; }
 .rmap .photos { display: flex; gap: 8px; overflow-x: auto; margin-top: 10px; padding-bottom: 4px; }
 .rmap .photos a { flex: none; cursor: zoom-in; }
 .rmap .photos img { height: 110px; width: auto; border-radius: 8px; border: 1px solid var(--borderColor); display: block; background: #0003; }
@@ -123,7 +123,8 @@ const TEMPLATE = `<div class="app-shell">
         <button type="button" id="rm-rot" title="Rotate the floor map 90&deg;">&#8635; Rotate</button>
         <button type="button" id="rm-plan" title="Floor plan under the dots" hidden>&#128506; Plan: dim</button>
         <button type="button" id="rm-setplan" title="Use a site image (or a file) as the floor plan under the dots">&#128444; Set plan</button>
-        <button type="button" id="rm-undo" title="Undo the last move" aria-label="Undo the last move" hidden>&#8630; Undo move</button>
+        <button type="button" id="rm-undo" title="Undo the last move" aria-label="Undo the last move" hidden>&#8630;</button>
+        <button type="button" id="rm-redo" title="Redo the last move" aria-label="Redo the last move" hidden>&#8631;</button>
         <span class="muted" id="rm-undoState" role="status" aria-live="polite"></span></div>
       <div class="rm-sp" id="rm-sp" hidden><div class="box">
         <div class="rm-row"><b>Floor plan from a site image</b><span style="flex:1"></span><button type="button" id="rm-spclose">Close</button></div>
@@ -156,7 +157,7 @@ const TEMPLATE = `<div class="app-shell">
         <input type="range" id="rm-slx" class="rm-sl rm-slx" min="0" max="1000" value="0" aria-label="Move the map left or right" hidden />
         <input type="range" id="rm-sly" class="rm-sl rm-sly" min="0" max="1000" value="0" aria-label="Move the map up or down" hidden /></div>
       <div class="legend" id="rm-legend"></div>
-      <div class="muted hint">Pinch, or Shift + scroll, to zoom · one finger scrolls the page; to move the map: hold half a second on empty floor then drag, two fingers, the edge sliders, or a mouse drag · tap a sensor or cabinet for its photos · hold one ~half a second, then drag, to move it · double-tap to reset the view, triple-tap to rotate · &#8630; Undo move (or Ctrl+Z on the map) puts the last moved sensor or cabinet back.</div>
+      <div class="muted hint">Pinch, or Shift + scroll, to zoom · one finger scrolls the page; to move the map: hold half a second on empty floor then drag, two fingers, the edge sliders, or a mouse drag · tap a sensor or cabinet for its photos · hold one ~half a second, then drag, to move it · double-tap to reset the view, triple-tap to rotate · &#8630; (or Ctrl+Z on the map) puts the last moved sensor or cabinet back, &#8631; (Ctrl+Shift+Z / Ctrl+Y) moves it again.</div>
       <div class="card" id="rm-info"><span class="muted">Tap a sensor to see its details.</span></div>
     </div>`;
 
@@ -189,7 +190,7 @@ export function mountRadarMap(root, opts = {}) {
     // so a move can remember exactly what it overwrote. dragSnap = the before-values, taken on the drag's first step.
     // UNDO = [{kind: "sensor"|"hub", id, owner, task, prev, after, at}] for the open job, newest last; the last few are
     // kept on this device per job (localStorage) so a reload still offers one undo.
-    let RAW = {}, dragSnap = null, UNDO = [], undoBusy = false, toastT = 0;
+    let RAW = {}, dragSnap = null, UNDO = [], REDO = [], undoBusy = false, toastT = 0;
     const UNDO_MAX = 20, UNDO_KEEP = 5, MOVE_KEYS = ["m1", "m2", "pos", "posAt", "updatedAt"];
     function renderHubs() {
       $("hubs").innerHTML = '<span class="muted">Photos:</span>' + HUBS.map(h => { const n = (HUBPH[h] || []).length,
@@ -209,7 +210,7 @@ export function mountRadarMap(root, opts = {}) {
     async function load(user) {
       if (!user) { $("source").textContent = "Sign in to load the site."; return; }
       if (!TASK) { $("source").textContent = "Open a site above and its map shows here."; $("stats").innerHTML = ""; $("hubs").innerHTML = ""; return; }
-      S = []; sel = -1; selHub = null; B = null; RAW = {}; dragSnap = null; UNDO = []; renderUndo(); for (const k in HUBPH) delete HUBPH[k]; PHOTOS = "loading";
+      S = []; sel = -1; selHub = null; B = null; RAW = {}; dragSnap = null; UNDO = []; REDO = []; renderUndo(); for (const k in HUBPH) delete HUBPH[k]; PHOTOS = "loading";
       PLAN = null; planImg = null; planDark = null; planFast = null; $("plan").hidden = true;
       $("source").textContent = "Loading...";
       const { owner, task, meta } = await loadJob(user, TASK);
@@ -640,47 +641,68 @@ export function mountRadarMap(root, opts = {}) {
     const sameMove = (u, after) => u.kind === "sensor"
       ? (u.prev.m1 ?? "") === after.m1 && (u.prev.m2 ?? "") === after.m2 && u.prev.pos == null && u.prev.posAt == null
       : u.prev[0] === after[0] && u.prev[1] === after[1];
+    // REDO (L 2026-10-07 "And a redo"): an entry is {kind, id, owner, task, prev, after}; Undo writes prev and puts the
+    // values it replaced on REDO as {prev: what undo wrote, after: what it replaced}; Redo writes that after and puts the
+    // values IT replaced back on UNDO. A new move clears REDO (a new branch). Both stacks: last 5 per job on this device.
+    function curOf(kind, id) {   // the spot right now, in an entry's shape (sensor: every MOVE_KEYS field, null = absent)
+      if (kind === "sensor") { const r = RAW[id] || {}, o = {}; for (const k of MOVE_KEYS) o[k] = r[k] === undefined ? null : r[k]; return o; }
+      const xy = hubXY(id); return xy ? [xy[0], xy[1]] : null;
+    }
+    const differs = (kind, cur, exp) => kind === "sensor"
+      ? (cur && cur.m1 != null ? cur.m1 : "") !== (exp.m1 ?? "") || (cur && cur.m2 != null ? cur.m2 : "") !== (exp.m2 ?? "")
+      : !cur || cur[0] !== exp[0] || cur[1] !== exp[1];
     function pushUndo(snap, after) {
       if (sameMove(snap, after)) return;   // held, then put down on the same spot: nothing to undo
       UNDO.push({ ...snap, after, owner: OWNER, task: TASK, at: Date.now() }); if (UNDO.length > UNDO_MAX) UNDO.splice(0, UNDO.length - UNDO_MAX);
+      REDO = [];   // a new move: nothing left to redo
       saveUndo(); renderUndo();
     }
-    const undoKey = () => "rm-undo-" + TASK;
-    function saveUndo() { try { localStorage.setItem(undoKey(), JSON.stringify(UNDO.slice(-UNDO_KEEP))); } catch (_) {} }
+    const histKey = w => "rm-" + w + "-" + TASK;   // rm-undo-<task> (unchanged) + rm-redo-<task>
+    function saveUndo() { try { localStorage.setItem(histKey("undo"), JSON.stringify(UNDO.slice(-UNDO_KEEP)));
+      localStorage.setItem(histKey("redo"), JSON.stringify(REDO.slice(-UNDO_KEEP))); } catch (_) {} }
     function loadUndo() {
-      let a = []; try { a = JSON.parse(localStorage.getItem(undoKey())) || []; } catch (_) {}
-      UNDO = Array.isArray(a) ? a.filter(u => u && u.owner === OWNER && u.task === TASK && (u.kind === "sensor" || u.kind === "hub")) : [];
-      renderUndo();
+      const rd = w => { let a = []; try { a = JSON.parse(localStorage.getItem(histKey(w))) || []; } catch (_) {}
+        return Array.isArray(a) ? a.filter(u => u && u.owner === OWNER && u.task === TASK && (u.kind === "sensor" || u.kind === "hub") && u.prev && u.after) : []; };
+      UNDO = rd("undo"); REDO = rd("redo"); renderUndo();
     }
-    function renderUndo() {
-      const b = $("undo"); if (!b) return; const u = UNDO[UNDO.length - 1];
-      b.hidden = !u || RO(); b.disabled = undoBusy;
-      const t = u ? `Undo: ${undoName(u)} move` : "Undo the last move"; b.title = t; b.setAttribute("aria-label", t);
+    function renderUndo() {   // icon-only buttons; the words live in title + aria-label; hidden when there is nothing to step
+      for (const [id, st, w] of [["undo", UNDO, "Undo"], ["redo", REDO, "Redo"]]) {
+        const b = $(id); if (!b) continue; const u = st[st.length - 1];
+        b.hidden = !u || RO(); b.disabled = undoBusy;
+        const t = u ? `${w}: ${undoName(u)} move` : `${w} the last move`; b.title = t; b.setAttribute("aria-label", t);
+      }
     }
     function undoToast(t) { const el = $("undoState"); if (!el) return; el.textContent = t; clearTimeout(toastT); toastT = setTimeout(() => { el.textContent = ""; }, 5000); }
-    async function undoMove() {
-      const u = UNDO[UNDO.length - 1]; if (!u || undoBusy || !OWNER || RO()) return;
-      if (u.owner !== OWNER || u.task !== TASK) { UNDO.pop(); saveUndo(); renderUndo(); return; }
-      // changed since the move (another device, the card's X/Y boxes): ask before putting the old spot back
-      const cur = u.kind === "sensor" ? RAW[u.id] || {} : hubXY(u.id);
-      const changed = u.kind === "sensor" ? (cur.m1 ?? "") !== u.after.m1 || (cur.m2 ?? "") !== u.after.m2
-        : !cur || cur[0] !== u.after[0] || cur[1] !== u.after[1];
-      if (changed && !confirm(`${undoName(u)} has changed since that move. Put it back where it was before the move anyway?`)) return;
+    async function writeSpot(kind, id, v) {   // the SAME two save calls a move uses, then the local copy to match
+      if (kind === "sensor") {
+        const f = {}; for (const k of MOVE_KEYS) f[k] = v[k] === undefined ? null : v[k];
+        await patchSensor(OWNER, TASK, id, f);
+        const r0 = { ...(RAW[id] || {}) }; for (const [k, x] of Object.entries(f)) { if (x == null) delete r0[k]; else r0[k] = x; } RAW[id] = r0;
+        const s = S.find(x => x.m === id), r = sensorRows({ [id]: r0 })[0];
+        if (s && r) { s.pos = r.pos; s.plan = [r.x, r.y]; s.x = r.pos ? r.pos.x : r.x; s.y = r.pos ? r.pos.y : r.y; }
+      } else {
+        await saveHubPos(OWNER, TASK, id, v);
+        if (TABLES) { TABLES.hubs = TABLES.hubs || {}; const xy = TABLES.hubs[id]; if (xy) { xy[0] = v[0]; xy[1] = v[1]; } else TABLES.hubs[id] = [v[0], v[1]]; }
+      }
+    }
+    async function stepMove(redo) {
+      const from = redo ? REDO : UNDO, u = from[from.length - 1]; if (!u || undoBusy || !OWNER || RO()) return;
+      if (u.owner !== OWNER || u.task !== TASK) { from.pop(); saveUndo(); renderUndo(); return; }
+      const want = redo ? u.after : u.prev, expect = redo ? u.prev : u.after, cur = curOf(u.kind, u.id);
+      // changed since (another device, the card's X/Y boxes): ask before writing over it
+      if (differs(u.kind, cur, expect) && !confirm(redo ? `${undoName(u)} has changed since the undo. Move it again anyway?`
+        : `${undoName(u)} has changed since that move. Put it back where it was before the move anyway?`)) return;
       undoBusy = true; renderUndo();
       try {
-        if (u.kind === "sensor") {
-          const f = {}; for (const k of MOVE_KEYS) f[k] = u.prev[k] === undefined ? null : u.prev[k];
-          await patchSensor(OWNER, TASK, u.id, f);
-          const r0 = { ...(RAW[u.id] || {}) }; for (const [k, v] of Object.entries(f)) { if (v == null) delete r0[k]; else r0[k] = v; } RAW[u.id] = r0;
-          const s = S.find(x => x.m === u.id), r = sensorRows({ [u.id]: r0 })[0];
-          if (s && r) { s.pos = r.pos; s.plan = [r.x, r.y]; s.x = r.pos ? r.pos.x : r.x; s.y = r.pos ? r.pos.y : r.y; }
-        } else {
-          await saveHubPos(OWNER, TASK, u.id, u.prev);
-          if (TABLES) { TABLES.hubs = TABLES.hubs || {}; const xy = TABLES.hubs[u.id]; if (xy) { xy[0] = u.prev[0]; xy[1] = u.prev[1]; } else TABLES.hubs[u.id] = [u.prev[0], u.prev[1]]; }
-        }
-        UNDO.pop(); saveUndo(); undoToast(`\u21b6 ${undoName(u)} is back where it was.`);
+        await writeSpot(u.kind, u.id, want);
+        if (from !== (redo ? REDO : UNDO)) return;   // the job reloaded mid-save: its own stacks are already loaded
+        from.pop();
+        const was = cur || expect, to = redo ? UNDO : REDO;   // the values this step replaced: step back to them from the other side
+        to.push({ kind: u.kind, id: u.id, owner: OWNER, task: TASK, at: Date.now(), prev: redo ? was : want, after: redo ? want : was });
+        if (to.length > UNDO_MAX) to.splice(0, to.length - UNDO_MAX);
+        saveUndo(); undoToast(redo ? `\u21b7 ${undoName(u)} is back where you moved it.` : `\u21b6 ${undoName(u)} is back where it was.`);
         draw(); if (sel >= 0) show(sel); else if (selHub) showHub(selHub);
-      } catch (e) { undoToast("Couldn't undo: " + (e.code || e.message || e)); }
+      } catch (e) { undoToast(`Couldn't ${redo ? "redo" : "undo"}: ` + (e.code || e.message || e)); }
       finally { undoBusy = false; renderUndo(); }
     }
     // EDIT MEASUREMENTS (L 2026-10-04 "in the map I need to be able to edit the measurements"): X / Y / Z in feet-inches
@@ -728,13 +750,15 @@ export function mountRadarMap(root, opts = {}) {
       try { await patchSensor(OWNER, TASK, s.m, { pos: null, posAt: null }); s.pos = null; s.x = s.plan[0]; s.y = s.plan[1]; show(i); }
       catch (e) { alert("Couldn't reset: " + (e.code || e.message || e)); }
     }
-    $("undo").addEventListener("click", () => undoMove());
-    // Ctrl/Cmd+Z with the map focused (a click on the map focuses it); a text box keeps its own undo
+    $("undo").addEventListener("click", () => stepMove(false));
+    $("redo").addEventListener("click", () => stepMove(true));
+    // Ctrl/Cmd+Z = undo, Ctrl/Cmd+Shift+Z or Ctrl+Y = redo, with the map focused (a click on the map focuses it); a text box keeps its own
     cv.addEventListener("pointerdown", () => { try { cv.focus({ preventScroll: true }); } catch (_) {} });
-    root.addEventListener("keydown", e => { if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || String(e.key).toLowerCase() !== "z") return;
+    root.addEventListener("keydown", e => { const k = String(e.key).toLowerCase();
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || !(k === "z" || (k === "y" && !e.shiftKey))) return;
       if (e.target !== cv && !(e.target.closest && e.target.closest(".mapwrap"))) return;
       if (e.target.closest && e.target.closest("input,textarea,select,[contenteditable]")) return;
-      e.preventDefault(); undoMove(); });
+      e.preventDefault(); stepMove(k === "y" || e.shiftKey); });
     $("modes").addEventListener("click", e => { const b = e.target.closest("button[data-m]"); if (!b) return;
       mode = b.dataset.m; root.querySelectorAll("#rm-modes button").forEach(x => x.classList.toggle("on", x === b)); legend(); draw(); });
     // LIVE FIND (L 2026-10-02: "when I type a radar number have it highlight in real time"): every keystroke rings the
