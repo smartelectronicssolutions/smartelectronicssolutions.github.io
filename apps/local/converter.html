@@ -20,6 +20,13 @@
             padding: 10px;
             font-size: 16px;
         }
+        textarea, input { max-width: 100%; box-sizing: border-box; }
+        .enc-drop { border: 2px dashed currentColor; border-radius: 8px; padding: 10px; margin: 10px 0; opacity: .85; }
+        .enc-drop.over { opacity: 1; outline: 3px solid currentColor; }
+        .enc-file-btn { display: inline-block; padding: 6px 12px; border: 1px solid currentColor; border-radius: 6px; cursor: pointer; }
+        .enc-hint { margin-left: 8px; font-size: 14px; opacity: .7; }
+        .enc-info { font-size: 14px; margin: 6px 0; word-break: break-word; }
+        .enc-info.err { color: #e05555; font-weight: bold; }
     </style>
 </head>
 
@@ -101,6 +108,13 @@
 
         <section>
             <h2>Encrypt & Decrypt</h2>
+            <!-- 2026-10-07 (L: "upload and output file for larger files"): open/drop a file instead of pasting,
+                 save the result as a file. Big text never goes into the boxes - only a size line + preview. -->
+            <div id="encDrop" class="enc-drop">
+                <label class="enc-file-btn">📂 Open file…<input type="file" id="encFile" hidden></label>
+                <span class="enc-hint">or drop a file here</span>
+                <div id="encFileInfo" class="enc-info"></div>
+            </div>
             <div class="input-wrapper">
                 <label for="inputText">Input:</label><br>
                 <textarea id="inputText" placeholder="Enter text to encrypt/decrypt..."></textarea>
@@ -108,18 +122,20 @@
             <div class="input-wrapper">
                 <label for="key">Enter Key:</label>
                 <input type="password" id="key" placeholder="Enter the key">
+                <button id="keyShow" type="button" title="Show / hide key">👁</button>
             </div>
             <br>
             <button id="encryptBtn">Encrypt</button>
             <button id="decryptBtn">Decrypt</button>
             <button id="clearBtn">Clear</button>
+            <div id="encStatus" class="enc-info"></div>
             <div class="input-wrapper">
                 <label for="outputText">Output:</label><br>
                 <textarea id="outputText" readonly placeholder="Output will appear here..."></textarea>
             </div>
             <button id="copyInput">Copy Input</button>
             <button id="copyOutput">Copy Output</button>
-            <button id="saveOutput">Save Output</button>
+            <button id="saveOutput">💾 Save output…</button>
             </div>
 
             <div class="section">
@@ -712,67 +728,154 @@
             const copyOutputBtn = document.getElementById('copyOutput');
             const saveOutputBtn = document.getElementById('saveOutput');
 
-            encryptBtn.addEventListener('click', () => {
-                if (!key.value.trim()) {
-                    alert('Please enter a key!');
-                    return;
+            // ---- File in / file out (2026-10-07). Big text lives in these vars, NOT in the textareas
+            // (a 44 MB paste or render freezes the browser). Boxes only show text under BIG_SHOW.
+            const BIG_SHOW = 200 * 1024, PREVIEW = 2048;
+            const encFile = document.getElementById('encFile');
+            const encDrop = document.getElementById('encDrop');
+            const encFileInfo = document.getElementById('encFileInfo');
+            const encStatus = document.getElementById('encStatus');
+            let loadedText = null, loadedName = '';      // file input (null = use the textarea)
+            let fullOutput = '', outputMode = '';        // last result + 'enc' | 'dec'
+            const mb = n => (n / 1048576).toFixed(n < 1048576 ? 3 : 1) + ' MB';
+            const tick = () => new Promise(r => setTimeout(r, 30));   // let the status line paint
+            function status(msg, isErr) { encStatus.textContent = msg; encStatus.classList.toggle('err', !!isErr); }
+
+            async function loadFile(f) {
+                if (!f) return;
+                status('Reading ' + f.name + ' (' + mb(f.size) + ')…');
+                await tick();
+                const txt = await f.text();
+                loadedName = f.name;
+                if (txt.length <= BIG_SHOW) {
+                    loadedText = null;
+                    inputText.value = txt;
+                    encFileInfo.textContent = 'Loaded ' + f.name + ' (' + mb(f.size) + ') into the box.';
+                } else {
+                    loadedText = txt;
+                    inputText.value = '';
+                    inputText.placeholder = 'Using file ' + f.name + ' (' + mb(f.size) + ') - type here to use text instead.';
+                    encFileInfo.textContent = 'Loaded ' + f.name + ' (' + mb(f.size) + '). Too big to show - it is used directly.';
                 }
-                if (inputText.value.trim().length > 10000) {
-                    alert('Input text is too long! Please shorten it.');
-                    return;
-                }
-                aesEncrypt(inputText.value.trim(), key.value.trim())
-                    .then(enc => { outputText.value = enc; })
-                    .catch(err => { alert('Encryption failed.'); console.error(err); });
+                status(txt.startsWith(AES_PREFIX) ? 'Looks encrypted - enter the key and press Decrypt.' : 'Ready - Encrypt or Decrypt.');
+            }
+            function dropFile() {
+                loadedText = null; loadedName = ''; encFileInfo.textContent = ''; encFile.value = '';
+                inputText.placeholder = 'Enter text to encrypt/decrypt...';
+            }
+            const getInput = () => loadedText !== null ? loadedText : inputText.value;
+
+            function setOutput(text, mode) {
+                fullOutput = text; outputMode = mode;
+                if (text.length <= BIG_SHOW) { outputText.value = text; return; }
+                outputText.value = '[' + mb(new Blob([text]).size) + ' - too big to show. Use Save output… or Copy Output. First '
+                    + PREVIEW + ' characters:]\n\n' + text.slice(0, PREVIEW) + '\n…';
+            }
+            function outputName() {
+                const base = (loadedName || 'output').replace(/\.agcm1\.txt$/i, '').replace(/\.(txt|json)$/i, '');
+                if (outputMode === 'enc') return base + '.agcm1.txt';
+                const c = fullOutput.trimStart()[0];
+                let isJson = false;
+                if (c === '{' || c === '[') { try { JSON.parse(fullOutput); isJson = true; } catch (e) { } }
+                return base + (isJson ? '.json' : '.txt');
+            }
+
+            encFile.addEventListener('change', () => loadFile(encFile.files[0]));
+            encDrop.addEventListener('dragover', e => { e.preventDefault(); encDrop.classList.add('over'); });
+            encDrop.addEventListener('dragleave', () => encDrop.classList.remove('over'));
+            encDrop.addEventListener('drop', e => {
+                e.preventDefault(); encDrop.classList.remove('over');
+                if (e.dataTransfer.files.length) loadFile(e.dataTransfer.files[0]);
+            });
+            inputText.addEventListener('input', () => { if (loadedText !== null) dropFile(); });
+            document.getElementById('keyShow').addEventListener('click', () => {
+                key.type = key.type === 'password' ? 'text' : 'password';
             });
 
-            decryptBtn.addEventListener('click', () => {
-                if (!key.value.trim()) {
-                    alert('Please enter a key!');
-                    return;
-                }
-                const src = inputText.value.trim(), k = key.value.trim();
+            encryptBtn.addEventListener('click', async () => {
+                if (!key.value.trim()) { alert('Please enter a key!'); return; }
+                // typed text is trimmed (as before); a loaded file is encrypted exactly as-is
+                const src = loadedText !== null ? loadedText : inputText.value.trim();
+                if (!src) { alert('Nothing to encrypt!'); return; }
+                const t0 = performance.now();
+                try {
+                    status('Deriving key…'); await tick();
+                    const enc = await aesEncrypt(src, key.value.trim(), () => status('Encrypting ' + mb(src.length) + '…'));
+                    setOutput(enc, 'enc');
+                    status('Encrypted ' + mb(src.length) + ' → ' + mb(enc.length) + ' in ' + ((performance.now() - t0) / 1000).toFixed(1) + ' s.');
+                } catch (err) { status('Encryption failed: ' + err.message, true); console.error(err); }
+            });
+
+            decryptBtn.addEventListener('click', async () => {
+                if (!key.value.trim()) { alert('Please enter a key!'); return; }
+                const raw = getInput(), k = key.value.trim();
                 // AGCM1 = real AES (2026-09-30). Anything else = text from the old XOR scrambler, still readable.
-                const run = src.startsWith(AES_PREFIX) ? aesDecrypt(src, k) : Promise.resolve(unscrambleText(src, k));
-                run.then(dec => { outputText.value = dec; })
-                    .catch(error => {
-                        alert('Error: Unable to decrypt. Wrong key, or the text was changed.');
-                        console.error(error);
-                    });
+                const isAes = raw.trimStart().startsWith(AES_PREFIX);
+                const src = isAes ? raw.replace(/\s+/g, '') : raw.trim();   // pasted/wrapped blobs: drop all whitespace
+                if (!src) { alert('Nothing to decrypt!'); return; }
+                const t0 = performance.now();
+                try {
+                    let dec;
+                    if (isAes) {
+                        status('Deriving key…'); await tick();
+                        dec = await aesDecrypt(src, k, () => status('Decrypting ' + mb(src.length) + '…'));
+                    } else dec = unscrambleText(src, k);
+                    setOutput(dec, 'dec');
+                    status('Decrypted ' + mb(src.length) + ' → ' + mb(dec.length) + ' in ' + ((performance.now() - t0) / 1000).toFixed(1) + ' s.');
+                } catch (error) {
+                    status('Wrong key or damaged file.', true);
+                    console.error(error);
+                }
             });
 
             clearBtn.addEventListener('click', () => {
                 inputText.value = '';
                 key.value = '';
                 outputText.value = '';
+                fullOutput = ''; outputMode = '';
+                dropFile(); status('');
             });
 
-            copyInputBtn.addEventListener('click', () => copyToClipboard(inputText.value));
-            copyOutputBtn.addEventListener('click', () => copyToClipboard(outputText.value));
-            saveOutputBtn.addEventListener('click', () => saveToFile(outputText.value, 'output.txt'));
+            copyInputBtn.addEventListener('click', () => copyToClipboard(getInput()));
+            copyOutputBtn.addEventListener('click', () => copyToClipboard(fullOutput || outputText.value));
+            saveOutputBtn.addEventListener('click', () => saveToFile(fullOutput || outputText.value, fullOutput ? outputName() : 'output.txt'));
 
             // ---- AES-256-GCM with a PBKDF2 key (2026-09-30, L: fix the weak Encrypt). The SAME engine and blob
             // format as onlinenotes.html + testbed/encryption.html + ops mailbox.py, so text encrypted here opens
             // there too: "AGCM1.<saltB64>.<ivB64>.<cipherB64>", key = PBKDF2-SHA256(key, salt, 210000).
             // The old repeating-key XOR below stays for DECRYPTING older output only.
             const AES_PREFIX = 'AGCM1.';
-            const _b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
-            const _unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+            // 2026-10-07: chunked base64 - the old btoa(String.fromCharCode(...bytes)) blew the call stack on big
+            // buffers. Same standard base64 output, so old blobs still open.
+            function _b64(buf) {
+                const u = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+                let s = '';
+                for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
+                return btoa(s);
+            }
+            function _unb64(s) {
+                const bin = atob(s), n = bin.length, u = new Uint8Array(n);
+                for (let i = 0; i < n; i++) u[i] = bin.charCodeAt(i);
+                return u;
+            }
             async function _aesKey(password, salt) {
                 const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
                 return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 210000, hash: 'SHA-256' },
                     km, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
             }
-            async function aesEncrypt(plaintext, password) {
+            async function aesEncrypt(plaintext, password, onStep) {
                 const salt = crypto.getRandomValues(new Uint8Array(16));
                 const iv = crypto.getRandomValues(new Uint8Array(12));
                 const k = await _aesKey(password, salt);
+                if (onStep) { onStep(); await new Promise(r => setTimeout(r, 30)); }
                 const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, k, new TextEncoder().encode(plaintext));
                 return AES_PREFIX + _b64(salt) + '.' + _b64(iv) + '.' + _b64(ct);
             }
-            async function aesDecrypt(blob, password) {
+            async function aesDecrypt(blob, password, onStep) {
                 const [, saltB, ivB, ctB] = blob.split('.');
+                if (!saltB || !ivB || !ctB) throw new Error('not a complete AGCM1 blob');
                 const k = await _aesKey(password, _unb64(saltB));
+                if (onStep) { onStep(); await new Promise(r => setTimeout(r, 30)); }
                 const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: _unb64(ivB) }, k, _unb64(ctB));
                 return new TextDecoder().decode(pt);
             }
