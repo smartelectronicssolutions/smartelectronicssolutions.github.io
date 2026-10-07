@@ -47,8 +47,8 @@ export function mountShell(header) {
         sel.addEventListener("change", () => { try { localStorage.setItem("telaidOwner", sel.value); } catch (_) {} location.reload(); });
         // in the sign-in block next to Logout (L 2026-10-05 "put it in the login section")
         const row = (host || header).querySelector(".auth-row") || header; row.appendChild(sel); }
-      sel.value = pickedOwner(u); if (st) st.style.display = "none";
-    } else { if (sel) sel.remove(); if (st) st.style.display = ""; }
+      sel.value = pickedOwner(u); if (st) st.hidden = true;
+    } else { if (sel) sel.remove(); if (st) st.hidden = false; }
   });
   return header;
 }

@@ -113,7 +113,6 @@
 - apps/telaid/assets/ - Directory
 - apps/telaid/assets/css/ - Directory
 - apps/telaid/assets/css/radartools.css - CSS stylesheet
-- apps/telaid/assets/css/tracker.css - CSS stylesheet
 - apps/telaid/assets/img/ - Directory
 - apps/telaid/assets/img/favicon.ico - Icon file
 - apps/telaid/assets/img/telaid_logo.png - PNG image
