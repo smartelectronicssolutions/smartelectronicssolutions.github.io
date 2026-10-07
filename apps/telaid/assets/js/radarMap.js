@@ -9,7 +9,7 @@
 // /MDF, /IDF1..IDF6 (site photos). History: floor map, photos/add/run complete, wiring view, IDF photos (all 2026-10-02).
 import { onAuthStateChanged } from "../../../assets/js/firebase-init.js";
 import { auth, HUBS, hubLabel, esc, fmtFt, feet, clean, loadJob, sensorRows, patchSensor, listSites, listPhotos, photoUrl,
-  sensorMarkOf, photoPrefix, uploadSensorPhoto, uploadHubPhoto, deletePhoto, watchJob, tablesFor, zoneOf, idfOf, loadFloorPlan, saveFloorPlan, resizeImage, saveHubPos, gridRef } from "./telaid-data.js?v=20261006b";
+  sensorMarkOf, photoPrefix, uploadSensorPhoto, uploadHubPhoto, deletePhoto, watchJob, tablesFor, zoneOf, idfOf, loadFloorPlan, saveFloorPlan, resizeImage, saveHubPos, gridRef, saveSiteTables, saveSiteOptions, saveSiteSwitches } from "./telaid-data.js?v=20261007c";
 import { openPhotoViewer } from "../../../assets/js/photoviewer.js?v=20261003a";
 import { mountCanvasView } from "../../../assets/js/canvasview.js?v=20261003b";
 
@@ -108,7 +108,16 @@ body.rm-embed-page header.top-actions { display: none !important; }
 .rmap .rm-sp .pin.a { background: #dc2626; } .rmap .rm-sp .pin.b { background: #2563eb; }
 .rmap .rm-sp input[type=number] { width: 90px !important; margin: 0 !important; }
 .rmap .rm-sp button { width: auto !important; margin: 0 !important; }
-.rmap .rm-sp .tgt.on { outline: 2px solid var(--primaryColor); }`;
+.rmap .rm-sp .tgt.on { outline: 2px solid var(--primaryColor); }
+/* SELECTORS (L 2026-10-07): IDF / zone / switch / port on the sensor card - 16px (no iOS zoom), 40px targets */
+.rmap #rm-info .rm-asg { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.rmap #rm-info .rm-asg select, .rmap #rm-info .rm-asg input { width: auto !important; min-width: 5.5em; max-width: 100%; margin: 0 !important; font-size: 16px; min-height: 40px; padding: 4px 8px; box-sizing: border-box; }
+.rmap #rm-info .rm-asg input { width: 6.5em !important; min-width: 0; }
+.rmap #rm-info .rm-asg button { width: auto !important; min-width: 40px; min-height: 40px; margin: 0 !important; padding: 0 8px; font-size: 1.1rem; line-height: 1; border-radius: 8px;
+  border: 1px solid var(--borderColor); background: transparent; color: var(--textColor); box-shadow: none !important; cursor: pointer; }
+.rmap #rm-info .rm-asg .ok { background: var(--primaryColor); border-color: var(--primaryColor); color: #fff; }
+.rmap #rm-info .rm-asg [hidden] { display: none !important; }
+.rmap #rm-info .rm-asg .rm-asgMsg { font-size: .85rem; color: var(--mutedText); }`;
 function injectCss() {
   if (document.getElementById("rmap-css")) return;
   const st = document.createElement("style"); st.id = "rmap-css"; st.textContent = CSS; document.head.appendChild(st);
@@ -157,9 +166,31 @@ const TEMPLATE = `<div class="app-shell">
         <input type="range" id="rm-slx" class="rm-sl rm-slx" min="0" max="1000" value="0" aria-label="Move the map left or right" hidden />
         <input type="range" id="rm-sly" class="rm-sl rm-sly" min="0" max="1000" value="0" aria-label="Move the map up or down" hidden /></div>
       <div class="legend" id="rm-legend"></div>
-      <div class="muted hint">Pinch, or Shift + scroll, to zoom · one finger scrolls the page; to move the map: hold half a second on empty floor then drag, two fingers, the edge sliders, or a mouse drag · tap a sensor or cabinet for its photos · hold one ~half a second, then drag, to move it · double-tap to reset the view, triple-tap to rotate · &#8630; (or Ctrl+Z on the map) puts the last moved sensor or cabinet back, &#8631; (Ctrl+Shift+Z / Ctrl+Y) moves it again.</div>
+      <div class="muted hint">Pinch, or Shift + scroll, to zoom · one finger scrolls the page; to move the map: hold half a second on empty floor then drag, two fingers, the edge sliders, or a mouse drag · tap a sensor or cabinet for its photos · hold one ~half a second, then drag, to move it · double-tap to reset the view, triple-tap to rotate · &#8630; (or Ctrl+Z on the map) puts the last moved sensor or cabinet (or its IDF / zone / switch pick) back, &#8631; (Ctrl+Shift+Z / Ctrl+Y) moves it again.</div>
       <div class="card" id="rm-info"><span class="muted">Tap a sensor to see its details.</span></div>
     </div>`;
+
+// ---- ASSIGN HELPERS (pure) ---- the sensor card's IDF / zone / switch / port selectors (L 2026-10-07). A sensor's own
+// value lives on its row (idf, zone, sw, port); absent = the site plan's value. Values: idf = 1..n or "MDF",
+// zone / port = a number, sw = a number, "new" (a switch still needed) or a name.
+const idfVal = v => { if (v == null) return null; const t = String(v).trim(); if (!t) return null; if (/^mdf$/i.test(t)) return "MDF";
+  const m = t.match(/^(?:idf\s*)?(\d{1,3})$/i); return m && Number(m[1]) > 0 ? Number(m[1]) : null; };
+const numVal = v => { if (v == null || String(v).trim() === "") return null; const n = Number(String(v).trim().replace(/^#/, "")); return Number.isInteger(n) && n > 0 ? n : null; };
+const swVal = v => { if (v == null) return null; const t = String(v).trim().replace(/^#\s*/, ""); if (!t) return null;
+  return /^\d+$/.test(t) ? (Number(t) || null) : /^new$/i.test(t) ? "new" : t.slice(0, 20); };
+const idfName = v => v === "MDF" ? "MDF" : "IDF " + v;
+const swName = v => v === "new" ? "new (needed)" : /^\d+$/.test(String(v)) ? "#" + v : String(v);
+const sameVal = (a, b) => a != null && b != null && String(a) === String(b);
+/** a pick-list: the stored/base values, then anything in use that the list lacks - each once, in order */
+function optList(...lists) { const out = [], seen = new Set();
+  for (const l of lists) for (const v of l || []) { if (v == null || v === "") continue; const k = String(v); if (!seen.has(k)) { seen.add(k); out.push(v); } }
+  return out; }
+/** a new switch for an IDF: fills the first "new" placeholder (the 3rd switch that was still needed), else goes on the end */
+function addSwitch(list, v) { const l = [...(list || [])]; if (l.some(x => sameVal(x, v))) return l;
+  const i = l.findIndex(x => x === "new"); if (i >= 0 && v !== "new") l[i] = v; else l.push(v); return l; }
+/** what a pick writes on the row: the plan's own value = null (the row follows the plan again) */
+const storeVal = (picked, plan) => picked == null || sameVal(picked, plan) ? null : picked;
+// ---- end ASSIGN HELPERS ----
 
 export function mountRadarMap(root, opts = {}) {
     injectCss(); root.classList.add("rmap"); root.innerHTML = TEMPLATE;
@@ -192,6 +223,8 @@ export function mountRadarMap(root, opts = {}) {
     // kept on this device per job (localStorage) so a reload still offers one undo.
     let RAW = {}, dragSnap = null, UNDO = [], REDO = [], undoBusy = false, toastT = 0;
     const UNDO_MAX = 20, UNDO_KEEP = 5, MOVE_KEYS = ["m1", "m2", "pos", "posAt", "updatedAt"];
+    // a selector change is undoable the same way (kind "assign"): its before/after = these row fields (null = absent)
+    const ASSIGN_KEYS = ["idf", "zone", "sw", "port", "updatedAt"], ASSIGN_CMP = ["idf", "zone", "sw", "port"];
     function renderHubs() {
       $("hubs").innerHTML = '<span class="muted">Photos:</span>' + HUBS.map(h => { const n = (HUBPH[h] || []).length,
         c = h === "MDF" ? "#475569" : (IDF_COL[h.slice(3)] || "#64748b");
@@ -200,11 +233,22 @@ export function mountRadarMap(root, opts = {}) {
 
     function assignSwitches() {   // balanced split by sensor # inside each IDF (same as the port-plan CSV)
       for (const [idf, sws] of Object.entries(SWITCHES)) {
-        const rs = S.filter(s => s.idf === Number(idf)).sort((a, b) => a.m - b.m), k = sws.length;
+        const rs = S.filter(s => String(s.idf) === String(idf)).sort((a, b) => a.m - b.m), k = sws.length; if (!k) continue;
         let i = 0;
         sws.forEach((sw, j) => { const size = Math.floor(rs.length / k) + (j < rs.length % k ? 1 : 0);
           rs.slice(i, i + size).forEach((s, p) => { s.sw = sw; s.port = p + 1; }); i += size; });
       }
+    }
+    // EVERY sensor's IDF / zone / switch / port: the plan (siteTables), then its own row values on top (the card's selectors).
+    // The planned switch split follows the sensor's IDF as it is now. Re-run after any change (here, live, undo).
+    function assignAll() {
+      for (const s of S) { const r = RAW[s.m] || {};
+        s.planIdf = idfOf(TABLES, s.m); s.planZone = zoneOf(TABLES, s.m);
+        s.idf = idfVal(r.idf) ?? s.planIdf; s.zone = numVal(r.zone) ?? s.planZone; s.sw = s.port = null; s.wx = s.wy = null; }
+      if (TABLES) assignSwitches();
+      for (const s of S) { const r = RAW[s.m] || {}; s.planSw = s.sw; s.planPort = s.port;
+        const w = swVal(r.sw), p = numVal(r.port); if (w != null) s.sw = w; if (p != null) s.port = p; }
+      if (TABLES) wiringLayout();
     }
 
     async function load(user) {
@@ -221,10 +265,10 @@ export function mountRadarMap(root, opts = {}) {
       RAW = rawOf(meta);
       TABLES = tablesFor(task, TASK); SWITCHES = TABLES ? TABLES.switches : {};
       if (!TABLES && layout === "wiring") { layout = "floor"; root.querySelectorAll("#rm-views button").forEach(x => x.classList.toggle("on", x.dataset.v === "floor")); }
-      S = sensorRows(meta).map(s => ({ ...s, plan: [s.x, s.y], idf: idfOf(TABLES, s.m), zone: zoneOf(TABLES, s.m), photos: 0, items: [] }))
+      S = sensorRows(meta).map(s => ({ ...s, plan: [s.x, s.y], idf: null, zone: null, photos: 0, items: [] }))
         .filter(s => (s.x != null && s.y != null) || s.pos);   // a sensor placed on the drawing shows even without readable m1/m2
       S.forEach(s => { if (s.pos) { s.x = s.pos.x; s.y = s.pos.y; } });   // hold-to-move override (as built) wins over the plan
-      if (TABLES) { assignSwitches(); wiringLayout(); }
+      assignAll();
       OWNER = owner; TASKREC = task; loadUndo();
       // older jobs (Old Navy) measured each sensor off a building grid line ("J - 47' 8\"") - without the grid's own
       // positions the dots are offsets, not a true floor layout; say so instead of pretending (L 2026-10-05)
@@ -273,7 +317,7 @@ export function mountRadarMap(root, opts = {}) {
       for (const r of sensorRows(meta)) { const s = S.find(x => x.m === r.m); if (!s) continue; n++;
         Object.assign(s, { serial: r.serial, labeledAt: r.labeledAt, runDoneAt: r.runDoneAt, updatedAt: r.updatedAt, pos: r.pos, plan: [r.x, r.y] });
         s.x = r.pos ? r.pos.x : r.x; s.y = r.pos ? r.pos.y : r.y; }
-      if (!n) return; renderStats(); draw(); if (sel >= 0) show(sel); else if (selHub) showHub(selHub);
+      if (!n) return; assignAll(); legend(); renderStats(); draw(); if (sel >= 0) show(sel); else if (selHub) showHub(selHub);
     }
     function renderStats() {
       const lab = S.filter(s => s.labeledAt).length, ph2 = S.filter(s => s.photos >= 4).length, ph0 = S.filter(s => !s.photos).length,
@@ -287,9 +331,9 @@ export function mountRadarMap(root, opts = {}) {
     // ---------- drawing ----------
     const cv = $("map"), cx = cv.getContext("2d");
     const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-    const IDF_COL = { 1: "#e8742c", 2: "#3b82f6", 3: "#22c55e", 4: "#eab308", 5: "#a855f7", 6: "#ec4899" };
+    const IDF_COL = { 1: "#e8742c", 2: "#3b82f6", 3: "#22c55e", 4: "#eab308", 5: "#a855f7", 6: "#ec4899" }, MDF_COL = "#475569";
     function colorOf(s) {
-      if (mode === "idf") return IDF_COL[s.idf] || "#94a3b8";
+      if (mode === "idf") return IDF_COL[s.idf] || (s.idf === "MDF" ? MDF_COL : "#94a3b8");
       if (mode === "photos") return s.photos >= 4 ? "#22c55e" : s.photos ? "#f59e0b" : "#ef4444";
       if (mode === "labeled") return s.labeledAt ? "#22c55e" : "#ef4444";
       if (mode === "height") { const t = Math.max(0, Math.min(1, ((s.z ?? 12) - 7) / 10)); return `hsl(${220 - t * 200},75%,55%)`; }
@@ -298,7 +342,8 @@ export function mountRadarMap(root, opts = {}) {
     }
     function legend() {
       const L = {
-        idf: Object.entries(IDF_COL).map(([k, c]) => [c, "IDF " + k]),
+        idf: [...Object.entries(IDF_COL).map(([k, c]) => [c, "IDF " + k]), ...(S.some(s => s.idf === "MDF") ? [[MDF_COL, "MDF"]] : []),
+          ...optList(S.map(s => s.idf).filter(v => v != null && v !== "MDF" && !IDF_COL[v])).map(v => ["#94a3b8", idfName(v)])],
         photos: [["#22c55e", "all 4 photos"], ["#f59e0b", "1-3 photos"], ["#ef4444", "none"]],
         labeled: [["#22c55e", "labeled"], ["#ef4444", "not yet"]],
         height: [["hsl(220,75%,55%)", "7 ft"], ["hsl(120,75%,55%)", "12 ft"], ["hsl(20,75%,55%)", "17 ft"]],
@@ -311,17 +356,18 @@ export function mountRadarMap(root, opts = {}) {
     // WIRING view: MDF in the middle, the 6 IDFs on a ring, each IDF's switches around it, each switch's sensors
     // around the switch (one dot per port). Units are "feet" like the floor plan so zoom/pan/tap all just work.
     const HUB = {};   // "idf" / "idf-sw" -> [x, y] centres, for the lines and labels
+    const wIdfs = () => Object.keys(SWITCHES).filter(k => /^\d+$/.test(k));   // the ring: numbered IDFs (MDF sits in the middle)
     function wiringLayout() {
       HUB.mdf = [0, 0];
-      const idfs = Object.keys(SWITCHES).map(Number);
+      const idfs = wIdfs().map(Number);
       idfs.forEach((idf, a) => {
         const A = -Math.PI / 2 + a / idfs.length * 2 * Math.PI, ix = 150 * Math.cos(A), iy = 150 * Math.sin(A);
         HUB[idf] = [ix, iy];
-        const sws = SWITCHES[idf];
+        const sws = SWITCHES[idf] || [];
         sws.forEach((sw, b) => {
           const Bn = A + (b - (sws.length - 1) / 2) * 0.95, sx = ix + 52 * Math.cos(Bn), sy = iy + 52 * Math.sin(Bn);
           HUB[idf + "-" + sw] = [sx, sy];
-          const mine = S.filter(t => t.idf === idf && t.sw === sw).sort((p, q) => p.port - q.port);
+          const mine = S.filter(t => t.idf === idf && sameVal(t.sw, sw)).sort((p, q) => (p.port || 0) - (q.port || 0));
           mine.forEach((t, k) => { const C = k / Math.max(1, mine.length) * 2 * Math.PI; t.wx = sx + 17 * Math.cos(C); t.wy = sy + 17 * Math.sin(C); });
         });
       });
@@ -469,10 +515,10 @@ export function mountRadarMap(root, opts = {}) {
     function drawWiring(dpr, r) {
       const fg = css("--textColor") || "#e5e7eb", mut = css("--mutedText") || "#94a3b8";
       cx.lineWidth = 1 * dpr; cx.strokeStyle = "rgba(148,163,184,.28)"; cx.beginPath();
-      for (const s of S) { if (!s.sw) continue; const a = P(s), b = PP(HUB[s.idf + "-" + s.sw]); cx.moveTo(a[0], a[1]); cx.lineTo(b[0], b[1]); }
+      for (const s of S) { const h = s.sw != null && HUB[s.idf + "-" + s.sw]; if (!h) continue; const a = P(s), b = PP(h); cx.moveTo(a[0], a[1]); cx.lineTo(b[0], b[1]); }
       cx.stroke();
       cx.lineWidth = 2.5 * dpr; cx.strokeStyle = "rgba(148,163,184,.45)"; cx.beginPath();
-      for (const idf of Object.keys(SWITCHES)) { const c = PP(HUB[idf]), m = PP(HUB.mdf); cx.moveTo(m[0], m[1]); cx.lineTo(c[0], c[1]);
+      for (const idf of wIdfs()) { const c = PP(HUB[idf]), m = PP(HUB.mdf); cx.moveTo(m[0], m[1]); cx.lineTo(c[0], c[1]);
         for (const sw of SWITCHES[idf]) { const w = PP(HUB[idf + "-" + sw]); cx.moveTo(c[0], c[1]); cx.lineTo(w[0], w[1]); } }
       cx.stroke();
       cx.textAlign = "center";
@@ -484,11 +530,11 @@ export function mountRadarMap(root, opts = {}) {
           cx.fillStyle = "#ffffff"; cx.font = `700 ${10 * dpr}px system-ui, sans-serif`; cx.fillText("\u{1F4F7} " + n, x, y - (rad + 8) * dpr); }
         if (on) { cx.strokeStyle = "#facc15"; cx.lineWidth = 3 * dpr; cx.beginPath(); cx.arc(x, y, (rad + 8) * dpr, 0, 6.283); cx.stroke(); } };
       node(HUB.mdf, 18, "#475569", "MDF"); ring(HUB.mdf, 18, (HUBPH.MDF || []).length, selHub === "MDF");
-      for (const idf of Object.keys(SWITCHES)) {
+      for (const idf of wIdfs()) {
         const rs = S.filter(s => s.idf === Number(idf)), done = rs.filter(s => s.runDoneAt).length;
         node(HUB[idf], 16, IDF_COL[idf] || "#64748b", "IDF " + idf, `${done}/${rs.length} runs`);
         ring(HUB[idf], 16, (HUBPH["IDF" + idf] || []).length, selHub === "IDF" + idf);
-        for (const sw of SWITCHES[idf]) { const n = S.filter(s => s.idf === Number(idf) && s.sw === sw).length;
+        for (const sw of SWITCHES[idf]) { const n = S.filter(s => s.idf === Number(idf) && sameVal(s.sw, sw)).length;
           node(HUB[idf + "-" + sw], 11, sw === "new" ? "#ef4444" : "#334155", sw === "new" ? "new" : "#" + sw, `${n} / 18`); }
       }
       cx.textAlign = "start";
@@ -572,8 +618,7 @@ export function mountRadarMap(root, opts = {}) {
         <b>Serial</b><span>${esc(s.serial) || "-"}</span>
         <b>Position</b><span>X <input name="x" value="${esc(ftIn(s.x))}" form="rm-measure" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="width:7.5em" /> · Y <input name="y" value="${esc(ftIn(s.y))}" form="rm-measure" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="width:7.5em" /></span>
         <b>Height</b><span><input name="z" value="${esc(ftIn(s.z))}" form="rm-measure" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="width:7.5em" /> <button type="submit" form="rm-measure" id="rm-measureSave" class="primary" hidden>Save</button> <span class="muted" id="rm-measureState"></span></span>
-        ${s.idf ? `<b>IDF / zone</b><span>IDF ${s.idf} · zone ${s.zone}</span>` : ""}
-        ${s.sw ? `<b>Switch</b><span>${s.sw === "new" ? "3rd switch needed (not on site yet)" : "#" + s.sw}${s.port ? " · port " + s.port : ""} (planned)</span>` : ""}
+        ${asgRows(s)}
         <b>Run</b><span>${s.runDoneAt ? "complete, " + new Date(s.runDoneAt).toLocaleString() : "not yet"}</span>
         <b>Labeled</b><span>${s.labeledAt ? "yes, " + new Date(s.labeledAt).toLocaleString() : "not yet"}</span>
         <b>Photos</b><span>${s.photos || PHOTOS === "ok" ? `${s.photos} of 4` : PHOTOS === "loading" ? "loading\u2026" : "can't reach Storage on this network"}</span></div>
@@ -592,6 +637,7 @@ export function mountRadarMap(root, opts = {}) {
         $("runBtn").onclick = () => setFlag("runDoneAt", !s.runDoneAt);
         $("labBtn").onclick = () => setFlag("labeledAt", !s.labeledAt);
         if ($("resetPos")) $("resetPos").onclick = () => resetPos(i);
+        wireAsg(i);
         // the boxes ARE the measurements: Save shows once one changes; Enter in a box saves too
         const fm = $("measure"); $("info").oninput = e => { if (e.target.form !== fm) return; $("measureSave").hidden = false; $("measureState").textContent = ""; };   // the boxes sit in the card, not inside the form - their events bubble to the card
         fm.onsubmit = e => { e.preventDefault(); saveMeasure(i, fm); };
@@ -600,6 +646,79 @@ export function mountRadarMap(root, opts = {}) {
       draw();
     }
 
+    // ---------- SELECTORS (L 2026-10-07 "a selector for the IDF, zones, switches and whatnot to change or add things") ----------
+    // One <select> per field on the sensor card. Picking writes the sensor's row through patchSensor (the same save as a move
+    // or a flag); picking the plan's own value clears the field so the row follows the plan again. "+ new..." opens a small
+    // box: the new IDF / zone goes into siteTables/options, a new switch into siteTables/switches/<IDF> (filling a "new"
+    // placeholder first), and the sensor gets it. Changing the IDF clears the switch + port (they belong to the old IDF).
+    const ASG = ["idf", "zone", "sw", "port"], ASG_LABEL = { idf: "IDF", zone: "Zone", sw: "Switch", port: "Port" };
+    const DEF_IDFS = [1, 2, 3, 4, 5, 6, "MDF"];
+    function asgOpts(f, s) {
+      const O = (TABLES && TABLES.options) || {};
+      if (f === "idf") return optList(O.idfs && O.idfs.length ? O.idfs.map(idfVal) : DEF_IDFS, Object.keys(SWITCHES).map(idfVal), S.map(x => x.idf));
+      if (f === "zone") return optList(O.zones && O.zones.length ? O.zones : (TABLES && TABLES.zones.length ? TABLES.zones.map(z => z[2]) : [1, 2, 3, 4, 5]), S.map(x => x.zone))
+        .map(Number).sort((a, b) => a - b);
+      if (f === "sw") return s.idf == null ? [] : optList(SWITCHES[s.idf], [s.sw]);
+      return optList(Array.from({ length: 24 }, (_, k) => k + 1), [s.port]).map(Number).sort((a, b) => a - b);
+    }
+    const asgPlan = (f, s) => f === "idf" ? s.planIdf : f === "zone" ? s.planZone : f === "sw" ? s.planSw : s.planPort;
+    const asgName = (f, v) => f === "idf" ? idfName(v) : f === "sw" ? swName(v) : String(v);
+    function asgRows(s) {
+      return ASG.map(f => { const cur = s[f], plan = asgPlan(f, s), list = asgOpts(f, s);
+        const o = [`<option value=""${cur == null ? " selected" : ""}>\u2014</option>`]
+          .concat(list.map(v => `<option value="${esc(v)}"${sameVal(v, cur) ? " selected" : ""}>${esc(asgName(f, v))}${sameVal(v, plan) ? " \u00b7 plan" : ""}</option>`));
+        if (f !== "sw" || s.idf != null) o.push('<option value="__new">+ new\u2026</option>');
+        return `<b>${ASG_LABEL[f]}</b><span class="rm-asg"><select data-f="${f}" aria-label="${ASG_LABEL[f]}"${RO() ? " disabled" : ""}>${o.join("")}</select>`
+          + `<span class="rm-new" data-f="${f}" hidden><input type="text" ${f === "sw" ? 'inputmode="text"' : 'inputmode="numeric"'} autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="New ${ASG_LABEL[f]}" placeholder="${f === "idf" ? "7 / MDF" : f === "sw" ? "16" : "#"}" />`
+          + `<button type="button" class="ok" aria-label="Add">&#10003;</button><button type="button" class="no" aria-label="Cancel">&#10005;</button></span>`
+          + `<span class="rm-asgMsg" data-f="${f}"></span></span>`; }).join("");
+    }
+    function wireAsg(i) {
+      const s = S[i]; if (!s || RO()) return;
+      for (const f of ASG) {
+        const sel = root.querySelector(`#rm-info select[data-f="${f}"]`), box = root.querySelector(`#rm-info .rm-new[data-f="${f}"]`); if (!sel || !box) continue;
+        const inp = box.querySelector("input"), msg = root.querySelector(`#rm-info .rm-asgMsg[data-f="${f}"]`);
+        const close = () => { box.hidden = true; inp.value = ""; sel.hidden = false; };
+        sel.onchange = () => { msg.textContent = "";
+          if (sel.value === "__new") { sel.hidden = true; box.hidden = false; try { inp.focus(); } catch (_) {} return; }
+          const parse = f === "idf" ? idfVal : f === "sw" ? swVal : numVal;
+          saveAsg(i, f, sel.value === "" ? null : parse(sel.value)); };
+        const add = () => { const parse = f === "idf" ? idfVal : f === "sw" ? swVal : numVal, v = parse(inp.value);
+          if (v == null) { msg.textContent = f === "idf" ? "a number, or MDF" : f === "sw" ? "a switch #" : "a number"; try { inp.focus(); } catch (_) {} return; }
+          msg.textContent = ""; addAsg(i, f, v); };
+        box.querySelector(".ok").onclick = add; box.querySelector(".no").onclick = () => { close(); show(i); };
+        inp.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); add(); } else if (e.key === "Escape") { close(); show(i); } };
+      }
+    }
+    // the plan into Firebase before its first edit: the built-in WM54 table (or no table) lives only in code until then
+    async function ensureTables() {
+      if (TABLES && TABLES.from === "firebase") return;
+      if (TABLES) { const { zones, idf, switches, maxPerSwitch, hubs } = TABLES;
+        await saveSiteTables(OWNER, TASK, { zones, idf, switches, maxPerSwitch, ...(hubs ? { hubs } : {}) }); TABLES.from = "firebase"; return; }
+      TABLES = { zones: [], idf: "", switches: {}, maxPerSwitch: 18, hubs: null, options: {}, from: "firebase" }; SWITCHES = TABLES.switches;
+    }
+    async function addAsg(i, f, v) {   // "+ new": into the site's list (not for a port - any number is a port), then onto the sensor
+      const s = S[i]; if (!s || !OWNER || RO()) return; const msg = root.querySelector(`#rm-info .rm-asgMsg[data-f="${f}"]`);
+      try {
+        if (f !== "port") await ensureTables();
+        if (f === "idf" || f === "zone") { const key = f === "idf" ? "idfs" : "zones", list = optList(asgOpts(f, s), [v]);
+          await saveSiteOptions(OWNER, TASK, { [key]: list }); TABLES.options = { ...(TABLES.options || {}), [key]: list }; }
+        if (f === "sw") { const k = String(s.idf), list = addSwitch(SWITCHES[k], v);
+          await saveSiteSwitches(OWNER, TASK, k, list); SWITCHES[k] = list; assignAll(); }
+      } catch (e) { if (msg) msg.textContent = "not saved: " + (e.code || e.message || e); return; }
+      await saveAsg(i, f, v);
+    }
+    const asgSnap = m => { const r = RAW[m] || {}, o = {}; for (const k of ASSIGN_KEYS) o[k] = r[k] === undefined ? null : r[k]; return o; };
+    async function saveAsg(i, f, v) {
+      const s = S[i]; if (!s || !OWNER || RO()) return; const msg = root.querySelector(`#rm-info .rm-asgMsg[data-f="${f}"]`);
+      const prev = asgSnap(s.m), fields = { [f]: storeVal(v, asgPlan(f, s)), updatedAt: Date.now() };
+      if (f === "idf") { fields.sw = null; fields.port = null; }   // the old IDF's switch + port do not carry over
+      if (msg) msg.textContent = "saving\u2026";
+      try { await writeSpot("assign", s.m, { ...prev, ...fields }); }
+      catch (e) { if (msg) msg.textContent = "not saved: " + (e.code || e.message || e); return; }
+      pushUndo({ kind: "assign", id: s.m, prev }, asgSnap(s.m));
+      legend(); renderStats(); draw(); if (sel === i) show(i);
+    }
     function hubAt(mx, my) {   // which cabinet marker is under the finger, in either view
       for (const h of HUBS) { let pt = null;
         if (layout === "wiring") pt = h === "MDF" ? HUB.mdf : HUB[h.slice(3)]; else { const xy = hubXY(h); pt = xy ? rotXY(xy[0], xy[1]) : null; }
@@ -637,8 +756,8 @@ export function mountRadarMap(root, opts = {}) {
         for (const k of MOVE_KEYS) prev[k] = r[k] === undefined ? null : r[k]; return { kind: "sensor", id: s.m, prev }; }
       const xy = hubXY(t.h); return xy ? { kind: "hub", id: t.h, prev: [xy[0], xy[1]] } : null;
     }
-    const undoName = u => u.kind === "sensor" ? `sensor ${u.id}` : hubLabel(u.id);
-    const sameMove = (u, after) => u.kind === "sensor"
+    const undoName = u => u.kind === "hub" ? hubLabel(u.id) : `sensor ${u.id}`;
+    const sameMove = (u, after) => u.kind === "assign" ? !ASSIGN_CMP.some(k => String(u.prev[k] ?? "") !== String(after[k] ?? "")) : u.kind === "sensor"
       ? (u.prev.m1 ?? "") === after.m1 && (u.prev.m2 ?? "") === after.m2 && u.prev.pos == null && u.prev.posAt == null
       : u.prev[0] === after[0] && u.prev[1] === after[1];
     // REDO (L 2026-10-07 "And a redo"): an entry is {kind, id, owner, task, prev, after}; Undo writes prev and puts the
@@ -646,9 +765,10 @@ export function mountRadarMap(root, opts = {}) {
     // values IT replaced back on UNDO. A new move clears REDO (a new branch). Both stacks: last 5 per job on this device.
     function curOf(kind, id) {   // the spot right now, in an entry's shape (sensor: every MOVE_KEYS field, null = absent)
       if (kind === "sensor") { const r = RAW[id] || {}, o = {}; for (const k of MOVE_KEYS) o[k] = r[k] === undefined ? null : r[k]; return o; }
+      if (kind === "assign") return asgSnap(id);
       const xy = hubXY(id); return xy ? [xy[0], xy[1]] : null;
     }
-    const differs = (kind, cur, exp) => kind === "sensor"
+    const differs = (kind, cur, exp) => kind === "assign" ? ASSIGN_CMP.some(k => String((cur || {})[k] ?? "") !== String(exp[k] ?? "")) : kind === "sensor"
       ? (cur && cur.m1 != null ? cur.m1 : "") !== (exp.m1 ?? "") || (cur && cur.m2 != null ? cur.m2 : "") !== (exp.m2 ?? "")
       : !cur || cur[0] !== exp[0] || cur[1] !== exp[1];
     function pushUndo(snap, after) {
@@ -662,18 +782,24 @@ export function mountRadarMap(root, opts = {}) {
       localStorage.setItem(histKey("redo"), JSON.stringify(REDO.slice(-UNDO_KEEP))); } catch (_) {} }
     function loadUndo() {
       const rd = w => { let a = []; try { a = JSON.parse(localStorage.getItem(histKey(w))) || []; } catch (_) {}
-        return Array.isArray(a) ? a.filter(u => u && u.owner === OWNER && u.task === TASK && (u.kind === "sensor" || u.kind === "hub") && u.prev && u.after) : []; };
+        return Array.isArray(a) ? a.filter(u => u && u.owner === OWNER && u.task === TASK && (u.kind === "sensor" || u.kind === "hub" || u.kind === "assign") && u.prev && u.after) : []; };
       UNDO = rd("undo"); REDO = rd("redo"); renderUndo();
     }
     function renderUndo() {   // icon-only buttons; the words live in title + aria-label; hidden when there is nothing to step
       for (const [id, st, w] of [["undo", UNDO, "Undo"], ["redo", REDO, "Redo"]]) {
         const b = $(id); if (!b) continue; const u = st[st.length - 1];
         b.hidden = !u || RO(); b.disabled = undoBusy;
-        const t = u ? `${w}: ${undoName(u)} move` : `${w} the last move`; b.title = t; b.setAttribute("aria-label", t);
+        const t = u ? `${w}: ${undoName(u)} ${u.kind === "assign" ? "IDF / zone / switch change" : "move"}` : `${w} the last move`; b.title = t; b.setAttribute("aria-label", t);
       }
     }
     function undoToast(t) { const el = $("undoState"); if (!el) return; el.textContent = t; clearTimeout(toastT); toastT = setTimeout(() => { el.textContent = ""; }, 5000); }
     async function writeSpot(kind, id, v) {   // the SAME two save calls a move uses, then the local copy to match
+      if (kind === "assign") {   // a selector change: the row's idf / zone / sw / port (+ updatedAt), then re-plan everyone
+        const f = {}; for (const k of ASSIGN_KEYS) f[k] = v[k] === undefined ? null : v[k];
+        await patchSensor(OWNER, TASK, id, f);
+        const r0 = { ...(RAW[id] || {}) }; for (const [k, x] of Object.entries(f)) { if (x == null) delete r0[k]; else r0[k] = x; } RAW[id] = r0;
+        assignAll(); legend(); return;
+      }
       if (kind === "sensor") {
         const f = {}; for (const k of MOVE_KEYS) f[k] = v[k] === undefined ? null : v[k];
         await patchSensor(OWNER, TASK, id, f);
@@ -700,7 +826,10 @@ export function mountRadarMap(root, opts = {}) {
         const was = cur || expect, to = redo ? UNDO : REDO;   // the values this step replaced: step back to them from the other side
         to.push({ kind: u.kind, id: u.id, owner: OWNER, task: TASK, at: Date.now(), prev: redo ? was : want, after: redo ? want : was });
         if (to.length > UNDO_MAX) to.splice(0, to.length - UNDO_MAX);
-        saveUndo(); undoToast(redo ? `\u21b7 ${undoName(u)} is back where you moved it.` : `\u21b6 ${undoName(u)} is back where it was.`);
+        if (u.kind === "assign") { const s = S.find(x => x.m === u.id);
+          undoToast(`${redo ? "\u21b7" : "\u21b6"} ${undoName(u)}: ${s ? [s.idf != null ? idfName(s.idf) : "", s.zone != null ? "zone " + s.zone : "", s.sw != null ? swName(s.sw) : "", s.port != null ? "port " + s.port : ""].filter(Boolean).join(" \u00b7 ") : "back"}`); }
+        else undoToast(redo ? `\u21b7 ${undoName(u)} is back where you moved it.` : `\u21b6 ${undoName(u)} is back where it was.`);
+        saveUndo();
         draw(); if (sel >= 0) show(sel); else if (selHub) showHub(selHub);
       } catch (e) { undoToast(`Couldn't ${redo ? "redo" : "undo"}: ` + (e.code || e.message || e)); }
       finally { undoBusy = false; renderUndo(); }

@@ -281,12 +281,15 @@ export const SITE_TABLES = {
 export const siteTables = taskId => SITE_TABLES[String(taskId)] || null;
 /** Firebase hands back {1:..,6:..} as a sparse array; make zones/switches plain again and drop empties. */
 export function normalizeTables(t) {
-  if (!t || typeof t !== "object" || !t.idf) return null;
+  // a plan with no per-mark IDF string still counts once it holds edited lists (options / switches) - the map's selectors (2026-10-07)
+  if (!t || typeof t !== "object" || !(t.idf || t.options || t.switches)) return null;
   const sw = {};
   for (const [k, v] of Object.entries(t.switches || {})) if (v && typeof v === "object") sw[k] = Object.values(v).filter(x => x != null);
   const zones = Object.values(t.zones || {}).filter(z => z && typeof z === "object").map(z => Object.values(z).map(Number));
   const hubs = {}; for (const [k, v] of Object.entries(t.hubs || {})) if (v && typeof v === "object") { const a = Object.values(v).map(Number); if (a.length >= 2 && a.every(Number.isFinite)) hubs[k] = [a[0], a[1]]; }
-  return { zones, idf: String(t.idf), switches: sw, maxPerSwitch: Number(t.maxPerSwitch) || 18, hubs: Object.keys(hubs).length ? hubs : null };
+  const arr = v => Object.values(v || {}).filter(x => x != null && x !== "");
+  const options = { idfs: arr(t.options?.idfs), zones: arr(t.options?.zones).map(Number).filter(Number.isFinite) };
+  return { zones, idf: String(t.idf || ""), switches: sw, maxPerSwitch: Number(t.maxPerSwitch) || 18, hubs: Object.keys(hubs).length ? hubs : null, options };
 }
 /** The plan for a job: the task record's siteTables (Firebase) first, the built-in table as fallback. .from says which. */
 export function tablesFor(task, taskId) {
@@ -299,6 +302,11 @@ export function tablesFor(task, taskId) {
 export const saveHubPos = (owner, taskId, hub, xy) => update(ref(database, `${owner}/tasks/${taskId}/siteTables/hubs`), { [hub]: [Number(xy[0]), Number(xy[1])] });
 /** Save a plan onto the task record (field-level, so nothing else on the task moves). */
 export const saveSiteTables = (owner, taskId, tables) => update(ref(database, `${owner}/tasks/${taskId}`), { siteTables: tables });
+// THE MAP'S SELECTORS (L 2026-10-07 "a selector for the IDF, zones, switches ... to change or add things"): a sensor's own
+// IDF / zone / switch / port live on its Sensors-list row (patchSensor fields idf, zone, sw, port - absent = the plan above).
+// The pick-lists live here: siteTables/options/{idfs, zones} and the per-IDF switch lists siteTables/switches/<idf>.
+export const saveSiteOptions = (owner, taskId, patch) => update(ref(database, `${owner}/tasks/${taskId}/siteTables/options`), patch);
+export const saveSiteSwitches = (owner, taskId, idf, list) => set(ref(database, `${owner}/tasks/${taskId}/siteTables/switches/${idf}`), list);
 export const zoneOf = (tables, m) => tables ? (tables.zones.find(([a, b]) => m >= a && m <= b) || [])[2] ?? null : null;
 export const idfOf = (tables, m) => tables ? Number(tables.idf[m - 1]) || null : null;
 
