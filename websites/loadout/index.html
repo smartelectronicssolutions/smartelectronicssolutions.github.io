@@ -98,6 +98,10 @@
   .empty{color:var(--dim);font-size:.72rem;text-align:center;padding:22px 8px;font-family:var(--mono)}
   .phint{padding:0 16px 14px;font-family:var(--mono);font-size:.64rem;color:var(--dim);text-align:center}
   .detailbar{padding:0 16px 14px}
+  /* container view fits every item in frame; 🎒 toggles the backpack as a right-hand split (L 2026-10-09) */
+  .panel.fit{height:88vh}.panel.fit .cols{flex:1;min-height:0;grid-template-rows:minmax(0,1fr);grid-template-columns:1fr}
+  .panel.fit .cols.split{grid-template-columns:1fr 1fr}.panel.fit .colbox,.panel.fit .cgrid{min-height:0}
+  .panel.fit .cgrid{justify-content:center}#pBag.on{background:rgba(242,165,65,.18);border-color:var(--amber);color:var(--amber)}
   .dcard{display:none;gap:10px;align-items:center;background:var(--slot);border:1px solid var(--edge);border-radius:9px;padding:8px 11px}
   .dcard.show{display:flex}.dcard img{width:44px;height:44px;object-fit:contain;background:#f4f5f6;border-radius:5px}
   .dcard .dn{font-weight:600;color:#eef2f6;font-size:.88rem}.dcard .dm{font-family:var(--mono);font-size:.62rem;text-transform:uppercase;color:var(--muted);margin-top:2px}
@@ -289,8 +293,8 @@
   .iewrap #ie_save{background:var(--amber);color:var(--bg);border:none}.iewrap #ie_del{color:var(--danger);border-color:#4a2a24;flex:0 0 auto;padding:10px 12px}</style>
 </div></div>
 
-<div class="overlay" id="overlay"><div class="panel">
-  <div class="phead"><div class="ic" id="pIc">▤</div><h2 id="pName">—</h2><button class="closeb" id="pDel" title="Delete empty container" style="display:none">🗑</button><button class="closeb" id="closeb">✕</button></div>
+<div class="overlay" id="overlay"><div class="panel fit">
+  <div class="phead"><div class="ic" id="pIc">▤</div><h2 id="pName">—</h2><button class="closeb" id="pDel" title="Delete empty container" style="display:none">🗑</button><button class="closeb" id="pBag" title="Show / hide the backpack" style="display:none">🎒</button><button class="closeb" id="closeb">✕</button></div>
   <div class="cols">
     <div class="colbox"><div class="colhead" id="lHead">CRATE <b id="lCnt">0</b></div><div class="cgrid" id="lGrid"></div></div>
     <div class="colbox"><div class="colhead">BACKPACK <b id="rCnt">0</b></div><div class="cgrid" id="rGrid"></div></div>
@@ -1660,11 +1664,24 @@ function isOpen(){return $("overlay").classList.contains("open")||$("reader").cl
 function openPanelFor(key){if(editMode&&!$("storage").classList.contains("open"))return;openPlace=key;
   $("pName").textContent=key?locMeta(key).label:"Backpack";$("pIc").textContent=key?locMeta(key).icon:"🎒";$("dcard").classList.remove("show");
   {const pr=$("pRen"),pd=$("pDel"),pn=$("pName");if(pr)pr.style.display="none";if(pd)pd.style.display=canDeleteContainer(key)?"":"none";if(pn){pn.contentEditable=key?"true":"false";pn.dataset.loc=key||"";pn.style.borderBottom=key?"1px dashed rgba(242,165,65,.55)":"";pn.style.cursor=key?"text":"";}}
-  document.querySelector(".cols").style.gridTemplateColumns=key?"":"1fr";document.querySelectorAll(".colbox")[0].style.display=key?"":"none";
+  bagLayout();
   $("phint").textContent=key?"Tap an item to move it. Left → backpack (take) · right → crate (stash)":"Your carried items. Walk to a crate to stash them.";
   $("overlay").classList.add("open");renderPanel();}
+let bagSplit=false;try{bagSplit=localStorage.getItem("loadout:bagSplit")==="1";}catch(_){}
+function bagLayout(){const key=openPlace,cb=document.querySelectorAll(".colbox"),cols=document.querySelector(".cols"),b=$("pBag");
+  cols.style.gridTemplateColumns="";cols.classList.toggle("split",!!key&&bagSplit);cb[0].style.display=key?"":"none";cb[1].style.display=(!key||bagSplit)?"":"none";
+  if(b){b.style.display=key?"":"none";b.classList.toggle("on",bagSplit);}requestAnimationFrame(fitGrids);}
+$("pBag").addEventListener("click",()=>{bagSplit=!bagSplit;try{localStorage.setItem("loadout:bagSplit",bagSplit?"1":"0");}catch(_){}bagLayout();});
+// largest square cell that fits ALL items inside the grid's box (capped at 120 px; scroll only below 24 px)
+function fitGrid(g){if(!g||!g.offsetParent)return;const n=g.querySelectorAll(".it").length;g.style.gridTemplateColumns="";g.style.gap="";g.style.padding="";if(!n)return;
+  const solve=(gap,pad)=>{const W=g.clientWidth-2*pad,H=g.clientHeight-2*pad;let best=0;if(W<=0||H<=0)return 0;
+    for(let c=1;c<=n;c++){const r=Math.ceil(n/c),sz=Math.min((W-gap*(c-1))/c,(H-gap*(r-1))/r);if(sz>best)best=sz;}return best;};
+  let gap=6,pad=10,best=solve(gap,pad);if(best<44){gap=3;pad=5;best=solve(gap,pad);g.style.gap=gap+"px";g.style.padding=pad+"px";}   // crowded: tighten the gutters before shrinking items
+  if(best<=0)return;best=Math.max(16,Math.min(120,Math.floor(best)));const c=Math.max(1,Math.min(n,Math.floor((g.clientWidth-2*pad+gap)/(best+gap))));g.style.gridTemplateColumns=`repeat(${c},${best}px)`;}
+function fitGrids(){fitGrid($("lGrid"));fitGrid($("rGrid"));}
+if(window.ResizeObserver){const ro=new ResizeObserver(()=>fitGrids());ro.observe($("lGrid"));ro.observe($("rGrid"));}
 function renderPanel(){const bag=byLoc.bag||[];$("rCnt").textContent=bag.length;fill($("rGrid"),bag,openPlace?"stash":null);
-  if(openPlace){const items=byLoc[openPlace]||[];$("lCnt").textContent=items.length;$("lHead").firstChild.textContent=locMeta(openPlace).label.toUpperCase()+" ";fill($("lGrid"),items,"take");}}
+  if(openPlace){const items=byLoc[openPlace]||[];$("lCnt").textContent=items.length;$("lHead").firstChild.textContent=locMeta(openPlace).label.toUpperCase()+" ";fill($("lGrid"),items,"take");}requestAnimationFrame(fitGrids);}
 function fill(grid,items,mode){grid.innerHTML="";if(!items.length){grid.innerHTML='<div class="empty">— empty —</div>';return;}
   for(const it of items){const d=document.createElement("div");d.className="it";
     d.innerHTML=(it.img?`<img src="${esc(it.img)}" alt="${esc(it.name)}" onerror="imgFail(this)">`:`<div class="empty" style="position:absolute;inset:3px;padding:2px;font-size:.5rem;line-height:1.12;word-break:break-word;overflow:hidden;display:flex;align-items:center;justify-content:center;text-align:center">${esc(it.name)}</div>`)+((it.qty||0)>1?`<span class="qn">${it.qty}</span>`:"")+(mode?`<span class="mv">${mode==="take"?"→":"←"}</span>`:"");
