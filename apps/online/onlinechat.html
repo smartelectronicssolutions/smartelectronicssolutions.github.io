@@ -559,6 +559,7 @@
     <script src="../assets/js/links-aside.js" charset="utf-8" defer></script>
     <script type="module">
         import { auth, database, ref, onValue, push, set, query, limitToLast, remove, get, storage, storageRef, uploadBytes, getDownloadURL, runTransaction, onAuthStateChanged } from '../assets/js/firebase-init.js';
+        import { update, orderByKey, endAt, limitToFirst } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js';
         // onIdTokenChanged is not re-exported by firebase-init.js; pull it from the same pinned SDK build.
         import { onIdTokenChanged } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
         import { onUserReady } from '../assets/js/auth.js';
@@ -770,6 +771,63 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                 /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)|(https?:\/\/[^\s<>"]+)/g,
                 (m, text, mdUrl, bare) => bare ? A(bare, bare) : A(mdUrl, text)
             );
+        }
+
+        // ── Private-chat encryption + 30-day retention (2026-10-09, L: "set the text to 30 days retention and have that
+        //    also use the uid encryption method used with member chat") ──────────────────────────────────────────────────
+        // SAME scheme as the hub's member chat (enc 1): AES-256-GCM, key = PBKDF2(sender uid, salt 'louverse-chat-v1', 150k,
+        // SHA-256); stored {text:<b64 iv+ct>, enc:1, from:<uid>}. Firebase holds blobs, not text. Like member chat it proves the
+        // mechanism, not secrecy (the key is derived from the uid). Only the signed-in Internal chat is encrypted: the Public
+        // room is read by guests (no uid) and by the site-chat bridge that forwards + redacts visitor text on the server.
+        const E2E = { salt: 'louverse-chat-v1', iters: 150000, keys: new Map(), plain: new Map() };
+        function e2eKey(secret) {
+            if (E2E.keys.has(secret)) return E2E.keys.get(secret);
+            const te = new TextEncoder();
+            const p = crypto.subtle.importKey('raw', te.encode(secret), 'PBKDF2', false, ['deriveKey'])
+                .then(base => crypto.subtle.deriveKey({ name: 'PBKDF2', salt: te.encode(E2E.salt), iterations: E2E.iters, hash: 'SHA-256' },
+                    base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']));
+            E2E.keys.set(secret, p); return p;
+        }
+        const e2eB64 = u8 => { let b = ''; for (let i = 0; i < u8.length; i += 0x8000) b += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(b); };
+        async function encText(secret, text) {
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await e2eKey(secret), new TextEncoder().encode(text)));
+            const out = new Uint8Array(12 + ct.length); out.set(iv); out.set(ct, 12); return e2eB64(out);
+        }
+        async function decText(secret, blob) {
+            const raw = Uint8Array.from(atob(blob), c => c.charCodeAt(0));
+            return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: raw.slice(0, 12) }, await e2eKey(secret), raw.slice(12)));
+        }
+        const encryptHere = () => chatMode === 'internal' && !!currentUser;
+        async function sealMsg(msg) {   // what gets written: text locked under the writer's uid in the private chat
+            if (!encryptHere() || !msg.text) return msg;
+            return { ...msg, text: await encText(currentUser.uid, msg.text), enc: 1, from: currentUser.uid };
+        }
+        async function openMsg(key, msg) {   // what gets shown: plain text; a blob that will not open stays the blob
+            if (!msg || !msg.enc || !msg.text) return msg;
+            const ck = key + '|' + msg.text;
+            if (!E2E.plain.has(ck)) { let t; try { t = await decText(String(msg.from || ''), msg.text); } catch (_) { t = msg.text; } E2E.plain.set(ck, t); }
+            return { ...msg, text: E2E.plain.get(ck) };
+        }
+        // RETENTION: anything older than 30 days is removed when the chat opens. Push keys start with their creation time,
+        // so "older than X" = keys below the push-id prefix of X - a key-range read, no index, never the whole node.
+        const RETAIN_DAYS = 30;
+        const PUSH_CHARS = '-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz';
+        function pushPrefix(ms) { let s = ''; for (let i = 0; i < 8; i++) { s = PUSH_CHARS.charAt(ms % 64) + s; ms = Math.floor(ms / 64); } return s; }
+        const pruned = new Set();
+        async function pruneOld(path) {
+            if (pruned.has(path)) return; pruned.add(path);
+            try {
+                const cut = pushPrefix(Date.now() - RETAIN_DAYS * 864e5);
+                for (let round = 0; round < 10; round++) {
+                    const snap = await get(query(ref(database, path), orderByKey(), endAt(cut), limitToFirst(200)));
+                    const old = snap.val(); if (!old) break;
+                    const keys = Object.keys(old).filter(k => k < cut); if (!keys.length) break;
+                    const upd = {}; keys.forEach(k => { upd[k] = null; });
+                    await update(ref(database, path), upd);
+                    if (keys.length < 200) break;
+                }
+            } catch (e) { console.warn('[chat] 30-day cleanup skipped:', e && e.message); }
         }
 
         function getMessagesPath() {
@@ -1070,7 +1128,9 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             };
 
             if (mood) msg.mood = mood;
-            return push(ref(database, getMessagesPath()), msg).key;
+            const r = push(ref(database, getMessagesPath()));
+            sealMsg(msg).then(m => update(r, m)).catch(e => console.error('Send failed', e));
+            return r.key;
         }
 
         function appendMessage(msg, key) {
@@ -1608,11 +1668,12 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             listenerReady = false;
 
             const lastQuery = query(ref(database, getMessagesPath()), limitToLast(chatMode === 'internal' ? 20 : 10));
-            messageUnsubscribe = onValue(lastQuery, snapshot => {
-                const messages = snapshot.val();
-
+            if (chatMode !== 'internal' || currentUser) pruneOld(getMessagesPath());
+            messageUnsubscribe = onValue(lastQuery, async snapshot => {
                 const isHistory = !listenerReady;
                 listenerReady = true;
+                const raw = snapshot.val();
+                const messages = raw ? Object.fromEntries(await Promise.all(Object.entries(raw).map(async ([k, m]) => [k, await openMsg(k, m)]))) : raw;
 
                 if (!messages) { injectGeneratedImages(); injectGeneratedVideos(); return; }
 
@@ -1925,12 +1986,12 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                 historyIndex = -1;
                 historyDraft = '';
             }
-            push(ref(database, getMessagesPath()), {
+            sealMsg({
                 username,
                 text: text || '',
                 imageUrl: imageUrl || null,
                 timestamp: Date.now()
-            }).then(() => {
+            }).then(m => push(ref(database, getMessagesPath()), m)).then(() => {
                 messageInput.value = '';
             }).catch(err => {
                 console.error('Send failed', err);
