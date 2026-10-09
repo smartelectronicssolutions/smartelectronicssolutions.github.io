@@ -17,7 +17,8 @@ export const SPENDING_TAGS = [
   { tag: '🚗', label: 'Auto (parts, repair, rideshare)', children: ['🛻'] },   // 🛻 = DMV/registration; 3 rows ever, so it rolls up rather than holding its own chip
 
   { tag: '🏦', label: 'Bank fees / interest' },
-  { tag: '🔌', label: 'Utilities / electronics' },
+  { tag: '🔌', label: 'Utilities' },
+  { tag: '👾', label: 'Electronics' },                                        // split off 🔌 2026-10-09 (L: "use this for the electronics")
   { tag: '💳', label: 'Subscriptions' },
   { tag: '🏠', label: 'Property A' },                                        // two different properties - never merge
   { tag: '🏡', label: 'Property B' },
@@ -40,7 +41,8 @@ export const SUB_SUGGESTIONS = {
   '🛒': ['groceries', 'household', 'pharmacy'],
   '🚗': ['dmv', 'parts', 'repair', 'rideshare', 'insurance'],
   '🛍': ['clothes', 'personal care', 'travel', 'gifts'],
-  '🔌': ['utilities', 'electronics', 'internet'],
+  '🔌': ['electric', 'internet', 'water'],
+  '👾': ['parts', 'devices', 'accessories', 'networking'],
   '💳': ['subscription', 'software', 'streaming'],
   '🛠': ['materials', 'tools', 'hardware'],
 };
