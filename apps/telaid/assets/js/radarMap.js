@@ -353,25 +353,39 @@ export function mountRadarMap(root, opts = {}) {
       $("legend").innerHTML = L.map(([c, t]) => `<span><i style="background:${c}"></i>${esc(t)}</span>`).join("")
         + '<span><i style="background:transparent;border:2px solid #fff;width:9px;height:9px"></i>white ring = has photos</span>';
     }
-    // WIRING view: MDF in the middle, the 6 IDFs on a ring, each IDF's switches around it, each switch's sensors
+    // WIRING view (star, when the job has no IDF 1 - see CHAIN below): MDF in the middle, the 6 IDFs on a ring, each IDF's switches around it, each switch's sensors
     // around the switch (one dot per port). Units are "feet" like the floor plan so zoom/pan/tap all just work.
     const HUB = {};   // "idf" / "idf-sw" -> [x, y] centres, for the lines and labels
     const wIdfs = () => Object.keys(SWITCHES).filter(k => /^\d+$/.test(k));   // the ring: numbered IDFs (MDF sits in the middle)
+    // CHAIN (L 2026-10-10 "every IDF goes to IDF 1 and then 1 to MDF"): with an IDF 1 on the job the backbone is
+    // MDF -> IDF 1 -> each other IDF, laid out left to right: MDF, IDF 1, the rest on an arc to the right of IDF 1.
+    // IDF 1's own switches sit above / below it (the gaps between the MDF line and the arc). No IDF 1 = the old star.
+    const wChain = () => wIdfs().includes("1");
     function wiringLayout() {
-      HUB.mdf = [0, 0];
-      const idfs = wIdfs().map(Number);
-      idfs.forEach((idf, a) => {
-        const A = -Math.PI / 2 + a / idfs.length * 2 * Math.PI, ix = 150 * Math.cos(A), iy = 150 * Math.sin(A);
+      const idfs = wIdfs().map(Number), chain = wChain();
+      const place = (idf, ix, iy, swAng) => {
         HUB[idf] = [ix, iy];
         const sws = SWITCHES[idf] || [];
         sws.forEach((sw, b) => {
-          const Bn = A + (b - (sws.length - 1) / 2) * 0.95, sx = ix + 52 * Math.cos(Bn), sy = iy + 52 * Math.sin(Bn);
+          const Bn = swAng(b, sws.length), sx = ix + 52 * Math.cos(Bn), sy = iy + 52 * Math.sin(Bn);
           HUB[idf + "-" + sw] = [sx, sy];
           const mine = S.filter(t => t.idf === idf && sameVal(t.sw, sw)).sort((p, q) => (p.port || 0) - (q.port || 0));
           mine.forEach((t, k) => { const C = k / Math.max(1, mine.length) * 2 * Math.PI; t.wx = sx + 17 * Math.cos(C); t.wy = sy + 17 * Math.sin(C); });
         });
-      });
-      S.forEach(t => { if (t.wx == null) { t.wx = 0; t.wy = -20; } });
+      };
+      const fan = A => (b, n) => A + (b - (n - 1) / 2) * 0.95;   // a switch fan pointing away along A
+      if (chain) {
+        HUB.mdf = [-190, 0];
+        place(1, 0, 0, (b, n) => { const up = b % 2 === 0, k = Math.floor(b / 2), m = up ? Math.ceil(n / 2) : Math.floor(n / 2);
+          return (up ? -1 : 1) * (Math.PI * 0.72) + (k - (m - 1) / 2) * 0.7 * (up ? 1 : -1); });   // above + below IDF 1
+        const rest = idfs.filter(i => i !== 1), span = Math.PI * 0.9;
+        rest.forEach((idf, a) => { const A = rest.length > 1 ? -span / 2 + a / (rest.length - 1) * span : 0;
+          place(idf, 170 * Math.cos(A), 170 * Math.sin(A), fan(A)); });
+      } else {
+        HUB.mdf = [0, 0];
+        idfs.forEach((idf, a) => { const A = -Math.PI / 2 + a / idfs.length * 2 * Math.PI; place(idf, 150 * Math.cos(A), 150 * Math.sin(A), fan(A)); });
+      }
+      S.forEach(t => { if (t.wx == null) { t.wx = HUB.mdf[0]; t.wy = HUB.mdf[1] - 20; } });
     }
     // ROTATE (L 2026-10-02 "can the map rotate?"): the floor plan turns in 90-degree steps so the store's long side can
     // match the phone. Only the drawing turns - the card still shows the real plan X/Y. Remembered on this device.
@@ -385,6 +399,7 @@ export function mountRadarMap(root, opts = {}) {
     let B = null;
     const cvw = mountCanvasView(cv, {
       world: () => { if (!S.length) return (B = null); const xs = S.map(X), ys = S.map(Y);
+        if (layout === "wiring" && HUB.mdf) { xs.push(HUB.mdf[0] - 20, HUB.mdf[0] + 20); ys.push(HUB.mdf[1] - 20, HUB.mdf[1] + 20); }   // the MDF has no sensors - keep it in frame
         return (B = { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) }); },
       flipY: true, pad: 24, minZoom: 0.7, maxZoom: 30, sliders: { x: $("slx"), y: $("sly") }, slVar: "--rm-slh", slExtent: slExt,
       draw: () => draw(),
@@ -518,7 +533,7 @@ export function mountRadarMap(root, opts = {}) {
       for (const s of S) { const h = s.sw != null && HUB[s.idf + "-" + s.sw]; if (!h) continue; const a = P(s), b = PP(h); cx.moveTo(a[0], a[1]); cx.lineTo(b[0], b[1]); }
       cx.stroke();
       cx.lineWidth = 2.5 * dpr; cx.strokeStyle = "rgba(148,163,184,.45)"; cx.beginPath();
-      for (const idf of wIdfs()) { const c = PP(HUB[idf]), m = PP(HUB.mdf); cx.moveTo(m[0], m[1]); cx.lineTo(c[0], c[1]);
+      for (const idf of wIdfs()) { const c = PP(HUB[idf]), m = PP(wChain() && idf !== "1" ? HUB[1] : HUB.mdf); cx.moveTo(m[0], m[1]); cx.lineTo(c[0], c[1]);
         for (const sw of SWITCHES[idf]) { const w = PP(HUB[idf + "-" + sw]); cx.moveTo(c[0], c[1]); cx.lineTo(w[0], w[1]); } }
       cx.stroke();
       cx.textAlign = "center";
