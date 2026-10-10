@@ -86,6 +86,8 @@
       <!-- SHARE (L, 2026-09-26: same format as the origin + a flag): 📤 puts the SAVED note as stored at share/notes/<name>
            with sharedBy/sharedByName (an encrypted note stays encrypted); tap again to unshare. -->
       <small id="share-status" style="display:block;margin:4px 0"></small>
+      <!-- SHOW PUBLIC (L 2026-10-09 "can I see the public notes when logged in, maybe a checkbox that shows/hides them"): signed-in only, remembered per device -->
+      <label id="show-public-wrap" class="auto" hidden title="List the public notes (anyone can see these) along with your own"><input type="checkbox" id="show-public" checked> Show public notes</label>
       <section id="note-list"></section>
       <button id="resizeTextareaBtn">Expand</button>
       <button class="clear-button" id="clear-btn">Clear</button>
@@ -228,7 +230,14 @@
       } catch (e) { console.error('shared view failed:', e); }
     }
 
+    const showPublic = () => { const c = document.getElementById('show-public'); return !c || c.checked; };
+    (() => {
+      const c = document.getElementById('show-public'); if (!c) return;
+      try { c.checked = localStorage.getItem('notes_show_public') !== '0'; } catch (_) {}
+      c.addEventListener('change', () => { try { localStorage.setItem('notes_show_public', c.checked ? '1' : '0'); } catch (_) {} populateNoteList(); });
+    })();
     onAuthStateChanged(auth, (user) => {
+      const spw = document.getElementById('show-public-wrap'); if (spw) spw.hidden = !user;
       DATABASE_BASE_PATH = user ? basePathFor(user) : 'public';
       curScope = user ? 'private' : 'public'; paintScope();
       populateNoteList();
@@ -461,7 +470,7 @@
         const mine = signedIn() ? Object.entries(own || {}).filter(([k, n]) => n && typeof n === 'object' && String(n.name || '').trim()).map(([k, n]) => ({   // only real notes - a folder like public-archive is not one (L 2026-10-05 "a private with no name")
                       ...(mineShared[k] ? { ...n, __mineShared: true } : n), __scope: 'private' })) : [];
         const all = [...mine,
-                     ...Object.values(pub || {}).filter(n => n && n.name).map(n => ({ ...n, __scope: 'public', ...(mineShared[n.name] ? { __mineShared: true } : {}) })),   // a public note I also shared carries the 'shared' tag too (2026-10-04)
+                     ...Object.values((!signedIn() || showPublic()) ? (pub || {}) : {}).filter(n => n && n.name).map(n => ({ ...n, __scope: 'public', ...(mineShared[n.name] ? { __mineShared: true } : {}) })),   // a public note I also shared carries the 'shared' tag too (2026-10-04)
                      // a note I shared and then deleted leaves its shared copy behind - show it to me so I can remove it (L 2026-10-05
                      // "I see two shared by Luis notes but I can't delete them, can't find them on the Luis account")
                      ...Object.entries(mineSharedData || {}).filter(([k, n]) => n && String(n.name || '').trim() && !(own || {})[k] && !(pub || {})[k]).map(([k, n]) => ({ ...n, __scope: 'orphan-share' })),
