@@ -27,24 +27,22 @@
         /* triple-click a card's title = it takes the whole row (its row partner drops below, also full width); again = back */
         .grid-2:has(> .hcard.wide) > .hcard { grid-column: 1 / -1; }
         /* a card that is full width on its own (not in a 2-up row): triple-click = half width */
-        @media (min-width: 861px) { .hcard.half:not(.grid-2 > .hcard) { width: calc(50% - 8px); } }
-        /* TWO HALVES SIDE BY SIDE (2026-10-10, L: "can't seem to put 2 small half cards next to each other"): a half card
-           alone in its section only shrank in place - every section is a full-width block. Now #hub-content is a wrapping
-           flex row: a section holding only half cards takes half the row, so two of them in a row pair up; a section with
-           a half card next to full ones wraps its cards the same way. */
-        #hub-content { flex-wrap: wrap; column-gap: 16px; align-items: flex-start; }
-        #hub-content > * { flex: 0 0 100%; min-width: 0; }
+        /* ONE CARD FLOW (2026-10-10 v2, L: "some are not halfing right... when I shrink it its larger than half I can't put
+           aside another one"). v1 paired half cards only when each sat alone in a section inside #hub-content, so spots
+           above the sign-in line and cards stacked in a shared section never paired. Now <main> is ONE wrapping flex row:
+           the sections, the 2-up rows and #hub-content are display:contents, so every card is a sibling. Full = 100%,
+           a card in a 2-up row or a half card = 50% - so ANY two neighbouring halves sit side by side, anywhere. 16px
+           both ways. Inner .grid-2 blocks inside a card (Site Statistics) are untouched (only main-level ones dissolve). */
+        main { display: flex; flex-wrap: wrap; column-gap: 16px; align-items: stretch; align-content: flex-start; }
+        main > * { flex: 0 0 100%; min-width: 0; }
+        main > section.hub-section, #hub-content > section.hub-section,
+        main > section.hub-section > .grid-2, #hub-content > section.hub-section > .grid-2 { display: contents; }
+        :where(main > section.hub-section, #hub-content > section.hub-section) .hcard { flex: 0 0 100%; min-width: 0; margin-bottom: 16px; width: auto; box-sizing: border-box; }   /* border-box: 50% must INCLUDE the 18px padding + border, or two halves (2x580) overflow the 1100px row - the "larger than half" L saw */   /* :where = zero weight, so the 50% rules below win (an #id here outranked them) */
+        main .hcard .hcard { flex: initial; margin-bottom: 0; }
         @media (min-width: 861px) {
-            #hub-content > .hub-section:has(> .hcard.half):not(:has(> .hcard:not(.half))) { flex: 0 0 calc(50% - 8px); }
-            .hub-section:has(> .hcard.half):not(:has(> .hcard:not(.half))) > .hcard.half { width: auto; }
-            .hub-section:has(> .hcard.half):has(> .hcard:not(.half)) { display: flex; flex-wrap: wrap; column-gap: 16px; align-items: flex-start; }
-            .hub-section:has(> .hcard.half):has(> .hcard:not(.half)) > * { flex: 0 0 100%; min-width: 0; }
-            .hub-section:has(> .hcard.half):has(> .hcard:not(.half)) > .hcard.half { flex: 0 0 calc(50% - 8px); width: auto; }
+            section.hub-section > .grid-2 > .hcard, section.hub-section .hcard.half { flex-basis: calc(50% - 8px); }
+            section.hub-section > .grid-2:has(> .hcard.wide) > .hcard, section.hub-section .hcard.wide:not(.half) { flex-basis: 100%; }
         }
-        /* EVEN SPACING (2026-10-10, L: "margin-bottom 16px, some cards have this one other done"): the section's 16px
-           and the grid gap own the spacing - a card's own 16px only counts between stacked cards, else gaps doubled to 32 */
-        .grid-2 > .hcard, .hub-section > .hcard:last-child { margin-bottom: 0; }
-        .hub-section > .grid-2:not(:last-child) { margin-bottom: 16px; }
         .hcard.swap-target { outline: 2px solid var(--primary, #8b2240); outline-offset: 2px; }
         .hcard h3 {
             font-size: 0.65rem;
@@ -2424,10 +2422,10 @@
 
         // DAEMON UPDATE (2026-10-10). The latest portable daemon lives in Storage (public/kdaemon/, readable without a
         // login, so a mind in another house can fetch it). Bump these three lines + upload the file for each release.
-        const KDAEMON_LATEST = { version: '0.2.7', size: 38209,
-            sha256: 'cc7cbcfe0648651627130bed15cc28fa5b899c73358e30ef88b02d0b94e3b9ee',
-            url: 'https://firebasestorage.googleapis.com/v0/b/persinfo-df93f.appspot.com/o/public%2Fkdaemon%2Fkdaemon-0.2.7.py?alt=media',
-            notes: 'botName (the console shows your own name), and self-reload: from 0.2.7 on, replacing kdaemon.py is the whole update' };
+        const KDAEMON_LATEST = { version: '0.2.9', size: 39354,
+            sha256: '775a78fc65de37c636e772f4743a4fd03035e3b1e9623b837030083a41b30a5d',
+            url: 'https://firebasestorage.googleapis.com/v0/b/persinfo-df93f.appspot.com/o/public%2Fkdaemon%2Fkdaemon-0.2.9.py?alt=media',
+            notes: 'log lines no longer doubled under systemd (0.2.9); a job cut off by a restart is closed with a resend note instead of spinning forever (0.2.8); botName + self-reload (0.2.7)' };
         const _vnum = v => String(v || '').split('.').map(n => parseInt(n, 10) || 0);
         const _volder = (a, b) => { const x = _vnum(a), y = _vnum(b); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) < (y[i] || 0); } return false; };
         function paintKdUpdate(m) {
@@ -4937,7 +4935,7 @@
             // Load hub data from Firebase
             const snap = await get(ref(database, `${user.uid}/hub`));
             document.getElementById('hub-gate').style.display    = 'none';
-            document.getElementById('hub-content').style.display = 'flex';   // flex: half cards pair up (2026-10-10)
+            document.getElementById('hub-content').style.display = 'contents';   // contents: its cards join <main>'s one card flow (2026-10-10 v2)
 
             // DEFAULTS is the owner's homelab map (hosts, commands, service users); a guest with no hub node gets an empty hub, not mine
             const data = snap.exists() ? snap.val() : (user.uid === '7cIh8rrhVNOjjj5CBDgb3IlqzEh2' ? DEFAULTS : {});
