@@ -189,6 +189,7 @@ let pickerMounted = false;
 async function mountAccountPicker(user) {
   if (pickerMounted || !user || user.uid !== MAIN_UID) return;
   if (document.querySelector("[data-shell]") || document.getElementById("telaidAccount")) return;   // Telaid pages: own dropdown
+  if (document.getElementById("dc-console") || document.getElementById("hub-content")) return;   // the hub + the pi-hub console copy: not an app, the picker does nothing there (L 2026-10-11)
   pickerMounted = true;
   let dir = {};
   try { dir = (await get(ref(database, "share/directory"))).val() || {}; } catch (_) {}
