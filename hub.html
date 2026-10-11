@@ -21,6 +21,31 @@
             margin-bottom: 16px;
             overflow: auto;
         }
+        /* CARD REORDER (2026-10-09): hold a card's title ~0.45 s, drag onto another card, let go = they swap */
+        .hcard > h3 { user-select: none; -webkit-touch-callout: none; }
+        .hcard.lift { outline: 2px dashed var(--primary, #8b2240); outline-offset: 2px; opacity: .75; box-shadow: 0 8px 28px rgba(0,0,0,.35); }
+        /* triple-click a card's title = it takes the whole row (its row partner drops below, also full width); again = back */
+        .grid-2:has(> .hcard.wide) > .hcard { grid-column: 1 / -1; }
+        /* a card that is full width on its own (not in a 2-up row): triple-click = half width */
+        @media (min-width: 861px) { .hcard.half:not(.grid-2 > .hcard) { width: calc(50% - 8px); } }
+        /* TWO HALVES SIDE BY SIDE (2026-10-10, L: "can't seem to put 2 small half cards next to each other"): a half card
+           alone in its section only shrank in place - every section is a full-width block. Now #hub-content is a wrapping
+           flex row: a section holding only half cards takes half the row, so two of them in a row pair up; a section with
+           a half card next to full ones wraps its cards the same way. */
+        #hub-content { flex-wrap: wrap; column-gap: 16px; align-items: flex-start; }
+        #hub-content > * { flex: 0 0 100%; min-width: 0; }
+        @media (min-width: 861px) {
+            #hub-content > .hub-section:has(> .hcard.half):not(:has(> .hcard:not(.half))) { flex: 0 0 calc(50% - 8px); }
+            .hub-section:has(> .hcard.half):not(:has(> .hcard:not(.half))) > .hcard.half { width: auto; }
+            .hub-section:has(> .hcard.half):has(> .hcard:not(.half)) { display: flex; flex-wrap: wrap; column-gap: 16px; align-items: flex-start; }
+            .hub-section:has(> .hcard.half):has(> .hcard:not(.half)) > * { flex: 0 0 100%; min-width: 0; }
+            .hub-section:has(> .hcard.half):has(> .hcard:not(.half)) > .hcard.half { flex: 0 0 calc(50% - 8px); width: auto; }
+        }
+        /* EVEN SPACING (2026-10-10, L: "margin-bottom 16px, some cards have this one other done"): the section's 16px
+           and the grid gap own the spacing - a card's own 16px only counts between stacked cards, else gaps doubled to 32 */
+        .grid-2 > .hcard, .hub-section > .hcard:last-child { margin-bottom: 0; }
+        .hub-section > .grid-2:not(:last-child) { margin-bottom: 16px; }
+        .hcard.swap-target { outline: 2px solid var(--primary, #8b2240); outline-offset: 2px; }
         .hcard h3 {
             font-size: 0.65rem;
             text-transform: uppercase;
@@ -411,7 +436,7 @@
                 <div class="grid-2">
                     <div class="hcard">
                         <h3>To-Dos <a href="websites/kh/index.html" target="_blank" style="float:right;font-size:0.72rem;color:steelblue;font-weight:400;text-transform:none;letter-spacing:0;text-decoration:none">open ↗</a></h3>
-                        <div id="ov-todos"><span style="color:var(--muted);font-style:italic">Loading…</span></div>
+                        <div id="ov-todos" style="max-height:230px;overflow-y:auto;overscroll-behavior:contain"><span style="color:var(--muted);font-style:italic">Loading…</span></div>
                     </div>
                     <div class="hcard">
                         <h3>Upcoming Work <a href="apps/online/onlinejob.html" target="_blank" style="float:right;font-size:0.72rem;color:steelblue;font-weight:400;text-transform:none;letter-spacing:0;text-decoration:none">open ↗</a></h3>
@@ -485,8 +510,30 @@
                 </div>
             </section>
 
+            <!-- NETWORK HEALTH (2026-10-10, L: "pi hub and hub should essentially have the same information"): the pi-hub's
+                 vitals + 24 h network-log verdict + alert tail, read from the same /api/watch the House Watch rows use -->
+            <section class="hub-section">
+                <div class="hcard">
+                    <h3>Network Health <a href="http://192.168.50.149:8090/" target="pi-hub" style="float:right;font-size:0.72rem;color:steelblue;font-weight:400;text-transform:none;letter-spacing:0;text-decoration:none">pi-hub ↗</a></h3>
+                    <div id="nh-body"><span style="color:var(--muted);font-style:italic">Loading…</span></div>
+                </div>
+            </section>
+
             <section class="hub-section">
                 <div class="hcard"><h3>Quick Commands</h3><div id="cmd-list"></div></div>
+            </section>
+
+            <!-- LINKS (2026-10-10, L: "onlinelinks - that user specific list that loads of bookmarks"): the signed-in
+                 person's own {uid}/links (same node onlinelinks.html writes), filter + category, tap = open in a new tab -->
+            <section class="hub-section">
+                <div class="hcard">
+                    <h3>Links <a href="apps/online/onlinelinks.html" target="_blank" style="float:right;font-size:0.72rem;color:steelblue;font-weight:400;text-transform:none;letter-spacing:0;text-decoration:none">open ↗</a></h3>
+                    <div style="display:flex;gap:8px;margin-bottom:10px">
+                        <input id="hl-q" type="search" placeholder="Filter…" style="flex:1;min-width:0;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:0.82rem">
+                        <select id="hl-cat" style="max-width:45%;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:0.82rem"><option value="">All</option></select>
+                    </div>
+                    <div id="hl-list" style="display:flex;flex-wrap:wrap;gap:6px;max-height:260px;overflow:auto"><span style="color:var(--muted);font-style:italic">Loading…</span></div>
+                </div>
             </section>
 
             <section class="hub-section">
@@ -603,6 +650,26 @@
                 </div>
             </section>
 
+
+            <!-- HOW THIS HUB WORKS (2026-10-10): the pi-hub has had a card-by-card help since 09-16; the hub had none -->
+            <section class="hub-section">
+                <div class="hcard">
+                    <h3>How this hub works <span class="tiny" id="hub-help-toggle" style="float:right;cursor:pointer;color:steelblue;text-transform:none;letter-spacing:0;font-weight:400">show</span></h3>
+                    <div id="hub-help-body" hidden style="font-size:0.8rem;line-height:1.55;color:var(--text)">
+                        <p><b>Two hubs, one picture.</b> This hub runs on se. The pi-hub runs on the Pi 4 (<a href="http://192.168.50.149:8090/" target="pi-hub" style="color:steelblue">192.168.50.149</a>), a second machine, so it still works when se is down. Anything about the network comes from the pi-hub, read live, so both pages show the same numbers. This hub adds the console, routines, to-dos, work, notes and money.</p>
+                        <p><b>Cards.</b> Hold a card's title and drag it onto another card to swap them. Triple-click a title to switch between full width and half. The layout is saved to your account, so it's the same on every device.</p>
+                        <p><b>Links</b>: your Online Links bookmarks, with a filter and category. <b>Quick Commands</b>: your saved commands. <b>MC Server</b>: status from anywhere; start/stop only on the house wifi.</p>
+                        <p><b>To-Dos / Upcoming Work / Recent Topics / Quick Notes</b>: your lists from kh, onlinejob, the journal and onlinenotes. To-Dos scrolls.</p>
+                        <p><b>Services</b>: up/down for cloud sites, LAN apps, containers, <b>House Watch</b> (the pi-hub's 15-second watchdog) and the AI bridges with Start/Stop.</p>
+                        <p><b>Network Health</b>: the pi-hub's own numbers. Pi temperature, uptime, mode and whether pibot is running. Internet and se up % with latency for the last 24 h. Outage episodes, gaps, and the last alerts (the same lines that go to Telegram).</p>
+                        <p><b>Network</b>: every named device. With the house wifi, each row gets a live dot and uptime % from the pi-hub, plus any device the Pi knows that this list doesn't. Off the LAN it's the saved list only.</p>
+                        <p><b>Internet Data</b>: down/up from the EdgeSwitch's uplink port. The pi-hub keeps its own count of the same port, so the two can be a few MB apart.</p>
+                        <p><b>Claude Usage / Server Drives / Client Info / Microsoft / Credentials</b>: plan usage, se disks, this browser, the OneDrive token and saved logins.</p>
+                        <p><b>Goings-On</b>: mail waiting for Droplet plus open JE Auto Care tickets. "Quiet" = nothing. <b>Tickets / Inventory</b>: the repair shop. <b>Site Statistics</b>: who visited the sites.</p>
+                        <p><b>Only on the pi-hub</b> (LAN): Network Mode (router failover), Wi-Fi, Tor, cameras/NVR, network tools, speed test, the 7-day network log, Power. <b>LAN only</b>: everything that reads the Pi needs the house wifi or Tailscale.</p>
+                    </div>
+                </div>
+            </section>
         </div>
 
     </main>
@@ -755,6 +822,10 @@
         .dc-topics::-webkit-scrollbar { display: none; }
         .dc-topics { cursor: grab; }            /* draggable left/right with the mouse */
         .dc-topics.dragging { cursor: grabbing; }
+        /* REORDER (2026-10-09, L: "tabs movable via long press, drag. Don't make them longer"): the lifted chip only gets a
+           glow + dashed outline - no handle, no extra text, so nothing gets wider. */
+        .dc-topic { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+        .dc-topic.lift { box-shadow: 0 6px 16px -6px var(--dc-purple); outline: 1px dashed var(--dc-purple); outline-offset: 1px; opacity: 0.92; }
         .dc-chat.newest-first .dc-topics { order: 0; }
         .dc-topic { flex: 0 0 auto; border: 1px solid var(--border); background: transparent; color: var(--muted); border-radius: var(--dc-r-pill); padding: 3px 10px; font-size: calc(0.74rem * var(--dc-fs, 1)); cursor: pointer; white-space: nowrap; font-family: inherit; }
         .dc-topic.on { color: var(--dc-purple); border-color: var(--dc-purple); background: color-mix(in srgb, var(--dc-purple) 10%, transparent); font-weight: 600; }
@@ -1224,7 +1295,7 @@
             <!-- PROFILE (L 2026-10-04 "I need a place here to edit my profile info"): the SAME record as the workspace Account card
                  (auth displayName + {uid}/profile). The member module fills #dc-prof; the People pane shows the same form. -->
             <div class="dc-panel" id="dc-prof-panel">
-                <h4 style="font-size:0.62rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin:0 0 8px">Profile <span style="text-transform:none;letter-spacing:0;margin-left:8px;opacity:.7">your account's info · the same record as Workspace › Account</span></h4>
+                <h4 style="font-size:0.62rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin:0 0 8px">Profile <span style="text-transform:none;letter-spacing:0;margin-left:8px;opacity:.7">Account info · same record as Workspace › Account</span></h4>
                 <div id="dc-prof"><span class="meta">loading…</span></div>
             </div>
             <div class="dc-panel" id="dc-look-panel">
@@ -1257,6 +1328,13 @@
             </div>
             <div class="dc-panel" id="dc-rt-panel">
                 <div class="dc-account"><span id="dc-account">signed in as …</span><span id="dc-account-daemon"></span></div>
+                <!-- DAEMON UPDATE (2026-10-10, L: "an update button in the advanced that contains the info needed to have the mind
+                     on that end able to do the daemon update"): kdaemon logins only. The button sends the mind a plain-text
+                     update order (url + sha256 + steps) as a normal message, so it shows in the chat and works on any version. -->
+                <div id="dc-kd-update" class="meta" hidden style="margin:2px 0 12px">
+                    <span id="dc-kd-ver"></span>
+                    <button type="button" class="dc-btn ghost sm" id="dc-kd-update-btn" title="send this console's mind the steps to update its daemon">⬆ Update daemon</button>
+                </div>
                 <div id="dc-rtlist"></div>
                 <!-- 2026-09-16 (L, audit pick A): the New-routine form is gone - routines are system jobs and every one so far
                      was added through Droplet; the personal schedule lives in kh. -->
@@ -1266,7 +1344,7 @@
                  onlinechat uses - bot/name, bot/personality, bot/memory, bot/memory_summary - so Local and onlinechat change
                  together. Every signed-in person sees their own; the consolidate button runs on the ollama proxy (works off-LAN). -->
             <div class="dc-panel" id="dc-bot-panel">
-                <h4 style="font-size:0.62rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin:0 0 8px">Your local bot <span id="dc-bot-hdr" style="text-transform:none;letter-spacing:0;margin-left:8px"></span></h4>
+                <h4 style="font-size:0.62rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin:0 0 8px">Your local bot</h4>
                 <div class="dc-bot">
                     <label>name <input id="dc-bot-name" maxlength="40" placeholder="Local (no name yet)"></label>
                     <label>personality <textarea id="dc-bot-pers" rows="9" placeholder="who she is, tone, speech patterns, rules"></textarea></label>
@@ -1302,9 +1380,15 @@
                      the nightly chat-prune routine on se deletes share/chat messages older than this; 0 = keep forever -->
                 <label class="dc-chk" style="margin-top:10px;display:block" title="the daemon prunes member-chat messages older than this every night (0 = keep forever)">👥 Member chat keeps <input type="number" id="dc-chat-keep" min="0" max="3650" step="1" style="width:5.5em;font:inherit;font-size:16px;margin:0 4px"> days <small style="opacity:.6">(0 = forever · default 90)</small></label>
             </div>
+            <!-- USAGE (L 2026-10-09 "list my average token usage and general using info in the advanced settings area"):
+                 same console/usage node as the Claude Usage card (usage_census.py on se, every ~2 min); renderUsageAdv() fills it -->
+            <div class="dc-panel" id="dc-use-panel">
+                <h4 style="font-size:0.62rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin:0 0 8px">Usage</h4>
+                <div id="dc-use"><span class="meta">loading…</span></div>
+            </div>
             <script>
                 (function () {   // ADVANCED FOLDS (L 2026-10-04 "make the other large areas retractable like Yuki and such"): every panel's heading toggles its body
-                    const panels = [['dc-prof-panel', 'Profile'], ['dc-look-panel', 'Look'], ['dc-rt-panel', 'Routines'], ['dc-bot-panel', 'Your local bot'], ['dc-in-panel', 'Conversation']];
+                    const panels = [['dc-prof-panel', 'Profile'], ['dc-look-panel', 'Look'], ['dc-rt-panel', 'Routines'], ['dc-bot-panel', 'Your local bot'], ['dc-in-panel', 'Conversation'], ['dc-use-panel', 'Usage']];
                     for (const [id, label] of panels) {
                         const p = document.getElementById(id); if (!p) continue;
                         let h = p.querySelector(':scope > h4');
@@ -1373,6 +1457,28 @@
             syncTarget();
         }
         window.__hubGuest = applyGuest;   // test hook
+        // LINKS card (2026-10-10): same parse as onlinelinks.html - rows need a url; categories may be a string or a list
+        let HL = [];
+        function renderHubLinks(data) {
+            HL = Object.values(data).filter(v => v && typeof v.url === 'string' && v.url.trim()).map(v => ({
+                url: v.url.trim(), title: v.title || '',
+                cats: Array.isArray(v.categories) ? v.categories : v.categories ? [v.categories] : [] }));
+            const sel = $('#hl-cat'), keep = sel.value, cats = [...new Set(HL.flatMap(r => r.cats))].sort((a, b) => a.localeCompare(b));
+            sel.innerHTML = '<option value="">All</option>' + cats.map(c => `<option>${esc(c)}</option>`).join('');
+            if (cats.includes(keep)) sel.value = keep;
+            paintHubLinks();
+        }
+        function paintHubLinks() {
+            const q = ($('#hl-q').value || '').trim().toLowerCase(), cat = $('#hl-cat').value;
+            const rows = HL.filter(r => (!cat || r.cats.includes(cat)) &&
+                    (!q || (r.title + ' ' + r.url + ' ' + r.cats.join(' ')).toLowerCase().includes(q)))
+                .sort((a, b) => (a.title || a.url).toLowerCase().localeCompare((b.title || b.url).toLowerCase()));
+            $('#hl-list').innerHTML = rows.length ? rows.map(r =>
+                `<a class="hbtn" href="${/^https?:\/\//i.test(r.url) ? esc(r.url) : '#'}" target="_blank" rel="noopener noreferrer" title="${esc(r.url)}" style="text-decoration:none;padding:5px 12px;font-size:0.78rem;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.title || r.url.replace(/^https?:\/\//i, ''))}</a>`).join('')
+                : `<span style="color:var(--muted);font-style:italic">${HL.length ? 'No matching links' : 'No saved links yet - add some in Online Links'}</span>`;
+        }
+        $('#hl-q').addEventListener('input', paintHubLinks);
+        $('#hl-cat').addEventListener('change', paintHubLinks);
         // DEV GATE REMOVED 2026-09-19 (L: "just show on the hub page all"). The 09-16 toggle hid
         // Firebase Token + Credentials behind a button; the hub now shows every card. Trimming
         // belongs in the console, not here. localStorage 'hub_dev' is simply ignored now.
@@ -1380,6 +1486,8 @@
             if (!u) return;   /* signed out: auth.js fires with null; the console section needs a uid */
             applyGuest(u.uid !== HUB_OWNER_UID);
             DC.uid = u.uid; DC.base = `${u.uid}/console`;
+            wireCardOrder();
+            onValue(ref(database, `${u.uid}/links`), snap => renderHubLinks(snap.val() || {}));   // Links card = this person's onlinelinks
             const acc = $('#dc-account'); if (acc) acc.textContent = 'signed in as ' + (u.email || '(no email)');
             // the Local seat wears the person's bot name when they gave it one (L, 2026-09-25: "if there's a name put
             // that in the dropdown, otherwise call it Local"). Async callback, so TARGET_NAMES is long initialised.
@@ -1755,6 +1863,7 @@
         function renderTopics() {
             const bar = $('#dc-topics'); if (!bar) return;
             if (bar.querySelector('.dc-topic-in')) return;   // a name is being typed - do not rebuild under the keyboard
+            if (DC._tabDrag) return;                         // a tab is being dragged - rebuilding would drop it mid-move
             const turns = Object.values(DC.ownTurns || DC.chatTurns || {}); const counts = {};
             for (const t of turns) if (t && t.topic) counts[t.topic] = (counts[t.topic] || 0) + 1;
             // which tabs are still waiting on a reply - same 30-min cutoff as the send button,
@@ -1767,6 +1876,10 @@
             }
             const names = Array.from(new Set([...Object.values(DC.topicList || {}).map(v => v && v.name).filter(Boolean), ...Object.keys(counts)]));
             if (DC.topic && DC.topic !== FAV_TAB && !names.includes(DC.topic)) names.push(DC.topic);   // (the ★ view is not a topic)
+            {   // L's drag order (topics/{key}/order); tabs never placed keep their old spot after the placed ones
+                const ord = {}; for (const v of Object.values(DC.topicList || {})) if (v && v.name && typeof v.order === 'number') ord[v.name] = v.order;
+                const pos = new Map(names.map((n, i) => [n, i]));
+                names.sort((a, b) => ((a in ord) ? ord[a] : 1e6 + pos.get(a)) - ((b in ord) ? ord[b] : 1e6 + pos.get(b))); }
             DC.topicOrder = ['', ...names, FAV_TAB];   // swipe order = chip order; ★ favorites is the last stop
             const phone = DC.isPhone();
             const ct = document.querySelector('.dc-tab[data-tab="ch"]'); if (ct) { ct.textContent = (phone && DC.topic) ? (DC.topic === FAV_TAB ? FAV_TAB + ' Favorites' : '# ' + DC.topic) : 'Chat'; ct.title = phone ? 'swipe the chat left/right to change topic - tap here to pick or add one' : ''; }
@@ -1778,7 +1891,8 @@
                 if (waiting) b.title = 'a reply is on its way in this tab';
                 b.innerHTML = esc(label) + `<span class="n">${n}</span>`;
                 if (DC._unread && DC._unread[name || ''] && name !== DC.topic) b.classList.add('unread');
-                b.onclick = () => setTopic(name); return b; };
+                if (name && name !== FAV_TAB) b.dataset.name = name;
+                b.onclick = () => { if (DC._tabSwallow) return; setTopic(name); }; return b; };
             bar.appendChild(chip('All', '', turns.length));
             for (const nm of names) { const c = chip('# ' + nm, nm, counts[nm] || 0);
                 // SHARED BY ME (2026-09-28, L: "if a tab is being shared have it show... the outline like the person receiving it"):
@@ -2307,8 +2421,178 @@
             if (sel && was) sel.value = was;
             b.closest('.dc-choices').querySelectorAll('.dc-choice').forEach(x => { x.disabled = true; });
         }, true);
+
+        // DAEMON UPDATE (2026-10-10). The latest portable daemon lives in Storage (public/kdaemon/, readable without a
+        // login, so a mind in another house can fetch it). Bump these three lines + upload the file for each release.
+        const KDAEMON_LATEST = { version: '0.2.7', size: 38209,
+            sha256: 'cc7cbcfe0648651627130bed15cc28fa5b899c73358e30ef88b02d0b94e3b9ee',
+            url: 'https://firebasestorage.googleapis.com/v0/b/persinfo-df93f.appspot.com/o/public%2Fkdaemon%2Fkdaemon-0.2.7.py?alt=media',
+            notes: 'botName (the console shows your own name), and self-reload: from 0.2.7 on, replacing kdaemon.py is the whole update' };
+        const _vnum = v => String(v || '').split('.').map(n => parseInt(n, 10) || 0);
+        const _volder = (a, b) => { const x = _vnum(a), y = _vnum(b); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) < (y[i] || 0); } return false; };
+        function paintKdUpdate(m) {
+            const box = document.getElementById('dc-kd-update'); if (!box) return;
+            if (!m || m.daemonKind !== 'kdaemon') { box.hidden = true; return; }
+            const cur = ((String(m.version || '').match(/kdaemon\s+([\d.]+)/) || [])[1]) || '?';
+            const old = cur === '?' || _volder(cur, KDAEMON_LATEST.version);
+            box.hidden = false;
+            document.getElementById('dc-kd-ver').textContent = `daemon ${cur} · latest ${KDAEMON_LATEST.version}` + (old ? '' : ' · up to date') + (m.updateError ? ' · ⚠ last update did not compile' : '');
+            const b = document.getElementById('dc-kd-update-btn'); b.disabled = !old; b.dataset.cur = cur; b.dataset.self = m.selfReload ? '1' : '';
+        }
+        document.getElementById('dc-kd-update-btn') && document.getElementById('dc-kd-update-btn').addEventListener('click', e => {
+            const b = e.currentTarget, cur = b.dataset.cur || '?', selfReload = !!b.dataset.self, L = KDAEMON_LATEST;
+            const name = DC.instName || 'Droplet';
+            const text = [
+                `[Daemon update - sent by the hub's Update button] ${name}, please update the console daemon on your machine from kdaemon ${cur} to kdaemon ${L.version}.`,
+                ``,
+                `1. Find the daemon's folder: the one holding kdaemon.py and kdaemon.json (the daemon that delivered this message).`,
+                `2. Download the new file into that folder as kdaemon.py.new:`,
+                `   ${L.url}`,
+                `   (Linux/macOS: curl -L -o kdaemon.py.new "<url>"   Windows PowerShell: Invoke-WebRequest "<url>" -OutFile kdaemon.py.new)`,
+                `3. Check it: SHA-256 must be ${L.sha256} and the size ${L.size} bytes. If either differs, STOP and tell me - do not install it.`,
+                `4. Back up the current file as kdaemon.py.bak-${cur}, then put kdaemon.py.new in place as kdaemon.py.`,
+                `5. In kdaemon.json, if there is no "botName", add "botName": "${name === 'Droplet' ? '<your own name>' : name}".`,
+                `6. Restart: ` + (selfReload
+                    ? `your daemon reloads itself a few seconds after the file changes - nothing to do.`
+                    : `this one time the daemon needs a restart AFTER you reply (from ${L.version} on it reloads itself). Do NOT stop the daemon yourself - it is the process carrying your reply. Tell me the exact restart step for this machine (Windows: install.ps1 -StartOnly, or restart the "Droplet-Console-Daemon" task; Linux: restart its systemd service).`),
+                `7. Reply with: old version, new version, the SHA-256 check result, and whether a restart is still needed.`,
+                ``,
+                `What's new in ${L.version}: ${L.notes}.`].join('\n');
+            const ta = $('#dc-chat-in'); if (!ta) return;
+            const sel = $('#dc-chat-target'); if (sel) sel.value = 'droplet';
+            ta.value = text; sendChat();
+        });
         window.__dcRenderChat = renderChat;   // test hook
         window.__dcRenderTopics = () => { try { renderTopics(); } catch (_) {} };
+        /* HUB CARD REORDER (2026-10-09, L: "can I make the cards rearrangeable in the hub?"). Hold a card's TITLE ~0.45 s
+           (finger or mouse, without moving) -> the card lifts; drag it over another card and let go -> the two SWAP places.
+           Swapping keeps the page's rows/columns as they are (a half-width spot stays half-width). Every card's spot is
+           marked once with a hidden <i class="hslot">; the order = card titles per slot, saved to {uid}/console/hubCards
+           (same order on every device) and mirrored in localStorage so it paints before Firebase answers. The console
+           (#dc-console) is not a card and never moves. Reset = window.__hubCardOrder.reset() (or ask Droplet). */
+        let cardOrderWired = false;
+        function wireCardOrder() {
+            if (cardOrderWired) return; cardOrderWired = true;
+            const keyOf = c => { const h = c.querySelector(':scope > h3'); return h ? (h.childNodes[0].textContent || '').trim() : ''; };
+            const cards = [...document.querySelectorAll('.hcard')].filter(c => !c.closest('#dc-console') && keyOf(c));
+            if (cards.length < 2) return;
+            const slots = cards.map(c => { const i = document.createElement('i'); i.className = 'hslot'; i.hidden = true; c.before(i); return i; });
+            const byKey = new Map(cards.map(c => [keyOf(c), c])), base = cards.map(keyOf);
+            let order = base.slice(), wide = new Set(), half = new Set();
+            const paintWide = () => cards.forEach(c => { c.classList.toggle('wide', wide.has(keyOf(c))); c.classList.toggle('half', half.has(keyOf(c))); });
+            const apply = saved => {
+                if (!Array.isArray(saved)) return;
+                const seen = new Set(), next = [];
+                saved.forEach(k => { if (byKey.has(k) && !seen.has(k)) { seen.add(k); next.push(k); } });
+                base.forEach(k => { if (!seen.has(k)) next.push(k); });   // cards added since the save keep their home spot at the end
+                order = next.slice(0, slots.length);
+                order.forEach((k, i) => slots[i].after(byKey.get(k)));
+                window.dispatchEvent(new Event('resize'));   // charts measure their width on draw
+            };
+            const LS = 'hub_card_order';
+            try { apply(JSON.parse(localStorage.getItem(LS) || 'null')); } catch (_) {}
+            try { wide = new Set(JSON.parse(localStorage.getItem(LS + '_wide') || '[]')); half = new Set(JSON.parse(localStorage.getItem(LS + '_half') || '[]')); paintWide(); } catch (_) {}
+            const save = async () => {
+                try { localStorage.setItem(LS, JSON.stringify(order)); localStorage.setItem(LS + '_wide', JSON.stringify([...wide])); localStorage.setItem(LS + '_half', JSON.stringify([...half])); } catch (_) {}
+                try { await set(node, { order, wide: [...wide], half: [...half], at: Date.now() }); } catch (err) { console.warn('card layout save failed', err); }
+            };
+            const node = ref(database, `${DC.base}/hubCards`);
+            onValue(node, sn => { const v = sn.val(); if (v && Array.isArray(v.order) && !DC._cardDrag) { apply(v.order); wide = new Set(Array.isArray(v.wide) ? v.wide : []); half = new Set(Array.isArray(v.half) ? v.half : []); paintWide(); try { localStorage.setItem(LS, JSON.stringify(v.order)); localStorage.setItem(LS + '_wide', JSON.stringify([...wide])); } catch (_) {} } });
+            document.addEventListener('click', e => {   // TRIPLE-CLICK the title (L 2026-10-09): whole row <-> side by side
+                if (e.detail !== 3) return;
+                const h = e.target.closest('.hcard > h3'); if (!h || e.target.closest('a,button,input,select')) return;
+                const k = keyOf(h.parentElement); if (!byKey.has(k)) return;
+                // TOGGLE (L 2026-10-09 "another triple click and it should toggle to half"): whatever it looks like now, flip it.
+                // In a 2-up row: row is full -> back to half (clears BOTH cards, since a full row makes the partner full too); half -> full.
+                // A card that is full width on its own: full <-> half.
+                const c = h.parentElement, row = c.parentElement && c.parentElement.classList.contains('grid-2') ? c.parentElement : null;
+                if (row) { const mates = [...row.children].filter(x => byKey.has(keyOf(x))).map(keyOf);
+                    if (mates.some(m => wide.has(m))) mates.forEach(m => wide.delete(m)); else wide.add(k); half.delete(k); }
+                else { half.has(k) ? half.delete(k) : half.add(k); wide.delete(k); }
+                paintWide();
+                try { getSelection().removeAllRanges(); } catch (_) {}
+                window.dispatchEvent(new Event('resize')); save();
+            });
+            let timer = null, card = null, target = null, sx = 0, sy = 0;
+            const cancelHold = () => { clearTimeout(timer); timer = null; };
+            document.addEventListener('pointerdown', e => {
+                if (e.button !== 0) return;
+                const h = e.target.closest('.hcard > h3'); if (!h || e.target.closest('a,button,input,select')) return;
+                const c = h.parentElement; if (!byKey.has(keyOf(c))) return;
+                cancelHold(); sx = e.clientX; sy = e.clientY;
+                timer = setTimeout(() => { timer = null; card = c; DC._cardDrag = true; c.classList.add('lift'); try { navigator.vibrate && navigator.vibrate(15); } catch (_) {} }, 450);
+            });
+            window.addEventListener('pointermove', e => {
+                if (timer && Math.hypot(e.clientX - sx, e.clientY - sy) > 8) cancelHold();
+                if (!DC._cardDrag || !card) return;
+                e.preventDefault();
+                const zone = 60;   // edge-scroll the page while carrying a card
+                if (e.clientY < zone) window.scrollBy(0, -14); else if (e.clientY > innerHeight - zone) window.scrollBy(0, 14);
+                const over = document.elementFromPoint(e.clientX, e.clientY);
+                const t = over && over.closest && over.closest('.hcard');
+                const ok = t && t !== card && byKey.has(keyOf(t)) ? t : null;
+                if (ok !== target) { target && target.classList.remove('swap-target'); target = ok; target && target.classList.add('swap-target'); }
+            }, { passive: false });
+            window.addEventListener('touchmove', e => { if (DC._cardDrag) e.preventDefault(); }, { passive: false });
+            document.addEventListener('contextmenu', e => { if (DC._cardDrag || timer) e.preventDefault(); });
+            const drop = async () => {
+                cancelHold(); if (!DC._cardDrag) return;
+                const c = card, t = target; card = null; target = null;
+                c && c.classList.remove('lift'); t && t.classList.remove('swap-target');
+                if (c && t) {
+                    const a = order.indexOf(keyOf(c)), b = order.indexOf(keyOf(t));
+                    if (a >= 0 && b >= 0) { [order[a], order[b]] = [order[b], order[a]]; apply(order.slice());
+                        await save(); }
+                }
+                setTimeout(() => { DC._cardDrag = false; }, 0);
+            };
+            window.addEventListener('pointerup', drop); window.addEventListener('pointercancel', drop);
+            window.__hubCardOrder = { order: () => order.slice(), reset: async () => { order = base.slice(); wide = new Set(); half = new Set(); apply(order); paintWide(); try { localStorage.removeItem(LS); localStorage.removeItem(LS + '_wide'); localStorage.removeItem(LS + '_half'); } catch (_) {} await set(node, null); }, wide: () => [...wide] };
+        }
+        /* TAB REORDER (2026-10-09, L: "have the tabs movable, shifted around via long press, drag. Don't make them longer").
+           Hold a # tab ~0.45 s (finger or mouse, without moving) -> it lifts; drag and the other tabs shift live; let go ->
+           the order is saved to topics/{key}/order for every named tab, so it holds on every device. All and ★ stay put.
+           While lifted: the strip's own drag-to-scroll stands down, touchmove is cancelled so the page does not scroll,
+           the strip edge-scrolls under the finger, and the click the release fires is swallowed. */
+        (function wireTabReorder() {
+            const bar = $('#dc-topics'); if (!bar) return;
+            let timer = null, chip = null, sx = 0, sy = 0, lastX = 0, scrollRaf = 0;
+            const cancelHold = () => { clearTimeout(timer); timer = null; };
+            bar.addEventListener('pointerdown', e => {
+                if (e.button !== 0) return;
+                const c = e.target.closest('.dc-topic[data-name]'); if (!c || e.target.closest('.x')) return;
+                cancelHold(); sx = e.clientX; sy = e.clientY;
+                timer = setTimeout(() => { timer = null; chip = c; DC._tabDrag = true; c.classList.add('lift'); lastX = sx;
+                    try { navigator.vibrate && navigator.vibrate(15); } catch (_) {} edgeScroll(); }, 450);
+            });
+            const edgeScroll = () => { cancelAnimationFrame(scrollRaf); if (!DC._tabDrag) return;
+                const r = bar.getBoundingClientRect(), z = 36;
+                if (lastX < r.left + z) bar.scrollLeft -= 8; else if (lastX > r.right - z) bar.scrollLeft += 8;
+                scrollRaf = requestAnimationFrame(edgeScroll); };
+            window.addEventListener('pointermove', e => {
+                if (timer && Math.hypot(e.clientX - sx, e.clientY - sy) > 8) cancelHold();   // moved first = a scroll / swipe, not a hold
+                if (!DC._tabDrag || !chip) return;
+                e.preventDefault(); lastX = e.clientX;
+                const over = document.elementFromPoint(e.clientX, e.clientY);
+                const t = over && over.closest && over.closest('.dc-topic[data-name]');
+                if (!t || t === chip || t.parentNode !== bar) return;
+                const r = t.getBoundingClientRect();
+                bar.insertBefore(chip, e.clientX < r.left + r.width / 2 ? t : t.nextSibling);
+            }, { passive: false });
+            window.addEventListener('touchmove', e => { if (DC._tabDrag) e.preventDefault(); }, { passive: false });
+            bar.addEventListener('contextmenu', e => { if (DC._tabDrag || timer) e.preventDefault(); });
+            const drop = async () => {
+                cancelHold(); if (!DC._tabDrag) return;
+                cancelAnimationFrame(scrollRaf); const c = chip; chip = null; DC._tabDrag = false; if (c) c.classList.remove('lift');
+                DC._tabSwallow = true; setTimeout(() => { DC._tabSwallow = false; }, 0);
+                const names = [...bar.querySelectorAll('.dc-topic[data-name]')].map(b => b.dataset.name);
+                const upd = {}; names.forEach((n, i) => { upd[`${topicKey(n)}/name`] = n; upd[`${topicKey(n)}/order`] = i; });
+                DC.topicList = DC.topicList || {}; names.forEach((n, i) => { const k = topicKey(n); DC.topicList[k] = Object.assign({}, DC.topicList[k], { name: n, order: i }); });   // local copy now, no flicker
+                renderTopics();
+                if (DC.base && names.length) { try { await update(ref(database, `${DC.base}/chat/topics`), upd); } catch (e) { console.warn('tab order save failed', e); } }
+            };
+            window.addEventListener('pointerup', drop); window.addEventListener('pointercancel', drop);
+        })();
         // SAME OPTIONS IN MEMBER CHATS (2026-09-27, L: "we should get all the same options and all that should work the same with
         // whoever I'm talking with"): the 👥 pane uses these instead of its own copies.
         window.__dcShared = { speak: (t, k, d) => speakText(t, k, d), stop: () => stopSpeak(), speakingKey: () => DC.speakingKey,
@@ -2333,7 +2617,7 @@
                 down = true; moved = false; sx = e.clientX; sl = bar.scrollLeft;
             });
             window.addEventListener('pointermove', e => {
-                if (!down) return;
+                if (!down || DC._tabDrag) return;
                 const dx = e.clientX - sx;
                 if (!moved && Math.abs(dx) > 6) { moved = true; bar.classList.add('dragging'); }
                 if (moved) { bar.scrollLeft = sl - dx; e.preventDefault(); }
@@ -3129,8 +3413,8 @@
                     // UPDATE, not set (2026-09-25, L: "I sent a message, moved it to another tab, but the reply still came
                     // into its previous tab"): `t` is the bubble as it was when this watch began, so set() wrote the
                     // send-time topic back over a retag. update() fills the words and leaves the topic where he put it.
-                    if (j.status === 'done') { await update(tr, { s: 'D', who: t.who || 'Droplet', text: j.reply || '(done, no captured reply)', ts: Date.now(), pending: null, jobId: t.jobId }); unwatch(); delete DC.pendWatch[k]; }
-                    else if (j.status === 'error' || j.status === 'failed') { await update(tr, { s: 'D', who: t.who || 'Droplet', text: '⚠ ' + (j.error || j.reply || 'failed'), ts: Date.now(), pending: null, jobId: t.jobId }); unwatch(); delete DC.pendWatch[k]; }
+                    if (j.status === 'done') { await update(tr, { s: 'D', who: t.who || DC.instName || 'Droplet', text: j.reply || '(done, no captured reply)', ts: Date.now(), pending: null, jobId: t.jobId }); unwatch(); delete DC.pendWatch[k]; }
+                    else if (j.status === 'error' || j.status === 'failed') { await update(tr, { s: 'D', who: t.who || DC.instName || 'Droplet', text: '⚠ ' + (j.error || j.reply || 'failed'), ts: Date.now(), pending: null, jobId: t.jobId }); unwatch(); delete DC.pendWatch[k]; }
                 });
             }
         }
@@ -3307,7 +3591,7 @@
             if (enhOn && window.__dcLiveFlush) { const st = $('#dc-chat-status'); if (st) st.textContent = '✨ finishing…'; try { await window.__dcLiveFlush(3500); } catch (_) {} raw = ta.value.trim(); if (st && st.textContent === '✨ finishing…') st.textContent = ''; if (!raw) return; }
             if (enhOn && window.__dcTidy) { raw = window.__dcTidy(raw); ta.value = raw; }
             const wantPing = !!($('#dc-chat-ping') && $('#dc-chat-ping').checked);
-            const who = target === 'local' ? (DC.botWho || 'Local') : (CHAT_WHO[target] || 'Droplet');
+            const who = target === 'local' ? (DC.botWho || 'Local') : target === 'droplet' ? (DC.instName || 'Droplet') : (CHAT_WHO[target] || 'Droplet');
             // ⌘ Command (2026-09-16, pick D): every run needs a live YubiKey code; the daemon verifies it, one use per code
             let ykCode = '';
             if (target === 'command') {
@@ -3488,6 +3772,45 @@
                 <div style="font-size:0.66rem;color:var(--muted);margin-top:4px">${esc(d.wanName || 'the router port')} on the switch = the house's internet · alert at ${Number(d.alertGB) || 150} GB/day</div>`;
             if (age) { const m = Math.round((Date.now() - (Number(d.at) || 0)) / 60000); age.textContent = m < 1 ? 'live' : m < 60 ? m + ' min ago' : Math.round(m / 60) + ' h ago'; }
         }
+        // ADVANCED > USAGE: averages + general use from the same census. Active day = a day with any messages.
+        function renderUsageAdv(u) {
+            const box = $('#dc-use'); if (!box) return;
+            if (!u || !u.days) { box.innerHTML = '<span class="meta">No usage data (owner only - the daemon on se publishes it).</span>'; return; }
+            const days = u.days || {}, today = new Date(), iso = n => { const d = new Date(today); d.setDate(d.getDate() - n); return d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' }); };
+            const span = n => { let out = 0, msgs = 0, act = 0, rd = 0; for (let i = 0; i < n; i++) { const c = days[iso(i)]; if (c && c.msgs) { out += c.out || 0; msgs += c.msgs || 0; rd += c.cache_read || 0; act++; } } return { out, msgs, act, rd }; };
+            const w = span(7), m = span(30), a = u.allTime || {};
+            const firstMs = u.first_day ? Date.parse(u.first_day) : 0, sinceDays = firstMs ? Math.max(1, Math.round((Date.now() - firstMs) / 864e5)) : 0;
+            const avg = (x, n) => n ? fmtTok(Math.round(x / n)) : '-';
+            const row = (k, v, sub) => `<div style="display:flex;justify-content:space-between;gap:10px;padding:4px 0;border-bottom:1px solid var(--border);font-size:0.88rem"><span style="color:var(--muted)">${k}</span><span style="text-align:right"><b>${v}</b>${sub ? `<small style="color:var(--muted);margin-left:5px">${sub}</small>` : ''}</span></div>`;
+            const head = t => `<div style="font-size:0.62rem;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin:10px 0 2px">${t}</div>`;
+            // 14-day bars (output tokens)
+            const d14 = []; for (let i = 13; i >= 0; i--) d14.push([iso(i), (days[iso(i)] || {}).out || 0]);
+            const mx = Math.max(1, ...d14.map(x => x[1]));
+            const bars = `<div style="display:flex;align-items:flex-end;gap:3px;height:54px;margin-top:4px">${d14.map(([d, v]) => `<div title="${d}: ${fmtTok(v)} tokens" style="flex:1;min-width:0;height:${Math.max(2, Math.round(52 * v / mx))}px;background:var(--accent, #8b2240);opacity:${d === iso(0) ? 1 : .55};border-radius:2px 2px 0 0"></div>`).join('')}</div>
+                <div style="display:flex;justify-content:space-between;font-size:0.62rem;color:var(--muted)"><span>${d14[0][0].slice(5)}</span><span>today</span></div>`;
+            const mods = Object.entries(u.models30d || {}).filter(([k, v]) => v > 0 && k[0] !== '<'), mt = mods.reduce((t, [, v]) => t + v, 0) || 1;
+            // SIMPLE FIRST (L 2026-10-09 "a simpler listing... easier to read"): 5 plain lines + the bars; the rest behind "more"
+            const big = (k, v, sub) => `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:7px 0;border-bottom:1px solid var(--border)"><span style="font-size:0.95rem">${k}</span><span style="text-align:right"><b style="font-size:1.1rem">${v}</b>${sub ? `<div style="font-size:0.7rem;color:var(--muted)">${sub}</div>` : ''}</span></div>`;
+            const td = (u.today || {}).out || 0, typ = m.act ? m.out / m.act : 0;
+            const vs = typ ? (td >= typ ? 'busier than usual' : Math.round(100 * td / typ) + '% of a usual day') : '';
+            const top = mods.slice().sort((x, y) => y[1] - x[1])[0];
+            const pk = u.peakDay ? new Date(u.peakDay + 'T12:00').toLocaleDateString([], { month: 'short', day: 'numeric' }) : '';
+            const more = `<details style="margin-top:8px"><summary class="meta" style="cursor:pointer">more detail</summary>`
+                + row('Usual day, last 7 days', avg(w.out, w.act))
+                + row('Per message', avg(m.out, m.msgs))
+                + row('All time', fmtTok(a.out || 0), (a.msgs || 0).toLocaleString() + ' msgs since ' + (u.first_day || '?'))
+                + row('Context re-read, 30 days', fmtTok(m.rd), 'cheap')
+                + mods.map(([k, v]) => row(esc(k.replace('claude-', '')), Math.round(100 * v / mt) + '%', fmtTok(v))).join('')
+                + `</details>`;
+            box.innerHTML = big('Today', fmtTok(td), vs)
+                + big('A usual day', fmtTok(Math.round(typ)), Math.round(m.msgs / (m.act || 1)) + ' messages')
+                + big('This month', fmtTok(m.out), m.msgs.toLocaleString() + ' messages')
+                + big('Busiest day', fmtTok(u.peakDayOut || 0), pk)
+                + (top ? big('Mostly on', esc(top[0].replace('claude-', '')), Math.round(100 * top[1] / mt) + '% of all use') : '')
+                + head('Last 2 weeks') + bars
+                + more
+                + `<div class="meta" style="margin-top:8px">Numbers are tokens Claude wrote (a token is about 3/4 of a word). Updated ${u.updatedAt ? agoStr(u.updatedAt) : '?'}. Plan limits only show in Claude Code's /usage.</div>`;
+        }
         function renderUsage(u) {
             DC.usage = u || null;   // the pending-bubble wait line reads today's tokens + the Firebase rate from here
             // usage fill on the chat input: today's output vs the 30-day peak day, 0-100%
@@ -3497,6 +3820,7 @@
                 inp.style.setProperty('--usg', pct + '%');
                 inp.title = `today ${fmtTok(((u || {}).today || {}).out || 0)} tokens — ${pct}% of your busiest day`;
             }
+            renderUsageAdv(u);
             const box = $('#usage-body');
             if (!box) return;   // owner-only card is hidden for guests; the input fill above still runs
             if (!u || !u.today) { box.innerHTML = '<span style="color:var(--muted);font-size:0.82rem">No usage data yet.</span>'; return; }
@@ -3548,6 +3872,11 @@
             // kdaemon (a user's own portable daemon): Droplet runs per message (claude -p), no wake; enhance runs
             // on THEIR daemon and is greyed out until it detects ollama on their PC.
             DC.kdaemon = m.daemonKind === 'kdaemon';
+            try { paintKdUpdate(m); } catch (_) {}
+            // INSTANCE NAME (2026-10-10, L: "the console should state the name Droplet Pilet Cairn etc"): whichever
+            // Droplet-shaped mind serves this login names itself in meta.name; the dropdown + reply bubbles use it
+            const nm = String(m.name || '').replace(/[^\p{L}\p{N} '-]/gu, '').trim().slice(0, 24) || 'Droplet';
+            if (nm !== DC.instName) { DC.instName = nm; try { relabelTargets(); } catch (_) {} }
             DC.ollamaUp = !!(m.ollama && m.ollama.up);
             // VERSION, NOT CHANGELOG (2026-09-20). The daemon's version string carries its
             // release notes - ~900 chars of them - and this line used to print the lot. Show the
@@ -3645,6 +3974,7 @@
         const PROOF_SYS = "You are a proofreader for Luis's chat messages to Droplet. Return his message with spelling, punctuation, capitalization and sentence structure corrected. "
             + "Keep his words, his order, his meaning and his length; keep his tone, his abbreviations and his shorthand exactly as typed. Never add words that were not in the message. "
             + "Do NOT: expand abbreviations, add or remove information, add questions, split into lists, merge or reorder sentences, or explain anything. If it is already fine, return it unchanged. "
+            + "Never remove the apostrophe from a contraction (I'm, don't, it's stay as they are). Never change what a word means or its number (pics stays pics, photo stays photo). "   // 2026-10-07 audit
             + "Output ONLY the corrected message: no preamble, no quotes, no notes.";   // no "/no_think" here: gemma2 echoed it INTO L's text ("eat./no_think xplained", 2026-09-25); it is a qwen token, added per call below only for qwen models
         async function computeEnhance(rough) {
             const idx = matchIndex(rough), topics = matchTopics(rough), rules = pickRules(topics);
@@ -3818,7 +4148,7 @@
         // Workbench tab retired 2026-09-11 — its enhance lives inline in the Chat now (computeEnhance).
         $('#dc-pg-enabled').onchange = e => { paintPingRow(e.target.checked); set(ref(database, `${DC.base}/pings/settings`), { channel: 'telegram_dm', enabled: e.target.checked }); };
         // FULL SYSTEM AS A SIDE PANE (L 2026-10-04): on a wide screen System opens beside the chat like 👥 - one side pane at a time
-        const SYS_PANELS = ['#dc-rt-panel', '#dc-in-panel', '#dc-bot-panel', '#dc-look-panel', '#dc-prof-panel'];
+        const SYS_PANELS = ['#dc-rt-panel', '#dc-in-panel', '#dc-use-panel', '#dc-bot-panel', '#dc-look-panel', '#dc-prof-panel'];
         const sysSide = matchMedia('(min-width: 761px)'), sysPaneMode = () => sysSide.matches && !DC.isPhone();
         const setSysPane = on => { const body = $('#dc-console .dc-body'); if (!body) return;
             if (on) { window.__dcClosePeer && window.__dcClosePeer(); body.classList.add('dc-split', 'sysopen'); $('#dc-chat-panel').classList.add('active'); const ct = $('.dc-tab[data-tab="ch"]'); if (ct) ct.classList.add('active'); }
@@ -3839,6 +4169,7 @@
             // System = one tab: account + daemon line, then Routines, then Fleet (with Pings) - both panels show together
             $('#dc-rt-panel').classList.toggle('active', t.dataset.tab === 'sys');
             $('#dc-in-panel') && $('#dc-in-panel').classList.toggle('active', t.dataset.tab === 'sys');
+            $('#dc-use-panel') && $('#dc-use-panel').classList.toggle('active', t.dataset.tab === 'sys');
             $('#dc-bot-panel') && $('#dc-bot-panel').classList.toggle('active', t.dataset.tab === 'sys');
             $('#dc-look-panel') && $('#dc-look-panel').classList.toggle('active', t.dataset.tab === 'sys');
             $('#dc-prof-panel') && $('#dc-prof-panel').classList.toggle('active', t.dataset.tab === 'sys');
@@ -3898,7 +4229,7 @@
             const fixFor = w => { const a = AC(); if (((a.never || {})[w] || 0) >= 2) return null; const l = (a.learned || {})[w];
                 return (a.own || {})[w] || (l && l.n >= 2 ? l.to : null) || FIX[w] || null; };
             const acWrite = (path, val) => { if (!DC.base) return; try { return set(ref(database, `${DC.base}/autocorrect/${path}`), val); } catch (_) {} };
-            const acKey = w => String(w || '').toLowerCase().replace(/[^a-z']/g, '').slice(0, 40);
+            const acKey = w => String(w || '').toLowerCase().replace(/’/g, "'").replace(/[^a-z']/g, '').slice(0, 40);   // ’ = his phone's apostrophe (2026-10-07)
             const lev = (a, b) => { if (a === b) return 0; if (!a.length || !b.length) return a.length + b.length; let p = [...Array(b.length + 1).keys()];
                 for (let i = 1; i <= a.length; i++) { const c = [i]; for (let j = 1; j <= b.length; j++) c[j] = Math.min(p[j] + 1, c[j - 1] + 1, p[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); p = c; } return p[b.length]; };
             // LEARN (L: "learn my common typos... learn my typing style"): after a rewrite he keeps, every word that changed
@@ -3924,8 +4255,15 @@
                 const A = prev.split(/\s+/).filter(Boolean), B = out.split(/\s+/).filter(Boolean);
                 if (A.length !== B.length) return;
                 for (let i = 0; i < A.length; i++) {
-                    const a = acKey(A[i]), b = B[i].replace(/^[^A-Za-z']+|[^A-Za-z']+$/g, '');
+                    const a = acKey(A[i]), b = B[i].replace(/’/g, "'").replace(/^[^A-Za-z']+|[^A-Za-z']+$/g, '');   // ’ stored straight, like FIX
                     if (!a || !b || a.length < 3 || a === b.toLowerCase() || !/^[A-Za-z']+$/.test(b)) continue;
+                    // SPACE-SLIP GUARDS (2026-10-07 audit): "th ebottom" -> "the bottom" learned "ebottom -> bottom". A pair whose
+                    // neighbour changed in the same rewrite is a space that slipped (a phrase, not a word), and "e"+bottom / "s"+the is
+                    // the stray letter of the word before - neither is ever a single-word rule. A word on the never list stays his.
+                    const chg = j => j >= 0 && j < A.length && acKey(A[j]) !== acKey(B[j]);
+                    if (chg(i - 1) || chg(i + 1)) continue;
+                    if (a.length === b.length + 1 && a.slice(1) === b.toLowerCase()) continue;
+                    if (((AC().never || {})[a] || 0) >= 2) continue;   // same reading as fixFor: 2+ undos = never touched
                     if (lev(a, b.toLowerCase()) > 2) continue;
                     // a homophone swap (there/their, your/you're, then/than) is context, not a typo - never a blanket rule; nor is a
                     // word the model changed here but left alone elsewhere in the same message
@@ -3987,20 +4325,20 @@
                 // a second space right after a space = an accidental double (L, 2026-09-25) - drop it
                 if (ta.value[pos - 1] === ' ' && ta.value[pos - 2] === ' ') { ta.setRangeText('', pos - 1, pos, 'preserve'); pos -= 1; enhLog('double space dropped'); if (!/[\s.,!?;:]/.test(ta.value[pos - 1])) return; }
                 const before = ta.value.slice(0, pos - 1);
-                const m = /([A-Za-z']+)$/.exec(before); if (!m) return;
+                const m = /([A-Za-z'’]+)$/.exec(before); if (!m) return;   // ’ counts as a letter: "I’m" is one word, not "m" (2026-10-07)
                 const word = m[1], start = pos - 1 - word.length, lead = before.slice(0, start);
                 if (/[\/.@#=:_\-\\]$/.test(lead)) return;   // mid-token (a URL, a path, an e-mail, "hub.html"): never fix a piece of one - "…/im" is not "I'm"
                 // PHRASES Droplet taught (autocorrect/phrases, e.g. "goin gabout" -> "going about"): the last two or three words
                 const ph = AC().phrases || {};
                 for (const nwords of [3, 2]) {
-                    const mm = new RegExp('((?:[A-Za-z\']+\\s+){' + (nwords - 1) + '}[A-Za-z\']+)$').exec(before); if (!mm) continue;
+                    const mm = new RegExp('((?:[A-Za-z\'’]+\\s+){' + (nwords - 1) + '}[A-Za-z\'’]+)$').exec(before); if (!mm) continue;
                     const k = mm[1].toLowerCase().replace(/\s+/g, ' '), hit = ph[k.replace(/ /g, '_')];
                     if (hit && hit.to) { const s0 = pos - 1 - mm[1].length; ta.setRangeText(hit.to, s0, pos - 1, 'preserve');
                         lastFix = { at: s0, from: mm[1], to: hit.to }; chip('fix', `<b>✓</b>${esc(mm[1])} → ${esc(hit.to)}<span class="k">↶ tap to undo</span>`, 4000); enhLog('fix', mm[1] + ' → ' + hit.to); return; }
                 }
                 // a doubled word ("I want to to") - drop the second one (L, 2026-09-25: "I doubled a word, let's see if it figures it out");
                 // doubles English says on purpose stay, and so does a word he has undone twice
-                const dbl = /([A-Za-z']+)\s+$/.exec(lead);
+                const dbl = /([A-Za-z'’]+)\s+$/.exec(lead);
                 if (dbl && word.length >= 2 && dbl[1].toLowerCase() === word.toLowerCase() && !/^(had|that|is|do|so|very|no|bye|really|much|many|ha|ok|yes|long|blah|go|there|far|well)$/i.test(word) && ((AC().never || {})[acKey(word)] || 0) < 2) {
                     ta.setRangeText('', start - 1, pos - 1, 'preserve');
                     lastFix = { at: start - 1, from: ' ' + word, to: '' };
@@ -4037,7 +4375,7 @@
                 if (/ {2,}/.test(span)) { const one = span.replace(/ {2,}/g, ' '); ta.setRangeText(one, scan, caret, 'preserve'); const nc = caret - (span.length - one.length); ta.setSelectionRange(nc, nc); enhLog('double space dropped'); }
                 for (let guard = 0; guard < 16; guard++) {
                     const seg = ta.value.slice(scan, ta.selectionStart);
-                    const mm = /[A-Za-z']+[\s.,!?;:]/.exec(seg); if (!mm) break;
+                    const mm = /[A-Za-z'’]+[\s.,!?;:]/.exec(seg); if (!mm) break;
                     const sepPos = scan + mm.index + mm[0].length, len0 = ta.value.length;
                     fixAt(sepPos);
                     scan = sepPos + (ta.value.length - len0);
@@ -4071,7 +4409,7 @@
                     // gemma2:9b, not the 14b chat model: 2.4 s warm / 4.7 s cold on his real sample and it fixed everything;
                     // qwen3:14b took 96 s cold. keep_alive holds it in memory between pauses (measured 2026-09-25).
                     const res = await fetch(OLLAMA, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: mine.signal,
-                        body: JSON.stringify({ model: LIVE_MODEL, stream: false, keep_alive: '30m', options: { temperature: 0, num_predict: Math.min(512, Math.ceil(text.length / 2) + 24) }, messages: [{ role: 'system', content: PROOF_SYS + (/qwen/i.test(LIVE_MODEL) ? ' /no_think' : '') }, { role: 'user', content: 'Proofread the message between the markers. Output only the corrected message, nothing else.\n<<<\n' + text + '\n>>>' }] }) });
+                        body: JSON.stringify({ model: LIVE_MODEL, stream: false, keep_alive: '30m', options: { temperature: 0, num_predict: Math.min(512, Math.ceil(text.length / 2) + 24) }, messages: [{ role: 'system', content: PROOF_SYS + (/qwen/i.test(LIVE_MODEL) ? ' /no_think' : '') }, { role: 'user', content: 'Proofread the message between the markers. It may be a piece that starts mid-sentence and is not finished yet: do not capitalize its first word unless it already is, and do not add a question mark or any other end punctuation to unfinished text. Output only the corrected message, nothing else.\n<<<\n' + text + '\n>>>' }] }) });   // mid-sentence rules: 2026-10-07 audit
                     // num_predict: a proofread is as long as its input - a runaway answer must not hold the model. MARKERS: with the bare text as the
                     // user turn, gemma2 read a short fragment ("Then I keep typin the secnd one…") as a cue and WROTE a new sloppy message instead
                     // ("i think its a good idea to start with the basics tho"), and on long ones expanded "gonna" and dropped a clause. Between markers
@@ -4093,16 +4431,16 @@
                     // a proofread never ADDS content: a word in the answer that is not in the message, and is not a typo fix
                     // of one (edit distance <= 2), is the model inventing - the prompt's shorthand examples leaked into L's text
                     // once ("S3 N1 dterm se kh comp fav"). More than one such word = throw the answer away.
-                    const inW = (text.toLowerCase().match(/[a-z']+/g) || []); const inSet = new Set(inW);
+                    const inW = (text.toLowerCase().replace(/’/g, "'").match(/[a-z']+/g) || []); const inSet = new Set(inW);   // ’ -> ' first: "don’t" is one word, not "don" + "t"
                     // a fix counts as HIS word if it is within edit distance of one of his words - 2 for short words, 3 from 7 letters
                     // (transpositions cost 2 each) - or of two adjacent fragments joined ("g arepvious" -> "previous" was thrown away as
                     // invented on 2026-09-25; the split was the typo)
                     const joined = inW.slice(1).map((w, i) => inW[i] + w);
                     const near = w => { const lim = w.length >= 7 ? 3 : 2; return inW.concat(joined).some(x => Math.abs(x.length - w.length) <= lim && lev(x, w) <= lim); };
-                    const invented = (out.toLowerCase().match(/[a-z']+/g) || []).filter(w => w.length > 1 && !inSet.has(w) && !near(w));
+                    const invented = (out.toLowerCase().replace(/’/g, "'").match(/[a-z']+/g) || []).filter(w => w.length > 1 && !inSet.has(w) && !near(w));
                     // textspeak the model INTRODUCED ("you" -> "u" on 2026-09-25, from the "keep his shorthand" rule) is not a proofread
                     if (/\b(u|r|ur|thx|pls|plz|k|2|4)\b/.test(out.toLowerCase()) && !/\b(u|r|ur|thx|pls|plz|k|2|4)\b/.test(text.toLowerCase())) { stable = tailEnd; enhLog('rewrite discarded (made it sloppier)', out.slice(0, 60)); return; }
-                    const outWords = (out.toLowerCase().match(/[a-z']+/g) || []).length;
+                    const outWords = (out.toLowerCase().replace(/’/g, "'").match(/[a-z']+/g) || []).length;
                     if (invented.length > 1 || (invented.length && invented.length > outWords * 0.2)) { stable = tailEnd; enhLog('rewrite discarded (invented words)', invented.join(' ')); return; }   // >1 new word, or 1 in a very short answer = not a proofread
                     // a proofread never DROPS words either (one fewer is a merged "a lot"/de-doubled "to to"; more is the model cutting his
                     // sentence - on a short segment the 60 % length guard never fires, and that read as "it deletes text as I type", L 2026-09-25)
@@ -4111,8 +4449,13 @@
                     // (a space had landed after "ba"), came back "…red ball", and his "nners" glued on: "ballbanners" (2026-09-25 19:16). The
                     // instant fixes cover a typo there, and Send's pass (forceApply) proofreads the whole message once it really is finished.
                     if (!forceApply && tailEnd === full.length) {
-                        const lw = /([A-Za-z0-9']+)([^A-Za-z0-9']*)$/.exec(text), ow = /([A-Za-z0-9']+)([^A-Za-z0-9']*)$/.exec(out);
-                        if (lw && ow && lw[1].toLowerCase() !== ow[1].toLowerCase()) { out = out.slice(0, ow.index) + lw[1] + ow[2]; enhLog('last word kept', ow[1] + ' → ' + lw[1]); }
+                        // MORE words than his tail = the model finished his sentence ("on the" -> "on the bottom"); swapping his last
+                        // word back in doubled it ("on the the bottom" / "the bottom bottom", 2026-10-07 audit). Throw it away - not
+                        // marked stable, so the next pause proofreads the segment again with his real words.
+                        const wc = s => (s.match(/[A-Za-z0-9'’]+/g) || []).length;
+                        if (wc(out) > wc(text)) { enhLog('rewrite added words, kept yours', text.trim().slice(0, 60) + ' → ' + out.trim().slice(0, 60)); return; }
+                        const lw = /([A-Za-z0-9'’]+)([^A-Za-z0-9'’]*)$/.exec(text), ow = /([A-Za-z0-9'’]+)([^A-Za-z0-9'’]*)$/.exec(out);
+                        if (lw && ow && lw[1].toLowerCase().replace(/’/g, "'") !== ow[1].toLowerCase().replace(/’/g, "'")) { out = out.slice(0, ow.index) + lw[1] + ow[2]; enhLog('last word kept', ow[1] + ' → ' + lw[1]); }
                         if (norm(out) === norm(text)) { stable = tailEnd; enhLog('no change (last word)', (Date.now() - t0) + ' ms'); return; }
                     }
                     const editingInside = ta.selectionStart < tailEnd && ta.selectionStart > at;   // his caret is inside the segment: don't move it under him
@@ -4261,6 +4604,7 @@
         // was the same thing said twice.
         const TARGET_NAMES = { droplet: ['Droplet Console', 'Droplet'], compman: ['🤖 CompMan Console', '🤖 CompMan'], command: ['⌘ Command Console', '⌘ Command'], local: ['🦙 Local Console', '🦙 Local'] };
         function targetLabel(v) {
+            if (v === 'droplet' && DC.instName && DC.instName !== 'Droplet') return DC.isPhone() ? DC.instName : DC.instName + ' Console';
             if (v === 'local' && DC.botName) return DC.isPhone() ? DC.botName : DC.botName + ' Console';   // "🌸 Yuki Console" instead of "🦙 Local Console"
             const n = TARGET_NAMES[v] || [v, v]; return DC.isPhone() ? n[1] : n[0]; }
         function setBotName(raw) {
@@ -4489,7 +4833,7 @@
             if (d.external)    renderServices('svc-external', d.external);
             if (d.local)       renderServices('svc-local', d.local);
             if (d.commands)    renderCommands(d.commands);
-            if (d.network)     renderTable('net-rows', d.network, ['host', 'ip', 'os', 'role']);
+            if (d.network)     { window.__netRows = d.network; paintNet(); }   // live dots from the pi-hub (2026-10-10)
             if (d.credentials) renderCreds(d.credentials);
             if (d.drives)      { renderTable('drive-rows', d.drives, ['drive', 'label', 'role']); window.__paintDrives && window.__paintDrives(); }
         }
@@ -4593,7 +4937,7 @@
             // Load hub data from Firebase
             const snap = await get(ref(database, `${user.uid}/hub`));
             document.getElementById('hub-gate').style.display    = 'none';
-            document.getElementById('hub-content').style.display = 'block';
+            document.getElementById('hub-content').style.display = 'flex';   // flex: half cards pair up (2026-10-10)
 
             // DEFAULTS is the owner's homelab map (hosts, commands, service users); a guest with no hub node gets an empty hub, not mine
             const data = snap.exists() ? snap.val() : (user.uid === '7cIh8rrhVNOjjj5CBDgb3IlqzEh2' ? DEFAULTS : {});
@@ -4740,13 +5084,14 @@
             const habits = all.filter(t => t.type === 'habit');
             const today = new Date().toLocaleDateString('en-CA');
             const habitsDone = habits.filter(h => h.history && h.history[today]).length;
-            let html = open.slice(0, 6).map(t => {
+            // SCROLL, NOT "+N more" (2026-10-10, L: "instead of todo having a +2 just be able to scroll in card"): every open
+            // todo renders, the box scrolls; the habits line moves to the top so the scroll can't bury it
+            let html = habits.length ? ovRow(`Habits today: ${habitsDone}/${habits.length}`, '', '') : '';
+            html += open.map(t => {
                 const subs = Array.isArray(t.subtasks) ? t.subtasks : [];
                 const prog = subs.length ? `${subs.filter(s => s.done).length}/${subs.length}` : '';
                 return ovRow(escH(t.text || ''), '', prog);
             }).join('');
-            if (habits.length) html += ovRow(`Habits today: ${habitsDone}/${habits.length}`, '', '');
-            if (open.length > 6) html += `<div style="color:var(--muted);font-size:0.72rem;padding-top:5px">+${open.length - 6} more</div>`;
             el.innerHTML = html || ovEmpty('All clear');
         }
 
@@ -4942,6 +5287,7 @@
                     </div>`;
                 }).join('');
                 const down = (d.targets || []).filter(t => t.up === false).length;
+                window.__piShared = d; paintNetHealth(d); paintNet();   // 2026-10-10: same fetch feeds Network Health + Network
                 el.innerHTML = rows || '<span style="color:var(--muted);font-style:italic">No targets</span>';
                 if (age) age.textContent = down
                     ? `\u00b7 ${down} down`
@@ -4951,8 +5297,44 @@
                 if (age) age.textContent = '';
             }
         }
-        loadHouseWatch();
+        /* NETWORK HEALTH + LIVE NETWORK (2026-10-10, L: "pi hub and hub ... same information ... unified"). Both read the
+           pi-hub's /api/watch (fetched once above). Wording matches the pi-hub's Network Log card on purpose. */
+        const _fmtUp = s => { s = Number(s) || 0; const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600); return d ? `${d}d ${h}h` : `${h}h ${Math.floor(s % 3600 / 60)}m`; };
+        function paintNetHealth(d) {
+            const el = document.getElementById('nh-body'); if (!el) return;
+            if (!d) { el.innerHTML = '<span style="color:var(--muted);font-style:italic">' + (MC_ON_LAN ? 'pi-hub unreachable' : 'Lives on pi-hub, LAN only') + '</span>'; return; }
+            const pi = d.pi || {}, L = d.log24 || {}, mut = 'color:var(--muted)';
+            const ok = (L.net_ok_pct ?? 100) >= 99.5 && (L.se_ok_pct ?? 100) >= 99.5 && !(L.episodes || {}).internet;
+            const warn = (L.net_ok_pct ?? 100) < 97 || (L.se_ok_pct ?? 100) < 97;
+            const col = ok ? '#4ade80' : (warn ? '#f87171' : '#fbbf24');
+            const ms = x => x ? `${x.avg} ms avg` : '-';
+            const ep = L.episodes || {};
+            const ev = (L.events || []).map(x => `<div style="font-family:monospace;font-size:0.7rem;padding:2px 0;${mut}">${escH(x)}</div>`).join('');
+            el.innerHTML = `
+                <div style="font-size:0.8rem;margin-bottom:6px"><span style="${mut}">Pi</span> ${escH(pi.temp || '-')} · up ${_fmtUp(pi.uptime_s)} · ${escH(pi.mode || '-')} mode · pibot ${pi.pibot ? '<span style="color:#4ade80">on</span>' : '<span style="color:#f87171">off</span>'} · cam alerts ${pi.cammotion ? 'on' : 'off'}</div>
+                ${L.error ? `<div style="${mut};font-size:0.78rem">network log: ${escH(L.error)}</div>` : `
+                <div style="font-size:0.88rem;color:${col};margin-bottom:4px">Last 24 h: internet ${L.net_ok_pct ?? '-'}% · se ${L.se_ok_pct ?? '-'}%</div>
+                <div style="font-size:0.75rem;${mut};margin-bottom:8px">internet ${ms(L.net)} · se ${ms(L.se)} · temp max ${L.temp ? L.temp.max + '°C' : '-'} · devices ${L.dev ? L.dev.min + '-' + L.dev.max + ' of ' + L.dev.tot : '-'} · drops ${ep.internet || 0} internet / ${ep.se || 0} se · gaps ${L.gaps || 0} · alerts today ${L.events_today || 0}</div>`}
+                <div style="font-size:0.65rem;text-transform:uppercase;letter-spacing:2px;${mut};margin:6px 0 4px">Recent alerts</div>
+                ${ev || `<span style="${mut};font-style:italic;font-size:0.78rem">None</span>`}`;
+        }
+        // Network table: the saved list (renderAll keeps it in window.__netRows) + the pi-hub's live state per IP
+        function paintNet() {
+            const tb = document.getElementById('net-rows'); if (!tb) return;
+            const saved = window.__netRows || [], live = ((window.__piShared || {}).devices) || [];
+            const byIp = new Map(live.map(x => [x.ip, x]));
+            const rows = saved.map(r => ({ ...r })), have = new Set(rows.map(r => r.ip));
+            live.forEach(x => { if (!have.has(x.ip)) rows.push({ host: x.name, ip: x.ip, os: '', role: 'seen by pi-hub' }); });
+            rows.sort((a, b) => ipToNum(a.ip) - ipToNum(b.ip));
+            tb.innerHTML = rows.map(r => {
+                const x = byIp.get(r.ip);
+                const dot = x ? `<span title="${x.up ? 'online' : 'offline'} · ${x.pct}% up (pi-hub)" style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;background:${x.up ? '#4ade80' : '#64748b'}"></span>` : '<span style="display:inline-block;width:8px;margin-right:6px"></span>';
+                return `<tr><td class="click-copy" title="Click to copy">${dot}${escH(String(r.host ?? ''))}</td><td class="click-copy" title="Click to copy">${escH(String(r.ip ?? ''))}</td><td>${escH(String(r.os ?? ''))}</td><td>${escH(String(r.role ?? ''))}${x ? ` <span style="color:var(--muted);font-size:0.7rem">${x.pct}%</span>` : ''}</td></tr>`;
+            }).join('');
+        }
+        loadHouseWatch().then(() => { if (!window.__piShared) paintNetHealth(null); });
         setInterval(loadHouseWatch, 30000);
+        document.getElementById('hub-help-toggle') && document.getElementById('hub-help-toggle').addEventListener('click', e => { const b = document.getElementById('hub-help-body'); b.hidden = !b.hidden; e.target.textContent = b.hidden ? 'show' : 'hide'; });
 
         /* ── Docker Containers ── */
         async function loadDockerStatus() {
