@@ -1836,9 +1836,8 @@
     // share/tasks_plans/<id> = the floor plan (map). NO PHOTOS for now (L: "no img then for now") - the photos stay in
     // the sharer's Storage; a shared map shows the sensors, flags and plan without pictures. Any signed-in account reads
     // share/*; the Telaid map / lookup / dashboard read it as their last fallback, so ?task=<id> works for anyone
-    // (read-only there). Re-share refreshes, Unshare removes. The PM-account copy (telaid@telaid.com) is still written so
-    // the PM's Jobs view keeps working until the Jobs app lists shared jobs itself.
-    const PM_SHARE_UID = "YHIJWVQOmefgigMVCcvueIZidze2"; // telaid@telaid.com
+    // (read-only there). Re-share refreshes, Unshare removes. 2026-10-11 (L): Share NO LONGER writes the telaid@telaid.com
+    // account - that is a live shared workspace (techs/PMs/IT update it); syncing it with lcurbelo is done by Droplet on request.
     const SHARE_ROOT = "share";
 
     function projectRecords(tasksObj) {
@@ -1863,7 +1862,6 @@
         const stamp = { sharedBy: auth.currentUser.uid, sharedByName: await sharerName(), sharedAt: Date.now() };
         for (const [id, rec] of matches) {
           await set(dbRef(database, `${SHARE_ROOT}/tasks/${id}`), { ...rec, ...stamp });
-          await set(dbRef(database, `${PM_SHARE_UID}/tasks/${id}`), rec).catch(e => console.warn("[share] PM copy:", e?.message || e));
           const plan = await get(dbRef(database, `${DB}/tasks_plans/${id}`)).catch(() => null);
           if (plan && plan.exists()) await set(dbRef(database, `${SHARE_ROOT}/tasks_plans/${id}`), { ...plan.val(), ...stamp });
         }
@@ -1880,13 +1878,10 @@
       if (!projName) { alert("Load a job first."); return; }
       const snap = await get(dbRef(database, `${SHARE_ROOT}/tasks`));
       const matches = snap.exists() ? projectRecords(snap.val()) : [];
-      const pmSnap = await get(dbRef(database, `${PM_SHARE_UID}/tasks`)).catch(() => null);
-      const pmMatches = pmSnap && pmSnap.exists() ? projectRecords(pmSnap.val()) : [];
-      if (!matches.length && !pmMatches.length) { alert(`"${projName}" isn't shared.`); return; }
+      if (!matches.length) { alert(`"${projName}" isn't shared.`); return; }
       if (!confirm(`Remove "${projName}" from the share branch (${matches.length} record(s) and its plan)?`)) return;
       try {
         for (const [id] of matches) { await remove(dbRef(database, `${SHARE_ROOT}/tasks/${id}`)); await remove(dbRef(database, `${SHARE_ROOT}/tasks_plans/${id}`)).catch(() => {}); }
-        for (const [id] of pmMatches) await remove(dbRef(database, `${PM_SHARE_UID}/tasks/${id}`)).catch(() => {});
         await updateShareStatus();
         alert(`Unshared "${projName}".`);
       } catch (e) { console.error("[unshare]", e); alert("Unshare failed - see console."); }
