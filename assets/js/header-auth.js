@@ -3,7 +3,7 @@ import {
     onAuthStateChanged,
     signInWithEmailAndPassword,
     signOut
-} from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
+} from "/assets/js/fbswitch/firebase-auth.js";
 
 export function init() {
     const header  = document.getElementById("site-header");
