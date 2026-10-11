@@ -2,7 +2,8 @@
 // the pi-hub's PocketBase door (pi-panel pbdoor_ext: site origins + app data routes only).
 // One client per page; its auth lives in localStorage (pocketbase_auth), shared by every app on this origin.
 import PocketBase from './pocketbase.es.mjs';
-export const PI = 'https://pi.luissolutions.us/pb';
+import { PI } from '../mode.js';   // the Pi door: pi.luissolutions.us, or the Pi's home address on se's home address
+export { PI };
 
 export const pb = globalThis.__piPB || (globalThis.__piPB = new PocketBase(PI));
 pb.autoCancellation(false);

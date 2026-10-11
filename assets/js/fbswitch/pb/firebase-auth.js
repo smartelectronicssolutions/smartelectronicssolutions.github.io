@@ -52,8 +52,11 @@ export function beforeAuthStateChanged() { return () => {}; }
 // The Pi copy's OWN login (L 2026-10-11: "its own login, not Firebase"): email + the Pi password, checked by PocketBase
 // on the Pi alone. Set / change that password on /pbshim/account.html.
 export async function signInWithEmailAndPassword(_auth, email, password) {
-  try { await pb.collection('users').authWithPassword(String(email || '').trim().toLowerCase(), password); }
-  catch (e) { throw authErr('auth/invalid-credential', 'Invalid login credentials (Pi backup - sign in once while Firebase is up and the backup login is linked for you)'); }
+  // backup sign-in = 2 of 3 (Pi password + YubiKey code [+ a Firebase login if one still works]), checked on the Pi
+  const totp = (window.prompt('Pi backup sign-in - YubiKey code (6 digits):') || '').trim();
+  const { backupSignIn } = await import('../mode.js');
+  try { const d = await backupSignIn(String(email || '').trim().toLowerCase(), password, totp); pb.authStore.save(d.token, d.record); }
+  catch (e) { throw authErr('auth/invalid-credential', e.message || 'Backup sign-in needs 2 of 3: YubiKey code, Pi password, Firebase login'); }
   syncUid();
   return { user: current(), providerId: 'password', operationType: 'signIn' };
 }
