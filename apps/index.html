@@ -2,25 +2,101 @@
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Redirecting...</title>
-    <meta http-equiv="refresh" content="1;url=../connect.html">
-    <script>
-        setTimeout(function () {
-            window.location.href = "telaid/";
-        }, 1000);
-    </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Apps</title>
+  <link rel="stylesheet" href="assets/css/online.css" />
+  <style>
+    /* 2026-10-11 L: "the redirect in the apps/ folder able to be canceled with esc, and an actual apps page to view".
+       The page IS the apps launcher (built from apps.json + the Telaid tools); the old hop to telaid/ is now a short,
+       cancelable countdown - Esc, the Stay button, or any tap/scroll on the page stops it. */
+    body { margin: 0; padding: 16px; background: var(--bg); color: var(--text); font-family: "Segoe UI", system-ui, sans-serif; }
+    .wrap { max-width: 1100px; margin: 0 auto; }
+    header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+    header h1 { font-size: 1.15rem; margin: 0; flex: 1; }
+    #go { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 9px 12px; margin: 8px 0 4px; border: 1px solid var(--border);
+          border-radius: var(--radius, 10px); background: var(--surface); font-size: .9rem; }
+    #go button { border: 0; border-radius: 8px; padding: 5px 12px; background: var(--primary); color: var(--on-primary, #fff); cursor: pointer; font: inherit; }
+    #go kbd { font-size: .75rem; padding: 1px 5px; border: 1px solid var(--border); border-radius: 4px; }
+    #q { width: 100%; box-sizing: border-box; padding: 9px 12px; margin: 10px 0 4px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; }
+    h2 { font: 600 .68rem ui-monospace, Consolas, monospace; letter-spacing: 2px; text-transform: uppercase; color: var(--primary); margin: 20px 0 10px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+    .app { display: flex; flex-direction: column; gap: 4px; padding: 12px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border);
+           color: var(--text) !important; text-decoration: none; min-width: 0; }
+    .app:hover { border-color: var(--primary); }
+    .app img, .app .ph { width: 40px; height: 40px; object-fit: contain; font-size: 28px; line-height: 40px; }
+    .app b { font-size: .92rem; } .app small { color: var(--muted); font-size: .74rem; }
+    .none { color: var(--muted); padding: 10px 0; }
+  </style>
 </head>
 
 <body>
-    <p>Redirecting you now... If not, <a href="telaid/">click here</a>.</p>
+  <div class="wrap">
+    <header>
+      <h1>🧩 Apps</h1>
+      <button id="theme-toggle" title="Toggle theme">☀️</button>
+      <script src="assets/js/theme-toggle.js"></script>
+    </header>
+    <div id="go">⏩ Opening <a href="telaid/">Telaid Tools</a> in <b id="n">3</b>s…
+      <button id="stay">Stay here</button><span class="n" style="color:var(--muted)">or press <kbd>Esc</kbd></span></div>
+    <input id="q" type="search" placeholder="Search apps…" autocomplete="off">
+    <div id="list"></div>
+  </div>
 
-    <script type="module">
-        import { getIP, updateVisitCount } from '../assets/js/visitLogger.js';
-        getIP().then(ip => updateVisitCount(ip)).catch(() => {});
-    </script>
+  <script>
+    (function () {
+      // the old redirect (to telaid/), now cancelable: Esc, "Stay here", or touching the page stops it; remembered for this tab
+      var go = document.getElementById('go'), n = document.getElementById('n'), left = 3, t = null;
+      function stop() { if (t) { clearInterval(t); t = null; } go.remove(); try { sessionStorage.setItem('appsStay', '1'); } catch (_) {} }
+      var stayed = false; try { stayed = sessionStorage.getItem('appsStay') === '1' || location.hash === '#stay'; } catch (_) {}
+      if (stayed) { go.remove(); }
+      else {
+        t = setInterval(function () { left--; n.textContent = left; if (left <= 0) { clearInterval(t); location.href = 'telaid/'; } }, 1000);
+        document.getElementById('stay').onclick = stop;
+        document.addEventListener('keydown', function (e) { if (e.key === 'Escape') stop(); });
+        ['pointerdown', 'wheel', 'touchstart'].forEach(function (ev) { document.addEventListener(ev, function (e) { if (t && !go.contains(e.target)) stop(); }, { passive: true, once: true }); });
+        document.getElementById('q').addEventListener('focus', stop);
+      }
+    })();
 
+    // the launcher: the site's catalogue (apps.json) + the Telaid tools + any app page it does not list
+    var ICON = { jobs: '🛠️', finance: '💵', productivity: '📝', data: '🗄️', games: '🎮', telaid: '📡' };
+    var CAT = { jobs: 'Jobs', finance: 'Finance', productivity: 'Productivity', data: 'Data', games: 'Games', telaid: 'Telaid' };
+    var TELAID = [
+      { title: 'Telaid Tools', link: 'apps/telaid/', desc: 'Home for the Telaid field tools', icon: '🧰' },
+      { title: 'Checklist', link: 'apps/telaid/radar-tools.html', desc: 'RADAR QC checklist', icon: '✅' },
+      { title: 'Dashboard', link: 'apps/telaid/radar-dashboard.html', desc: 'Jobs at a glance', icon: '📊' },
+      { title: 'Floorplan', link: 'apps/telaid/radar-map.html', desc: 'Sensor map', icon: '🗺️' },
+      { title: 'Scanner', link: 'apps/telaid/sensor-lookup.html', desc: 'Sensor lookup', icon: '🔎' },
+      { title: 'Placement', link: 'apps/telaid/placement.html', desc: 'Sensor placement', icon: '📍' }
+    ].map(function (a) { a.cat = 'telaid'; return a; });
+    var all = [];
+    function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+    function paint() {
+      var q = document.getElementById('q').value.trim().toLowerCase(), groups = {};
+      all.filter(function (a) { return !q || (a.title + ' ' + (a.desc || '') + ' ' + (a.tag || '')).toLowerCase().indexOf(q) >= 0; })
+         .forEach(function (a) { (groups[a.cat] = groups[a.cat] || []).push(a); });
+      var order = ['jobs', 'telaid', 'finance', 'productivity', 'data', 'games'], keys = Object.keys(groups).sort(function (x, y) {
+        var i = order.indexOf(x), j = order.indexOf(y); return (i < 0 ? 99 : i) - (j < 0 ? 99 : j); });
+      document.getElementById('list').innerHTML = keys.map(function (k) {
+        return '<h2>' + esc(CAT[k] || k) + '</h2><div class="grid">' + groups[k].map(function (a) {
+          var ic = a.icon || ICON[k] || '🧩';   // the catalogue's img files are missing from the repo - an emoji stands in when one fails
+          var pic = a.img ? '<img src="/' + esc(a.img) + '" alt="" loading="lazy" data-ic="' + ic + '" onerror="var s=document.createElement(\'span\');s.className=\'ph\';s.textContent=this.dataset.ic;this.replaceWith(s)">' : '<span class="ph">' + ic + '</span>';
+          return '<a class="app" href="/' + esc(a.link) + '">' + pic + '<b>' + esc(a.title) + '</b><small>' + esc(a.desc || a.tag || '') + '</small></a>';
+        }).join('') + '</div>';
+      }).join('') || '<div class="none">No apps match.</div>';
+    }
+    fetch('apps.json', { cache: 'no-cache' }).then(function (r) { return r.json(); }).catch(function () { return []; }).then(function (cat) {
+      all = (cat || []).filter(function (a) { return a && a.link; }).concat(TELAID);
+      paint();
+    });
+    document.getElementById('q').addEventListener('input', paint);
+  </script>
+
+  <script type="module">
+    import { getIP, updateVisitCount } from '../assets/js/visitLogger.js';
+    getIP().then(ip => updateVisitCount(ip)).catch(() => {});
+  </script>
 </body>
 
 </html>
