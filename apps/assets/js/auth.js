@@ -201,12 +201,11 @@ async function mountAccountPicker(user) {
   wrap.id = "lsAccountPicker";
   wrap.title = "Whose data this page reads and writes (only you see this)";
   wrap.setAttribute("aria-label", "Account");
-  wrap.style.cssText = "width:auto;max-width:220px;margin:0 8px;padding:4px 8px;font-size:14px;border-radius:8px" +
-    (cur !== MAIN_UID ? ";background:#7a1f3d;color:#fff" : "");
+  wrap.style.cssText = "width:auto;max-width:220px;margin:0 8px;padding:4px 8px;font-size:14px;border-radius:8px";
   const sel = wrap;
-  for (const [u, n] of opts) { const o = document.createElement("option"); o.value = u; o.textContent = n; o.style.cssText = "background:#fff;color:#000"; if (u === cur) o.selected = true; sel.appendChild(o); }
+  for (const [u, n] of opts) { const o = document.createElement("option"); o.value = u; o.textContent = n; if (u === cur) o.selected = true; sel.appendChild(o); }
   sel.onchange = () => { try { sel.value === MAIN_UID ? localStorage.removeItem(ACCOUNT_KEY) : localStorage.setItem(ACCOUNT_KEY, sel.value); } catch (_) {} location.reload(); };
   const anchor = document.getElementById("auth-label") || document.getElementById("logout") || document.getElementById("auth-btn");
-  if (anchor && anchor.parentNode) { anchor.parentNode.insertBefore(wrap, anchor); const lbl = document.getElementById("auth-label"); if (lbl) lbl.hidden = true; }
+  if (anchor && anchor.parentNode) { anchor.parentNode.insertBefore(wrap, anchor); const lbl = document.getElementById("auth-label"); if (lbl) lbl.style.setProperty("display", "none", "important"); }   // the dropdown already shows the email
   else { wrap.style.cssText += ";position:fixed;top:8px;right:8px;z-index:9999"; document.body.appendChild(wrap); }
 }
