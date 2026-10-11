@@ -1438,6 +1438,7 @@
         // homelab/ops cards (services, drives, Wazuh, MC, usage, commands, tickets, inventory, network, creds, stats,
         // Telaid work, Goings-On, Microsoft) hide for anyone else; per-account cards (To-Dos, Notes, Topics) stay.
         const HUB_OWNER_UID = '7cIh8rrhVNOjjj5CBDgb3IlqzEh2';
+        const PILET_UID = 'JuKhM8rlSgQ3Ki1xGr0iXwUWJ193';   // SES account = Pilet's console; its kdaemon on the Pi publishes Pilet's usage there (2026-10-11)
         const OWNER_CARDS = ['Microsoft / OneDrive', 'Upcoming Work', 'Goings-On', 'Services', 'Claude Usage', 'Quick Commands',
                              'MC Server', 'Open Service Tickets', 'Inventory', 'Network', 'Credentials', 'Server Drives', 'Site Statistics'];
         function applyGuest(isGuest) {
@@ -1501,6 +1502,8 @@
             onValue(ref(database, `${DC.base}/pings/settings`), s => { const on = (s.val() || {}).enabled !== false; $('#dc-pg-enabled').checked = on; paintPingRow(on); });
             // console/fleet listener removed with the Bots & services panel (2026-09-27)
             onValue(ref(database, `${DC.base}/usage`), s => renderUsage(s.val() || {}));
+            // L 2026-10-11 "I want to see it" (Pilet's usage): the owner's card adds a Pilet line - only its today + last30 totals are read
+            if (DC.uid === HUB_OWNER_UID) ['today', 'last30'].forEach(k => onValue(ref(database, `${PILET_UID}/console/usage/${k}`), s => { DC.pilet = Object.assign(DC.pilet || {}, { [k]: s.val() || null }); if (DC.usage) renderUsageAdv(DC.usage); }));
             onValue(ref(database, `${DC.base}/data`), s => renderData(s.val() || null));   // wan-meter, ~1 KB every 2 min
             onValue(ref(database, `${DC.base}/drives`), s => { window.__drivesScan = s.val() || {}; window.__paintDrives && window.__paintDrives(); });   // drive_scan.py, ~2 KB/drive, nightly
             onValue(ref(database, `${DC.base}/settings/autoArchiveChars`), s => { DC.autoArchiveChars = Number(s.val() || 0); const b = $('#dc-auto-arch'); if (b && document.activeElement !== b) b.value = Math.round(DC.autoArchiveChars / 1000); updateThreadSize(DC.chatTurns || {}); });
@@ -3816,6 +3819,7 @@
             box.innerHTML = big('Today', fmtTok(td), vs)
                 + big('A usual day', fmtTok(Math.round(typ)), Math.round(m.msgs / (m.act || 1)) + ' messages')
                 + big('This month', fmtTok(m.out), m.msgs.toLocaleString() + ' messages')
+                + (DC.pilet && DC.pilet.today ? big('Pilet (on the Pi)', fmtTok(DC.pilet.today.out || 0) + ' today', fmtTok((DC.pilet.last30 || {}).out || 0) + ' this month') : '')
                 + big('Busiest day', fmtTok(u.peakDayOut || 0), pk)
                 + (top ? big('Mostly on', esc(top[0].replace('claude-', '')), Math.round(100 * top[1] / mt) + '% of all use') : '')
                 + head('Last 2 weeks') + bars
