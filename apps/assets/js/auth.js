@@ -193,20 +193,20 @@ async function mountAccountPicker(user) {
   let dir = {};
   try { dir = (await get(ref(database, "share/directory"))).val() || {}; } catch (_) {}
   const cur = pickedAccount(user) || MAIN_UID;
-  const opts = [[MAIN_UID, "Luis (me)"], ...Object.entries(dir).filter(([u]) => u !== MAIN_UID).map(([u, d]) => [u, (d && d.name) || u.slice(0, 6)])]
+  // ONE control, like the Telaid pages (L 2026-10-11 "just has the info in the dropdown"): the signed-in email line is
+  // replaced by the dropdown, whose first choice is you (your email)
+  const opts = [[MAIN_UID, (user.email || "Luis") + " (signed in)"], ...Object.entries(dir).filter(([u]) => u !== MAIN_UID).map(([u, d]) => [u, (d && d.name) || u.slice(0, 6)])]
     .sort((a, b) => (a[0] === MAIN_UID ? -1 : b[0] === MAIN_UID ? 1 : String(a[1]).localeCompare(String(b[1]))));
-  const wrap = document.createElement("label");
+  const wrap = document.createElement("select");
   wrap.id = "lsAccountPicker";
   wrap.title = "Whose data this page reads and writes (only you see this)";
-  wrap.style.cssText = "display:inline-flex;align-items:center;gap:6px;font-size:12px;margin:0 8px;white-space:nowrap" +
-    (cur !== MAIN_UID ? ";padding:2px 8px;border-radius:999px;background:#7a1f3d;color:#fff" : "");
-  wrap.innerHTML = `<span>${cur !== MAIN_UID ? "Viewing" : "Account"}</span>`;
-  const sel = document.createElement("select");
-  sel.style.cssText = "font-size:12px;max-width:170px";
-  for (const [u, n] of opts) { const o = document.createElement("option"); o.value = u; o.textContent = n; if (u === cur) o.selected = true; sel.appendChild(o); }
+  wrap.setAttribute("aria-label", "Account");
+  wrap.style.cssText = "width:auto;max-width:220px;margin:0 8px;padding:4px 8px;font-size:14px;border-radius:8px" +
+    (cur !== MAIN_UID ? ";background:#7a1f3d;color:#fff" : "");
+  const sel = wrap;
+  for (const [u, n] of opts) { const o = document.createElement("option"); o.value = u; o.textContent = n; o.style.cssText = "background:#fff;color:#000"; if (u === cur) o.selected = true; sel.appendChild(o); }
   sel.onchange = () => { try { sel.value === MAIN_UID ? localStorage.removeItem(ACCOUNT_KEY) : localStorage.setItem(ACCOUNT_KEY, sel.value); } catch (_) {} location.reload(); };
-  wrap.appendChild(sel);
   const anchor = document.getElementById("auth-label") || document.getElementById("logout") || document.getElementById("auth-btn");
-  if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(wrap, anchor);
-  else { wrap.style.cssText += ";position:fixed;top:8px;right:8px;z-index:9999;background:var(--bg,#111);padding:4px 8px;border-radius:8px"; document.body.appendChild(wrap); }
+  if (anchor && anchor.parentNode) { anchor.parentNode.insertBefore(wrap, anchor); const lbl = document.getElementById("auth-label"); if (lbl) lbl.hidden = true; }
+  else { wrap.style.cssText += ";position:fixed;top:8px;right:8px;z-index:9999"; document.body.appendChild(wrap); }
 }
