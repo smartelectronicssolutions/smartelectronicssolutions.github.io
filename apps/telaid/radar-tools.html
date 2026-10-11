@@ -964,6 +964,19 @@
       }
       const markOfItem = item => item.mark || sensorNumOf(item.name);
 
+      // OTHER DELIVERABLES = EVERY OTHER IMAGE OF THE JOB (2026-10-11, L: "the other deliverables section should just be all
+      // the other images under that job"): not only images/<proj>/deliverables but every folder under the job's images
+      // (MDF, IDF1-6, deliverables, Materials, Install, ...) plus loose files at the top - everything except the sensor
+      // photos, which have their own mode. Grouped by folder (sorted by path); uploads in this mode still go to deliverables/.
+      async function otherPhotoItems() {
+        const root = getImagesPath("").replace(/\/$/, "");
+        const top = await listAll(storageRef(storage, root));
+        const folders = top.prefixes.filter(p => p.name.toLowerCase() !== "sensors");
+        const lists = await Promise.all([listStorageItems(root).catch(() => []),
+          ...folders.map(p => listStorageItems(p.fullPath).then(arr => arr.map(it => ({ ...it, folder: p.name }))).catch(() => []))]);
+        return lists.flat();
+      }
+
       async function updateGallery() {
         if (!state.currentProject) return;
 
@@ -974,7 +987,7 @@
 
         let items = [];
         try {
-          items = mode === "sensors" ? await sensorPhotoItems() : await listStorageItems(base);
+          items = mode === "sensors" ? await sensorPhotoItems() : mode === "deliverables" ? await otherPhotoItems() : await listStorageItems(base);
         } catch {
           items = [];
         }
@@ -991,6 +1004,7 @@
           const fa = favorites[a.fullPath] ? 1 : 0;
           const fb = favorites[b.fullPath] ? 1 : 0;
           if (fa !== fb) return fb - fa;
+          if ((a.folder || "") !== (b.folder || "")) return (a.folder || "").localeCompare(b.folder || "", undefined, { numeric: true });   // other images: grouped by folder
           return a.name.localeCompare(b.name, undefined, { numeric: true });
         });
 
@@ -1030,7 +1044,7 @@
           container.appendChild(img);
           container.appendChild(star);
           $("gallery")?.appendChild(container);
-          $("imageDropdown")?.appendChild(new Option(item.name, String(index)));
+          $("imageDropdown")?.appendChild(new Option((item.folder ? item.folder + " / " : "") + item.name, String(index)));   // other images name their folder
         });
 
         if (mode === "sensors") {
