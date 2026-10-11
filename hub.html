@@ -5849,14 +5849,18 @@
     const sendSecret = () => P.word || secretFor(P.me);
     const encMode = () => P.word ? 2 : 1;
     const readSecret = m => m.enc === 2 ? (P.word || null) : secretFor(m.from);
-    function keyFor(secret) { if (E2E.keys.has(secret)) return E2E.keys.get(secret);
+    // PLAIN-HTTP COPIES (2026-10-10, found by Pilet: L hit "Cannot read properties of undefined (reading 'encrypt')" on the Pi's
+    // http://192.168.50.149/hub.html): browsers only give crypto.subtle to secure pages (https / localhost), so the member chat's
+    // end-to-end encryption cannot run there. Say that in plain words instead of the raw TypeError.
+    const E2E_HTTPS_MSG = 'Member chat needs a secure page - open https://luissolutions.us/hub.html (this copy is plain http)';
+    function keyFor(secret) { if (!(window.crypto && crypto.subtle)) throw new Error(E2E_HTTPS_MSG); if (E2E.keys.has(secret)) return E2E.keys.get(secret);
         const te = new TextEncoder();
         const p = crypto.subtle.importKey('raw', te.encode(secret), 'PBKDF2', false, ['deriveKey'])
             .then(base => crypto.subtle.deriveKey({ name: 'PBKDF2', salt: te.encode(E2E.salt), iterations: E2E.iters, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']));
         E2E.keys.set(secret, p); return p; }
     const b64 = u8 => { let b = ''; for (let i = 0; i < u8.length; i += 0x8000) b += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(b); };
     const unb64 = str => Uint8Array.from(atob(str), c => c.charCodeAt(0));
-    async function encText(secret, text) { const iv = crypto.getRandomValues(new Uint8Array(12)); const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await keyFor(secret), new TextEncoder().encode(text)));
+    async function encText(secret, text) { if (!(window.crypto && crypto.subtle)) throw new Error(E2E_HTTPS_MSG); const iv = crypto.getRandomValues(new Uint8Array(12)); const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await keyFor(secret), new TextEncoder().encode(text)));
         const out = new Uint8Array(12 + ct.length); out.set(iv); out.set(ct, 12); return b64(out); }
     async function decText(secret, blob) { const raw = unb64(blob); return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: raw.slice(0, 12) }, await keyFor(secret), raw.slice(12))); }
     const isE2EThread = tid => E2E.on && !!tid && !String(tid).startsWith('tab-');
