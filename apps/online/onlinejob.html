@@ -734,7 +734,7 @@
     function handleTasksUpdate(tasks) {
       tasks = tasks.filter(t => t.status !== 'scheduled');   // future/scheduled jobs live in onlineschedule, not the active job log
       taskLogTbody.innerHTML = ""; allTasks = tasks;
-      tasks.sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
+      tasks.sort((a, b) => (Date.parse(b.startTime) || 0) - (Date.parse(a.startTime) || 0));   // 2026-10-11: a record with no startTime made the comparator NaN and scrambled the list (7/14 showed as latest)
       const cutoff = Date.now() - 14 * 24 * 3600 * 1000;
       const recentCount = tasks.filter(t => t.startTime && new Date(t.startTime) >= cutoff).length;
       if (recentCount === tasks.length) isShowingAll = true;
@@ -771,7 +771,7 @@
     function checkOngoingTask(tasks) {
       const open = tasks.filter(t => t.startTime && !t.endTime);
       if (!open.length) return;
-      open.sort((a, b) => new Date(b.startTime) - new Date(a.startTime)); // latest open first
+      open.sort((a, b) => (Date.parse(b.startTime) || 0) - (Date.parse(a.startTime) || 0)); // latest open first (no startTime = oldest, never NaN)
       const ongoing = open[0];
       // Only auto-load the latest open task ONCE per (re)subscribe — not on every
       // data update. Editing a field re-fires the tasks listener; without this guard
@@ -1396,11 +1396,11 @@
     document.getElementById("calculateHoursBtn").addEventListener("click", calcHoursBetweenDates);
     document.querySelectorAll(".toggle-column").forEach(cb => cb.addEventListener("change", () => { saveColVis(); applyColVis(); }));
     document.querySelector("#task-log th.start-time-column").addEventListener("click", () => {
-      const sorted = [...allTasks].sort((a, b) => { const d = new Date(a.startTime) - new Date(b.startTime); return sortOrder === "asc" ? d : -d; });
+      const sorted = [...allTasks].sort((a, b) => { const d = (Date.parse(a.startTime) || 0) - (Date.parse(b.startTime) || 0); return sortOrder === "asc" ? d : -d; });
       taskLogTbody.innerHTML = ""; sorted.forEach(addTaskToTable); sortOrder = sortOrder === "asc" ? "desc" : "asc";
     });
     document.querySelector("#task-log th.end-time-column").addEventListener("click", () => {
-      const sorted = [...allTasks].sort((a, b) => { const d = new Date(a.endTime) - new Date(b.endTime); return sortOrderEnd === "asc" ? d : -d; });
+      const sorted = [...allTasks].sort((a, b) => { const d = (Date.parse(a.endTime) || 0) - (Date.parse(b.endTime) || 0); return sortOrderEnd === "asc" ? d : -d; });
       taskLogTbody.innerHTML = ""; sorted.forEach(addTaskToTable); sortOrderEnd = sortOrderEnd === "asc" ? "desc" : "asc";
     });
 
