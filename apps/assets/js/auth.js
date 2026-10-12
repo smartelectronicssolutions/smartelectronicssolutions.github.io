@@ -196,13 +196,13 @@ async function mountAccountPicker(user) {
   const cur = pickedAccount(user) || MAIN_UID;
   // ONE control, like the Telaid pages (L 2026-10-11 "just has the info in the dropdown"): the signed-in email line is
   // replaced by the dropdown, whose first choice is you (your email)
-  const opts = [[MAIN_UID, (user.email || "Luis") + " (signed in)"], ...Object.entries(dir).filter(([u]) => u !== MAIN_UID).map(([u, d]) => [u, (d && d.name) || u.slice(0, 6)])]
+  const opts = [[MAIN_UID, (user.email || "Luis") + " (you)"], ...Object.entries(dir).filter(([u]) => u !== MAIN_UID).map(([u, d]) => [u, (d && d.name) || u.slice(0, 6)])]
     .sort((a, b) => (a[0] === MAIN_UID ? -1 : b[0] === MAIN_UID ? 1 : String(a[1]).localeCompare(String(b[1]))));
   const wrap = document.createElement("select");
   wrap.id = "lsAccountPicker";
   wrap.title = "Whose data this page reads and writes (only you see this)";
   wrap.setAttribute("aria-label", "Account");
-  wrap.style.cssText = "width:auto;max-width:220px;margin:0 8px;padding:4px 8px;font-size:14px;border-radius:8px";
+  wrap.style.cssText = "width:auto;max-width:min(440px,72vw);margin:0 8px;padding:4px 8px;font-size:14px;border-radius:8px";   // 2026-10-11: 220px cut long emails off
   const sel = wrap;
   for (const [u, n] of opts) { const o = document.createElement("option"); o.value = u; o.textContent = n; if (u === cur) o.selected = true; sel.appendChild(o); }
   sel.onchange = () => { try { sel.value === MAIN_UID ? localStorage.removeItem(ACCOUNT_KEY) : localStorage.setItem(ACCOUNT_KEY, sel.value); } catch (_) {} location.reload(); };
