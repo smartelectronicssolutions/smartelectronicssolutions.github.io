@@ -4536,6 +4536,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const np = ('Notification' in window) ? Notification.permission : 'unsupported';
             html += `<label class="dc-peer-row" style="cursor:pointer"><input type="checkbox" id="dc-peer-pop" ${popOn() && np === 'granted' ? 'checked' : ''} ${np === 'unsupported' || np === 'denied' ? 'disabled' : ''}> 🔔 Pop-up alerts on this device<small>${np === 'denied' ? 'blocked in this browser - allow notifications for luissolutions.us in the site settings' : np === 'unsupported' ? 'this browser has no notifications' : 'a system pop-up when someone writes, while the hub is open (even minimised)'}</small></label>`;
             html += `<label class="dc-peer-row" style="cursor:pointer"><input type="checkbox" id="dc-peer-hide" ${P.hideMe ? 'checked' : ''}> 🔕 Appear offline<small>members see you as offline and your last-seen time stops; follows your account on every device</small></label>`;
+            if ('IdleDetector' in window) html += `<button type="button" class="dc-peer-row" id="dc-peer-idle">🖥 ${PR.det ? 'Using this computer\'s activity ✓' : 'Use this computer\'s activity'}<small>${PR.det ? 'active while you use ANY app or tab here; idle after 5 min away or when the screen locks' : 'one-time permission: green while you use any app or tab on this computer, not just this tab'}</small></button>`;
             html += `<button type="button" class="dc-peer-row" data-readall="1">✓ Mark everything read</button>`;
             html += `<div class="pnote">Members come from the share list (the same one Notes uses). Chats are private to the people in them; nothing typed here reaches the daemon.</div>`;
         }
@@ -4554,6 +4555,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             try { localStorage.setItem('dc_peer_pop', pp.checked ? '1' : '0'); } catch (_) {}
             if (pp.checked) try { new Notification('🔔 Alerts on', { body: 'New messages will pop up here while the hub is open.' }); } catch (_) {}
         };
+        const pi = $('#dc-peer-idle'); if (pi) pi.onclick = async () => { const ok = await presIdleDetect(true); if (!ok && 'IdleDetector' in window) alert('Not allowed - in the address bar, site settings for this page, allow "Device use" and tap again.'); renderHome(); };
         const ph = $('#dc-peer-hide'); if (ph) ph.onchange = () => { P.hideMe = ph.checked; presArm(); set(ref(database, `${P.me}/console/settings/appearOffline`), ph.checked).catch(e => alert('Not saved: ' + (e.code || e.message))); };
         const pc = $('#dc-peer-ping'); if (pc) pc.onchange = () => { P.pingOn = pc.checked; set(ref(database, `${P.me}/console/settings/peerPings`), pc.checked).catch(() => {}); };
         wireProfile(home);   // the shared profile form (load once, draft kept across re-renders, Save)
@@ -4858,7 +4860,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         if (m.bye) delete PR.sibs[m.id]; else PR.sibs[m.id] = { vis: !!m.vis, act: +m.act || 0, seen: Date.now() }; presPush(); };
     function presPush() {
         if (!PR.conn) return;
-        const now = Date.now(), mine = !document.hidden && now - PR.lastAct < PR.IDLE_MS;
+        // COMPUTER ACTIVITY (L 2026-10-12 "I don't want to link them, that doesn't solve the issue"): where the browser has the Idle
+        // Detection API (Chrome/Edge desktop) and L allowed it, the answer is "is someone at this machine" - any app, any tab,
+        // screen unlocked - not "is this tab in front". PR.sys = true/false from the detector, null = no detector (Safari/iPad).
+        const now = Date.now(), mine = PR.sys != null ? PR.sys : (!document.hidden && now - PR.lastAct < PR.IDLE_MS);
         const sib = Object.values(PR.sibs).some(s => s.vis && now - s.seen < 70000 && now - s.act < PR.IDLE_MS);
         const w = P.hideMe ? null : (mine || sib ? 'active' : 'idle');
         if (w === PR.state) return; PR.state = w;
@@ -4869,8 +4874,21 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         onDisconnect(PR.conn).remove().catch(() => {});
         if (P.hideMe) onDisconnect(lastRef()).cancel().catch(() => {}); else onDisconnect(lastRef()).set(serverTimestamp()).catch(() => {});
         PR.state = undefined; presPush(); }
+    PR.sys = null;
+    async function presIdleDetect(ask) {   // ask = from a tap (the permission prompt needs one); otherwise only if already allowed
+        if (!('IdleDetector' in window) || PR.det) return !!PR.det;
+        try {
+            if (ask) { if (await IdleDetector.requestPermission() !== 'granted') return false; }
+            else { const p = await navigator.permissions.query({ name: 'idle-detection' }); if (p.state !== 'granted') return false; }
+            const det = new IdleDetector();
+            det.addEventListener('change', () => { PR.sys = det.userState === 'active' && det.screenState === 'unlocked'; presPush(); });
+            await det.start({ threshold: PR.IDLE_MS }); PR.det = det;
+            PR.sys = det.userState === 'active' && det.screenState === 'unlocked'; presPush(); return true;
+        } catch (_) { return false; }
+    }
     function presStart() {
         if (PR.started) return; PR.started = true;
+        presIdleDetect(false);
         onValue(ref(database, '.info/connected'), s => { if (s.val() !== true) { PR.state = undefined; return; }
             if (!PR.conn) PR.conn = push(ref(database, `share/presence/${P.me}`));
             presArm(); });
