@@ -12,7 +12,7 @@ import {
   ref,
   get,
 } from "./firebase-init.js";
-import { sendEmailVerification } from "/assets/js/fbswitch/firebase-auth.js";
+import { sendEmailVerification } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
 
 let currentUserUID = null;
 

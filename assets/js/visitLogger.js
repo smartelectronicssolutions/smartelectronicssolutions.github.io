@@ -16,7 +16,7 @@ import {
     set
 } from '../../apps/assets/js/firebase-init.js';
 // increment() is a write-only counter - the per-IP node is NOT readable by visitors any more (2026-09-27, see below)
-import { increment } from '/assets/js/fbswitch/firebase-database.js';
+import { increment } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js';
 
 function normalizePage(href) {
     let pathname;
