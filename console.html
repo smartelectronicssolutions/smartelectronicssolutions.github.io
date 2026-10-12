@@ -4847,9 +4847,20 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         const u = P.open && !P.open.startsWith('tab-') ? P.other : null;
         el.innerHTML = u && u !== 'droplet' ? presDot(u) + esc(presText(u)) : ''; }
     const lastRef = () => ref(database, `share/presence/${P.me}/last`);
+    // SIBLING TABS (L 2026-10-12 "the luis account is showing idle even tho I'm active on this laptop"): a console tab in the
+    // background is NOT idle while another console tab in the same browser is in front and being used - switching to the
+    // Smart Solutions tab to look at Luis was turning Luis idle. Tabs tell each other over a BroadcastChannel; a locked phone
+    // hides every tab at once, so it still goes idle right away.
+    PR.tab = Math.random().toString(36).slice(2); PR.sibs = {}; PR.lastPost = 0;
+    PR.bc = ('BroadcastChannel' in window) ? new BroadcastChannel('dc-presence') : null;
+    const presPost = bye => { if (!PR.bc) return; PR.lastPost = Date.now(); try { PR.bc.postMessage(bye ? { id: PR.tab, bye: 1 } : { id: PR.tab, vis: !document.hidden, act: PR.lastAct }); } catch (_) {} };
+    if (PR.bc) PR.bc.onmessage = e => { const m = e.data; if (!m || !m.id || m.id === PR.tab) return;
+        if (m.bye) delete PR.sibs[m.id]; else PR.sibs[m.id] = { vis: !!m.vis, act: +m.act || 0, seen: Date.now() }; presPush(); };
     function presPush() {
         if (!PR.conn) return;
-        const w = P.hideMe ? null : (!document.hidden && Date.now() - PR.lastAct < PR.IDLE_MS ? 'active' : 'idle');
+        const now = Date.now(), mine = !document.hidden && now - PR.lastAct < PR.IDLE_MS;
+        const sib = Object.values(PR.sibs).some(s => s.vis && now - s.seen < 70000 && now - s.act < PR.IDLE_MS);
+        const w = P.hideMe ? null : (mine || sib ? 'active' : 'idle');
         if (w === PR.state) return; PR.state = w;
         set(PR.conn, w ? { s: w, at: Date.now() } : null).catch(() => {});
         if (w) set(lastRef(), Date.now()).catch(() => {}); }
@@ -4863,10 +4874,12 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         onValue(ref(database, '.info/connected'), s => { if (s.val() !== true) { PR.state = undefined; return; }
             if (!PR.conn) PR.conn = push(ref(database, `share/presence/${P.me}`));
             presArm(); });
-        const bump = () => { PR.lastAct = Date.now(); if (PR.state !== 'active') presPush(); };
+        const bump = () => { PR.lastAct = Date.now(); if (PR.state !== 'active') presPush(); if (PR.lastAct - PR.lastPost > 15000) presPost(); };
         ['pointerdown', 'keydown', 'wheel', 'touchstart', 'scroll'].forEach(ev => document.addEventListener(ev, bump, { passive: true, capture: true }));
-        document.addEventListener('visibilitychange', () => { if (!document.hidden) PR.lastAct = Date.now(); presPush(); });
-        setInterval(presPush, 30000);   // notices the 5-minute idle; writes nothing unless the state changed
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) PR.lastAct = Date.now(); presPost(); presPush(); });
+        window.addEventListener('pagehide', () => presPost(true));
+        setInterval(() => { presPost(); presPush(); }, 30000);   // heartbeat to sibling tabs + notices the 5-minute idle; Firebase is written only on a change
+        presPost();
         onValue(ref(database, 'share/presence'), s => { PR.all = s.val() || {}; presPaint(); }, () => {});
     }
     onAuthStateChanged(auth, u => { if (!u) return;
