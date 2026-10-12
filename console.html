@@ -953,9 +953,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         </div>
     </div>
 <script type="module">
-        import { database, ref, onValue, push, set, update, remove, get, query, limitToLast } from './assets/js/firebase-init.js';
+        import { database, ref, onValue, push, set, update, remove, get, query, limitToLast, auth as __auth, onAuthStateChanged as __onAuth } from './assets/js/firebase-init.js?v=20261011b';
         import { orderByChild, equalTo } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js';   // shared-tab (guest) reads
-        import { onUserReady } from './apps/assets/js/auth.js';
+        const onUserReady = cb => __onAuth(__auth, cb);   // 2026-10-11: was auth.js (its import chain hit a cached broken file on the iPad)
 
         const OLLAMA = 'https://api.luissolutions.us/chat';
         const MODEL = 'qwen3:14b';
@@ -1741,7 +1741,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             for (const c of chunks) { if (g && (g + ' ' + c).length > 280) { groups.push(g); g = c.trim(); } else g = (g ? g + ' ' : '') + c.trim(); }
             if (g) groups.push(g);
             const fetchClip = async (text) => {
-                const tok = await (await import('./assets/js/firebase-init.js')).auth.currentUser?.getIdToken();
+                const tok = await (await import('./assets/js/firebase-init.js?v=20261011b')).auth.currentUser?.getIdToken();
                 if (!tok) throw new Error('not signed in');
                 const r = await fetch(TTS_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Firebase-Token': tok }, body: JSON.stringify({ text, voice: 'af_heart' }) });
                 if (!r.ok) throw new Error('voice ' + r.status);
@@ -4228,7 +4228,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         if (DC.deepTab !== null) setTimeout(() => { try { window.openDropletConsole(); } catch (_) {} }, 0);   // ?dc=<tab> deep link
     </script>
 <script type="module">
-    import { database, ref, onValue, push, set, get, update, query, limitToLast, auth, onAuthStateChanged, updateProfile } from './assets/js/firebase-init.js';
+    import { database, ref, onValue, push, set, get, update, query, limitToLast, auth, onAuthStateChanged, updateProfile } from './assets/js/firebase-init.js?v=20261011b';
     const $ = s => document.querySelector(s);
     const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
     const tidFor = (a, b) => [a, b].sort().join('_');
@@ -4795,7 +4795,14 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     </script>
 <script type="module">
 // the page IS the console: open it now, a sign-in sheet when signed out, ✕ / Esc goes back to the apps page
-import { onUserReady } from './apps/assets/js/auth.js';
+import { auth, onAuthStateChanged, signInWithEmailAndPassword } from './assets/js/firebase-init.js?v=20261011b';
+const onUserReady = cb => onAuthStateChanged(auth, cb);
+// the sign-in sheet (auth.js used to wire it): email + password -> Firebase
+document.getElementById('do-login')?.addEventListener('click', async () => {
+  const e = document.getElementById('email-in'), p = document.getElementById('pass-in');
+  try { await signInWithEmailAndPassword(auth, (e.value || '').trim(), p.value); p.value = ''; }
+  catch (_) { alert('Invalid login. Please check your email and password.'); }
+});
 const openC = () => { try { window.openDropletConsole(); } catch (e) { console.warn('console open', e); } };
 openC();
 onUserReady(u => { const s = document.getElementById('pc-login'); if (s) s.style.display = u ? 'none' : 'flex'; });
