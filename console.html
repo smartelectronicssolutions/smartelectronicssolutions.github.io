@@ -398,6 +398,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         .dc-bub .dc-edit:hover { opacity: 1; background: rgba(255,255,255,.08); }
         /* 1 / 2 BUTTONS (2026-09-24): a reply carrying a terminal menu gets one tappable button per option */
         .dc-bub .dc-choices { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+        /* tappable numbers in replies (2026-10-11) */
+        .dc-bub .dc-num { display: inline-block; min-width: 1.6em; padding: 0 5px; margin-right: 2px; border-radius: 6px; border: 1px solid color-mix(in srgb, var(--dc-purple) 60%, transparent); color: var(--dc-purple); cursor: pointer; text-align: center; font-weight: 700; }
+        .dc-bub .dc-num:hover { background: color-mix(in srgb, var(--dc-purple) 15%, transparent); }
+        .dc-bub .dc-num.on { background: var(--dc-purple); color: var(--dc-on-purple, #fff); }
         .dc-bub .dc-choice { border: 1px solid var(--dc-green); color: var(--dc-green); background: color-mix(in srgb, var(--dc-green) 12%, transparent); border-radius: var(--dc-r-md); padding: 8px 14px; min-height: 36px; cursor: pointer; font-family: inherit; font-size: calc(0.88rem * var(--dc-fs, 1)); font-weight: 600; text-align: left; }
         .dc-bub .dc-choice:disabled { opacity: 0.45; cursor: default; }
         /* ⤓ latest pill: floats over the chat log when scrolled away from the newest message.
@@ -1260,7 +1264,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // WAIT LINE (2026-09-24, L: "when I'm waiting for something can it show how much token count then some
             // other useful bit of info about backend"): a pending bubble carries a live line painted by paintWait().
             const wait = pend ? `<div class="dc-wait" data-k="${esc(t.__k || '')}"></div>` : '';
-            return { cls: `dc-bub ${me ? 'me' : 'drop'}${pend}${t.s === 'G' && !me ? ' guest' : ''}${R && t.s === 'L' ? ' owner' : ''}`, html: `${editBtn}${favBtn}<span class="who">${who}${time ? ' · ' + time : ''}${tag}${tp}</span>${linkify(esc(body))}${wait}${choices}${snapBox}${enh}<div class="ts">${time}</div>` };
+            return { cls: `dc-bub ${me ? 'me' : 'drop'}${pend}${t.s === 'G' && !me ? ' guest' : ''}${R && t.s === 'L' ? ' owner' : ''}`, html: `${editBtn}${favBtn}<span class="who">${who}${time ? ' · ' + time : ''}${tag}${tp}</span>${me ? linkify(esc(body)) : numify(linkify(esc(body)))}${wait}${choices}${snapBox}${enh}<div class="ts">${time}</div>` };
         }
         // PERF: keyed incremental render - only turns whose content changed are re-built; the rest of the DOM is
         // untouched (the old version rebuilt all 120 bubbles as one innerHTML on every change, which stuttered on the phone).
@@ -1969,6 +1973,20 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             ta.value = b.dataset.n; sendChat();         // reads the target synchronously before its first await
             if (sel && was) sel.value = was;
             b.closest('.dc-choices').querySelectorAll('.dc-choice').forEach(x => { x.disabled = true; });
+        }, true);
+
+        // tap a number in a reply -> "#N: <start of that line>" into the box; tap again to take it back out
+        document.addEventListener('click', e => {
+            const b = e.target.closest && e.target.closest('.dc-bub .dc-num'); if (!b) return; e.stopPropagation(); e.preventDefault();
+            const ta = $('#dc-chat-in'); if (!ta) return;
+            let line = '', node = b.nextSibling;
+            while (node && line.length < 90) { const t = node.textContent || ''; const nl = t.indexOf('\n'); line += nl >= 0 ? t.slice(0, nl) : t; if (nl >= 0) break; node = node.nextSibling; }
+            line = line.replace(/\*\*/g, '').trim(); if (line.length > 70) line = line.slice(0, 70) + '…';
+            const tag = `#${b.dataset.n}: ${line}`;
+            const lines = ta.value ? ta.value.split('\n') : [];
+            const at = lines.findIndex(l => l.startsWith(`#${b.dataset.n}:`));
+            if (at >= 0) { lines.splice(at, 1); b.classList.remove('on'); } else { lines.push(tag); b.classList.add('on'); }
+            ta.value = lines.join('\n'); ta.dispatchEvent(new Event('input', { bubbles: true })); ta.focus();
         }, true);
 
         // DAEMON UPDATE (2026-10-10). The latest portable daemon lives in Storage (public/kdaemon/, readable without a
@@ -3618,6 +3636,11 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // text, so a reply can still never inject HTML - the only tags here are the ones we write, and an href
         // can only begin http:// or https://, which puts javascript: out of reach. Markdown [label](url) first,
         // then bare URLs; a bare URL inside an href or anchor text cannot re-match (it is preceded by " or >).
+        // TAPPABLE NUMBERS (2026-10-11): a reply line that starts "3." / "3)" / "**3.**" gets its number as a button.
+        function numify(h) {
+            return (h || '').replace(/(^|\n)([ \t]*(?:\*\*)?)(\d{1,2})([.)])(?=\s)/g,
+                (m, pre, lead, n, dot) => `${pre}${lead}<span class="dc-num" data-n="${n}" role="button" tabindex="0" title="tap to answer with ${n}">${n}${dot}</span>`);
+        }
         function linkify(h) {
             // The URL must be a plain http(s) URL and nothing else. Quotes, angle brackets and
             // backticks are REJECTED rather than stripped - they are not legal in a URL unencoded,
