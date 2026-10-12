@@ -193,10 +193,12 @@ async function mountAccountPicker(user) {
   pickerMounted = true;
   let dir = {};
   try { dir = (await get(ref(database, "share/directory"))).val() || {}; } catch (_) {}
+  let emails = {};   // 2026-10-11 (L: "add the emails of things that have names"): uid -> email, kept in the OWNER's private profile, never in share/
+  try { emails = (await get(ref(database, `${MAIN_UID}/profile/accountEmails`))).val() || {}; } catch (_) {}
   const cur = pickedAccount(user) || MAIN_UID;
   // ONE control, like the Telaid pages (L 2026-10-11 "just has the info in the dropdown"): the signed-in email line is
   // replaced by the dropdown, whose first choice is you (your email)
-  const opts = [[MAIN_UID, (user.email || "Luis") + " (you)"], ...Object.entries(dir).filter(([u]) => u !== MAIN_UID).map(([u, d]) => [u, (d && d.name) || u.slice(0, 6)])]
+  const opts = [[MAIN_UID, (user.email || "Luis") + " (you)"], ...Object.entries(dir).filter(([u]) => u !== MAIN_UID).map(([u, d]) => { const n = (d && d.name) || u.slice(0, 6), e = emails[u]; return [u, e && e !== n ? n + " · " + e : n]; })]
     .sort((a, b) => (a[0] === MAIN_UID ? -1 : b[0] === MAIN_UID ? 1 : String(a[1]).localeCompare(String(b[1]))));
   const wrap = document.createElement("select");
   wrap.id = "lsAccountPicker";
