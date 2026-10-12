@@ -211,6 +211,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         /* panels: only the CHAT panel flexes to fill the body; the System panels take their natural height and the body
            scrolls (two flexing block panels squeezed each other and their content spilled = "overlapping divs") */
         .dc-panel { display: none; } .dc-panel.active { display: block; flex: none; }
+        #dc-syshead-panel.active { display: flex; align-items: center; gap: 8px; position: sticky; top: 0; z-index: 3; margin: -2px 0 8px; padding: 6px 2px; background: var(--bg, #0d1117); border-bottom: 1px solid var(--border); font-size: .8rem; font-weight: 600; }
+        #dc-syshead-panel span { flex: 1; }
+        #dc-sys-close { background: none; border: 1px solid var(--border); color: inherit; border-radius: 6px; width: 32px; height: 32px; font-size: 1rem; cursor: pointer; }
         .dc-fold { font-size: .95rem !important; letter-spacing: .5px !important; color: var(--text) !important; }   /* the fold headings read at body size (L 2026-10-04 "the dc-fold text should be larger"); !important beats the h4 inline styles */
         .dc-fold .chev { display: inline-block; width: 1em; opacity: .7; }
         /* your local bot panel (System view) */
@@ -847,6 +850,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 </div>
             </div>
             <!-- SYSTEM tab = account line + ROUTINES panel + FLEET panel (both toggled together) -->
+            <!-- CLOSE BAR (L 2026-10-12 "need to add a close button to the advanced settings"): first of the Advanced panels, sticky,
+                 ✕ = the side pane closes (wide) or back to the chat (phone). A .dc-panel so build() moves it into #dc-sys-col with the rest. -->
+            <div class="dc-panel" id="dc-syshead-panel"><span>🖥 Advanced</span><button type="button" id="dc-sys-close" title="close Advanced" aria-label="close Advanced">✕</button></div>
             <!-- PROFILE (L 2026-10-04 "I need a place here to edit my profile info"): the SAME record as the workspace Account card
                  (auth displayName + {uid}/profile). The member module fills #dc-prof; the People pane shows the same form. -->
             <div class="dc-panel" id="dc-prof-panel">
@@ -3736,13 +3742,14 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // Workbench tab retired 2026-09-11 — its enhance lives inline in the Chat now (computeEnhance).
         $('#dc-pg-enabled').onchange = e => { paintPingRow(e.target.checked); set(ref(database, `${DC.base}/pings/settings`), { channel: 'telegram_dm', enabled: e.target.checked }); };
         // FULL SYSTEM AS A SIDE PANE (L 2026-10-04): on a wide screen System opens beside the chat like 👥 - one side pane at a time
-        const SYS_PANELS = ['#dc-rt-panel', '#dc-in-panel', '#dc-use-panel', '#dc-bot-panel', '#dc-look-panel', '#dc-prof-panel'];
+        const SYS_PANELS = ['#dc-syshead-panel', '#dc-rt-panel', '#dc-in-panel', '#dc-use-panel', '#dc-bot-panel', '#dc-look-panel', '#dc-prof-panel'];
         const sysSide = matchMedia('(min-width: 761px)'), sysPaneMode = () => sysSide.matches && !DC.isPhone();
         const setSysPane = on => { const body = $('#dc-console .dc-body'); if (!body) return;
             if (on) { window.__dcClosePeer && window.__dcClosePeer(); body.classList.add('dc-split', 'sysopen'); $('#dc-chat-panel').classList.add('active'); const ct = $('.dc-tab[data-tab="ch"]'); if (ct) ct.classList.add('active'); }
             else { const peer = body.classList.contains('dc-split') && !body.classList.contains('sysopen'); body.classList.remove('sysopen'); if (!peer) body.classList.remove('dc-split'); } };
         const closeSysPane = () => { const st = $('#dc-sys-tab'); if (st) st.classList.remove('active'); SYS_PANELS.forEach(id => $(id) && $(id).classList.remove('active')); setSysPane(false); };
         window.__dcSysPane = { is: () => !!$('#dc-console .dc-body.sysopen'), close: closeSysPane };
+        $('#dc-sys-close') && ($('#dc-sys-close').onclick = () => { if (window.__dcSysPane.is()) closeSysPane(); else { const ct = $('.dc-tab[data-tab="ch"]'); if (ct) ct.click(); } });   // wide: close the side pane · phone: back to the chat
         sysSide.addEventListener('change', e => { if (!e.matches && window.__dcSysPane.is()) { setSysPane(false); $('#dc-chat-panel').classList.remove('active'); const ct = $('.dc-tab[data-tab="ch"]'); if (ct) ct.classList.remove('active'); } });   // squeezed to a phone: System becomes the full view
         document.querySelectorAll('.dc-tab').forEach(t => t.onclick = () => {
             const wasActive = t.classList.contains('active');
@@ -3761,6 +3768,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             $('#dc-bot-panel') && $('#dc-bot-panel').classList.toggle('active', t.dataset.tab === 'sys');
             $('#dc-look-panel') && $('#dc-look-panel').classList.toggle('active', t.dataset.tab === 'sys');
             $('#dc-prof-panel') && $('#dc-prof-panel').classList.toggle('active', t.dataset.tab === 'sys');
+            $('#dc-syshead-panel') && $('#dc-syshead-panel').classList.toggle('active', t.dataset.tab === 'sys');
             if (t.dataset.tab === 'sys') { renderInsights(); renderBotPanel(); if (sysPane) setSysPane(true); }   // insights read once + cached; the bot panel re-reads (4 small gets)
             // Full system lives in the ⚙ menu now: picking it closes the menu (its own click never reaches document)
             if (t.dataset.tab === 'sys') { const gp = $('#dc-gear-pop'); if (gp && !gp.hidden) { gp.hidden = true; $('#dc-gear').classList.remove('open'); } }
