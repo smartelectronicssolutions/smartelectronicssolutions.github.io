@@ -746,6 +746,11 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         .pprof-acct .pf-uid { cursor: copy; font-family: var(--font-mono); font-size: .74rem; }
         .pprof-foot small { opacity: .65; font-size: .75rem; }
         .dc-peer-row .pago { float: right; font-size: .7rem; opacity: .5; margin-left: 8px; }
+        /* presence (2026-10-12): green = active, amber = idle, hollow = offline (title = last seen) */
+        .pres { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin: 0 2px 0 6px; vertical-align: middle; border: 1.5px solid var(--muted, #888); box-sizing: border-box; }
+        .pres.active { background: #3fb950; border-color: #3fb950; }
+        .pres.idle { background: #d29922; border-color: #d29922; }
+        #dc-peer-pres { font-size: .7rem; opacity: .7; white-space: nowrap; }
         #dc-peer-back { font-size: 1.3rem !important; line-height: 1; padding: 0 4px; }
         #dc-peer-head .sp { flex: 1; } #dc-peer-head button { background: none; border: 0; color: inherit; cursor: pointer; font-size: 1rem; }
         /* the pane's log IS a .dc-chat-log now (L 2026-09-27: "the text boxes render differently in the pane 2 chat") - same gaps,
@@ -4253,6 +4258,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     </script>
 <script type="module">
     import { database, ref, onValue, push, set, get, update, query, limitToLast, auth, onAuthStateChanged, updateProfile } from './assets/js/firebase-init.js?v=20261011b';
+    import { onDisconnect, serverTimestamp } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js';   // presence only
     const $ = s => document.querySelector(s);
     const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
     const tidFor = (a, b) => [a, b].sort().join('_');
@@ -4447,6 +4453,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         peerSplit();   // one side pane at a time: a System pane closes first (2026-10-04)
         $('#dc-peer-home').hidden = false; $('#dc-peer-log').hidden = true; $('#dc-peer-form').hidden = true; $('#dc-peer-back').hidden = true;
         $('#dc-peer-name').textContent = mode === 'pick' ? '📺 Share a tab' : '👥 People';
+        presHead();
         renderHome(mode); dots();
     }
     // PROFILE FORM (2026-10-04): one html + one wiring, shown in the People pane AND in System > Profile (#dc-prof). Same record as
@@ -4501,7 +4508,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (convs.length) {
                 html += H('Conversations', 'convs');
                 html += convs.map(([t, x]) => { const tab = t.startsWith('tab-');
-                    return `<div class="pswipe" data-conv="${esc(t)}"><button type="button" class="pclr" title="clear this conversation for you (they keep theirs)">🗑 Clear</button><button type="button" class="dc-peer-row" ${tab ? `data-open="${esc(t)}" data-title="📺 ${esc(x.name)}"` : `data-u="${esc(x.with)}"`}>${tab ? '📺 ' : '💬 '}${esc(tab ? (x.name || '?') : (P.dir[x.with] || x.name || '?'))}${unread(t) ? '<span class="dot"></span>' : ''}<span class="pago">${ago(x.ts)}</span><small>${esc(x.from === P.me ? 'you: ' : x.from === 'droplet' ? 'Droplet: ' : '')}${esc(x.last || '')}</small></button></div>`; }).join('');
+                    return `<div class="pswipe" data-conv="${esc(t)}"><button type="button" class="pclr" title="clear this conversation for you (they keep theirs)">🗑 Clear</button><button type="button" class="dc-peer-row" ${tab ? `data-open="${esc(t)}" data-title="📺 ${esc(x.name)}"` : `data-u="${esc(x.with)}"`}>${tab ? '📺 ' : '💬 '}${esc(tab ? (x.name || '?') : (P.dir[x.with] || x.name || '?'))}${!tab && x.with && x.with !== 'droplet' ? presDot(x.with) : ''}${unread(t) ? '<span class="dot"></span>' : ''}<span class="pago">${ago(x.ts)}</span><small>${esc(x.from === P.me ? 'you: ' : x.from === 'droplet' ? 'Droplet: ' : '')}${esc(x.last || '')}</small></button></div>`; }).join('');
             }
             // 2. share this tab (owner)
             if (topic && topic !== '★') {
@@ -4518,7 +4525,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             }
             // 4. members: start a chat
             html += H('Members', 'members');
-            html += others.length ? others.map(([u, n]) => `<button type="button" class="dc-peer-row" data-u="${esc(u)}">💬 ${esc(n)}</button>`).join('')
+            html += others.length ? others.map(([u, n]) => `<button type="button" class="dc-peer-row" data-u="${esc(u)}">💬 ${esc(n)}${presDot(u)}<small>${esc(presText(u))}</small></button>`).join('')
                 : '<div class="pnote">No members in the list yet.</div>';
             // 4b. profile (L 2026-10-03/04): what the others see + the account's own info - the shared form (also System > Profile)
             html += H('Profile', 'profile');
@@ -4528,6 +4535,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             html += `<label class="dc-peer-row" style="cursor:pointer"><input type="checkbox" id="dc-peer-ping" ${P.pingOn !== false ? 'checked' : ''}> 📣 Telegram ping when someone writes<small>via the console bot; the ⚙ Telegram pings switch still wins</small></label>`;
             const np = ('Notification' in window) ? Notification.permission : 'unsupported';
             html += `<label class="dc-peer-row" style="cursor:pointer"><input type="checkbox" id="dc-peer-pop" ${popOn() && np === 'granted' ? 'checked' : ''} ${np === 'unsupported' || np === 'denied' ? 'disabled' : ''}> 🔔 Pop-up alerts on this device<small>${np === 'denied' ? 'blocked in this browser - allow notifications for luissolutions.us in the site settings' : np === 'unsupported' ? 'this browser has no notifications' : 'a system pop-up when someone writes, while the hub is open (even minimised)'}</small></label>`;
+            html += `<label class="dc-peer-row" style="cursor:pointer"><input type="checkbox" id="dc-peer-hide" ${P.hideMe ? 'checked' : ''}> 🔕 Appear offline<small>members see you as offline and your last-seen time stops; follows your account on every device</small></label>`;
             html += `<button type="button" class="dc-peer-row" data-readall="1">✓ Mark everything read</button>`;
             html += `<div class="pnote">Members come from the share list (the same one Notes uses). Chats are private to the people in them; nothing typed here reaches the daemon.</div>`;
         }
@@ -4546,6 +4554,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             try { localStorage.setItem('dc_peer_pop', pp.checked ? '1' : '0'); } catch (_) {}
             if (pp.checked) try { new Notification('🔔 Alerts on', { body: 'New messages will pop up here while the hub is open.' }); } catch (_) {}
         };
+        const ph = $('#dc-peer-hide'); if (ph) ph.onchange = () => { P.hideMe = ph.checked; presArm(); set(ref(database, `${P.me}/console/settings/appearOffline`), ph.checked).catch(e => alert('Not saved: ' + (e.code || e.message))); };
         const pc = $('#dc-peer-ping'); if (pc) pc.onchange = () => { P.pingOn = pc.checked; set(ref(database, `${P.me}/console/settings/peerPings`), pc.checked).catch(() => {}); };
         wireProfile(home);   // the shared profile form (load once, draft kept across re-renders, Save)
     }
@@ -4683,6 +4692,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         P.open = tid; P.other = other;
         $('#dc-peer-home').hidden = true; $('#dc-peer-log').hidden = false; $('#dc-peer-form').hidden = false; $('#dc-peer-back').hidden = false;
         $('#dc-peer-name').textContent = title;
+        presHead();
         renderBar();
         $('#dc-peer-in').placeholder = tid.startsWith('tab-') ? 'chat here (only the console box talks to Droplet)…' : 'message…  (Enter sends)';
         peerSplit();   // one side pane at a time: a System pane closes first (2026-10-04)
@@ -4816,6 +4826,54 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (P.open) renderBar(); else renderHome(); }, () => {});
     });
     window.__dcPeer = P;   // test hook
+
+    // PRESENCE (L 2026-10-12: "can the member chat area know if I'm active or idle"): share/presence/<uid>/<conn> = {s, at}, one
+    // row per open console, removed by Firebase itself when that connection drops (tab closed, phone dead, signal gone);
+    // <uid>/last = last seen. Active = touched in the last 5 min and the page in front; idle = open but not. Best row wins.
+    // 🔕 Appear offline ({uid}/console/settings/appearOffline, follows the account): no row, and last-seen stops moving.
+    // Writes only on a state CHANGE - never on a timer - so it stays a few writes an hour.
+    const PR = { all: {}, conn: null, state: null, lastAct: Date.now(), started: false, IDLE_MS: 5 * 60000 };
+    const presOf = uid => { const x = PR.all[uid] || {}; let idle = false;
+        for (const [k, v] of Object.entries(x)) if (k !== 'last' && v && v.s) { if (v.s === 'active') return { s: 'active' }; idle = true; }
+        return idle ? { s: 'idle' } : { s: 'off', last: +x.last || 0 }; };
+    const presText = uid => { const p = presOf(uid); if (p.s !== 'off') return p.s; if (!p.last) return 'offline'; const a = ago(p.last); return a === 'now' ? 'just left' : 'seen ' + a + ' ago'; };
+    const presDot = uid => `<span class="pres ${presOf(uid).s}" data-pu="${esc(uid)}" title="${esc(presText(uid))}"></span>`;
+    function presPaint() {   // patch the dots in place - a full renderHome would steal focus from the profile form
+        document.querySelectorAll('.pres[data-pu]').forEach(d => { const u = d.dataset.pu; d.className = 'pres ' + presOf(u).s; d.title = presText(u); });
+        presHead(); }
+    function presHead() {   // the conversation header: dot + "active" / "idle" / "seen 2h ago"
+        const nm = $('#dc-peer-name'); if (!nm) return;
+        let el = $('#dc-peer-pres'); if (!el) { el = document.createElement('span'); el.id = 'dc-peer-pres'; nm.after(el); }
+        const u = P.open && !P.open.startsWith('tab-') ? P.other : null;
+        el.innerHTML = u && u !== 'droplet' ? presDot(u) + esc(presText(u)) : ''; }
+    const lastRef = () => ref(database, `share/presence/${P.me}/last`);
+    function presPush() {
+        if (!PR.conn) return;
+        const w = P.hideMe ? null : (!document.hidden && Date.now() - PR.lastAct < PR.IDLE_MS ? 'active' : 'idle');
+        if (w === PR.state) return; PR.state = w;
+        set(PR.conn, w ? { s: w, at: Date.now() } : null).catch(() => {});
+        if (w) set(lastRef(), Date.now()).catch(() => {}); }
+    function presArm() {   // (re)register what Firebase does when this connection drops
+        if (!PR.conn) return;
+        onDisconnect(PR.conn).remove().catch(() => {});
+        if (P.hideMe) onDisconnect(lastRef()).cancel().catch(() => {}); else onDisconnect(lastRef()).set(serverTimestamp()).catch(() => {});
+        PR.state = undefined; presPush(); }
+    function presStart() {
+        if (PR.started) return; PR.started = true;
+        onValue(ref(database, '.info/connected'), s => { if (s.val() !== true) { PR.state = undefined; return; }
+            if (!PR.conn) PR.conn = push(ref(database, `share/presence/${P.me}`));
+            presArm(); });
+        const bump = () => { PR.lastAct = Date.now(); if (PR.state !== 'active') presPush(); };
+        ['pointerdown', 'keydown', 'wheel', 'touchstart', 'scroll'].forEach(ev => document.addEventListener(ev, bump, { passive: true, capture: true }));
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) PR.lastAct = Date.now(); presPush(); });
+        setInterval(presPush, 30000);   // notices the 5-minute idle; writes nothing unless the state changed
+        onValue(ref(database, 'share/presence'), s => { PR.all = s.val() || {}; presPaint(); }, () => {});
+    }
+    onAuthStateChanged(auth, u => { if (!u) return;
+        onValue(ref(database, `${u.uid}/console/settings/appearOffline`), s => {
+            P.hideMe = s.val() === true; const cb = $('#dc-peer-hide'); if (cb) cb.checked = P.hideMe;
+            if (!PR.started) { if (P.me) presStart(); else setTimeout(() => P.me && presStart(), 1500); } else presArm(); }, () => {}); });
+    window.__dcPresence = PR;   // test hook
     </script>
 <script type="module">
 // the page IS the console: open it now, a sign-in sheet when signed out, ✕ / Esc goes back to the apps page
