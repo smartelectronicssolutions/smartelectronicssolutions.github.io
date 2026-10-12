@@ -186,6 +186,25 @@
   #invAreas{max-height:84px;overflow:auto}
   .invto .lbl{font-family:var(--mono);font-size:.6rem;color:var(--muted);letter-spacing:.1em}
   .achip .n{opacity:.7;margin-left:4px}
+  /* layout A (2026-10-11) */
+  .invwin{position:relative}
+  #invAreas{max-height:none;display:block;padding:6px 10px}
+  .invrow{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:2px 0}
+  .invrow.sub{padding-left:10px;border-left:2px solid var(--edge);margin:2px 0 2px 4px}
+  .invcrumb{font-family:var(--mono);font-size:.62rem;color:var(--amber);letter-spacing:.04em;margin:6px 0 2px}
+  .achip.place{font-size:.64rem}
+  .invgrid-sel .it{cursor:pointer}
+  .it .ck{position:absolute;top:2px;left:2px;background:var(--amber);color:#0c0f13;border-radius:50%;width:16px;height:16px;font-size:.62rem;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .invto{display:flex;gap:8px;align-items:center;max-height:none}
+  .invmove{flex:1;padding:10px;border-radius:9px;border:none;background:var(--amber);color:#0c0f13;font-family:var(--mono);font-size:.7rem;font-weight:700;cursor:pointer}
+  #invPick{position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;background:linear-gradient(180deg,var(--panel2),var(--panel));border-radius:inherit}
+  #invPick .pkhead{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--edge);font-family:var(--mono);font-size:.8rem;color:#eef2f6}
+  #invPick .pkbody{flex:1;overflow:auto;padding:10px 12px;display:flex;flex-direction:column;gap:10px}
+  #invPick .pkcard{border:1px solid var(--edge);border-radius:10px;padding:8px 10px;background:var(--slot)}
+  #invPick .pkt{font-family:var(--mono);font-size:.66rem;color:var(--amber);margin-bottom:6px;letter-spacing:.04em}
+  #invPick .pkrow{display:flex;gap:6px;flex-wrap:wrap}
+  #invPick .achip{font-size:.66rem;padding:6px 11px}
+  #invPick .achip.here{opacity:.45}
   .achip.mng{color:var(--cyan);border-style:dashed}
   .storpick{display:none;gap:7px;flex-wrap:wrap;align-items:center;padding:8px 10px;border-bottom:1px solid var(--edge);background:var(--slot)}
   .storpick.on{display:flex}
@@ -1096,7 +1115,7 @@ function render(){const R=ROOMS[room];
   for(const e of ents){if(e.t==="d")drawDecorItem(e.d);else if(e.t==="p")drawPlace(e.k,e.p);else if(e.t==="npc")drawNPC(e.id);else if(e.t==="fx")drawFixture(e.id);else drawPlayer();}
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px monospace";ctx.textAlign="left";ctx.fillText("build b13",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px monospace";ctx.textAlign="left";ctx.fillText("build b14",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
@@ -1693,7 +1712,7 @@ function invAreaList(){const seen=new Set(["bag"]),order=["bag"];const add=k=>{i
   if(typeof VZONES!=="undefined")VZONES.forEach(z=>add(z.loc));Object.keys(byLoc).forEach(add);for(const k in CONTAINERS)add(k);return order;}
 function invCount(k){return k===ALL_LOC?ITEMS.filter(i=>(i.qty||0)>=1).length:(byLoc[k]||[]).length;}
 function openPanelFor(key){if(editMode&&!$("storage").classList.contains("open"))return;
-  invArea=key===ALL_LOC?ALL_LOC:(key||"bag");openPlace=(invArea==="bag")?undefined:invArea;selItem=null;$("dcard").classList.remove("show");
+  invArea=key===ALL_LOC?ALL_LOC:(key||"bag");openPlace=(invArea==="bag")?undefined:invArea;selItem=null;$("dcard").classList.remove("show");invPlace=null;selSet.clear();invClosePick();
   $("overlay").classList.add("open");renderPanel();}
 function invChip(k,on,click){const c=document.createElement("span");c.className="achip"+(on?" on":"");
   c.innerHTML=`${invIcon(k)} ${esc(invLabel(k))}<span class="n">${invCount(k)}</span>`;c.addEventListener("click",click);
@@ -1728,24 +1747,60 @@ function fitGrid(g){if(!g||!g.offsetParent)return;if(g.classList.contains("allmo
   if(best<=0)return;best=Math.max(16,Math.min(120,Math.floor(best)));const c=Math.max(1,Math.min(n,Math.floor((g.clientWidth-2*pad+gap)/(best+gap))));g.style.gridTemplateColumns=`repeat(${c},${best}px)`;}
 function fitGrids(){fitGrid($("lGrid"));fitGrid($("rGrid"));}
 if(window.ResizeObserver){const ro=new ResizeObserver(()=>fitGrids());ro.observe($("lGrid"));ro.observe($("rGrid"));}
+/* INVENTORY LAYOUT A (2026-10-11, L picked A: "keep places and containers, make moving stuff easier and more intuitive").
+   Top: PLACES (Backpack, each area, Unplaced) and under them the CONTAINERS of the picked place, with a Place > Container
+   trail. Tap items to select one or several; "Move N to..." opens a picker: a Recent row, then one card per place holding
+   its containers as chips. Dragging an item onto a container chip still moves it. */
+let invPlace=null,selSet=new Set();
+function placeOf(loc){if(loc==="bag")return"bag";const a=areaOf(loc);return a||"tray";}
+function placeLabel(pl){return pl==="bag"?"Backpack":pl==="tray"?"Unplaced":pl===ALL_LOC?"All":((AREAS[pl]&&AREAS[pl].name)||pl);}
+function placeIcon(pl){return pl==="bag"?"🎒":pl==="tray"?"🗃️":pl===ALL_LOC?"📋":((AREAS[pl]&&AREAS[pl].icon)||"📍");}
+function containersIn(pl){return invAreaList().filter(k=>k!=="bag"&&placeOf(k)===pl);}
+function placeCount(pl){return pl==="bag"?invCount("bag"):pl===ALL_LOC?invCount(ALL_LOC):containersIn(pl).reduce((n,k)=>n+invCount(k),0);}
+function placeList(){const used=new Set(invAreaList().filter(k=>k!=="bag").map(placeOf));const order=Object.keys(AREAS).filter(a=>used.has(a));used.forEach(a=>{if(a!=="tray"&&order.indexOf(a)<0)order.push(a);});if(used.has("tray"))order.push("tray");return ["bag",...order];}
+function placeChip(pl,on){const c=document.createElement("span");c.className="achip place"+(on?" on":"");c.innerHTML=`${placeIcon(pl)} ${esc(placeLabel(pl))}<span class="n">${placeCount(pl)}</span>`;
+  c.addEventListener("click",()=>{invPlace=pl;if(pl==="bag"||pl===ALL_LOC){invArea=pl;}else{const cs=containersIn(pl);invArea=cs.find(x=>invCount(x))||cs[0]||pl;}openPlace=(invArea==="bag"||invArea===ALL_LOC)?undefined:invArea;selSet.clear();selItem=null;$("dcard").classList.remove("show");renderPanel();});
+  if(pl==="bag"){c.addEventListener("dragover",e=>{if(!dragIt)return;e.preventDefault();c.classList.add("drop");});c.addEventListener("dragleave",()=>c.classList.remove("drop"));c.addEventListener("drop",e=>{e.preventDefault();c.classList.remove("drop");if(!dragIt)return;const it=dragIt.it;dragIt=null;if(it.loc!=="bag")invMove(it,"bag");});}
+  return c;}
+function recentDest(){try{return JSON.parse(localStorage.getItem("loadout:recentDest")||"[]");}catch(_){return[];}}
+function pushRecent(k){try{const r=recentDest().filter(x=>x!==k);r.unshift(k);localStorage.setItem("loadout:recentDest",JSON.stringify(r.slice(0,4)));}catch(_){}}
+function moveSelected(dest){const items=[...selSet].filter(it=>it.loc!==dest);items.forEach(it=>moveItem(it,dest));pushRecent(dest);
+  $("phint").textContent=items.length?`Moved ${items.length===1?items[0].name:items.length+" items"} → ${placeLabel(placeOf(dest))}${dest!=="bag"?" › "+invLabel(dest):""}`:"Already there";
+  selSet.clear();selItem=null;$("dcard").classList.remove("show");invClosePick();renderPanel();}
+function invClosePick(){const pk=$("invPick");if(pk)pk.remove();}
+function invOpenPick(){invClosePick();const n=selSet.size;if(!n)return;const box=document.createElement("div");box.id="invPick";
+  const from=new Set([...selSet].map(it=>it.loc));
+  const dchip=(k)=>{const c=document.createElement("span");c.className="achip"+(from.size===1&&from.has(k)?" here":"");c.innerHTML=`${invIcon(k)} ${esc(invLabel(k))}<span class="n">${invCount(k)}</span>`;c.addEventListener("click",()=>moveSelected(k));return c;};
+  box.innerHTML=`<div class="pkhead"><b>Move ${n} item${n>1?"s":""} to…</b><button class="closeb" title="Cancel">✕</button></div><div class="pkbody"></div>`;
+  box.querySelector(".closeb").addEventListener("click",invClosePick);
+  const body=box.querySelector(".pkbody");
+  const rec=recentDest().filter(k=>k==="bag"||invAreaList().indexOf(k)>=0);
+  if(rec.length){const card=document.createElement("div");card.className="pkcard";card.innerHTML='<div class="pkt">🕘 Recent</div>';const row=document.createElement("div");row.className="pkrow";rec.forEach(k=>row.appendChild(dchip(k)));card.appendChild(row);body.appendChild(card);}
+  placeList().forEach(pl=>{const card=document.createElement("div");card.className="pkcard";card.innerHTML=`<div class="pkt">${placeIcon(pl)} ${esc(placeLabel(pl))}</div>`;const row=document.createElement("div");row.className="pkrow";
+    (pl==="bag"?["bag"]:containersIn(pl)).forEach(k=>row.appendChild(dchip(k)));if(!row.children.length)return;card.appendChild(row);body.appendChild(card);});
+  $("overlay").querySelector(".invwin").appendChild(box);}
 function renderPanel(){if(!$("overlay").classList.contains("open"))return;
-  const k=invArea,areas=invAreaList();
-  {const pn=$("pName"),ed=k!==ALL_LOC&&k!=="bag";pn.textContent=invLabel(k);pn.contentEditable=ed?"true":"false";pn.dataset.loc=ed?k:"";pn.style.borderBottom=ed?"1px dashed rgba(242,165,65,.55)":"";pn.style.cursor=ed?"text":"";}
+  const k=invArea;if(invPlace==null)invPlace=(k===ALL_LOC||k==="bag")?k:placeOf(k);
+  {const pn=$("pName"),ed=k!==ALL_LOC&&k!=="bag"&&!AREAS[k];pn.textContent=invLabel(k);pn.contentEditable=ed?"true":"false";pn.dataset.loc=ed?k:"";pn.style.borderBottom=ed?"1px dashed rgba(242,165,65,.55)":"";pn.style.cursor=ed?"text":"";}
   $("pIc").textContent=invIcon(k);$("invN").textContent=invCount(k);$("pDel").style.display=(k!==ALL_LOC&&k!=="bag"&&canDeleteContainer(k))?"":"none";
   const bar=$("invAreas");bar.innerHTML="";
-  [ALL_LOC,...areas.filter(a=>a==="bag"||a===k||invCount(a))].forEach(a=>bar.appendChild(invChip(a,a===k,()=>{invArea=a;openPlace=(a==="bag"||a===ALL_LOC)?undefined:a;selItem=null;$("dcard").classList.remove("show");renderPanel();})));
+  const r1=document.createElement("div");r1.className="invrow";[ALL_LOC,...placeList()].forEach(pl=>{if(pl===ALL_LOC){const c=document.createElement("span");c.className="achip place"+(invPlace===ALL_LOC?" on":"");c.innerHTML=`📋 All<span class="n">${invCount(ALL_LOC)}</span>`;c.addEventListener("click",()=>{invPlace=ALL_LOC;invArea=ALL_LOC;openPlace=undefined;selSet.clear();selItem=null;renderPanel();});r1.appendChild(c);}else r1.appendChild(placeChip(pl,pl===invPlace));});bar.appendChild(r1);
+  if(invPlace!=="bag"&&invPlace!==ALL_LOC){const cs=containersIn(invPlace);if(cs.length){const crumb=document.createElement("div");crumb.className="invcrumb";crumb.textContent=`${placeIcon(invPlace)} ${placeLabel(invPlace)} › ${invIcon(k)} ${invLabel(k)}`;bar.appendChild(crumb);
+    const r2=document.createElement("div");r2.className="invrow sub";cs.forEach(c=>r2.appendChild(invChip(c,c===k,()=>{invArea=c;openPlace=c;selSet.clear();selItem=null;$("dcard").classList.remove("show");renderPanel();})));bar.appendChild(r2);}}
   const g=$("invGrid"),items=k===ALL_LOC?ITEMS.filter(i=>(i.qty||0)>=1):(byLoc[k]||[]);g.innerHTML="";
+  selSet.forEach(it=>{if(items.indexOf(it)<0)selSet.delete(it);});
   if(!items.length)g.innerHTML='<div class="empty" style="grid-column:1/-1">— empty —</div>';
-  for(const it of items){const d=document.createElement("div");d.className="it"+(selItem&&selItem.it===it?" sel":"");d.title=it.name+(k===ALL_LOC?" · "+invLabel(it.loc):"");
-    d.innerHTML=(it.img?`<img src="${esc(it.img)}" alt="${esc(it.name)}" onerror="imgFail(this)">`:`<div class="empty" style="position:absolute;inset:3px;padding:2px;font-size:.5rem;line-height:1.12;word-break:break-word;overflow:hidden;display:flex;align-items:center;justify-content:center;text-align:center">${esc(it.name)}</div>`)+((it.qty||0)>1?`<span class="qn">${it.qty}</span>`:"");
-    d.addEventListener("click",()=>{selItem={it,mode:null};renderPanel();});
+  for(const it of items){const d=document.createElement("div");d.className="it"+(selSet.has(it)?" sel":"");d.title=it.name+(k===ALL_LOC?" · "+invLabel(it.loc):"");
+    d.innerHTML=(it.img?`<img src="${esc(it.img)}" alt="${esc(it.name)}" onerror="imgFail(this)">`:`<div class="empty" style="position:absolute;inset:3px;padding:2px;font-size:.5rem;line-height:1.12;word-break:break-word;overflow:hidden;display:flex;align-items:center;justify-content:center;text-align:center">${esc(it.name)}</div>`)+((it.qty||0)>1?`<span class="qn">${it.qty}</span>`:"")+(selSet.has(it)?'<span class="ck">✓</span>':"");
+    d.addEventListener("click",()=>{if(selSet.has(it))selSet.delete(it);else selSet.add(it);selItem=selSet.has(it)?{it,mode:null}:(selSet.size?{it:[...selSet].pop(),mode:null}:null);renderPanel();});
     d.draggable=true;d.addEventListener("dragstart",e=>{dragIt={it,mode:null};d.classList.add("dragging");try{e.dataTransfer.setData("text/plain",it.name);e.dataTransfer.effectAllowed="move";}catch(_){}});d.addEventListener("dragend",()=>d.classList.remove("dragging"));
     g.appendChild(d);}
   const to=$("invTo");to.innerHTML="";
-  if(selItem&&items.indexOf(selItem.it)>=0){const it=selItem.it;showDetail(it);$("dMeta").textContent=it.cat+" · "+it.comp+" · in "+invLabel(it.loc);
-    const l=document.createElement("span");l.className="lbl";l.textContent="MOVE TO";to.appendChild(l);
-    areas.filter(a=>a!==it.loc).forEach(a=>to.appendChild(invChip(a,false,()=>invMove(it,a))));}
-  else{selItem=null;$("dcard").classList.remove("show");}}
+  if(selItem&&selSet.has(selItem.it)){const it=selItem.it;showDetail(it);$("dMeta").textContent=it.cat+" · "+it.comp+" · in "+placeLabel(placeOf(it.loc))+(it.loc!=="bag"?" › "+invLabel(it.loc):"");}else{$("dcard").classList.remove("show");}
+  if(selSet.size){const n=selSet.size;const clr=document.createElement("span");clr.className="achip";clr.textContent="Clear";clr.addEventListener("click",()=>{selSet.clear();selItem=null;renderPanel();});
+    const mv=document.createElement("button");mv.className="invmove";mv.textContent=`Move ${n} item${n>1?"s":""} to…`;mv.addEventListener("click",invOpenPick);
+    to.appendChild(clr);to.appendChild(mv);$("phint").textContent=n>1?`${n} selected · tap more or Move`:"Tap more items to move several";}
+  else $("phint").textContent="Pick a place · a container · tap items · Move";}
 function renderAllInto(grid){grid.innerHTML="";const seen=new Set(),order=[];const add=k=>{if(k&&k!=="bag"&&k!==ALL_LOC&&!seen.has(k)){seen.add(k);order.push(k);}};
   for(const k in PLACES)add(k);if(typeof VZONES!=="undefined")VZONES.forEach(z=>add(z.loc));Object.keys(byLoc).forEach(add);for(const k in CONTAINERS)add(k);
   let total=0;
