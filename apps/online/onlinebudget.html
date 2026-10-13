@@ -189,7 +189,7 @@
 
     <section class="card" id="galaxy">
       <h2>Spending Galaxy</h2>
-      <p class="muted" style="margin:0 0 6px">Every category is a galaxy <b>sized by what you spent</b> (twice the dollars = twice the area); the ring around it is the budget, filled by how much of it is gone. Vendors are the stars inside, sized by spend. Zoom out and it all folds into one circle; zoom in and a category opens into its stars. Hold a circle, or a star, half a second to move it. Tap a dot in the legend to pick its colour. Pick a month or the year to date.</p>
+      <p class="muted" style="margin:0 0 6px">Every category is a galaxy <b>sized by what you spent</b> (twice the dollars = twice the area); the ring around it is the budget, filled by how much of it is gone. Vendors are the stars inside, sized by spend. Zoom out and it all folds into one circle; zoom in and a category opens into its stars. Hold a circle, or a star, half a second to move it. Tap a dot in the legend to pick its colour. Pick a month or the year to date. <b>Over budget = the system is damaged</b> (asteroid belt, cracked ring); <b>80% or more used = asteroids incoming</b>, closer as the budget runs out.</p>
       <div class="gx-row" id="gx-win"></div>
       <div class="gx-stats" id="gx-stats"></div>
       <div class="gx-mapwrap"><canvas id="gx-map" aria-label="Spending drawn as a galaxy with budget rings"></canvas>
@@ -1386,6 +1386,7 @@
     }
     function draw() {
       if (!cv.width) return;
+      hazardClock();
       if (!sky || sky.width !== cv.width || sky.height !== cv.height) makeSky();
       const dpr = view.dpr || 1, zoom = base ? view.s / base.s : 1, light = isLight(), mut = tok("--muted") || "#9aa3b2";
       cx.drawImage(sky, 0, 0); cvw.syncSliders();
@@ -1396,7 +1397,8 @@
         const gr = cx.createRadialGradient(x, y, 0, x, y, R); gr.addColorStop(0, col(g.tag, (light ? .14 : .16) * a)); gr.addColorStop(1, col(g.tag, 0));
         cx.fillStyle = gr; cx.beginPath(); cx.arc(x, y, R, 0, 6.283); cx.fill();
         if (op < 1) { cx.fillStyle = col(g.tag, (light ? .45 : .42) * (1 - op) * a); cx.beginPath(); cx.arc(x, y, R, 0, 6.283); cx.fill(); }   // CLOSED (small on screen): one solid circle; its name + amount are painted AFTER the stars (drawInsideLabels) so the dots never sit on the text
-        budgetRing(x, y, ring, g.total, g.budget, dpr, zoom, light, a); }
+        budgetRing(x, y, ring, g.total, g.budget, dpr, zoom, light, a);
+        hazard(g, x, y, ring, dpr, zoom, light, a); }
       // stars
       const BR = 3.2 * view.s; if (BR > 30 * dpr) { if (sel >= 0) drawBurst(dpr, zoom); drawBubbles(dpr); drawNames(dpr, zoom, light); return; }   // burst first = under every label
       cx.globalCompositeOperation = light ? "source-over" : "lighter";
@@ -1444,6 +1446,56 @@
       cx.fillText(`${v.n} charge${v.n === 1 ? "" : "s"}${v.rows.length > rows.length ? ` (${rows.length} shown)` : ""}`, x, y + ringR + 12 * dpr); cx.textAlign = "start";
       if (k < 1) requestDraw();
     }
+    // HAZARDS (2026-10-13, L: "an asteroid destruction belt - if I go over budget it shows that system as damaged, and
+    // impending danger showing on others that are close"). Over budget = DAMAGED: a tumbling asteroid belt round the
+    // ring, the ring itself cracked into broken arcs, debris drifting off. 80-100% used = INCOMING: a few rocks on an
+    // approach path toward the ring, closer the nearer the budget is to gone, and an amber warning pulse. Slow orbit
+    // animation while any system is at risk (stops when none are, when the tab is hidden, or with reduced motion).
+    const RM = matchMedia("(prefers-reduced-motion: reduce)");
+    const hz = (g) => !(g.budget > 0) ? 0 : g.total > g.budget ? 2 : g.total / g.budget >= 0.8 ? 1 : 0;
+    const seedOf = t => { let h = 2166136261; for (const ch of String(t)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619); return h >>> 0; };
+    const rng = sd => () => (sd = Math.imul(sd ^ (sd >>> 15), 2246822507) ^ Math.imul(sd ^ (sd >>> 13), 3266489909), ((sd ^= sd >>> 16) >>> 0) / 4294967296);
+    function rock(px, py, r, rot, rnd) {   // an irregular asteroid: 7 jittered vertices, shaded edge
+      cx.beginPath(); for (let k = 0; k < 7; k++) { const an = rot + k / 7 * 6.283, rr = r * (0.7 + 0.45 * rnd()); k ? cx.lineTo(px + Math.cos(an) * rr, py + Math.sin(an) * rr) : cx.moveTo(px + Math.cos(an) * rr, py + Math.sin(an) * rr); }
+      cx.closePath(); cx.fill(); cx.stroke();
+    }
+    function hazard(g, x, y, ring, dpr, zoom, light, a) {
+      const lvl = hz(g); if (!lvl || a <= .02) return;
+      const t = RM.matches ? 0 : performance.now() / 1000, rnd = rng(seedOf(g.tag)), BAD = tok("--danger") || "#ef4444", WARN = tok("--warn") || "#f59e0b";
+      const rockFill = light ? "rgba(92,80,70,.85)" : "rgba(150,135,120,.9)", rockEdge = light ? "rgba(40,30,25,.6)" : "rgba(235,220,200,.35)";
+      cx.save(); cx.globalAlpha = a; cx.lineWidth = 1 * dpr;
+      if (lvl === 2) {
+        const over = Math.min(1, (g.total - g.budget) / g.budget), n = Math.round(14 + 26 * over), sc = Math.max(.7, Math.min(2.2, Math.sqrt(zoom)));
+        // cracked ring: dark gaps cut through the red arc
+        cx.strokeStyle = tok("--bg") || "#05060d"; cx.lineWidth = Math.max(3, 4 * Math.sqrt(zoom)) * dpr;
+        for (let k = 0; k < 6; k++) { const an = rnd() * 6.283, w = .05 + rnd() * .09; cx.beginPath(); cx.arc(x, y, ring, an, an + w); cx.stroke(); }
+        // the belt: rocks orbiting just outside the ring, each at its own speed
+        cx.fillStyle = rockFill; cx.strokeStyle = rockEdge; cx.lineWidth = 1 * dpr;
+        for (let k = 0; k < n; k++) { const base0 = rnd() * 6.283, sp = (.06 + rnd() * .1) * (rnd() < .5 ? 1 : -1), rr = ring * (1.06 + rnd() * .22), an = base0 + t * sp;
+          rock(x + Math.cos(an) * rr, y + Math.sin(an) * rr, (1.6 + rnd() * 3.2) * dpr * sc, base0 + t * sp * 3, rnd); }
+        // debris drifting outward + a red damage flicker
+        for (let k = 0; k < 6; k++) { const an = rnd() * 6.283, ph = (t * (.08 + rnd() * .08) + rnd()) % 1, rr = ring * (1.15 + ph * .6);
+          cx.globalAlpha = a * (1 - ph) * .8; cx.fillStyle = BAD; cx.beginPath(); cx.arc(x + Math.cos(an) * rr, y + Math.sin(an) * rr, 1.2 * dpr * sc, 0, 6.283); cx.fill(); }
+        cx.globalAlpha = a * (.18 + .12 * Math.sin(t * 3.1 + rnd() * 6)); cx.strokeStyle = BAD; cx.lineWidth = 6 * dpr; cx.beginPath(); cx.arc(x, y, ring * 1.02, 0, 6.283); cx.stroke();
+      } else {
+        const frac = g.total / g.budget, near = (frac - .8) / .2, sc = Math.max(.7, Math.min(2.2, Math.sqrt(zoom)));   // 0 at 80% used .. 1 at 100%
+        // amber pulse on the ring
+        cx.globalAlpha = a * (.15 + .2 * (0.5 + 0.5 * Math.sin(t * 2.4))); cx.strokeStyle = WARN; cx.lineWidth = 5 * dpr; cx.beginPath(); cx.arc(x, y, ring * 1.03, 0, 6.283); cx.stroke();
+        // 2-4 rocks on an approach path; the closer the budget is to gone, the closer they are
+        const n = 2 + Math.round(2 * near);
+        for (let k = 0; k < n; k++) { const an = rnd() * 6.283 + t * .03, wob = Math.sin(t * .9 + k) * .04, d = ring * (2.1 - 0.85 * near + wob + k * .12);
+          const px = x + Math.cos(an) * d, py = y + Math.sin(an) * d, r = (2.4 + rnd() * 2.6) * dpr * sc, tx = Math.cos(an), ty = Math.sin(an);
+          cx.globalAlpha = a * .5; cx.strokeStyle = WARN; cx.lineWidth = 1.4 * dpr; cx.beginPath(); cx.moveTo(px + tx * r * 1.4, py + ty * r * 1.4); cx.lineTo(px + tx * r * 5, py + ty * r * 5); cx.stroke();   // trail, pointing away from the system
+          cx.globalAlpha = a; cx.fillStyle = rockFill; cx.strokeStyle = rockEdge; cx.lineWidth = 1 * dpr; rock(px, py, r, an + t * .6, rnd); }
+      }
+      cx.restore();
+    }
+    let hzTimer = 0;
+    function hazardClock() {   // ~20 fps redraw only while something is at risk and the page is visible
+      if (hzTimer || RM.matches || document.hidden || !G.some(g => hz(g))) return;
+      hzTimer = setTimeout(() => { hzTimer = 0; requestDraw(); }, 50);
+    }
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) requestDraw(); });
     function budgetRing(x, y, ring, total, budget, dpr, zoom, light, a) {   // the budget track + the spent arc; over = red + glow; no budget = dashed
       const OK = tok("--success") || "#22c55e", WARN = tok("--warn") || "#f59e0b", BAD = tok("--danger") || "#ef4444";
       cx.globalAlpha = a;
@@ -1541,7 +1593,7 @@
     }
     function showGalaxy(gi) {
       selG = gi; sel = -1; const g = G[gi]; focus = new Set(g.ids); const top = g.ids.slice(0, 10), diff = g.budget - g.total;
-      $("info").innerHTML = `<div class="mk">${dot(g.tag)}${esc(g.tag)} ${esc(label(g.tag))}</div><div class="sub">${win === "ytd" ? "year to date" : MONTH[Number(win)]} · ${g.ids.length} vendors</div>
+      $("info").innerHTML = `<div class="mk">${dot(g.tag)}${esc(g.tag)} ${esc(label(g.tag))}</div><div class="sub">${win === "ytd" ? "year to date" : MONTH[Number(win)]} · ${g.ids.length} vendors${hz(g) === 2 ? ' · <b class="over">💥 DAMAGED - over budget</b>' : hz(g) === 1 ? ' · <b style="color:var(--warn)">☄️ Asteroids incoming - ' + Math.round(g.total / g.budget * 100) + '% used</b>' : ""}</div>
         <div class="kv"><b>Budget</b><span>${g.budget ? fmt.format(g.budget) : "none set"}${catFor(g.tag) ? ` <label class="gx-bud" title="this category's monthly plan - saves when you leave the field">· <input type="number" inputmode="decimal" step="1" min="0" value="${toMoney(catFor(g.tag).monthly)}"> / mo</label>` : ""}</span><b>Spent</b><span>${fmt.format(g.total)}</span>
         ${g.budget ? `<b>${diff >= 0 ? "Left" : "Over"}</b><span class="${diff >= 0 ? "under" : "over"}">${fmt.format(Math.abs(diff))} (${Math.round(g.total / g.budget * 100)}% used)</span>` : ""}</div>
         <div class="chips">${top.map(i => `<button type="button" data-v="${i}"><i style="background:${col(V[i].tag, .95)};width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px"></i>${esc(V[i].name)} <span class="n">${money0(V[i].total)}</span></button>`).join("")}</div>
