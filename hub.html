@@ -535,6 +535,113 @@
                 </div>
             </section>
 
+            <!-- CLEANUP (2026-10-13, L: "a cleanup card in the hub with different levels of cleanups that can be done on SE or any
+                 system"): Preview = dry run, Run = apply. se/pi go straight to the daemon (kind:'cleanup' -> elevated task
+                 ops-cleanup -> console/cleanup/<system>); the VMs and other PCs go to Droplet as a job (they need creds). -->
+            <section class="hub-section">
+                <div class="hcard" id="cleanup-card">
+                    <h3>Cleanup <span id="cl-age" style="float:right;font-size:0.65rem;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0"></span></h3>
+                    <div id="cl-sys" class="cl-chips"></div>
+                    <div id="cl-levels"></div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px">
+                        <button class="hbtn" id="cl-preview">Preview</button>
+                        <button class="hbtn primary" id="cl-run">Run</button>
+                        <span id="cl-msg" style="font-size:0.75rem;color:var(--muted)"></span>
+                    </div>
+                    <div id="cl-result" style="margin-top:10px"></div>
+                </div>
+            </section>
+            <style>
+                .cl-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+                .cl-chip { padding: 4px 12px; border-radius: 14px; border: 1px solid var(--border); background: transparent; color: var(--text); font-size: 0.78rem; cursor: pointer; }
+                .cl-chip.on { background: steelblue; border-color: steelblue; color: #fff; }
+                .cl-lv { display: flex; gap: 10px; align-items: flex-start; padding: 7px 8px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
+                .cl-lv.on { border-color: steelblue; background: rgba(70,130,180,0.10); }
+                .cl-lv b { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 0.75rem; background: #15273d; color: #7dd3fc; }
+                .cl-lv.on b { background: steelblue; color: #fff; }
+                .cl-lv div { min-width: 0; font-size: 0.8rem; line-height: 1.35; }
+                .cl-lv div span { color: var(--muted); font-size: 0.74rem; }
+                .cl-tbl { width: 100%; border-collapse: collapse; font-size: 0.76rem; }
+                .cl-tbl td { padding: 2px 4px; border-top: 1px solid var(--border); }
+                .cl-tbl td:last-child { text-align: right; white-space: nowrap; }
+                .cl-sum { font-size: 0.82rem; margin-bottom: 4px; }
+            </style>
+            <script type="module">
+                import { auth, database, ref, onValue, push, set, onAuthStateChanged } from './assets/js/firebase-init.js?v=20261011b';
+                const $ = s => document.querySelector(s);
+                const SE = [
+                    ['Light', 'Temp files, Windows Update cache, thumbnails, crash dumps, error reports'],
+                    ['Standard', 'Light + logs untouched 14+ days, old .bak copies, docker dangling images + build cache'],
+                    ['Deep', 'Standard + Chrome/Edge caches (skipped while they are open) + empty the Recycle Bin'],
+                    ['Full', 'Deep + merge ALL VM checkpoints + fresh export of every VM to I:\\VM-exports (hours)']];
+                const PI = [
+                    ['Light', 'apt package cache, /tmp files 1+ day old, thumbnail cache'],
+                    ['Standard', 'Light + journal trimmed to 14 days, rotated logs, docker dangling images'],
+                    ['Deep', 'Standard + apt autoremove (unused packages / old kernels), pip cache, journal to 3 days']];
+                const WIN = SE.slice(0, 3);
+                const SYSTEMS = [
+                    { id: 'se', name: 'se', levels: SE, direct: true },
+                    { id: 'pi', name: 'Pi', levels: PI, direct: true },
+                    { id: 'agent-vm', name: 'agent-vm', levels: WIN },
+                    { id: 'business-vm', name: 'business-vm', levels: WIN },
+                    { id: 'web-server', name: 'web-server', levels: WIN },
+                    { id: 'other', name: 'Other PC', levels: WIN }];
+                let sys = SYSTEMS[0], level = 2, data = {}, base = null, armed = 0;
+                const gb = b => (b / 1e9).toFixed(b >= 1e10 ? 1 : 2) + ' GB';
+                const ago = t => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago'; };
+                const esc = v => String(v).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+                function paint() {
+                    $('#cl-sys').innerHTML = SYSTEMS.map(s => `<button class="cl-chip${s === sys ? ' on' : ''}" data-s="${s.id}">${s.name}</button>`).join('');
+                    if (level > sys.levels.length) level = sys.levels.length;
+                    $('#cl-levels').innerHTML = sys.levels.map(([n, d], i) => `<div class="cl-lv${i + 1 === level ? ' on' : ''}" data-l="${i + 1}"><b>${i + 1}</b><div>${n}<br><span>${d}</span></div></div>`).join('');
+                    $('#cl-run').textContent = armed ? 'Tap again to run level ' + level : 'Run';
+                    const d = data[sys.id] || {};
+                    if (!sys.direct) {
+                        $('#cl-result').innerHTML = `<div class="cl-sum" style="color:var(--muted)">Goes to Droplet as a job - a VM or another PC needs its login, so Droplet asks you for it before running.</div>`;
+                        $('#cl-age').textContent = ''; return;
+                    }
+                    let h = '';
+                    if (d.running) h += `<div class="cl-sum">⏳ Level ${d.running.level} ${d.running.apply ? 'cleanup' : 'preview'} running since ${ago(d.running.at)}…</div>`;
+                    const newest = Math.max(d.lastRun?.at || 0, d.lastPreview?.at || 0);
+                    if (d.error && d.error.at > newest) h += `<div class="cl-sum" style="color:#f87171">Last attempt failed: ${esc(d.error.msg)}</div>`;
+                    for (const [k, label] of [['lastPreview', 'Preview'], ['lastRun', 'Last run']]) {
+                        const r = d[k]; if (!r || !r.rows) continue;
+                        if (k === 'lastPreview' && d.lastRun && d.lastRun.at > r.at) continue;
+                        const rows = r.rows.filter(x => x.bytes > 0 || x.files > 0);
+                        h += `<div class="cl-sum"><b>${label}</b> · level ${r.level} · ${r.apply ? 'freed' : 'would free'} <b>${gb(r.totalBytes || 0)}</b> · ${ago(r.at)}${r.disk ? ` · ${r.disk.drive} ${gb(r.disk.free)} free` : ''}</div>`;
+                        h += `<table class="cl-tbl">${rows.map(x => `<tr><td>${esc(x.label)}</td><td>${x.files ? x.files.toLocaleString() + ' files · ' : ''}${gb(x.bytes)}</td></tr>`).join('')}</table>`;
+                    }
+                    $('#cl-result').innerHTML = h || `<div class="cl-sum" style="color:var(--muted)">No runs yet - Preview shows what a level would clear; nothing is deleted.</div>`;
+                    $('#cl-age').textContent = newest ? ago(newest) : '';
+                }
+                $('#cl-sys').addEventListener('click', e => { const b = e.target.closest('[data-s]'); if (!b) return; sys = SYSTEMS.find(s => s.id === b.dataset.s); armed = 0; paint(); });
+                $('#cl-levels').addEventListener('click', e => { const b = e.target.closest('[data-l]'); if (!b) return; level = +b.dataset.l; armed = 0; paint(); });
+                async function send(apply) {
+                    if (!base) { $('#cl-msg').textContent = 'Sign in first.'; return; }
+                    const j = push(ref(database, `${base}/jobs`));
+                    const name = sys.levels[level - 1][0];
+                    const job = sys.direct
+                        ? { kind: 'cleanup', system: sys.id, level, apply, status: 'queued', createdAt: Date.now(), ping: false }
+                        : { kind: 'prompt', target: 'droplet', status: 'queued', createdAt: Date.now(), ping: false,
+                            rough: `Cleanup card: ${apply ? 'RUN' : 'PREVIEW (dry run only)'} level ${level} (${name}) on ${sys.id === 'other' ? 'another PC - ask me which one' : sys.id}. Same categories as Clean-Se.ps1 level ${level}. Ask me for the login first; report what it ${apply ? 'freed' : 'would free'}.` };
+                    await set(j, job);
+                    $('#cl-msg').textContent = sys.direct ? `${apply ? 'Running' : 'Previewing'} level ${level} on ${sys.name}…` : 'Sent to Droplet - the reply lands in the console.';
+                    setTimeout(() => { $('#cl-msg').textContent = ''; }, 8000);
+                }
+                $('#cl-preview').addEventListener('click', () => { armed = 0; paint(); send(false); });
+                $('#cl-run').addEventListener('click', () => {
+                    if (!armed) { armed = Date.now(); paint(); setTimeout(() => { if (armed && Date.now() - armed >= 5000) { armed = 0; paint(); } }, 5100); return; }
+                    armed = 0; paint(); send(true);
+                });
+                setInterval(() => { if (Object.keys(data).length) paint(); }, 60000);
+                paint();
+                onAuthStateChanged(auth, u => {
+                    if (!u) return;
+                    base = `${u.uid}/console`;
+                    onValue(ref(database, `${base}/cleanup`), s => { data = s.val() || {}; paint(); });
+                });
+            </script>
+
             <section class="hub-section">
                 <div class="hcard"><h3>Quick Commands</h3><div id="cmd-list"></div></div>
             </section>
@@ -709,7 +816,7 @@
         const DC = { uid: null, base: null };
         const HUB_OWNER_UID = '7cIh8rrhVNOjjj5CBDgb3IlqzEh2';
         const OWNER_CARDS = ['Microsoft / OneDrive', 'Upcoming Work', 'Goings-On', 'Services', 'Claude Usage', 'Quick Commands',
-                             'MC Server', 'Open Service Tickets', 'Inventory', 'Network', 'Credentials', 'Server Drives', 'Site Statistics'];
+                             'MC Server', 'Open Service Tickets', 'Inventory', 'Network', 'Credentials', 'Server Drives', 'Site Statistics', 'Cleanup'];
         function applyGuest(isGuest) {
             document.documentElement.classList.toggle('hub-guest', isGuest);
             document.querySelectorAll('.hcard').forEach(card => {
