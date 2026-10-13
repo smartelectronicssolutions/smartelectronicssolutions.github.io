@@ -79,7 +79,7 @@ export async function loadTasks(user) {
 /** One row per site, newest activity first: {id (canonical = earliest record), customer, project, ids, visits,
  *  first, last, hasSensors, label}. Same grouping + canonical rule as radar-tools' populateProjects/resolveMetaOwnerTaskId. */
 export function groupSites(tasks) {
-  function metaRank(t) { return (t && (t.sensorMeta || t.lists || t.qcData_radar || t.qcData_remote)) ? 0 : 1e15; }   // the record holding the data wins over an empty night, whatever the edit times (2026-10-05)
+  function metaRank(t) { return !t ? 1e15 : (t.sensorMeta || t.lists) ? 0 : (t.qcData_radar || t.qcData_remote) ? 1e14 : 1e15; }   // the record holding the data wins over an empty night, whatever the edit times (2026-10-05); sensors beat QC-only nights (2026-10-13: a 9/22 night with qcData_remote took Walmart 54 once the canonical's updatedAt moved past it)
   const groups = new Map();
   for (const [id, t] of Object.entries(tasks || {})) {
     if (!t || typeof t !== "object") continue;
@@ -325,6 +325,17 @@ export async function loadFloorPlan(owner, taskId) {
   return { ...meta, img };
 }
 export const saveFloorPlan = (owner, taskId, meta, img) => update(ref(database, planPath(owner, taskId)), { floorPlanMeta: meta, "floorPlan/img": img });
+// MORE PLANS (L 2026-10-13, Jason's ceiling heat map "as a map option"): extra fitted sheets beside the main one -
+// floorPlansMeta/<key> = the same meta + label (+ color: true = a coloured sheet, never inverted) and floorPlansImg/<key> = a
+// data URL. The list is small; an image is read only when it is picked, then cached per device like the main one.
+export const loadExtraPlans = async (owner, taskId) => (await readOnce(`${planPath(owner, taskId)}/floorPlansMeta`)) || {};
+export async function loadExtraPlanImg(owner, taskId, key, meta) {
+  const ck = `rm-plan-${taskId}-${key}`;
+  try { const c = JSON.parse(localStorage.getItem(ck) || "null"); if (c && c.at === meta.at && c.img) return c.img; } catch (_) {}
+  const img = await readOnce(`${planPath(owner, taskId)}/floorPlansImg/${key}`); if (!img) return null;
+  try { localStorage.setItem(ck, JSON.stringify({ at: meta.at, img })); } catch (_) {}
+  return img;
+}
 
 // ---------- the signed-in user line every Telaid header shows ----------
 /** Same text radar-tools puts in #firebaseStatus: the email, or "Sign in to edit". */

@@ -9,7 +9,7 @@
 // /MDF, /IDF1..IDF6 (site photos). History: floor map, photos/add/run complete, wiring view, IDF photos (all 2026-10-02).
 import { onAuthStateChanged } from "../../../assets/js/firebase-init.js";
 import { auth, HUBS, hubLabel, esc, fmtFt, feet, clean, loadJob, sensorRows, patchSensor, listSites, listPhotos, photoUrl,
-  sensorMarkOf, photoPrefix, uploadSensorPhoto, uploadHubPhoto, deletePhoto, watchJob, tablesFor, zoneOf, idfOf, loadFloorPlan, saveFloorPlan, resizeImage, saveHubPos, gridRef, saveSiteTables, saveSiteOptions, saveSiteSwitches } from "./telaid-data.js?v=20261007c";
+  sensorMarkOf, photoPrefix, uploadSensorPhoto, uploadHubPhoto, deletePhoto, watchJob, tablesFor, zoneOf, idfOf, loadFloorPlan, saveFloorPlan, loadExtraPlans, loadExtraPlanImg, resizeImage, saveHubPos, gridRef, saveSiteTables, saveSiteOptions, saveSiteSwitches } from "./telaid-data.js?v=20261013a";
 import { openPhotoViewer } from "../../../assets/js/photoviewer.js?v=20261003a";
 import { mountCanvasView } from "../../../assets/js/canvasview.js?v=20261003b";
 
@@ -131,6 +131,7 @@ const TEMPLATE = `<div class="app-shell">
         <button data-v="floor" class="on">Floor</button><button data-v="wiring">Wiring</button>
         <button type="button" id="rm-rot" title="Rotate the floor map 90&deg;">&#8635; Rotate</button>
         <button type="button" id="rm-plan" title="Floor plan under the dots" hidden>&#128506; Plan: dim</button>
+        <button type="button" id="rm-planpick" title="Which plan is under the dots (key map / heat map)" hidden>Key map</button>
         <button type="button" id="rm-setplan" title="Use a site image (or a file) as the floor plan under the dots">&#128444; Set plan</button>
         <button type="button" id="rm-undo" title="Undo the last move" aria-label="Undo the last move" hidden>&#8630;</button>
         <button type="button" id="rm-redo" title="Redo the last move" aria-label="Redo the last move" hidden>&#8631;</button>
@@ -211,6 +212,9 @@ export function mountRadarMap(root, opts = {}) {
     // loadFloorPlan). Light theme = the drawing multiplied over the map; dark theme = an inverted copy screened on.
     let PLAN = null, planImg = null, planDark = null, planMode = "dim";
     try { planMode = localStorage.getItem("rm-plan-mode") || "dim"; } catch (_) {}
+    // PLAN PICKER (L 2026-10-13): the key map + any extra sheet (Jason's ceiling heat map) - one shows at a time
+    let PLANS = [], planPick = "main";
+    try { planPick = localStorage.getItem("rm-plan-pick") || "main"; } catch (_) {}
     const $ = id => root.querySelector("#rm-" + id);
 
     let S = [];            // {m, serial, x, y, z, idf, zone, photos, items, labeledAt, runDoneAt, sw, port, wx, wy}
@@ -255,7 +259,7 @@ export function mountRadarMap(root, opts = {}) {
       if (!user) { $("source").textContent = "Sign in to load the site."; return; }
       if (!TASK) { $("source").textContent = "Open a site above and its map shows here."; $("stats").innerHTML = ""; $("hubs").innerHTML = ""; return; }
       S = []; sel = -1; selHub = null; B = null; RAW = {}; dragSnap = null; UNDO = []; REDO = []; renderUndo(); for (const k in HUBPH) delete HUBPH[k]; PHOTOS = "loading";
-      PLAN = null; planImg = null; planDark = null; planFast = null; $("plan").hidden = true;
+      PLAN = null; planImg = null; planDark = null; planFast = null; $("plan").hidden = true; PLANS = []; $("planpick").hidden = true;
       $("source").textContent = "Loading...";
       const { owner, task, meta } = await loadJob(user, TASK);
       // nothing to show for this job (or this account can't see it): CLEAR the map - it used to keep the last job's drawing
@@ -287,8 +291,10 @@ export function mountRadarMap(root, opts = {}) {
       if (stopWatch) stopWatch();
       stopWatch = watchJob(owner, TASK, { onPhotos: v => { if (gen === loadGen) refreshPhotos(v.sub); },
         onMeta: meta => { if (gen === loadGen) mergeMeta(meta); } });
-      loadFloorPlan(owner, TASK).then(p => { if (gen !== loadGen || !p) return; PLAN = p;
-        const im = new Image(); im.onload = () => { planImg = im; planDark = null; $("plan").hidden = false; planLabel(); draw(); }; im.src = p.img; }).catch(() => {});
+      Promise.all([loadFloorPlan(owner, TASK).catch(() => null), loadExtraPlans(owner, TASK).catch(() => ({}))]).then(([p, ex]) => { if (gen !== loadGen) return;
+        if (p) PLANS.push({ key: "main", label: "Key map", meta: p, src: p.img, owner });
+        for (const [key, m] of Object.entries(ex)) if (m && m.k) PLANS.push({ key, label: m.label || key, meta: m, owner });
+        if (PLANS.length) usePlan(planPick); });
       const sensorsP = listPhotos(owner, task, "sensors").then(items => { if (gen !== loadGen) return;
         for (const it of items) { const s = S.find(x => x.m === sensorMarkOf(it.name, task)); if (s) { s.photos++; s.items.push(it); } } });
       const hubsP = Promise.all(HUBS.map(async h => { const items = await listPhotos(owner, task, h); if (gen === loadGen) HUBPH[h] = items; }));
@@ -497,12 +503,21 @@ export function mountRadarMap(root, opts = {}) {
       if (layout === "floor" && TABLES && TABLES.hubs) for (const xy of Object.values(TABLES.hubs)) { const [x, y] = rotXY(xy[0], xy[1]); add(x, y); }
       return E;
     }
+    function usePlan(key) {
+      const e = PLANS.find(p => p.key === key) || PLANS[0], g = loadGen; if (!e) return;
+      planPick = e.key; try { localStorage.setItem("rm-plan-pick", planPick); } catch (_) {}
+      $("planpick").innerHTML = "&#128506; " + esc(e.label); $("planpick").hidden = PLANS.length < 2;
+      const show = im => { if (g !== loadGen || planPick !== e.key) return; PLAN = e.meta; planImg = im; planDark = null; planFast = null; $("plan").hidden = false; planLabel(); draw(); };
+      if (e.im) return show(e.im);
+      (e.src ? Promise.resolve(e.src) : loadExtraPlanImg(e.owner, TASK, e.key, e.meta)).then(src => { if (!src) return;
+        const im = new Image(); im.onload = () => { e.im = im; show(im); }; im.src = src; }).catch(() => {});
+    }
     function drawPlan() {
       const p = PLAN, light = document.documentElement.classList.contains("light");
       const sc = (u, v) => { const [rx, ry] = rotXY(p.x0 + u / p.k, p.y0 - v / p.k); return [view.ox + (rx - B.x0) * view.s, view.oy + (B.y1 - ry) * view.s]; };
       const [ax, ay] = sc(0, 0), [bx, by] = sc(p.w, 0), [cx2, cy2] = sc(0, p.h);
       let im = planImg;
-      if (!light) {   // dark map: invert once (white sheet -> black, lines -> light) so it can be screened on
+      if (!light && !p.color) {   // dark map: invert once (white sheet -> black, lines -> light) so it can be screened on
         if (!planDark) { const o = document.createElement("canvas"); o.width = planImg.naturalWidth; o.height = planImg.naturalHeight; const g = o.getContext("2d");
           g.drawImage(planImg, 0, 0); const d = g.getImageData(0, 0, o.width, o.height), a = d.data; for (let i = 0; i < a.length; i += 4) { a[i] = 255 - a[i]; a[i + 1] = 255 - a[i + 1]; a[i + 2] = 255 - a[i + 2]; }
           g.putImageData(d, 0, 0); planDark = o; }
@@ -522,7 +537,7 @@ export function mountRadarMap(root, opts = {}) {
       let su = Math.min(...cs.map(q => q[0])), sv = Math.min(...cs.map(q => q[1])), eu = Math.max(...cs.map(q => q[0])), ev = Math.max(...cs.map(q => q[1]));
       su = Math.max(0, Math.floor(su) - 2); sv = Math.max(0, Math.floor(sv) - 2); eu = Math.min(W, Math.ceil(eu) + 2); ev = Math.min(H, Math.ceil(ev) + 2);
       if (eu <= su || ev <= sv) return;
-      cx.save(); cx.globalAlpha = planMode === "full" ? (light ? 0.95 : 0.85) : (light ? 0.45 : 0.4); cx.globalCompositeOperation = light ? "multiply" : "screen";
+      cx.save(); cx.globalAlpha = planMode === "full" ? (light ? 0.95 : 0.85) : (light ? 0.45 : 0.4); cx.globalCompositeOperation = light ? "multiply" : p.color ? "source-over" : "screen";
       cx.setTransform(a, b, c, d, e, f); cx.drawImage(im, su, sv, eu - su, ev - sv, su, sv, eu - su, ev - sv); cx.restore();
       cx.setTransform(1, 0, 0, 1, 0, 0);
     }
@@ -937,6 +952,7 @@ export function mountRadarMap(root, opts = {}) {
       if (taps.length >= 3) { taps = []; $("rot").click(); } });
     $("rot").addEventListener("click", () => { ROT = (ROT + 90) % 360; try { localStorage.setItem("rm-rot", String(ROT)); } catch (_) {}
       $("rot").title = `Rotated ${ROT}° - tap to turn again`; if (layout === "floor") fit(false); });
+    $("planpick").addEventListener("click", () => { const i = PLANS.findIndex(p => p.key === planPick); if (PLANS.length > 1) usePlan(PLANS[(i + 1) % PLANS.length].key); });
     $("plan").addEventListener("click", () => { planMode = planMode === "dim" ? "full" : planMode === "full" ? "off" : "dim";
       try { localStorage.setItem("rm-plan-mode", planMode); } catch (_) {} planLabel(); draw(); });
     // ---------- SET PLAN (L 2026-10-05 "1 and 2"): any Site Image (or a file) becomes this job's floor plan ----------
@@ -1014,7 +1030,7 @@ export function mountRadarMap(root, opts = {}) {
       $("spsave").disabled = true; spMsg("Saving\u2026");
       const meta = { at: Date.now(), w: SP.w, h: SP.h, k: SP.fit.k, x0: SP.fit.x0, y0: SP.fit.y0, bytes: SP.img.length,
         src: `${SP.name}, fitted on marks ${SP.fit.ma},${SP.fit.mb} (set in the Radar Map)` };
-      try { await saveFloorPlan(OWNER, TASK, meta, SP.img); $("sp").hidden = true; planMode = "dim"; load(auth.currentUser); }
+      try { await saveFloorPlan(OWNER, TASK, meta, SP.img); $("sp").hidden = true; planMode = "dim"; planPick = "main"; load(auth.currentUser); }
       catch (err) { spMsg("Save failed: " + (err.code || err.message || err)); $("spsave").disabled = false; }
     });
     $("hubs").addEventListener("click", e => { const b = e.target.closest("button[data-h]"); if (b) showHub(b.dataset.h); });
