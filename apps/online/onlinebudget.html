@@ -1310,11 +1310,15 @@
           if (placed.every(([px, py, pr]) => Math.hypot(x - px, y - py) >= pr + rr + GAP)) break; r += 0.002; }
         centers.push([x, y]); armR[arm] = r; placed.push([x, y, rr]); });
       G.forEach((g, k) => { const [cx0, cy0] = centers[k], rr = grad(g), n = g.ids.length; g.cx = cx0; g.cy = cy0; g.r = rr;
-        g.ids.forEach((i, j) => { const a = j * 2.399963, d = rr * Math.sqrt((j + 0.5) / n) * 0.8; V[i].x = cx0 + d * Math.cos(a); V[i].y = cy0 + d * Math.sin(a); }); });
+        // LINED UP (2026-10-13, L: "when I click into a place can it be made easier to read the content within, like have it line
+        // up"): the vendors sit in a tidy grid inside the circle, biggest spend top-left, reading left-to-right - was a sunflower spiral
+        const cols = Math.max(1, Math.ceil(Math.sqrt(n))), rows = Math.max(1, Math.ceil(n / cols)), side = rr * 1.3, cell = side / Math.max(cols, rows);
+        g.ids.slice().sort((a, b) => V[b].total - V[a].total).forEach((i, j) => { const row = Math.floor(j / cols), c = j % cols, inRow = Math.min(cols, n - row * cols);
+          V[i].x = cx0 + (c - (inRow - 1) / 2) * cell; V[i].y = cy0 + (row - (rows - 1) / 2) * cell; V[i].cellU = cell; }); });
       const xs = G.flatMap(g => [g.cx - g.r, g.cx + g.r]), ys = G.flatMap(g => [g.cy - g.r, g.cy + g.r]);
       const x0 = Math.min(...xs, -0.05), x1 = Math.max(...xs, 0.05), y0 = Math.min(...ys, -0.05), y1 = Math.max(...ys, 0.05), span = Math.max(x1 - x0, y1 - y0) || 1;
       const S = (x, y) => [(x - (x0 + x1) / 2) / span * 1000 + 500, (y - (y0 + y1) / 2) / span * 1000 + 500];
-      V.forEach(v => { [v.px, v.py] = S(v.x, v.y); v.rad = 1.2 + 6 * Math.sqrt(v.total / (V[0] ? V[0].total : 1)); });
+      V.forEach(v => { [v.px, v.py] = S(v.x, v.y); v.cell = (v.cellU || 0) / span * 1000; v.rad = 1.2 + 6 * Math.sqrt(v.total / (V[0] ? V[0].total : 1)); });
       G.forEach(g => { [g.px, g.py] = S(g.cx, g.cy); g.prad = g.r / span * 1000; });
       const pos = STATE.galaxyPos || {}; let movedAny = false;   // circles L has moved stay where he put them (2026-10-03); Arrange clears them
       G.forEach(g => { const q = pos[g.tag]; if (!q || !isFinite(q.x) || !isFinite(q.y)) return; const dx = q.x - g.px, dy = q.y - g.py; g.px = q.x; g.py = q.y; g.ids.forEach(i => { V[i].px += dx; V[i].py += dy; }); movedAny = true; });
@@ -1415,7 +1419,13 @@
       drawNames(dpr, zoom, light);
       if (mg > 0) drawAll(mg, dpr, zoom, light);
       if (zoom >= 3) { cx.font = `${11 * dpr}px system-ui, sans-serif`; cx.fillStyle = light ? "rgba(30,36,60,.8)" : "rgba(220,228,255,.75)"; let shown = 0;
-        for (let i = 0; i < V.length && shown < 220; i++) { const v = V[i], [x, y] = P(v); if (x > 0 && y > 0 && x < cv.width - 40 * dpr && y < cv.height && (zoom >= 6 || v.rad > 2.2)) { cx.fillText(v.name, x + v.rad * dpr + 5 * dpr, y + 4 * dpr); shown++; } } }
+        for (let i = 0; i < V.length && shown < 220; i++) { const v = V[i], [x, y] = P(v); if (x > 0 && y > 0 && x < cv.width - 40 * dpr && y < cv.height && (zoom >= 6 || v.rad > 2.2)) {
+          // lined-up grid: the name sits centred under its dot and is cut to the cell's width, so a row of long names never runs together
+          const maxW = v.cell ? v.cell * view.s * 0.92 : Infinity; let t = v.name;
+          if (cx.measureText(t).width > maxW) { while (t.length > 1 && cx.measureText(t + "…").width > maxW) t = t.slice(0, -1); t = t.trimEnd() + "…"; }
+          if (v.cell) { cx.textAlign = "center"; cx.fillText(t, x, y + Math.min(26, v.rad * Math.sqrt(zoom)) * dpr + 13 * dpr); cx.textAlign = "start"; }
+          else cx.fillText(t, x + v.rad * dpr + 5 * dpr, y + 4 * dpr);
+          shown++; } } }
       if (sel >= 0) { const v = V[sel], [x, y] = P(v); cx.strokeStyle = "#ffcf7a"; cx.lineWidth = 2.5 * dpr; cx.beginPath(); cx.arc(x, y, Math.min(26, v.rad * Math.sqrt(zoom)) * dpr + 6 * dpr, 0, 6.283); cx.stroke();
         cx.font = `700 ${13 * dpr}px system-ui, sans-serif`; cx.fillStyle = light ? "#5a3d00" : "#fff4dc"; const lbl = `${v.name} · ${money0(v.total)}`, w = cx.measureText(lbl).width;
         cx.fillText(lbl, Math.min(Math.max(4 * dpr, x - w / 2), cv.width - w - 4 * dpr), y > 40 * dpr ? y - 22 * dpr : y + 32 * dpr); }
@@ -1545,7 +1555,7 @@
     function drawBubbles(dpr) {
       const R = Math.min(3.2 * view.s, 150 * dpr), light = isLight(), F = focus;
       V.forEach((v, i) => { const [x, y] = P(v); if (x < -R || y < -R || x > cv.width + R || y > cv.height + R) return;
-        const on = !F || F.has(i), rr = R * (0.55 + 0.45 * Math.min(1, v.rad / 7)); cx.globalAlpha = on ? 1 : .25;
+        const on = !F || F.has(i), rr = Math.min(R * (0.55 + 0.45 * Math.min(1, v.rad / 7)), v.cell ? v.cell * 0.47 * view.s : Infinity); cx.globalAlpha = on ? 1 : .25;   // never wider than its grid cell, so neighbours don't overlap
         const g = cx.createRadialGradient(x, y - rr * .3, rr * .1, x, y, rr); g.addColorStop(0, col(v.tag, .32)); g.addColorStop(1, col(v.tag, .10));
         cx.fillStyle = g; cx.beginPath(); cx.arc(x, y, rr, 0, 6.283); cx.fill();
         cx.lineWidth = (i === sel ? 3 : 1.2) * dpr; cx.strokeStyle = i === sel ? "#ffcf7a" : col(v.tag, .85); cx.stroke();
