@@ -193,7 +193,7 @@
       <div class="gx-row" id="gx-win"></div>
       <div class="gx-stats" id="gx-stats"></div>
       <div class="gx-mapwrap"><canvas id="gx-map" aria-label="Spending drawn as a galaxy with budget rings"></canvas>
-        <div class="gx-tools"><button id="gx-zin" type="button" aria-label="Zoom in" title="Zoom in">+</button><button id="gx-zout" type="button" aria-label="Zoom out" title="Zoom out">&minus;</button><button id="gx-home" type="button">&#10530; Whole galaxy</button><button id="gx-arrange" type="button" title="Put every circle back where the layout places it" hidden>&#8634; Arrange</button></div>
+        <div class="gx-tools"><button id="gx-zin" type="button" aria-label="Zoom in" title="Zoom in">+</button><button id="gx-zout" type="button" aria-label="Zoom out" title="Zoom out">&minus;</button><button id="gx-home" type="button">&#10530; Whole galaxy</button><button id="gx-solar" type="button" aria-pressed="false" title="Each category as a solar system: the budget is the sun, purchases orbit it, extra charges are moons">&#9728; Solar</button><button id="gx-arrange" type="button" title="Put every circle back where the layout places it" hidden>&#8634; Arrange</button></div>
         <input type="range" id="gx-slx" class="sl slx" min="0" max="1000" value="0" aria-label="Move left or right" hidden /><input type="range" id="gx-sly" class="sl sly" min="0" max="1000" value="0" aria-label="Move up or down" hidden /><div class="gx-tip" id="gx-tip" hidden></div></div>
       <div id="gx-info" class="gx-info"><span class="muted">Tap a galaxy or a star.</span></div>   <!-- what you tapped, right under the map (L 2026-10-03) -->
       <div class="gx-legend" id="gx-legend"></div>
@@ -1320,6 +1320,15 @@
       const S = (x, y) => [(x - (x0 + x1) / 2) / span * 1000 + 500, (y - (y0 + y1) / 2) / span * 1000 + 500];
       V.forEach(v => { [v.px, v.py] = S(v.x, v.y); v.cell = (v.cellU || 0) / span * 1000; v.rad = 1.2 + 6 * Math.sqrt(v.total / (V[0] ? V[0].total : 1)); });
       G.forEach(g => { [g.px, g.py] = S(g.cx, g.cy); g.prad = g.r / span * 1000; });
+      // SOLAR (2026-10-13, L: "the budget is the sun, set based on size; the purchases revolve around it; over budget the sun turns a
+      // different colour or a black hole; items revolve based on their size and have moons for the multiples"): sun area ~ the budget
+      // against what was spent; vendors on rings (biggest spend innermost, 5 + 4k per ring), inner rings orbit faster; a moon per charge
+      G.forEach(g => { const spentVsBudget = g.budget > 0 ? Math.min(1, g.budget / Math.max(g.total, g.budget)) : 0.35;
+        g.sunR = g.prad * 0.26 * Math.sqrt(spentVsBudget); const ids = g.ids.slice().sort((a, b) => V[b].total - V[a].total), n = ids.length;
+        let rings = 0, left = n; while (left > 0) { left -= 5 + 4 * rings; rings++; }
+        const r0 = Math.max(g.sunR * 1.8, g.prad * 0.32), r1 = g.prad * 0.93, step = rings > 1 ? (r1 - r0) / (rings - 1) : 0; g.orbits = [];
+        let j = 0; for (let k = 0; k < rings; k++) { const cap = 5 + 4 * k, inRing = Math.min(cap, n - j), r = rings > 1 ? r0 + k * step : (r0 + r1) / 2; g.orbits.push(r);
+          for (let q = 0; q < inRing; q++, j++) { const v = V[ids[j]]; v.oR = r; v.oA0 = q / inRing * 6.283 + k * 0.7; v.oSp = 0.32 / Math.sqrt(r / g.prad) * (k % 2 ? -1 : 1); } } });
       const pos = STATE.galaxyPos || {}; let movedAny = false;   // circles L has moved stay where he put them (2026-10-03); Arrange clears them
       G.forEach(g => { const q = pos[g.tag]; if (!q || !isFinite(q.x) || !isFinite(q.y)) return; const dx = q.x - g.px, dy = q.y - g.py; g.px = q.x; g.py = q.y; g.ids.forEach(i => { V[i].px += dx; V[i].py += dy; }); movedAny = true; });
       const sp = STATE.starPos || {};   // stars L moved keep their place beside their circle
@@ -1380,7 +1389,11 @@
     const ease = o => o * o * (3 - 2 * o), posKey = k => String(k || "").replace(/[.#$\[\]\/]/g, "_") || "_";   // smoothstep; a vendor key safe as a Firebase key
     function centroid() { let sx = 0, sy = 0, sw = 0; for (const g of G) { const w = g.prad * g.prad; sx += g.px * w; sy += g.py * w; sw += w; } return sw ? [sx / sw, sy / sw] : [500, 500]; }
     const GP = g => { const mg = mergeOf(); if (!mg) return [view.ox + g.px * view.s, view.oy + g.py * view.s]; const [cxw, cyw] = centroid(), e = mg * mg; return [view.ox + (g.px + (cxw - g.px) * e) * view.s, view.oy + (g.py + (cyw - g.py) * e) * view.s]; };
-    const P = v => { const g = G[v.g]; if (!g) return [view.ox + v.px * view.s, view.oy + v.py * view.s]; const o = openOf(g), [gx, gy] = GP(g), e = ease(o); return [gx + (v.px - g.px) * view.s * e, gy + (v.py - g.py) * view.s * e]; };
+    let SOLAR = false; try { SOLAR = localStorage.getItem("gx_solar") === "1"; } catch (e) { }
+    const orbT = () => matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : performance.now() / 1000 * 0.12;   // slow, readable orbits
+    const P = v => { const g = G[v.g]; if (!g) return [view.ox + v.px * view.s, view.oy + v.py * view.s]; const o = openOf(g), [gx, gy] = GP(g), e = ease(o);
+      if (SOLAR && v.oR) { const a = v.oA0 + orbT() * v.oSp; return [gx + Math.cos(a) * v.oR * view.s * e, gy + Math.sin(a) * v.oR * view.s * e]; }
+      return [gx + (v.px - g.px) * view.s * e, gy + (v.py - g.py) * view.s * e]; };
     function makeSky() {
       sky = document.createElement("canvas"); sky.width = cv.width; sky.height = cv.height;
       const g = sky.getContext("2d"), rnd = (() => { let a = 7; return () => (a = (a * 16807) % 2147483647) / 2147483647; })();
@@ -1402,7 +1415,8 @@
         cx.fillStyle = gr; cx.beginPath(); cx.arc(x, y, R, 0, 6.283); cx.fill();
         if (op < 1) { cx.fillStyle = col(g.tag, (light ? .45 : .42) * (1 - op) * a); cx.beginPath(); cx.arc(x, y, R, 0, 6.283); cx.fill(); }   // CLOSED (small on screen): one solid circle; its name + amount are painted AFTER the stars (drawInsideLabels) so the dots never sit on the text
         budgetRing(x, y, ring, g.total, g.budget, dpr, zoom, light, a);
-        hazard(g, x, y, ring, dpr, zoom, light, a); }
+        hazard(g, x, y, ring, dpr, zoom, light, a);
+        if (SOLAR && op > 0.02) drawSun(g, x, y, op, dpr, light, a); }
       // stars
       const BR = 3.2 * view.s; if (BR > 30 * dpr) { if (sel >= 0) drawBurst(dpr, zoom); drawBubbles(dpr); drawNames(dpr, zoom, light); return; }   // burst first = under every label
       cx.globalCompositeOperation = light ? "source-over" : "lighter";
@@ -1413,7 +1427,10 @@
       V.forEach((v, i) => { const o = starOn(v, mg); if (o < .02) return; const [x, y] = P(v); if (x < -20 || y < -20 || x > cv.width + 20 || y > cv.height + 20) return;
         const on = !F || F.has(i), r = Math.min(26, v.rad * Math.sqrt(zoom)) * dpr;
         cx.fillStyle = col(v.tag, (on ? (light ? .85 : (zoom >= 3 ? .9 : .6)) : .12) * o); cx.beginPath(); cx.arc(x, y, r, 0, 6.283); cx.fill();   // 60% on the dark theme (was 92%); bright again from 3x in, where the dots are grabbable
-        if (HL.has(i)) { cx.globalAlpha = o; cx.strokeStyle = "#facc15"; cx.lineWidth = 2.5 * dpr; cx.beginPath(); cx.arc(x, y, r + 5 * dpr, 0, 6.283); cx.stroke(); cx.globalAlpha = 1; } });
+        if (HL.has(i)) { cx.globalAlpha = o; cx.strokeStyle = "#facc15"; cx.lineWidth = 2.5 * dpr; cx.beginPath(); cx.arc(x, y, r + 5 * dpr, 0, 6.283); cx.stroke(); cx.globalAlpha = 1; }
+        if (SOLAR && v.n > 1 && r > 2.5 * dpr) { const m = Math.min(v.n, 12), mr = Math.max(1, r * 0.28), d = r + 3 * dpr + mr * 2, t = orbT() * 4;   // a moon per charge (12 max)
+          cx.fillStyle = light ? `rgba(60,70,110,${.7 * o})` : `rgba(225,230,255,${.75 * o})`;
+          for (let k = 0; k < m; k++) { const an = t + k / m * 6.283; cx.beginPath(); cx.arc(x + Math.cos(an) * d, y + Math.sin(an) * d, mr, 0, 6.283); cx.fill(); } } });
       if (sel >= 0) drawBurst(dpr, zoom);   // a star's charge dots go UNDER every label (L 2026-10-04 "they block text when in front of text")
       drawInsideLabels(mg, dpr, light);   // the closed circles' name + amount, on top of the dots (L 2026-10-04 "the dots cover the text in the map")
       drawNames(dpr, zoom, light);
@@ -1421,9 +1438,9 @@
       if (zoom >= 3) { cx.font = `${11 * dpr}px system-ui, sans-serif`; cx.fillStyle = light ? "rgba(30,36,60,.8)" : "rgba(220,228,255,.75)"; let shown = 0;
         for (let i = 0; i < V.length && shown < 220; i++) { const v = V[i], [x, y] = P(v); if (x > 0 && y > 0 && x < cv.width - 40 * dpr && y < cv.height && (zoom >= 6 || v.rad > 2.2)) {
           // lined-up grid: the name sits centred under its dot and is cut to the cell's width, so a row of long names never runs together
-          const maxW = v.cell ? v.cell * view.s * 0.92 : Infinity; let t = v.name;
+          const maxW = v.cell && !SOLAR ? v.cell * view.s * 0.92 : 160 * dpr; let t = v.name;
           if (cx.measureText(t).width > maxW) { while (t.length > 1 && cx.measureText(t + "…").width > maxW) t = t.slice(0, -1); t = t.trimEnd() + "…"; }
-          if (v.cell) { cx.textAlign = "center"; cx.fillText(t, x, y + Math.min(26, v.rad * Math.sqrt(zoom)) * dpr + 13 * dpr); cx.textAlign = "start"; }
+          if (v.cell && !SOLAR) { cx.textAlign = "center"; cx.fillText(t, x, y + Math.min(26, v.rad * Math.sqrt(zoom)) * dpr + 13 * dpr); cx.textAlign = "start"; }
           else cx.fillText(t, x + v.rad * dpr + 5 * dpr, y + 4 * dpr);
           shown++; } } }
       if (sel >= 0) { const v = V[sel], [x, y] = P(v); cx.strokeStyle = "#ffcf7a"; cx.lineWidth = 2.5 * dpr; cx.beginPath(); cx.arc(x, y, Math.min(26, v.rad * Math.sqrt(zoom)) * dpr + 6 * dpr, 0, 6.283); cx.stroke();
@@ -1500,9 +1517,34 @@
       }
       cx.restore();
     }
+    function drawSun(g, x, y, op, dpr, light, a) {   // under 80% used = yellow sun · 80-100% = swollen red giant · over budget = black hole
+      const e = ease(op), R = Math.max(3 * dpr, g.sunR * view.s * e), f = g.budget > 0 ? g.total / g.budget : -1, t = orbT() * 8;
+      cx.save(); cx.globalAlpha = a * Math.min(1, op * 1.5);
+      cx.strokeStyle = light ? "rgba(60,70,110,.14)" : "rgba(200,210,255,.10)"; cx.lineWidth = 1 * dpr;   // orbit paths
+      for (const r of g.orbits || []) { cx.beginPath(); cx.arc(x, y, r * view.s * e, 0, 6.283); cx.stroke(); }
+      if (f > 1) {   // BLACK HOLE: lensing glow, a swirling accretion disc, a black core
+        const over = Math.min(1, f - 1), disc = R * (1.6 + over);
+        let gr = cx.createRadialGradient(x, y, R * .9, x, y, disc * 1.5); gr.addColorStop(0, "rgba(255,120,40,.55)"); gr.addColorStop(.45, "rgba(190,40,120,.25)"); gr.addColorStop(1, "rgba(80,0,90,0)");
+        cx.fillStyle = gr; cx.beginPath(); cx.arc(x, y, disc * 1.5, 0, 6.283); cx.fill();
+        cx.lineWidth = Math.max(1.5 * dpr, R * .18);
+        for (let k = 0; k < 3; k++) { cx.strokeStyle = ["rgba(255,170,60,.85)", "rgba(255,90,60,.7)", "rgba(220,60,200,.55)"][k]; cx.beginPath(); cx.arc(x, y, R * (1.15 + k * .22), t + k * 2.1, t + k * 2.1 + 3.6); cx.stroke(); }
+        cx.fillStyle = "#000"; cx.beginPath(); cx.arc(x, y, R, 0, 6.283); cx.fill();
+        cx.strokeStyle = "rgba(255,200,120,.9)"; cx.lineWidth = 1.2 * dpr; cx.beginPath(); cx.arc(x, y, R, 0, 6.283); cx.stroke();
+      } else {
+        const giant = f >= 0.8, pulse = giant ? 1 + 0.06 * Math.sin(t * 3) : 1, rr = R * pulse;
+        const [c0, c1, c2] = f < 0 ? ["#e8eefc", "#9fb3d9", "rgba(120,140,190,0)"] : giant ? ["#ffd7a0", "#ff5a2a", "rgba(200,40,20,0)"] : ["#fffbe6", "#ffcf33", "rgba(255,170,0,0)"];
+        let gr = cx.createRadialGradient(x, y, rr * .2, x, y, rr * 2.4); gr.addColorStop(0, c1); gr.addColorStop(1, c2);
+        cx.globalAlpha = a * .45; cx.fillStyle = gr; cx.beginPath(); cx.arc(x, y, rr * 2.4, 0, 6.283); cx.fill();
+        cx.globalAlpha = a; gr = cx.createRadialGradient(x - rr * .25, y - rr * .25, rr * .1, x, y, rr); gr.addColorStop(0, c0); gr.addColorStop(1, c1);
+        cx.fillStyle = gr; cx.beginPath(); cx.arc(x, y, rr, 0, 6.283); cx.fill();
+      }
+      if (R > 14 * dpr && g.budget > 0) { cx.globalAlpha = a; cx.font = `700 ${Math.min(13, R / dpr / 3) * dpr}px system-ui, sans-serif`; cx.textAlign = "center";
+        cx.fillStyle = f > 1 ? "#ffd2a0" : "#3b2a00"; cx.fillText(money0(g.budget), x, y + 4 * dpr); cx.textAlign = "start"; }
+      cx.restore();
+    }
     let hzTimer = 0;
     function hazardClock() {   // ~20 fps redraw only while something is at risk and the page is visible
-      if (hzTimer || RM.matches || document.hidden || !G.some(g => hz(g))) return;
+      if (hzTimer || RM.matches || document.hidden || !(G.some(g => hz(g)) || (SOLAR && G.some(g => openOf(g) > 0.02)))) return;
       hzTimer = setTimeout(() => { hzTimer = 0; requestDraw(); }, 50);
     }
     document.addEventListener("visibilitychange", () => { if (!document.hidden) requestDraw(); });
@@ -1555,7 +1597,7 @@
     function drawBubbles(dpr) {
       const R = Math.min(3.2 * view.s, 150 * dpr), light = isLight(), F = focus;
       V.forEach((v, i) => { const [x, y] = P(v); if (x < -R || y < -R || x > cv.width + R || y > cv.height + R) return;
-        const on = !F || F.has(i), rr = Math.min(R * (0.55 + 0.45 * Math.min(1, v.rad / 7)), v.cell ? v.cell * 0.47 * view.s : Infinity); cx.globalAlpha = on ? 1 : .25;   // never wider than its grid cell, so neighbours don't overlap
+        const on = !F || F.has(i), rr = Math.min(R * (0.55 + 0.45 * Math.min(1, v.rad / 7)), v.cell && !SOLAR ? v.cell * 0.47 * view.s : Infinity); cx.globalAlpha = on ? 1 : .25;   // never wider than its grid cell, so neighbours don't overlap
         const g = cx.createRadialGradient(x, y - rr * .3, rr * .1, x, y, rr); g.addColorStop(0, col(v.tag, .32)); g.addColorStop(1, col(v.tag, .10));
         cx.fillStyle = g; cx.beginPath(); cx.arc(x, y, rr, 0, 6.283); cx.fill();
         cx.lineWidth = (i === sel ? 3 : 1.2) * dpr; cx.strokeStyle = i === sel ? "#ffcf7a" : col(v.tag, .85); cx.stroke();
@@ -1608,7 +1650,7 @@
         ${g.budget ? `<b>${diff >= 0 ? "Left" : "Over"}</b><span class="${diff >= 0 ? "under" : "over"}">${fmt.format(Math.abs(diff))} (${Math.round(g.total / g.budget * 100)}% used)</span>` : ""}</div>
         <div class="chips">${top.map(i => `<button type="button" data-v="${i}"><i style="background:${col(V[i].tag, .95)};width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px"></i>${esc(V[i].name)} <span class="n">${money0(V[i].total)}</span></button>`).join("")}</div>
         <div class="gx-hint" style="margin-top:8px">Change this budget in the table below.</div>`;
-      wireBudgetEdit(g); flyTo(g.ids.length ? g.ids.map(i => V[i]) : [{ px: g.px, py: g.py }], base.s * 1.2);
+      wireBudgetEdit(g); flyTo([{ px: g.px - g.prad * 1.05, py: g.py - g.prad * 1.05 }, { px: g.px + g.prad * 1.05, py: g.py + g.prad * 1.05 }], base.s * 1.2);   // the whole system fills the view (L 2026-10-13)
     }
     let anim = 0;
     function flyTo(items, minS) {
@@ -1636,6 +1678,8 @@
     $("home").addEventListener("click", () => clearFocus(true));
     $("zin").addEventListener("click", () => cvw.zoomAt(cv.width / 2, cv.height / 2, 1.6));      // zoom buttons (L 2026-10-03)
     $("zout").addEventListener("click", () => cvw.zoomAt(cv.width / 2, cv.height / 2, 1 / 1.6));
+    const solarBtn = $("solar"); const paintSolar = () => { solarBtn.setAttribute("aria-pressed", SOLAR); solarBtn.style.borderColor = SOLAR ? "var(--accent)" : ""; };
+    solarBtn.addEventListener("click", () => { SOLAR = !SOLAR; try { localStorage.setItem("gx_solar", SOLAR ? "1" : "0"); } catch (e) { } paintSolar(); draw(); }); paintSolar();
     $("arrange").addEventListener("click", () => { STATE.galaxyPos = {}; STATE.starPos = {}; saveToDB(); layout(); draw(); });   // every circle and star back to the layout (2026-10-03)
     window.__gx = () => ({ G, V, view, base, STATE, openOf, mergeOf, GP, P, worldExt });   // test hook
     // TIPS (L 2026-10-03 "mouse hover shows info on them"): hover a burst dot -> that charge (date, name, amount); hover a star
