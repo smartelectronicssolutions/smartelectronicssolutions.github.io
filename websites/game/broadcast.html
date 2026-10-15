@@ -58,6 +58,10 @@
         .ach .bar { height: 8px; border-radius: 4px; background: #efe3d2; overflow: hidden; margin: 6px 0; }
         .ach .bar i { display: block; height: 100%; background: #c85800; }
         .ach b { color: #1a0e04; }
+        .qc { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+        .qc button { font: inherit; font-size: .75rem; padding: 7px 10px; border-radius: 99px; border: 1px solid #c8b49a; background: #fff; cursor: pointer; }
+        .qc button.on { background: #2e7d32; color: #fff; border-color: #2e7d32; }
+        .qc .meta { width: 100%; }
         .hidden { display: none !important; }
     </style>
 </head>
@@ -109,6 +113,7 @@
                 <h2>Now playing</h2>
                 <div id="np" class="np"><div class="meta">checking…</div></div>
                 <div id="st" class="st"></div>
+                <div id="qc" class="qc"></div>
                 <div class="ed"><button class="go" id="b-hint">🔍 What should I do?</button><span class="meta" id="hint-meta"></span></div>
                 <div id="hint" class="hint hidden"></div>
             </section>
@@ -267,10 +272,28 @@
         $("b-hint").disabled = false;
     };
 
+    // quick cheats: one-tap writes into the game's memory; toggles are re-applied by se every ~1.5 s
+    let qcGame;
+    async function loadCheats(force) {
+        try {
+            const c = await call("/cheats");
+            $("qc").innerHTML = c.actions.map(a => `<button data-id="${esc(a.id)}" class="${a.on ? "on" : ""}" title="${a.kind === "toggle" ? "tap to switch on/off" : "one tap"}">${esc(a.label)}${a.kind === "toggle" ? (a.on ? " · ON" : " · off") : ""}</button>`).join("")
+                + `<span class="meta" id="qc-msg">${esc(c.note || "")}</span>`;
+            $("qc").querySelectorAll("button").forEach(b => b.onclick = async () => {
+                b.disabled = true;
+                try { const r = await call("/cheat", { id: b.dataset.id }); $("qc-msg").textContent = r.done ? "Done: " + r.done : (r.label + (r.on ? " ON" : " off")); }
+                catch (e) { $("qc-msg").textContent = e.message; }
+                loadCheats(true);
+            });
+        } catch (e) { $("qc").innerHTML = ""; }
+    }
+
     async function poll() {
         try {
             const s = await call("/status"); paintObs(s.obs); paintPlaying(s.playing); paintState(s.playing?.state);
             loadAch(s.playing?.source === "RetroArch" ? s.playing.title : null);
+            const g = s.playing?.title || null;
+            if (g !== qcGame) { qcGame = g; loadCheats(); }
         }
         catch (e) { $("msg").textContent = e.message; }
     }
