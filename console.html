@@ -1930,7 +1930,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             document.addEventListener('pointerdown', onDown, true);
             document.addEventListener('click', onClick, true);
             document.addEventListener('keydown', onKey, true);
-            if (!ext && window.__dcKit) window.__dcKit.sheet(box, k, t, close, quiet);   // messenger kit: reactions + ↩ Reply
+            if (window.__dcKit && (!ext || ext.kit)) window.__dcKit.sheet(box, k, t, close, quiet, ext && ext.kit);   // messenger kit: reactions + ↩ Reply (👥 pane passes ext.kit)
             const pb = box.querySelector('.play');
             pb.onclick = () => {
                 if (quiet()) return;
@@ -2707,13 +2707,14 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 money: '💵', coffee: '☕', pizza: '🍕', beer: '🍺', sad: '😢', angry: '😡', sleep: '😴', mindblown: '🤯', muscle: '💪', brain: '🧠' };
             const byName = n => { n = n.toLowerCase(); if (ALIAS[n]) return ALIAS[n];
                 for (const [e, nm] of Object.entries(window.__dcEmojiNames || {})) if (String(nm).toLowerCase().replace(/[^a-z0-9]+/g, '_') === n) return e; return ''; };
-            ta.addEventListener('input', e => {
+            const shortcodes = box => box.addEventListener('input', e => {
                 if (e.data !== ':') return;
-                const p = ta.selectionStart, m = /:([a-z][a-z0-9_+\-]{1,29}|[+\-]1):$/i.exec(ta.value.slice(0, p)); if (!m) return;
+                const p = box.selectionStart, m = /:([a-z][a-z0-9_+\-]{1,29}|[+\-]1):$/i.exec(box.value.slice(0, p)); if (!m) return;
                 const em = byName(m[1]); if (!em) return;
-                ta.setSelectionRange(p - m[0].length, p);
-                if (!document.execCommand('insertText', false, em)) { const a = p - m[0].length; ta.value = ta.value.slice(0, a) + em + ta.value.slice(p); ta.setSelectionRange(a + em.length, a + em.length); }
+                box.setSelectionRange(p - m[0].length, p);
+                if (!document.execCommand('insertText', false, em)) { const a = p - m[0].length; box.value = box.value.slice(0, a) + em + box.value.slice(p); box.setSelectionRange(a + em.length, a + em.length); }
             });
+            shortcodes(ta);
 
             // 🔍 search: filters the loaded bubbles of the open tab as you type
             let findQ = '';
@@ -2744,19 +2745,25 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             function setReply(k, t) { const src = (DC.chatTurns || {})[k] || t || {};
                 S.reply = { k, who: src.s === 'L' ? 'You' : (src.who || 'Droplet'), text: short(src.text).slice(0, 300) }; paint(); ta.focus(); }
             // the triple-tap sheet gets a reaction row + ↩ Reply (own chat only)
-            function sheet(box, k, t, close, quiet) {
-                if (DC.remote) return;
-                const turn = (DC.chatTurns || {})[k];
+            function sheet(box, k, t, close, quiet, kit) {   // kit = the 👥 pane's { react(em), reply(), mine }
+                if (!kit && DC.remote) return;
+                const turn = kit ? null : (DC.chatTurns || {})[k], cur = kit ? kit.mine : (turn && turn.react);
                 const row = document.createElement('div'); row.className = 'dc-reacts';
-                row.innerHTML = (turn ? ['❤️', '😂', '👍', '😮', '😢', '🙏'].map(e => `<button type="button" data-r="${e}" class="${turn.react === e ? 'on' : ''}" title="react ${e}">${e}</button>`).join('') : '')
+                row.innerHTML = ((kit || turn) ? ['❤️', '😂', '👍', '😮', '😢', '🙏'].map(e => `<button type="button" data-r="${e}" class="${cur === e ? 'on' : ''}" title="react ${e}">${e}</button>`).join('') : '')
                     + '<button type="button" class="rep" title="reply to this message - it is quoted above yours">↩ Reply</button>';
                 box.insertBefore(row, box.querySelector('.r'));
                 row.onclick = async e => { if (quiet()) return; const b = e.target.closest('button'); if (!b) return;
-                    if (b.classList.contains('rep')) { close(); setReply(k, t); return; }
-                    close(); try { await update(ref(database, `${DC.base}/chat/turns/${k}`), { react: turn.react === b.dataset.r ? null : b.dataset.r }); } catch (_) {} };
+                    if (b.classList.contains('rep')) { close(); if (kit) kit.reply(); else setReply(k, t); return; }
+                    close(); if (kit) { kit.react(b.dataset.r); return; }
+                    try { await update(ref(database, `${DC.base}/chat/turns/${k}`), { react: cur === b.dataset.r ? null : b.dataset.r }); } catch (_) {} };
             }
             window.__dcKit = {
-                sheet, setReply, addFile,
+                sheet, setReply, addFile, shortcodes,
+                // big lone emoji + YouTube card for the 👥 pane's bubbles (bubbleHtml does the same inline)
+                extras(body) { const bt = String(body || '').trim();
+                    const jumbo = !!bt && bt.length <= 24 && /^(?:\p{Extended_Pictographic}|\p{Emoji_Modifier}|\uFE0F|\u200D|\s)+$/u.test(bt);
+                    const yt = (/(?:youtube\.com\/(?:watch\?(?:[^\s]*&)?v=|shorts\/)|youtu\.be\/)([\w-]{11})/.exec(bt) || [])[1];
+                    return { jumbo, lp: yt ? `<a class="dc-yt" href="https://www.youtube.com/watch?v=${yt}" target="_blank" rel="noopener noreferrer"><img src="https://i.ytimg.com/vi/${yt}/hqdefault.jpg" loading="lazy" alt="YouTube video"><span>▶</span></a>` : '' }; },
                 openFind: () => { findBox.hidden = false; fin.focus(); },
                 uploading: () => S.att.some(a => a.state === 'up'),
                 hasAtt: () => S.att.some(a => a.state === 'ok'),
@@ -4446,7 +4453,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     const markSeen = (tid, ts) => { ts = ts || Date.now();
         try { localStorage.setItem('dc_peer_seen_' + tid, String(ts)); } catch (_) {}
         const x = P.index[tid];
-        if (P.me && x && !(+x.readAt >= ts)) { x.readAt = ts; update(ref(database, `share/chatIndex/${P.me}/${tid}`), { readAt: ts }).catch(() => {}); } };
+        if (P.me && x && !(+x.readAt >= ts)) { x.readAt = ts; update(ref(database, `share/chatIndex/${P.me}/${tid}`), { readAt: ts }).catch(() => {}); }
+        P.seenW = P.seenW || {}; if (P.me && !(P.seenW[tid] >= ts)) { P.seenW[tid] = ts; set(ref(database, `share/chat/${tid}/seen/${P.me}`), ts).catch(() => {}); } };   // their ✓✓
     const P = { me: null, myName: '', dir: {}, open: null, other: null, unsub: null, index: {}, word: '' };   // word = this session's chat word (memory only)
     // POP-UP ALERTS (2026-09-27, L: "I sent a message to Kev and he said there was no notification on his end"): the daemon only
     // Telegrams L; everyone else gets a browser notification while the hub is open (per device, opt-in in People > Settings).
@@ -4513,7 +4521,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         pane.innerHTML = `<div id="dc-peer-head"><button type="button" id="dc-peer-back" title="back to People" hidden>‹</button><span id="dc-peer-name"></span><div id="dc-peer-bar" hidden></div><span class="sp"></span><button type="button" id="dc-peer-x" title="close the pane">✕</button></div>
             <div id="dc-peer-home"></div>
             <div id="dc-peer-log" class="dc-chat-log" hidden></div>
-            <form id="dc-peer-form" class="dc-chat-input" hidden><span class="ps" aria-hidden="true">❯</span><textarea id="dc-peer-in" rows="2" placeholder="message…  (Enter sends)"></textarea><div id="dc-peer-ghost" class="dc-ghost" hidden></div><div class="dc-status dc-stat-pill" id="dc-peer-status"></div><button type="button" class="dc-emoji-btn" id="dc-peer-emoji" title="emoji (search at the top)" aria-label="emoji picker">🙂</button><button type="submit" class="dc-btn push">▲</button></form>`;   // SAME box as the Droplet chat (L 2026-09-27: "the chat boxes still look different")
+            <form id="dc-peer-form" class="dc-chat-input" hidden><span class="ps" aria-hidden="true">❯</span><textarea id="dc-peer-in" rows="2" placeholder="message…  (Enter sends)"></textarea><div id="dc-peer-ghost" class="dc-ghost" hidden></div><div class="dc-status dc-stat-pill" id="dc-peer-status"></div><button type="button" class="dc-emoji-btn" id="dc-peer-attach" title="send a photo or file (or paste one)" aria-label="attach">📎</button><button type="button" class="dc-emoji-btn" id="dc-peer-emoji" title="emoji (search at the top)" aria-label="emoji picker">🙂</button><button type="submit" class="dc-btn push">▲</button></form>`;   // SAME box as the Droplet chat (L 2026-09-27: "the chat boxes still look different")
         body.appendChild(pane);
         {   // the System panels into one column (#dc-sys-col) so the row split keeps them stacked on the left
             const col = document.createElement('div'); col.id = 'dc-sys-col';
@@ -4582,6 +4590,14 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // the live gemma2 rewrite + the Send pass, wired by the console's factory. Registered AFTER the keydown sender above on
         // purpose (ORDER MATTERS: send() starts the flush, the enhancer's Enter listener must see flushing=true).
         window.__dcWireLiveEnhance && window.__dcWireLiveEnhance($('#dc-peer-in'), $('#dc-peer-ghost'), $('#dc-peer-status'), null, false);
+        // MESSENGER KIT in 👥 (2026-10-15, L: "Not in the member section?"): 📎 photo/file, paste a picture, :shortcodes:, reply bar
+        window.__dcKit && window.__dcKit.shortcodes($('#dc-peer-in'));
+        { const pa = $('#dc-peer-attach'); if (pa) { pa.addEventListener('pointerdown', e => e.preventDefault());
+            pa.onclick = () => { if (!P.open) return; const inp = document.createElement('input'); inp.type = 'file';
+                inp.onchange = () => { const f = inp.files && inp.files[0]; if (f) (/^image\//.test(f.type) ? sendPhoto(f) : sendFile(f)); }; inp.click(); }; } }
+        $('#dc-peer-in').addEventListener('paste', e => { const f = ((e.clipboardData && e.clipboardData.files) || [])[0]; if (!f || !P.open) return; e.preventDefault(); (/^image\//.test(f.type) ? sendPhoto(f) : sendFile(f)); });
+        { const cb = document.createElement('div'); cb.id = 'dc-peer-compose'; cb.className = 'dc-compose'; cb.hidden = true; const fm = $('#dc-peer-form'); fm.parentElement.insertBefore(cb, fm);
+          cb.addEventListener('pointerdown', e => e.preventDefault()); cb.addEventListener('click', e => { if (e.target.closest('button')) setPeerReply(null); }); }
     }
 
     function unread(tid) { const x = P.index[tid]; return !!(x && x.from !== P.me && x.ts > seen(tid) && tid !== P.open); }
@@ -4626,7 +4642,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     }
     const ago = ts => { if (!ts) return ''; const m = Math.round((Date.now() - ts) / 60000); return m < 1 ? 'now' : m < 60 ? m + 'm' : m < 1440 ? Math.round(m / 60) + 'h' : Math.round(m / 1440) + 'd'; };
     function showHome(mode) {
-        if (P.unsub) { P.unsub(); P.unsub = null; }
+        if (P.unsub) { P.unsub(); P.unsub = null; } if (P.unsubX) { P.unsubX.forEach(f => f()); P.unsubX = null; }
         P.open = null; P.other = null;
         peerSplit();   // one side pane at a time: a System pane closes first (2026-10-04)
         $('#dc-peer-home').hidden = false; $('#dc-peer-log').hidden = true; $('#dc-peer-form').hidden = true; $('#dc-peer-back').hidden = true;
@@ -4847,7 +4863,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     }
 
     async function openPeer(uid) {
-        if (P.unsub) { P.unsub(); P.unsub = null; }
+        if (P.unsub) { P.unsub(); P.unsub = null; } if (P.unsubX) { P.unsubX.forEach(f => f()); P.unsubX = null; }
         const tid = tidFor(P.me, uid);
         let exists = false;
         try { exists = (await get(ref(database, `share/chat/${tid}/members`))).exists(); } catch (_) { exists = false; }   // not a member yet = no read = treat as new
@@ -4863,7 +4879,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     }
 
     function openThread(tid, title, other) {
-        if (P.unsub) { P.unsub(); P.unsub = null; }
+        if (P.unsub) { P.unsub(); P.unsub = null; } if (P.unsubX) { P.unsubX.forEach(f => f()); P.unsubX = null; }
         if (P.editing) stopEdit();
         if (!other) {   // shared tab: the other side is the guest (owner view) or the owner (guest view)
             const mine = Object.values(P.shares).find(x => x.tid === tid);
@@ -4879,6 +4895,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         $('#dc-peer-log').innerHTML = '<div style="opacity:.6;text-align:center;padding:10px">loading…</div>';
         P.unsub = onValue(query(ref(database, `share/chat/${tid}/messages`), limitToLast(100)), s => renderMsgs(s.val() || {}),
             e => { $('#dc-peer-log').innerHTML = `<div style="opacity:.7;padding:10px">Can't read this chat: ${esc(e.code || e.message)}</div>`; });
+        // ✓✓ seen + reactions live beside the messages (share/chat/<tid>/seen/<uid>, reacts/<msg>/<uid> - rules 2026-10-15)
+        P.seenOther = 0; P.reacts = {}; setPeerReply(null);
+        P.unsubX = [onValue(ref(database, `share/chat/${tid}/seen/${other}`), s => { P.seenOther = +s.val() || 0; if (P.open === tid) renderMsgs(lastMsgs); }, () => {}),
+                    onValue(ref(database, `share/chat/${tid}/reacts`), s => { P.reacts = s.val() || {}; if (P.open === tid) renderMsgs(lastMsgs); }, () => {})];
         dots(); setTimeout(() => $('#dc-peer-in') && $('#dc-peer-in').focus(), 50);
     }
 
@@ -4905,24 +4925,39 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         const list = nf ? asc.slice().reverse() : asc;
         const S = window.__dcShared || {}, lk = S.linkify || (x => x), stamp = S.fmtStamp || (t => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
         const lastMine = [...asc].reverse().find(m => m.from === P.me);
+        const K = window.__dcKit, byK = Object.fromEntries(asc0.map(x => [x.__k, x]));
+        const nameOf = u => u === P.me ? 'You' : u === 'droplet' ? '💧 Droplet' : (P.dir[u] || 'them');
         log.innerHTML = list.length ? list.map(m => { const me = m.from === P.me, tm = stamp(m.ts);
             const who = me ? 'You' : m.from === 'droplet' ? '💧 Droplet' : (m.name || P.dir[m.from] || 'them');
             const edit = (me || P.me === OWNER) && !m.snap ? '<button type="button" class="dc-edit" title="edit this message">✎</button>' : '';   // every own message, every message for the owner (L 2026-10-03 "edit every message in people's")
-            const cap = m.img && m.text === '📷 photo' ? '' : lk(esc(m.text));
+            // messenger kit: the quote is drawn from the (decrypted) original, so an E2E thread never stores quoted text in the clear
+            const qo = m.replyTo && byK[m.replyTo.k];
+            const qt = m.replyTo ? `<div class="dc-quote" data-jump="${esc(m.replyTo.k || '')}" title="tap to jump to it"><b>↩ ${esc(nameOf(m.replyTo.from))}</b> ${esc(qo ? String(qo.text).slice(0, 140) : 'an earlier message')}</div>` : '';
+            const fl = m.file && /^https:\/\/[^\s"'`<>]+$/.test(m.file.url || '') ? `<div class="dc-att"><a class="file" href="${esc(m.file.url)}" target="_blank" rel="noopener noreferrer">📄 open the file</a></div>` : '';
+            const rs = (P.reacts || {})[m.__k] || {}, rc = {}; for (const [u, e] of Object.entries(rs)) if (e) (rc[e] = rc[e] || []).push(u);
+            const rx = Object.keys(rc).length ? `<div>${Object.entries(rc).map(([e, us]) => `<span class="dc-react" data-r="${esc(e)}" title="${esc(us.map(nameOf).join(', '))}${rs[P.me] === e ? ' - tap to remove yours' : ' - tap to add yours'}">${esc(e)}${us.length > 1 ? ' ' + us.length : ''}</span>`).join(' ')}</div>` : '';
+            const tick = me && !m.snap ? (P.seenOther >= (m.ts || 0) ? ' <span class="dc-tick seen" title="seen">✓✓</span>' : ' <span class="dc-tick" title="sent">✓</span>') : '';
+            const ex = K && !m.snap ? K.extras(m.text) : { jumbo: false, lp: '' };
+            const cap = m.img && m.text === '📷 photo' ? '' : ex.jumbo ? `<span class="dc-jumbo">${esc(String(m.text).trim())}</span>` : lk(esc(m.text)) + ex.lp;
             const body = m.snap ? `<details class="psnap"><summary>📋 # ${esc(m.snap.topic)} · ${m.snap.lines} messages (tap to read)</summary>${lk(esc(m.text))}</details>`
                 : m.img && /^https:\/\//.test(m.img) ? `<div class="dc-snaps"><img src="${esc(m.img)}" alt="photo" loading="lazy"></div>${cap}` : cap;   // .dc-snaps = tap for the full-size swipe viewer
-            return `<div class="dc-bub ${me ? 'me' : 'drop'}${m.from === 'droplet' ? ' dp' : ''}" data-k="${esc(m.__k)}">${m.snap ? '' : edit}<span class="who">${esc(who)} · ${tm}${m.edited ? ' · ✎ edited' : ''}</span>${body}<div class="ts">${tm}</div></div>`; }).join('')
+            return `<div class="dc-bub ${me ? 'me' : 'drop'}${m.from === 'droplet' ? ' dp' : ''}" data-k="${esc(m.__k)}">${m.snap ? '' : edit}<span class="who">${esc(who)} · ${tm}${tick}${m.edited ? ' · ✎ edited' : ''}</span>${qt}${body}${fl}${rx}<div class="ts">${tm}</div></div>`; }).join('')
             : `<div style="opacity:.6;text-align:center;padding:10px">Say hi to ${esc(P.dir[P.other] || 'them')} 👋 - only the two of you can see this.</div>`;
         log.scrollTop = nf ? 0 : log.scrollHeight;
         // SAME AS THE CONSOLE (L, 2026-09-27: "mirror the style into the messages with other users"): ✎ on your newest message
         // edits it; a triple-tap on any message opens the console's own message sheet (▶ play · ⚡ speed read · Delete on yours).
         log.onclick = e => {
             const el = e.target.closest && e.target.closest('.dc-bub[data-k]'); if (!el || e.target.closest('a')) { tap.n = 0; return; }
+            const qj = e.target.closest('.dc-quote[data-jump]');
+            if (qj) { tap.n = 0; const to = log.querySelector(`[data-k="${CSS.escape(qj.dataset.jump)}"]`);
+                if (to) { to.scrollIntoView({ block: 'center', behavior: 'smooth' }); to.classList.add('dc-flash'); setTimeout(() => to.classList.remove('dc-flash'), 1400); } return; }
+            const rj = e.target.closest('.dc-react[data-r]'); if (rj) { tap.n = 0; toggleReact(el.dataset.k, rj.dataset.r); return; }
             const k = el.dataset.k, m0 = msgs[k]; if (!m0) return; const m = m0.enc ? { ...m0, text: E2E.plain.get(k) ?? '' } : m0;   // E2E: work with the opened text
             if (e.target.closest('.dc-edit')) { startEdit(k, m.text); return; }
             const now = Date.now(); tap.n = (tap.k === k && now - tap.t < 700) ? tap.n + 1 : 1; tap.k = k; tap.t = now;
             if (tap.n >= 3 && window.__dcMsgSheet) { tap.n = 0;
                 window.__dcMsgSheet('peer:' + k, { host: $('#dc-peer'), text: m.text,
+                    kit: { mine: ((P.reacts || {})[k] || {})[P.me], react: em => toggleReact(k, em), reply: () => setPeerReply({ k, from: m.from, text: m.text }) },
                     onDelete: (m.from === P.me || P.me === OWNER) ? async () => { try { await set(ref(database, `share/chat/${P.open}/messages/${k}`), null); } catch (er) { alert('Could not delete: ' + (er.code || er.message)); } } : null }); }
         };
         if (asc.length) markSeen(P.open, asc[asc.length - 1].ts);
@@ -4948,7 +4983,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         const ts = Date.now(), tid = P.open, other = P.other;
         try {
             const e2e = isE2EThread(tid), stored = e2e ? await encText(sendSecret(), text) : text, preview = e2e ? stored.slice(0, 40) : text.slice(0, 90);   // E2E: the thread holds a blob, the inbox line says nothing
-            await push(ref(database, `share/chat/${tid}/messages`), { from: P.me, name: P.myName, text: stored, ...(e2e ? { enc: encMode() } : {}), ts });
+            const rt = P.reply ? { replyTo: { k: P.reply.k, from: P.reply.from } } : {}; setPeerReply(null);
+            await push(ref(database, `share/chat/${tid}/messages`), { from: P.me, name: P.myName, text: stored, ...(e2e ? { enc: encMode() } : {}), ...rt, ts });
             const tab = tid.startsWith('tab-'), prevMine = P.index[tid] || {};
             await update(ref(database, `share/chatIndex/${P.me}/${tid}`), { with: other, name: tab ? (prevMine.name || P.dir[other] || '') : (P.dir[other] || ''), last: preview, ts, from: P.me, ...(tab ? { kind: 'tab' } : {}) });
             await update(ref(database, `share/chatIndex/${other}/${tid}`), { with: P.me, name: tab && P.me === OWNER ? `${P.myName} · shared tab` : P.myName, last: preview, ts, from: P.me, ...(tab ? { kind: 'tab' } : {}) });
@@ -4975,10 +5011,34 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         finally { box.disabled = false; box.placeholder = ph; }
     }
 
+    // MESSENGER KIT helpers (2026-10-15)
+    function toggleReact(k, em) { if (!P.open || !P.me || !k) return; const mine = ((P.reacts || {})[k] || {})[P.me];
+        set(ref(database, `share/chat/${P.open}/reacts/${k}/${P.me}`), mine === em ? null : em).catch(e => alert('Reaction not saved: ' + (e.code || e.message))); }
+    function setPeerReply(r) { P.reply = r || null; const cb = $('#dc-peer-compose'); if (!cb) return;
+        cb.innerHTML = r ? `<div class="row"><span class="lbl">↩ ${esc(r.from === P.me ? 'You' : (P.dir[r.from] || 'them'))}</span><span class="tx">${esc(String(r.text || '').slice(0, 90))}</span><button type="button" title="cancel the reply">✕</button></div>` : '';
+        cb.hidden = !r; if (r) { const b = $('#dc-peer-in'); b && b.focus(); } }
+    // a file (not a photo) goes to the sender's own Storage folder; the name rides inside the (maybe encrypted) text
+    async function sendFile(file) {
+        const tid = P.open, other = P.other, box = $('#dc-peer-in'); if (!tid) return;
+        if (file.size > 25e6) { alert('File too big - 25 MB max'); return; }
+        const ph = box.placeholder; box.placeholder = '📎 sending the file…'; box.disabled = true;
+        try {
+            const m = await import('./apps/assets/js/firebase-init.js');
+            const path = `${P.me}/console/attach/${new Date().getFullYear()}/${Date.now()}_${String(file.name || 'file').replace(/[^\w.\-]+/g, '_').slice(-80)}`;
+            const r = m.storageRef(m.storage, path); await m.uploadBytes(r, file, { contentType: file.type || 'application/octet-stream' }); const url = await m.getDownloadURL(r);
+            const text = '📎 ' + (file.name || 'file'), ts = Date.now(), e2e = isE2EThread(tid);
+            await push(ref(database, `share/chat/${tid}/messages`), { from: P.me, name: P.myName, text: e2e ? await encText(sendSecret(), text) : text, ...(e2e ? { enc: encMode() } : {}), file: { url }, ts });
+            const tab = tid.startsWith('tab-'), prevMine = P.index[tid] || {}, last = e2e ? '📎 file' : text.slice(0, 90);
+            await update(ref(database, `share/chatIndex/${P.me}/${tid}`), { with: other, name: tab ? (prevMine.name || P.dir[other] || '') : (P.dir[other] || ''), last, ts, from: P.me, ...(tab ? { kind: 'tab' } : {}) });
+            await update(ref(database, `share/chatIndex/${other}/${tid}`), { with: P.me, name: tab && P.me === OWNER ? `${P.myName} · shared tab` : P.myName, last, ts, from: P.me, ...(tab ? { kind: 'tab' } : {}) });
+        } catch (e) { alert('File not sent: ' + (e.code || e.message)); }
+        finally { box.disabled = false; box.placeholder = ph; }
+    }
+
     function peerSplit() { if (window.__dcSysPane && window.__dcSysPane.is()) window.__dcSysPane.close(); $('#dc-console .dc-body').classList.add('dc-split'); }
     window.__dcClosePeer = () => closePeer();
     function closePeer() {
-        if (P.unsub) { P.unsub(); P.unsub = null; }
+        if (P.unsub) { P.unsub(); P.unsub = null; } if (P.unsubX) { P.unsubX.forEach(f => f()); P.unsubX = null; }
         P.open = null; P.other = null;
         $('#dc-console .dc-body').classList.remove('dc-split', 'pfull');
         dots();
