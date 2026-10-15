@@ -276,16 +276,17 @@
 
     // quick cheats: one-tap writes into the game's memory; toggles are re-applied by se every ~1.5 s
     let qcGame;
-    async function loadCheats(force) {
+    async function loadCheats(msg) {
         try {
             const c = await call("/cheats");
             $("qc").innerHTML = c.actions.map(a => `<button data-id="${esc(a.id)}" class="${a.on ? "on" : ""}" title="${a.kind === "toggle" ? "tap to switch on/off" : "one tap"}">${esc(a.label)}${a.kind === "toggle" ? (a.on ? " · ON" : " · off") : ""}</button>`).join("")
-                + `<span class="meta" id="qc-msg">${esc(c.note || "")}</span>`;
+                + `<span class="meta" id="qc-msg">${esc(msg || c.note || "")}</span>`;   // keep the last result visible (it was wiped by the re-render)
             $("qc").querySelectorAll("button").forEach(b => b.onclick = async () => {
-                b.disabled = true;
-                try { const r = await call("/cheat", { id: b.dataset.id }); $("qc-msg").textContent = r.done ? "Done: " + r.done : (r.label + (r.on ? " ON" : " off")); }
-                catch (e) { $("qc-msg").textContent = e.message; }
-                loadCheats(true);
+                b.disabled = true; $("qc-msg").textContent = "…";
+                let m;
+                try { const r = await call("/cheat", { id: b.dataset.id }); m = "✅ " + (r.done ? "Done: " + r.done : (r.label + (r.on ? " ON" : " off"))) + " - open the in-game menu to see it"; }
+                catch (e) { m = "⚠️ " + e.message; }
+                loadCheats(m);
             });
         } catch (e) { $("qc").innerHTML = ""; }
     }
