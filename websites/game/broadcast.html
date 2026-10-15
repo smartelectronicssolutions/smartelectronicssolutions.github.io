@@ -124,6 +124,7 @@
                 <div id="np" class="np"><div class="meta">checking…</div></div>
                 <div id="st" class="st"></div>
                 <div id="qc" class="qc"></div>
+                <div id="rac" class="qc"></div>
                 <div class="ed"><button class="go" id="b-hint">🔍 What should I do?</button><span class="meta" id="hint-meta"></span></div>
                 <div id="hint" class="hint hidden"></div>
             </section>
@@ -317,8 +318,26 @@
     $("g-auto").onchange = e => guard({ auto: e.target.checked });
     $("g-typing").onchange = e => guard({ typing: e.target.checked });
 
+    // RetroArch's own cheat list: every cheat that's ON gets a ✕ button to switch it off
+    async function loadRaCheats(msg) {
+        try {
+            const c = await call("/racheats");
+            if (!c.on.length && !msg) { $("rac").innerHTML = ""; return; }
+            $("rac").innerHTML = `<span class="meta">RetroArch cheats ON (${c.on.length} of ${c.total}) - tap to switch off:</span>`
+                + c.on.map(x => `<button class="on" data-i="${x.idx}">✕ ${esc(x.desc)}</button>`).join("")
+                + `<span class="meta" id="rac-msg">${esc(msg || "")}</span>`;
+            $("rac").querySelectorAll("button").forEach(b => b.onclick = async () => {
+                b.disabled = true; let m;
+                try { const r = await call("/racheat_off", { idx: +b.dataset.i }); m = r.ok ? "✅ Off: " + (r.desc || "") : "⚠️ didn't switch off - try again"; }
+                catch (e) { m = "⚠️ " + e.message; }
+                loadRaCheats(m);
+            });
+        } catch (e) { $("rac").innerHTML = ""; }
+    }
+
     async function poll() {
         guard();
+        loadRaCheats();
         try {
             const s = await call("/status"); paintObs(s.obs); paintPlaying(s.playing); paintState(s.playing?.state);
             loadAch(s.playing?.source === "RetroArch" ? s.playing.title : null);
