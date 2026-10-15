@@ -47,6 +47,17 @@
         .bc-links a { display: block; padding: 10px 12px; border-radius: 6px; background: #f5ede0; color: #2e2018; text-decoration: none;
                       font-size: .8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .bc-links a:hover { background: #efe3d2; color: #c85800; }
+        .st { margin-top: 12px; font-size: .78rem; }
+        .st table { width: 100%; border-collapse: collapse; }
+        .st td { padding: 4px 6px; border-top: 1px solid #efe3d2; vertical-align: top; overflow-wrap: anywhere; }
+        .st td:first-child { color: #9a8270; white-space: nowrap; width: 1%; }
+        .st ul, .ach ul { margin: 8px 0 0; padding-left: 18px; }
+        .st li, .ach li { margin: 3px 0; }
+        .hint { margin-top: 10px; padding: 12px; border-radius: 8px; background: #2e2018; color: #f0e0c8; font-size: .8rem; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+        .meta { font-size: .75rem; color: #9a8270; font-weight: normal; }
+        .ach .bar { height: 8px; border-radius: 4px; background: #efe3d2; overflow: hidden; margin: 6px 0; }
+        .ach .bar i { display: block; height: 100%; background: #c85800; }
+        .ach b { color: #1a0e04; }
         .hidden { display: none !important; }
     </style>
 </head>
@@ -97,8 +108,16 @@
             <section class="bc-card">
                 <h2>Now playing</h2>
                 <div id="np" class="np"><div class="meta">checking…</div></div>
+                <div id="st" class="st"></div>
+                <div class="ed"><button class="go" id="b-hint">🔍 What should I do?</button><span class="meta" id="hint-meta"></span></div>
+                <div id="hint" class="hint hidden"></div>
             </section>
         </div>
+
+        <section class="bc-card" style="margin-top:16px">
+            <h2>Achievements <span class="meta" id="ach-meta"></span></h2>
+            <div id="ach" class="np meta">Load a RetroArch game to see its RetroAchievements checklist.</div>
+        </section>
 
         <section class="bc-card" style="margin-top:16px">
             <h2>Links</h2>
@@ -206,8 +225,53 @@
         if (im) im.onerror = () => { if (p.image && im.src !== p.image) im.src = p.image; else im.remove(); };
     }
 
+    // exact state from the game's memory (#3) + its to-dos
+    function paintState(st) {
+        if (!st) { $("st").innerHTML = ""; return; }
+        if (st.error) { $("st").innerHTML = `<div class="meta">Game memory: ${esc(st.error)}</div>`; return; }
+        $("st").innerHTML = `<table>${st.facts.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")}</table>
+            ${st.todo?.length ? `<ul>${st.todo.map(t => `<li>${esc(t)}</li>`).join("")}</ul>` : ""}`;
+    }
+
+    // RetroAchievements checklist (#2) - refreshed when the game changes, then every 2 min
+    let achGame = null, achAt = 0;
+    async function loadAch(title) {
+        if (title === achGame && Date.now() - achAt < 120000) return;
+        achGame = title; achAt = Date.now();
+        if (!title) { $("ach").innerHTML = "Load a RetroArch game to see its RetroAchievements checklist."; $("ach-meta").textContent = ""; return; }
+        try {
+            const a = await call("/cheevos");
+            if (a.error) { $("ach").textContent = a.error; $("ach-meta").textContent = ""; return; }
+            $("ach-meta").textContent = `${a.done}/${a.total} · ${a.points} pts`;
+            $("ach").className = "ach";
+            $("ach").innerHTML = `<div class="bar"><i style="width:${a.total ? Math.round(100 * a.done / a.total) : 0}%"></i></div>
+                ${a.next.length ? `<div class="meta">Next up:</div><ul>${a.next.map(n => `<li><b>${esc(n.title)}</b> - ${esc(n.desc)} (${esc(n.points)} pts)</li>`).join("")}</ul>` : "<b>All done!</b>"}
+                <div class="meta" style="margin-top:6px"><a href="${esc(a.url)}" target="_blank" rel="noopener">Full list on RetroAchievements</a></div>`;
+        } catch (e) { $("ach").textContent = e.message; }
+    }
+
+    // "What should I do?" (#1, local vision model on se)
+    $("b-hint").onclick = async () => {
+        $("b-hint").disabled = true; $("hint-meta").textContent = "looking at your screen… (first one can take a minute)";
+        try {
+            const { id } = await call("/hint", {});
+            let r = { status: "working" };
+            for (let i = 0; i < 100 && r.status === "working"; i++) {
+                await new Promise(ok => setTimeout(ok, 3000));
+                r = await call("/hint?id=" + id);
+            }
+            if (r.status !== "done") throw new Error(r.error || "still thinking - try again in a minute");
+            $("hint").textContent = r.text; $("hint").classList.remove("hidden");
+            $("hint-meta").textContent = `${r.model} · ${r.sec}s`;
+        } catch (e) { $("hint-meta").textContent = e.message; }
+        $("b-hint").disabled = false;
+    };
+
     async function poll() {
-        try { const s = await call("/status"); paintObs(s.obs); paintPlaying(s.playing); }
+        try {
+            const s = await call("/status"); paintObs(s.obs); paintPlaying(s.playing); paintState(s.playing?.state);
+            loadAch(s.playing?.source === "RetroArch" ? s.playing.title : null);
+        }
         catch (e) { $("msg").textContent = e.message; }
     }
 
