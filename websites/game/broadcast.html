@@ -58,6 +58,9 @@
         .ach .bar { height: 8px; border-radius: 4px; background: #efe3d2; overflow: hidden; margin: 6px 0; }
         .ach .bar i { display: block; height: 100%; background: #c85800; }
         .ach b { color: #1a0e04; }
+        .pv { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; font-size: .8rem; }
+        .pv .bc-btn { padding: 10px; }
+        .pv .bc-btn.on { background: #2e7d32; }
         .guide { margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: #f5ede0; line-height: 1.5; }
         .qc { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
         .qc button { font: inherit; font-size: .75rem; padding: 7px 10px; border-radius: 99px; border: 1px solid #c8b49a; background: #fff; cursor: pointer; }
@@ -107,6 +110,12 @@
                     <button class="bc-btn stop" id="b-stop">⏹ Stop all</button>
                 </div>
                 <div class="bc-state" id="state"><span class="bc-pill">checking…</span></div>
+                <div class="pv">
+                    <button class="bc-btn" id="b-priv">🙈 Privacy (cover stream)</button>
+                    <label><input type="checkbox" id="g-auto"> Auto-cover when a non-game app is in front</label>
+                    <label><input type="checkbox" id="g-typing"> Cover sign-in / password windows</label>
+                    <div class="meta" id="g-state"></div>
+                </div>
                 <div class="bc-msg" id="msg"></div>
             </section>
 
@@ -290,7 +299,26 @@
         } catch (e) { $("qc").innerHTML = ""; }
     }
 
+    // stream privacy guard (stream_guard.py on se's desktop; static rules, no AI)
+    function paintGuard(g) {
+        $("g-auto").checked = !!g.cfg.auto; $("g-typing").checked = !!g.cfg.typing;
+        $("b-priv").classList.toggle("on", !!g.cfg.manual);
+        $("b-priv").textContent = g.cfg.manual ? "🙈 Stream COVERED - tap to uncover" : "🙈 Privacy (cover stream)";
+        const s = g.status || {};
+        $("g-state").textContent = !g.guardRunning ? "⚠️ Guard isn't running on se (it starts at login)"
+            : s.error ? "Guard: " + s.error
+            : !s.live ? `Not live/recording - nothing to cover (in front: ${s.app || "?"})`
+            : s.covered ? `Viewers see: COVER (${s.why})` : `Viewers see: the game (${s.app})`;
+    }
+    async function guard(change) {
+        try { paintGuard(await call("/guard", change)); } catch (e) { $("g-state").textContent = e.message; }
+    }
+    $("b-priv").onclick = () => guard({ manual: !$("b-priv").classList.contains("on") });
+    $("g-auto").onchange = e => guard({ auto: e.target.checked });
+    $("g-typing").onchange = e => guard({ typing: e.target.checked });
+
     async function poll() {
+        guard();
         try {
             const s = await call("/status"); paintObs(s.obs); paintPlaying(s.playing); paintState(s.playing?.state);
             loadAch(s.playing?.source === "RetroArch" ? s.playing.title : null);
