@@ -216,6 +216,7 @@
             <h2>Recordings &amp; quick edits</h2>
             <div class="meta">📁 <a href="https://onedrive.live.com/my?id=%2Fpersonal%2Fd254359fe6777d5d%2FDocuments%2Fpers%2Fvideos%2Fgames" target="_blank" rel="noopener">Recordings folder</a>
                 · 🗑 <a href="https://onedrive.live.com/my?id=%2Fpersonal%2Fd254359fe6777d5d%2FDocuments%2Fpers%2Fvideos%2Fgames-deleted" target="_blank" rel="noopener">Deleted folder</a> (OneDrive)</div>
+            <label class="meta" style="display:block;margin:6px 0"><input type="checkbox" id="autoclip" checked> 🏁 Auto-clip my star runs when I stop recording (each timed run → its own clip, 2 s before the timer starts to 4 s after the grab)</label>
             <div class="clips" id="clips"><div class="np meta">loading…</div></div>
             <video id="vid" controls playsinline preload="metadata" class="hidden"></video>
             <div class="ed hidden" id="ed">
@@ -225,6 +226,7 @@
                 <button class="go" id="e-clip">✂ Save clip</button>
                 <button id="e-thumb">🖼 Thumbnail here</button>
                 <button id="e-join">🔗 Join ticked</button>
+                <button class="go" id="e-runs" title="Cut every star run in this recording into its own clip">🏁 Clip my star runs</button>
             </div>
             <div class="bc-msg" id="emsg"></div>
         </section>
@@ -609,6 +611,7 @@
     async function loadClips() {
         try {
             const { clips } = await call("/clips");
+            call("/runs?name=").then(r => { $("autoclip").checked = r.auto; }).catch(() => {});
             $("clips").innerHTML = clips.length ? clips.map(c => `
                 <div class="clip${sel === c.name ? " sel" : ""}" data-n="${esc(c.name)}">
                     <input type="checkbox" class="jn" title="tick to join">
@@ -657,6 +660,18 @@
         edit({ op: "clip", name: sel, start: inT, end, exact: $("e-exact").checked }, "Cutting");
     };
     $("e-thumb").onclick = () => edit({ op: "thumb", name: sel, at: $("vid").currentTime }, "Grabbing frame");
+    $("e-runs").onclick = async () => {
+        if (!sel) return;
+        $("emsg").textContent = "Finding star runs in this recording…";
+        try {
+            const { runs } = await call("/runs?name=" + encodeURIComponent(sel));
+            if (!runs.length) { $("emsg").textContent = "No star runs were logged while this recording was rolling (Beat your time must be on)"; return; }
+            $("emsg").textContent = `Cutting ${runs.length} run(s)…`;
+            const r = await call("/runclips", { name: sel });
+            $("emsg").textContent = "Saved: " + r.made.join(" · "); loadClips();
+        } catch (e) { $("emsg").textContent = e.message; }
+    };
+    $("autoclip").onchange = () => call("/autoclip", { on: $("autoclip").checked }).catch(e => $("emsg").textContent = e.message);
     $("e-join").onclick = () => {
         const names = [...document.querySelectorAll(".clip")].filter(el => el.querySelector(".jn").checked).map(el => el.dataset.n).reverse();
         if (names.length < 2) return $("emsg").textContent = "Tick 2 or more recordings (they join oldest first)";
