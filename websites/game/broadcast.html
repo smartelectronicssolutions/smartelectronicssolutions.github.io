@@ -342,8 +342,10 @@
     }
 
     // exact state from the game's memory (#3) + its to-dos
+    let sayFacts = {};                                   // latest game facts, for the voice box suggestions
     function paintState(st) {
         paintBeat(st && !st.error ? st.facts : null);
+        sayFacts = Object.fromEntries(((st && !st.error && st.facts) || []).map(x => [x[0], String(x[1])]));
         if (!st) { $("st").innerHTML = ""; return; }
         if (st.error) { $("st").innerHTML = `<div class="meta">Game memory: ${esc(st.error)}</div>`; return; }
         $("st").innerHTML = `<table>${st.facts.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")}</table>
@@ -690,6 +692,35 @@
     // ---- VTuber voice (L 2026-10-16): typed line -> Kokoro -> the overlay speaks it into the stream/recording ----
     try { const v = localStorage.getItem("bc_say_voice"); if (v) $("say-v").value = v; } catch (_) {}
     $("say-v").onchange = () => { try { localStorage.setItem("bc_say_voice", $("say-v").value); } catch (_) {} };
+    // suggestions when the box is empty (L 2026-10-16 "speech suggestions ... I can tab in"): built from what you're
+    // playing right now. Tab on an empty box = take it; Tab again = the next one.
+    const starName = () => (sayFacts.Star || "").replace(/^\d+\.\s*/, "");
+    const tclean = t => (t || "").split(" ")[0];
+    function suggestions() {
+        const f = sayFacts, out = [];
+        const course = (f.Course || "").replace(/^\d+\s*/, "");
+        if (starName() && course) out.push(`Alright chat, going for ${starName()} in ${course}.`);
+        if (f.Target) out.push(`Time to beat is ${tclean(f.Target)}. Let's go.`);
+        if (f.Best) out.push(`My best on this one is ${f.Best}. Watch this.`);
+        if (f.Stars) out.push(`${f.Stars} stars so far. Let's keep it rolling.`);
+        if (beat && beat.auto) out.push("If I don't beat my last time, it resets the level automatically.");
+        out.push("That reset hurt. One more.", "Okay, focus mode.", "This is Lourio 64: Shotgun Mario with the vanilla camera put back.",
+                 "Thanks for hanging out, chat.", "If you're enjoying this, drop a follow.", "Let's see if the shotgun helps here.");
+        return out;
+    }
+    let sugIdx = 0, sugList = [];
+    function showSug() {
+        sugList = suggestions(); if (sugIdx >= sugList.length) sugIdx = 0;
+        $("say-t").placeholder = "Tab ↹  " + sugList[sugIdx];
+    }
+    setInterval(() => { if (!$("say-t").value) { sugIdx++; showSug(); } }, 9000);
+    setTimeout(showSug, 1500);
+    $("say-t").addEventListener("keydown", e => {
+        if (e.key !== "Tab" || e.shiftKey) return;
+        const v = $("say-t").value;
+        if (!v) { e.preventDefault(); showSug(); $("say-t").value = sugList[sugIdx]; }
+        else if (sugList.includes(v)) { e.preventDefault(); sugIdx = (sugIdx + 1) % sugList.length; showSug(); $("say-t").value = sugList[sugIdx]; }
+    });
     $("say").onsubmit = async e => {
         e.preventDefault();
         const text = $("say-t").value.trim(); if (!text) return;
