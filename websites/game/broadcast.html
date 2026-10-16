@@ -110,6 +110,10 @@
         .lv h3 button:hover, .tile .nm button:hover { text-decoration: underline; }
         .prev img { width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #000; border-radius: 8px; display: block; }
         .prev .meta { margin-top: 4px; }
+        .say { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+        .say input { flex: 1 1 200px; min-width: 0; font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid #c8b49a; }
+        .say select, .say button { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid #c8b49a; background: #fff; cursor: pointer; }
+        .say button { background: #9146ff; color: #fff; border-color: #9146ff; font-weight: 700; }
         .pv .bc-btn { padding: 10px; }
         .pv .bc-btn.on { background: #2e7d32; }
         .guide { margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: #f5ede0; line-height: 1.5; }
@@ -173,6 +177,11 @@
                     <img id="prev" alt="OBS preview">
                     <div class="meta" id="prev-meta">Preview: what OBS is sending (low-res, refreshes every 2 s while OBS is open)</div>
                 </div>
+                <form class="say" id="say">
+                    <input id="say-t" maxlength="600" placeholder="🎙 Type it, the VTuber says it on stream" autocomplete="off">
+                    <select id="say-v" title="Voice"><option value="am_michael">Michael</option><option value="am_adam">Adam</option><option value="am_onyx">Onyx</option><option value="am_fenrir">Fenrir</option><option value="am_puck">Puck</option></select>
+                    <button type="submit">Say</button>
+                </form>
                 <div class="bc-msg" id="msg"></div>
             </section>
 
@@ -676,6 +685,17 @@
         const names = [...document.querySelectorAll(".clip")].filter(el => el.querySelector(".jn").checked).map(el => el.dataset.n).reverse();
         if (names.length < 2) return $("emsg").textContent = "Tick 2 or more recordings (they join oldest first)";
         edit({ op: "join", names }, "Joining");
+    };
+
+    // ---- VTuber voice (L 2026-10-16): typed line -> Kokoro -> the overlay speaks it into the stream/recording ----
+    try { const v = localStorage.getItem("bc_say_voice"); if (v) $("say-v").value = v; } catch (_) {}
+    $("say-v").onchange = () => { try { localStorage.setItem("bc_say_voice", $("say-v").value); } catch (_) {} };
+    $("say").onsubmit = async e => {
+        e.preventDefault();
+        const text = $("say-t").value.trim(); if (!text) return;
+        $("msg").textContent = "🎙 Speaking…";
+        try { await call("/say", { text, voice: $("say-v").value }); $("say-t").value = ""; $("msg").textContent = "🎙 Said: " + text; }
+        catch (err) { $("msg").textContent = "Voice: " + err.message; }
     };
 
     // ---- sign-in ----
