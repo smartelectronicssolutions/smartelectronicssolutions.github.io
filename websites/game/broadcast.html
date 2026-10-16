@@ -58,6 +58,15 @@
                       font-size: .8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .bc-links a:hover { background: #efe3d2; color: #c85800; }
         .st { margin-top: 12px; font-size: .78rem; }
+        /* time to beat (L 2026-10-16): green under the target, red over it, pulses when close and auto-restart is on */
+        .beat { margin-top: 12px; padding: 10px 12px; border-radius: 10px; display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+                color: #fff; background: #2e7d32; font-variant-numeric: tabular-nums; transition: background .3s; }
+        .beat.over { background: #b3261e; }
+        .beat.near { animation: beatPulse .7s ease-in-out infinite; }
+        .beat .lbl { font-size: .75rem; text-transform: uppercase; letter-spacing: 1px; opacity: .9; }
+        .beat .tgt { font-size: 1.6rem; font-weight: 800; }
+        .beat .now { font-size: 1rem; font-weight: 700; margin-left: auto; }
+        @keyframes beatPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,193,7,.0); filter: brightness(1); } 50% { box-shadow: 0 0 0 6px rgba(255,193,7,.75); filter: brightness(1.25); } }
         .st table { width: 100%; border-collapse: collapse; }
         .st td { padding: 4px 6px; border-top: 1px solid #efe3d2; vertical-align: top; overflow-wrap: anywhere; }
         .st td:first-child { color: #9a8270; white-space: nowrap; width: 1%; }
@@ -161,6 +170,7 @@
             <section class="bc-card">
                 <h2>Now playing</h2>
                 <div id="np" class="np"><div class="meta">checking…</div></div>
+                <div id="beat" class="beat hidden"></div>
                 <div id="st" class="st"></div>
                 <div id="qc" class="qc"></div>
                 <div id="rac" class="qc"></div>
@@ -286,8 +296,32 @@
         if (im) im.onerror = () => { if (p.image && im.src !== p.image) im.src = p.image; else im.remove(); };
     }
 
+    // ---- time to beat: target on top, live timer ticks locally between 5 s polls ----
+    const toF = t => { const m = /^(\d+):(\d\d)\.(\d\d)/.exec(t || ""); return m ? (+m[1] * 60 + +m[2] + +m[3] / 100) * 30 : null; };
+    const fromF = f => { f = Math.max(0, f | 0); return Math.floor(f / 1800) + ":" + String(Math.floor(f / 30) % 60).padStart(2, "0") + "." + String(Math.floor((f % 30) * 10 / 3)).padStart(2, "0"); };
+    let beat = null, beatTick = null, ghostOn = false;      // ghostOn comes from /ghost (paintGhost)
+    const NEAR = 5 * 30;                                   // "near" = last 5 s before the target
+    function paintBeat(facts) {
+        const f = Object.fromEntries((facts || []).map(x => [x[0], String(x[1])]));
+        const tg = toF(f.Target), now = toF(f.Timer);
+        if (tg == null || now == null) { beat = null; $("beat").classList.add("hidden"); return; }
+        beat = { tg, now, at: performance.now(), running: !/stopped/.test(f.Timer), auto: ghostOn || /auto-restart ON/.test(f.Target) };
+        $("beat").classList.remove("hidden");
+        drawBeat();
+        if (!beatTick) beatTick = setInterval(() => { if (beat && beat.running && !document.hidden) drawBeat(); }, 100);
+    }
+    function drawBeat() {
+        const b = beat, cur = b.running ? b.now + (performance.now() - b.at) / 1000 * 30 : b.now;
+        const left = b.tg - cur, el = $("beat");
+        el.classList.toggle("over", left < 0);
+        el.classList.toggle("near", b.auto && b.running && left >= 0 && left <= NEAR);
+        el.innerHTML = `<span class="lbl">Time to beat</span><span class="tgt">${fromF(b.tg)}</span>
+            <span class="now">${fromF(cur)} · ${left >= 0 ? fromF(left) + " left" : "+" + fromF(-left) + " over"}${b.auto ? " · auto-restart" : ""}</span>`;
+    }
+
     // exact state from the game's memory (#3) + its to-dos
     function paintState(st) {
+        paintBeat(st && !st.error ? st.facts : null);
         if (!st) { $("st").innerHTML = ""; return; }
         if (st.error) { $("st").innerHTML = `<div class="meta">Game memory: ${esc(st.error)}</div>`; return; }
         $("st").innerHTML = `<table>${st.facts.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")}</table>
@@ -412,6 +446,7 @@
     // ---- star times / target editor (L 2026-10-15 "can I edit the target time?") ----
     let gtEditing = false;
     function paintGhost(g) {
+        ghostOn = !!g.on;
         if (gtEditing) return;                       // don't wipe a value the user is typing
         $("gt-meta").textContent = g.on ? "· auto-restart ON" : "· auto-restart off";
         const stars = g.stars || [];
