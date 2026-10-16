@@ -53,6 +53,8 @@
         .rec-group .kids { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 2px 22px; border-left: 3px solid #e3c9a6; padding-left: 8px; }
         .rec-group .kids.hidden { display: none; }
         .clip.child { background: #fbf4ea; }
+        .game-h { font-size: .78rem; font-weight: 800; color: #6b3a10; margin: 8px 0 2px; text-transform: uppercase; letter-spacing: .5px; }
+        .game-h:first-child { margin-top: 0; }
         .clip .del { flex-shrink: 0; border: 0; border-radius: 6px; padding: 3px 8px; cursor: pointer; background: transparent; font: inherit; }
         .clip .del.arm { background: #b3261e; color: #fff; font-weight: 700; }
         video { width: 100%; max-height: 360px; background: #000; border-radius: 6px; margin-top: 10px; }
@@ -256,7 +258,7 @@
 
         <section class="bc-card">
             <h2>Recordings &amp; quick edits</h2>
-            <div class="meta" id="od-links">📁 <a href="https://onedrive.live.com/my?id=%2Fpersonal%2Fd254359fe6777d5d%2FDocuments%2Fpers%2Fvideos%2Fgames" target="_blank" rel="noopener">Recordings folder</a>
+            <div class="meta" id="od-links">📁 <a href="https://onedrive.live.com/my?id=%2Fpersonal%2Fd254359fe6777d5d%2FDocuments%2Fpers%2Fvideos" target="_blank" rel="noopener">Videos folder</a> (mario\&lt;game&gt;, games\&lt;game&gt;)
                 · 🗑 <a href="https://onedrive.live.com/my?id=%2Fpersonal%2Fd254359fe6777d5d%2FDocuments%2Fpers%2Fvideos%2Fgames-deleted" target="_blank" rel="noopener">Deleted folder</a> (OneDrive)</div>
             <label class="meta" style="display:block;margin:6px 0"><input type="checkbox" id="autoclip" checked> 🏁 Auto-clip my star runs when I stop recording (each timed run → its own clip, 2 s before the timer starts to 4 s after the grab)</label>
             <div class="clips" id="clips"><div class="np meta">loading…</div></div>
@@ -696,30 +698,37 @@
             call("/runs?name=").then(r => { $("autoclip").checked = r.auto; }).catch(() => {});
             // recordings with their clips folded under them (L 2026-10-16 "can each recording expand to show the clips"):
             // a clip = any file named "<recording stem> - ..." or "<recording stem> (clip ...)" etc.
+            // names are paths under videos\ ("mario/Lourio 64/2026-...mkv") - grouped by game folder, then recording
             const stem = n => n.replace(/\.[^.]+$/, "");
-            const parents = clips.filter(c => /^\d{4}-\d\d-\d\d \d\d-\d\d-\d\d$/.test(stem(c.name)));
-            const kids = new Map(parents.map(p => [stem(p.name), []]));
+            const base = n => n.split("/").pop(), dir = n => n.slice(0, n.length - base(n).length);
+            const parents = clips.filter(c => /^\d{4}-\d\d-\d\d \d\d-\d\d-\d\d$/.test(stem(base(c.name))));
+            const kids = new Map(parents.map(p => [dir(p.name) + stem(base(p.name)), []]));
             const loose = [];
             for (const c of clips) {
                 if (parents.includes(c)) continue;
-                const k = stem(c.name).slice(0, 19);
+                const k = dir(c.name) + stem(base(c.name)).slice(0, 19);
                 (kids.has(k) ? kids.get(k) : loose).push(c);
             }
             const row = (c, child) => `
                 <div class="clip${child ? " child" : ""}${sel === c.name ? " sel" : ""}" data-n="${esc(c.name)}">
                     <input type="checkbox" class="jn" title="tick to join">
-                    <span class="nm">${esc(child ? c.name.slice(19).replace(/^\s*-\s*/, "") || c.name : c.name)}</span>
+                    <span class="nm">${esc(child ? base(c.name).slice(19).replace(/^\s*-\s*/, "") || base(c.name) : base(c.name))}</span>
                     <span>${c.sec ? fmt(c.sec) : ""} · ${c.mb} MB</span>
                     <button class="del" title="Delete (moves it to OneDrive\\pers\\videos\\games-deleted)">🗑</button>
                 </div>`;
-            const html = parents.map(p => {
-                const ks = kids.get(stem(p.name)) || [];
+            const games = [...new Set([...parents, ...loose].map(c => dir(c.name)))];
+            const gameName = d => d.replace(/\/$/, "").split("/").pop() || "Recordings";
+            const groupHtml = p => {
+                const ks = kids.get(dir(p.name) + stem(base(p.name))) || [];
                 const open = openRecs.has(p.name) || ks.some(k => k.name === sel);
                 return `<div class="rec-group">${row(p, false).replace('<span class="nm">',
                         ks.length ? `<button class="tw" data-rec="${esc(p.name)}" title="Show / hide its clips">${open ? "▾" : "▸"} ${ks.length}</button><span class="nm">` : '<span class="nm">')}
                         <div class="kids${open ? "" : " hidden"}">${ks.map(k => row(k, true)).join("")}</div></div>`;
-            }).join("") + loose.map(c => row(c, false)).join("");
-            $("clips").innerHTML = clips.length ? html : '<div class="np meta">No recordings yet - hit Record. They save to OneDrive\\pers\\videos\\games.</div>';
+            };
+            const html = games.map(g => `<div class="game-h">🎮 ${esc(gameName(g))}</div>` +
+                parents.filter(p => dir(p.name) === g).map(groupHtml).join("") +
+                loose.filter(c => dir(c.name) === g).map(c => row(c, false)).join("")).join("");
+            $("clips").innerHTML = clips.length ? html : '<div class="np meta">No recordings yet - hit Record. Each game gets its own folder under OneDrive\\pers\\videos (Mario games in mario\\).</div>';
             $("clips").querySelectorAll("button.tw").forEach(b => b.onclick = e => {
                 e.stopPropagation();
                 const n = b.dataset.rec, k = b.closest(".rec-group").querySelector(".kids");
