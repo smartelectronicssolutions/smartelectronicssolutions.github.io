@@ -44,6 +44,8 @@
         .clip.sel { outline: 2px solid #c85800; }
         .clip .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .clip input { flex-shrink: 0; }
+        .clip .del { flex-shrink: 0; border: 0; border-radius: 6px; padding: 3px 8px; cursor: pointer; background: transparent; font: inherit; }
+        .clip .del.arm { background: #b3261e; color: #fff; font-weight: 700; }
         video { width: 100%; max-height: 360px; background: #000; border-radius: 6px; margin-top: 10px; }
         .ed { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; font-size: .8rem; }
         .ed button { font: inherit; padding: 7px 11px; border-radius: 6px; border: 1px solid #c8b49a; background: #fff; cursor: pointer; }
@@ -545,8 +547,22 @@
                     <input type="checkbox" class="jn" title="tick to join">
                     <span class="nm">${esc(c.name)}</span>
                     <span>${c.sec ? fmt(c.sec) : ""} · ${c.mb} MB</span>
+                    <button class="del" title="Delete (moves it to Downloads\\broadcast-deleted)">🗑</button>
                 </div>`).join("") : '<div class="np meta">No recordings yet - hit Record. They save to OneDrive\\pers\\videos\\games.</div>';
-            $("clips").querySelectorAll(".clip").forEach(el => el.onclick = e => { if (!e.target.classList.contains("jn")) pick(el.dataset.n); });
+            $("clips").querySelectorAll(".clip").forEach(el => el.onclick = e => { if (!e.target.classList.contains("jn") && !e.target.classList.contains("del")) pick(el.dataset.n); });
+            // two taps: 🗑 arms ("Sure?"), a second tap within 4 s deletes (L 2026-10-16 "delete option ... for the clips")
+            $("clips").querySelectorAll(".clip .del").forEach(b => b.onclick = async e => {
+                e.stopPropagation();
+                const name = b.closest(".clip").dataset.n;
+                if (!b.classList.contains("arm")) { b.classList.add("arm"); b.textContent = "Sure?"; setTimeout(() => { b.classList.remove("arm"); b.textContent = "🗑"; }, 4000); return; }
+                b.disabled = true; $("emsg").textContent = "Deleting…";
+                try {
+                    await call("/delete", { name });
+                    if (sel === name) { sel = null; const v = $("vid"); v.removeAttribute("src"); v.load(); v.classList.add("hidden"); $("ed").classList.add("hidden"); }
+                    $("emsg").textContent = "Deleted " + name + " (in Downloads\\broadcast-deleted if you want it back)";
+                    loadClips();
+                } catch (err) { $("emsg").textContent = err.message; b.disabled = false; }
+            });
         } catch (e) { $("emsg").textContent = e.message; }
     }
 
