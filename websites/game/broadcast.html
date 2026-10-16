@@ -102,6 +102,14 @@
         .tile { background: #fff; border: 1px solid hsl(var(--h) 50% 80%); border-radius: 8px; padding: 8px; font-size: .8rem; }
         .tile.cur { outline: 3px solid #ff4fd8; }
         .tile .nm { font-weight: 700; margin-bottom: 4px; }
+        .tile { cursor: pointer; }
+        .tile .top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+        .tile .top .nm { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .tile .more { display: none; }
+        .tile.open .more { display: block; }
+        .tile:not(.open) { padding: 5px 8px; }
+        .tile:not(.open) .best { font-size: 1rem; }
+        .tile:not(.open) .row { font-size: .72rem; }
         .tile .best { font-size: 1.35rem; font-weight: 800; color: hsl(var(--h) 65% 35%); font-variant-numeric: tabular-nums; }
         .tile .row { display: flex; justify-content: space-between; gap: 6px; font-variant-numeric: tabular-nums; }
         .tile .up { color: #b3261e; } .tile .dn { color: #2e7d32; }
@@ -522,6 +530,7 @@
 
     // ---- star times / target editor (L 2026-10-15 "can I edit the target time?") ----
     let gtEditing = false;
+    const gtOpen = new Set();                            // star tiles the user has expanded
     function paintGhost(g) {
         ghostOn = !!g.on;
         if (gtEditing) return;                       // don't wipe a value the user is typing
@@ -548,18 +557,26 @@
             html += `<div class="lv" style="--h:${hue}"><h3><button class="go-lv" data-c="${c}" title="Warp to this level (star select)">▶ ${esc(list[0].course)}</button></h3><div class="tiles">` + list.sort((a, b) => at(b) - at(a) || a.a - b.a).map(x => {
                 const d = x.last != null && x.best != null ? x.last - x.best : null;
                 const dTxt = d == null ? "" : d === 0 ? '<span class="dn">= best</span>' : `<span class="up">+${(d / 30).toFixed(2)} s</span>`;
-                return `<div class="tile ${x.key === g.current ? "cur" : ""}">
-                    <div class="nm"><button class="go-st" data-c="${x.c}" data-a="${x.a}" title="Start this level on this star">▶ ${esc(x.star)}</button></div>
-                    <div class="best">${esc(x.bestTxt || "-")}</div>
+                // thin until tapped (L 2026-10-16 "make the star time cards thinner until I click to expand them"):
+                // folded = one line, star + best + last-vs-best; tap the card = everything below
+                return `<div class="tile ${x.key === g.current ? "cur" : ""} ${gtOpen.has(x.key) ? "open" : ""}" data-tk="${esc(x.key)}">
+                    <div class="top"><div class="nm"><button class="go-st" data-c="${x.c}" data-a="${x.a}" title="Start this level on this star">▶ ${esc(x.star)}</button></div>
+                    <div class="best">${esc(x.bestTxt || "-")}</div></div>
                     <div class="row"><span>last ${esc(x.lastTxt || "-")}</span>${dTxt}</div>
+                    <div class="more">
                     ${spark(x.hist)}
                     <div class="row"><span>${x.pinned ? '<span class="pin">📌</span> ' : ""}target ${esc(x.targetTxt || "-")}</span><span>${x.runs} run${x.runs === 1 ? "" : "s"}</span></div>
                     <div class="row meta"><span>${x.avgTxt ? "avg " + esc(x.avgTxt) : ""}</span><span>${x.bestAt ? "PB " + ago(x.bestAt) : ""}</span></div>
                     <div class="ed"><input data-k="${esc(x.key)}" placeholder="target 0:00.0"><button data-set="${esc(x.key)}">Set</button>${x.pinned ? `<button data-clr="${esc(x.key)}">Clear</button>` : ""}</div>
                     <div class="ed"><button data-undo="${esc(x.key)}" title="Remove only the newest run">↶ Undo last run</button><button data-del="${esc(x.key)}" title="Delete every time for this star">🗑 Delete times</button></div>
+                    </div>
                 </div>`; }).join("") + `</div></div>`;
         }
         $("gt").innerHTML = html || "Grab a star with 👻 Beat your time on to start the list.";
+        $("gt").querySelectorAll(".tile[data-tk]").forEach(t => t.onclick = e => {
+            if (e.target.closest("button, input")) return;            // buttons/inputs keep their own job
+            const k = t.dataset.tk; gtOpen.has(k) ? gtOpen.delete(k) : gtOpen.add(k); t.classList.toggle("open", gtOpen.has(k));
+        });
         $("gt").querySelectorAll("input").forEach(i => { i.onfocus = () => gtEditing = true; i.onblur = () => setTimeout(() => gtEditing = false, 300); });
         $("gt").querySelectorAll("button[data-set]").forEach(b => b.onclick = () => setTarget(b.dataset.set, $("gt").querySelector(`input[data-k="${b.dataset.set}"]`).value));
         $("gt").querySelectorAll("button[data-clr]").forEach(b => b.onclick = () => setTarget(b.dataset.clr, ""));
