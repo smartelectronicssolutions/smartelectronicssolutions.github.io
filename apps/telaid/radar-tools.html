@@ -3782,122 +3782,96 @@
         }
       }
 
+      // QC checklist PDF v2 (L 2026-10-16 "checklist has something like this also update" - same look as onlinejob's
+      // Job report PDF): header block, ruled sections, [x]/[ ] marks, score lines with the total, notes, and a photo page
+      // (photos starred in onlinejob - tasks/<task>/reportStars - else first / middle / last sensor photos).
+      async function checklistReportPhotos() {
+        const stars = {};
+        for (const id of new Set([state.metaOwnerTaskId, state.currentProject].filter(Boolean))) {
+          try { Object.assign(stars, (await get(dbRef(database, `${getTaskPath(id)}/reportStars`))).val() || {}); } catch (_) {}
+        }
+        const starred = Object.values(stars).sort((a, b) => (a.at || 0) - (b.at || 0));
+        if (starred.length) return { pics: starred.slice(0, 6), how: "starred" };
+        try {
+          const items = (await listAll(storageRef(storage, getImagesPath("sensors")))).items.filter(it => !/^\./.test(it.name));
+          items.sort((a, b) => a.name.localeCompare(b.name));
+          const pick = items.length <= 3 ? items : [items[0], items[Math.floor(items.length / 2)], items[items.length - 1]];
+          return { pics: await Promise.all(pick.map(async it => ({ url: await getDownloadURL(it), name: it.name }))), how: "first / middle / last" };
+        } catch (_) { return { pics: [], how: "none" }; }
+      }
+
       async function generateChecklistPDFBlob() {
         const { jsPDF } = window.jspdf;
-        const doc = new jsPDF();
-
+        const doc = new jsPDF();                          // mm, A4-ish portrait (unchanged)
         const data = collectData();
-
-        let y = 10;
-        const marginX = 10;
-        const maxY = 280;
-        const lineHeight = 6;
-        const maxWidth = 190;
-
-        const ensureSpace = (requiredLines = 1) => {
-          if (y + requiredLines * lineHeight > maxY) {
-            doc.addPage();
-            y = 10;
-          }
+        const PW = doc.internal.pageSize.getWidth(), PH = doc.internal.pageSize.getHeight();
+        const M = 14, CW = PW - 2 * M, BOTTOM = PH - 14;
+        let y = M;
+        const ensure = h => { if (y + h > BOTTOM) { doc.addPage(); y = M; } };
+        const text = (t, size = 10, style = "normal", gap = 1.6, indent = 0) => {
+          doc.setFont("helvetica", style); doc.setFontSize(size);
+          const lh = size * 0.42 + gap;
+          for (const ln of doc.splitTextToSize(String(t ?? ""), CW - indent)) { ensure(lh); doc.text(ln, M + indent, y + size * 0.35); y += lh; }
         };
-
-        const line = (text = "") => {
-          const lines = doc.splitTextToSize(String(text), maxWidth);
-          const safeLines = Array.isArray(lines) ? lines : [String(text)];
-          ensureSpace(Math.max(1, safeLines.length));
-          doc.text(safeLines, marginX, y);
-          y += Math.max(1, safeLines.length) * lineHeight;
-        };
-
-        const section = (title) => {
-          y += 4;
-          ensureSpace(2);
-          doc.setFont(undefined, "bold");
-          const titleLines = doc.splitTextToSize(title, maxWidth);
-          doc.text(titleLines, marginX, y);
-          doc.setFont(undefined, "normal");
-          y += Math.max(1, titleLines.length) * lineHeight;
-        };
-
+        const rule = () => { ensure(4); doc.setDrawColor(200); doc.line(M, y + 1.5, PW - M, y + 1.5); y += 5; };
         const singleSelectText = (sectionId, selectedIndex) => {
           if (selectedIndex == null) return "N/A";
-          const sectionConfig = getSectionConfig(sectionId);
-          const options = sectionConfig?.options;
-          if (Array.isArray(options) && options[selectedIndex] != null) {
-            return String(options[selectedIndex]);
-          }
-          return String(selectedIndex);
+          const options = getSectionConfig(sectionId)?.options;
+          return Array.isArray(options) && options[selectedIndex] != null ? String(options[selectedIndex]) : String(selectedIndex);
         };
 
         // ===== HEADER =====
         const siteName = state.currentProjectName || state.currentProject || "";
-
-        doc.setFontSize(14);
-        doc.text(`TELAID - ${siteName} QC Checklist`, marginX, y);
-        y += 10;
-
-        doc.setFontSize(10);
-
-        getPdfSiteHeaderRows().forEach((row) => {
-          line(`${row.label}: ${row.value}`);
-        });
-        line("");
+        text(`TELAID - ${siteName}`, 16, "bold", 2.5);
+        text(`${(state.currentChecklistType || "radar").toUpperCase()} QC Checklist`, 11, "normal", 2);
+        getPdfSiteHeaderRows().forEach(row => text(`${row.label}: ${row.value}`, 9.5));
+        text(`Generated ${new Date().toLocaleString()}`, 7.5, "italic");
+        rule();
 
         // ===== SECTIONS =====
         const headerSectionId = getPdfHeaderSectionId();
-        Object.entries(data.sections).forEach(([sectionId, sectionData]) => {
+        Object.entries(data.sections).forEach(([sectionId, sd]) => {
           if (sectionId === headerSectionId) return;
-
-          section(getSectionLabel(sectionId));
-
-          // Fields
-          if (sectionData.fields) {
-            Object.entries(sectionData.fields).forEach(([k, v]) => {
-              const val = v && typeof v === "object" ? v.value : v;
-              line(`${getFieldLabel(sectionId, k)}: ${formatMissing(val)}`);
-            });
+          ensure(12);
+          text(getSectionLabel(sectionId), 12, "bold", 2);
+          if (sd.fields) Object.entries(sd.fields).forEach(([k, v]) => {
+            const val = v && typeof v === "object" ? v.value : v;
+            text(`${getFieldLabel(sectionId, k)}: ${formatMissing(val)}`, 9.5, "normal", 1.4, 2);
+          });
+          if (Array.isArray(sd.items)) sd.items.forEach(item => {
+            if (item.label) text(`${item.checked || item.value ? "[x]" : "[ ]"}  ${item.label}`, 9.5, "normal", 1.4, 2);
+            if (Array.isArray(item.days) && item.days.length)
+              text("Nights: " + item.days.map((d, n) => `N${n + 1} ${d ? "[x]" : "[ ]"}`).join("   "), 8.5, "normal", 1.4, 8);
+          });
+          if (sd.scores) {
+            Object.entries(sd.scores).forEach(([k, v]) => text(`${getFieldLabel(sectionId, k)}: ${formatMissing(v, "0")}`, 9.5, "normal", 1.4, 2));
+            text(`Total: ${sd.total || 0}`, 9.5, "bold", 1.4, 2);
           }
-
-          // Checklist
-          if (Array.isArray(sectionData.items)) {
-            sectionData.items.forEach((item) => {
-              if (item.label) {
-                const check = item.checked || item.value ? "*" : "-";
-                line(`${check} ${item.label}`);
-              }
-
-              if (Array.isArray(item.days)) {
-                item.days.forEach((d, i) => {
-                  line(`   Night ${i + 1}: ${d ? "*" : "-"}`);
-                });
-              }
-            });
-          }
-
-          // Scores
-          if (sectionData.scores) {
-            Object.entries(sectionData.scores).forEach(([k, v]) => {
-              line(`${getFieldLabel(sectionId, k)}: ${formatMissing(v, "0")}`);
-            });
-            line(`Total: ${sectionData.total || 0}`);
-          }
-
-          // Single-select sections (e.g., Lead Tech Understanding)
-          if (Object.prototype.hasOwnProperty.call(sectionData, "selected")) {
-            line(
-              `${getSectionLabel(sectionId)}: ${singleSelectText(sectionId, sectionData.selected)}`,
-            );
-          }
-
-          // Notes
-          if (sectionData.notes) {
-            line(`Notes: ${formatMissing(sectionData.notes)}`);
-          }
-
-          y += 4;
-          ensureSpace(1);
+          if (Object.prototype.hasOwnProperty.call(sd, "selected"))
+            text(`${getSectionLabel(sectionId)}: ${singleSelectText(sectionId, sd.selected)}`, 9.5, "normal", 1.4, 2);
+          if (sd.notes) text(`Notes: ${formatMissing(sd.notes)}`, 9.5, "italic", 1.4, 2);
+          rule();
         });
 
+        // ===== PHOTOS =====
+        const { pics, how } = await checklistReportPhotos();
+        if (pics.length) {
+          doc.addPage(); y = M;
+          text(`Photos (${how})`, 12, "bold", 3);
+          for (const ph of pics) {
+            try {
+              const blob = await (await fetch(ph.url)).blob();
+              const small = await resizeImg(blob, 1400).catch(() => blob);
+              const dataUrl = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(small); });
+              const [w0, h0] = await new Promise(r => { const im = new Image(); im.onload = () => r([im.naturalWidth, im.naturalHeight]); im.onerror = () => r([4, 3]); im.src = dataUrl; });
+              const sc = Math.min(CW / w0, 105 / h0), w = w0 * sc, h = h0 * sc;
+              ensure(h + 10);
+              doc.addImage(dataUrl, "JPEG", M + (CW - w) / 2, y, w, h); y += h + 2;
+              if (ph.name) text(ph.name, 7.5, "italic", 1);
+              y += 4;
+            } catch (e) { console.warn("[qc pdf] photo", e); }
+          }
+        }
         return doc.output("blob");
       }
 
