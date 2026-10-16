@@ -20,8 +20,13 @@
         .bc-card.swap-target { outline: 3px dashed #ff4fd8; }
         html.card-dragging, html.card-dragging * { cursor: grabbing !important; user-select: none !important; }
         .bc-card { background: #fffaf2; border: 1px solid #e3d3bd; border-radius: 10px; padding: 16px; min-width: 0; }
+        /* nothing inside a card may push past its edge (L 2026-10-16 "the bc-card section is overflowing") */
+        .bc-card { overflow-wrap: anywhere; }
+        .bc-card img, .bc-card video, .bc-card table, .bc-card svg { max-width: 100%; }
+        .bc-btn { min-width: 0; white-space: normal; }
+        .bc-card button, .bc-card input, .bc-card select { max-width: 100%; }
         .bc-card h2 { margin: 0 0 12px; font-size: .95rem; color: #1a0e04; }
-        .bc-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .bc-btns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
         .bc-btn { font: inherit; font-size: .9rem; font-weight: bold; padding: 16px 10px; border-radius: 8px; border: 0; cursor: pointer;
                   color: #fff; background: #6b5848; }
         .bc-btn:disabled { opacity: .45; cursor: default; }
@@ -88,7 +93,8 @@
         /* star times v2 (L 2026-10-16 "more detail ... colors of the same level and grid"): one colour per course */
         .lv { border-left: 6px solid hsl(var(--h) 70% 50%); background: hsl(var(--h) 70% 50% / .07); border-radius: 8px; padding: 8px 10px; margin: 10px 0; }
         .lv h3 { margin: 0 0 8px; font-size: .9rem; color: hsl(var(--h) 60% 32%); }
-        .lv .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
+        #gt { display: block; }                       /* was a .np flex row -> the level blocks sat side by side and spilled out */
+        .lv .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(210px, 100%), 1fr)); gap: 8px; }
         .tile { background: #fff; border: 1px solid hsl(var(--h) 50% 80%); border-radius: 8px; padding: 8px; font-size: .8rem; }
         .tile.cur { outline: 3px solid #ff4fd8; }
         .tile .nm { font-weight: 700; margin-bottom: 4px; }
@@ -464,9 +470,11 @@
         let html = "";
         if (g.current && !stars.some(x => x.key === g.current))
             html += `<div class="lv" style="--h:0"><h3>Current star (${esc(g.current)}) - no time yet</h3><div class="ed"><input data-k="${esc(g.current)}" placeholder="target 0:00.0"><button data-set="${esc(g.current)}">Set</button></div></div>`;
-        for (const [c, list] of [...byCourse.entries()].sort((a, b) => a[0] - b[0])) {
+        // latest on top (L 2026-10-16): levels by their most recent grab, stars inside a level newest first
+        const at = x => x.lastAt || x.bestAt || 0, newest = l => Math.max(...l.map(at));
+        for (const [c, list] of [...byCourse.entries()].sort((a, b) => newest(b[1]) - newest(a[1]) || a[0] - b[0])) {
             const hue = (c * 47) % 360;
-            html += `<div class="lv" style="--h:${hue}"><h3>${esc(list[0].course)}</h3><div class="tiles">` + list.sort((a, b) => a.a - b.a).map(x => {
+            html += `<div class="lv" style="--h:${hue}"><h3>${esc(list[0].course)}</h3><div class="tiles">` + list.sort((a, b) => at(b) - at(a) || a.a - b.a).map(x => {
                 const d = x.last != null && x.best != null ? x.last - x.best : null;
                 const dTxt = d == null ? "" : d === 0 ? '<span class="dn">= best</span>' : `<span class="up">+${(d / 30).toFixed(2)} s</span>`;
                 return `<div class="tile ${x.key === g.current ? "cur" : ""}">
