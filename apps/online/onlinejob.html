@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>Jobs</title>
   <link rel="stylesheet" href="../assets/css/online.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
   <style>
     .status-hint {
       font-size: 12px;
@@ -238,6 +239,7 @@
             <option value="">— select image —</option>
           </select>
           <button id="timerDownloadAllBtn">Download All</button>
+          <button id="jobReportBtn" title="Whole job as one PDF: cover, every day, checklists, 2-3 photos (starred ones first)">📄 Job report PDF</button>
           <button id="uploadFolderToOneDrive">OneDrive Upload</button>
           <button id="openOneDriveFolder" style="display:none">Open OneDrive folder</button>
         </div>
@@ -273,6 +275,7 @@
         <button id="modalAddMarkup">Add Markup</button>
         <button id="modalRemoveMarkup">Remove Markup</button>
       </div>
+      <button id="modalStar" title="Use this photo in the job report PDF">☆ Report photo</button>
       <button id="downloadButton">Download</button>
       <button class="clear-button" id="deleteButton">Delete</button>
       <button id="closeModalButton">Close</button>
@@ -1299,6 +1302,7 @@
       } else {
         markupRow.style.display = "none";
       }
+      paintStar();
       document.getElementById("modal").style.display = "flex";
     }
 
@@ -1825,6 +1829,7 @@
         await resolveMetaOwnerTaskId();
         if (gen !== projectLoadGen) return;
         await loadImageFolders(); await loadDeviceLists(); await loadDailyTasks();
+        await loadReportStars();
         updateShareStatus();
       } catch (e) { console.error(e); alert("Failed to load project."); }
       finally { if (gen === projectLoadGen) isLoadingProject = false; }
@@ -1962,6 +1967,143 @@
     // `Job/{Customer}/{Project}/...`. Pattern shared with onlinedetails.html
     // Unified scheme (2026-07-11): Job/{Customer}/{Project}/…
     // ════════════════════════════════════
+    // ════════════════════════════════════
+    // JOB REPORT PDF (L 2026-10-16 "when I upload to OneDrive can it make a full pdf of the entire job ... 2 or 3 pics";
+    // "if there are starred images use those"; notes = this account's (lcurbelo) notes)
+    // Stars live on the job's meta-owner record: tasks/<metaOwner>/reportStars/<key> = {url, name, at}
+    // ════════════════════════════════════
+    let reportStars = {};
+    const starKey = url => { let p = url; try { p = decodeURIComponent(url.split("/o/")[1].split("?")[0]); } catch (_) {} return p.replace(/[.#$\[\]\/]/g, "_").slice(-700); };
+    async function loadReportStars() {
+      reportStars = {};
+      if (!metaOwnerTaskId) return;
+      try { reportStars = (await get(dbRef(database, `${DB}/tasks/${metaOwnerTaskId}/reportStars`))).val() || {}; } catch (e) { console.warn("[report] stars", e); }
+    }
+    function paintStar() {
+      const b = document.getElementById("modalStar"), item = modalItems[modalIndex];
+      if (!b || !item) return;
+      const on = !!reportStars[starKey(item.url)];
+      b.textContent = on ? "⭐ In report" : "☆ Report photo"; b.style.fontWeight = on ? "700" : "";
+    }
+    document.getElementById("modalStar").addEventListener("click", async () => {
+      const item = modalItems[modalIndex]; if (!item || !metaOwnerTaskId) return;
+      const k = starKey(item.url), node = dbRef(database, `${DB}/tasks/${metaOwnerTaskId}/reportStars/${k}`);
+      try {
+        if (reportStars[k]) { await remove(node); delete reportStars[k]; }
+        else { const v = { url: item.url.split("&v=")[0], name: item.name || "", at: Date.now() }; await set(node, v); reportStars[k] = v; }
+      } catch (e) { alert("Couldn't save the star: " + e.message); }
+      paintStar();
+    });
+
+    function recHours(t) {
+      const segs = Array.isArray(t.segments) ? t.segments : [];
+      let ms = 0;
+      if (segs.length) segs.forEach(g => { const a = Date.parse(g.start || g.startTime), b = Date.parse(g.end || g.endTime); if (a && b && b > a && (g.type || "work") !== "break") ms += b - a; });
+      else { const a = Date.parse(t.startTime), b = Date.parse(t.endTime); if (a && b && b > a) ms = b - a; }
+      return ms / 3600000;
+    }
+    async function blobToDataUrl(blob) { return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob); }); }
+    async function loadPic(url) {
+      const blob = await (await fetch(url)).blob();
+      const small = await resizeImg(blob, 1400).catch(() => blob);        // 1400 px wide is plenty on a letter page - keeps the PDF small
+      const data = await blobToDataUrl(small);
+      const dims = await new Promise(r => { const i = new Image(); i.onload = () => r([i.naturalWidth, i.naturalHeight]); i.onerror = () => r([4, 3]); i.src = data; });
+      return { data, w: dims[0], h: dims[1] };
+    }
+    async function reportPhotos(safeProj) {
+      const starred = Object.values(reportStars || {}).sort((a, b) => (a.at || 0) - (b.at || 0)).map(v => ({ url: v.url, name: v.name }));
+      if (starred.length) return { pics: starred.slice(0, 6), how: "starred" };
+      try {
+        const items = (await listAll(storageRef(storage, `${DB}/tasks/images/${safeProj}`))).items.filter(i => !/^\./.test(i.name));
+        items.sort((a, b) => a.name.localeCompare(b.name));
+        const pick = items.length <= 3 ? items : [items[0], items[Math.floor(items.length / 2)], items[items.length - 1]];
+        return { pics: await Promise.all(pick.map(async i => ({ url: await getDownloadURL(i), name: i.name }))), how: "first / middle / last" };
+      } catch (e) { return { pics: [], how: "none" }; }
+    }
+
+    async function buildJobReport() {
+      if (!window.jspdf) throw new Error("PDF library still loading - try again in a moment");
+      if (!currentProject) throw new Error("Select or load a job first");
+      const all = (await get(dbRef(database, `${DB}/tasks`))).val() || {};
+      const recs = projectRecords(all).map(([id, t]) => ({ id, ...t })).sort((a, b) => (Date.parse(a.startTime) || +a.id) - (Date.parse(b.startTime) || +b.id));
+      if (!recs.length) throw new Error("No records for this job");
+      const meta = all[metaOwnerTaskId] || recs[0];
+      const safeProj = sanitize(currentProjectName || currentProject);
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ unit: "pt", format: "letter" });
+      const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight(), M = 44, CW = W - 2 * M;
+      let y = M;
+      const need = h => { if (y + h > H - M) { doc.addPage(); y = M; } };
+      const text = (t, size = 10, style = "normal", gap = 4) => {
+        doc.setFont("helvetica", style); doc.setFontSize(size);
+        for (const line of doc.splitTextToSize(String(t ?? ""), CW)) { need(size + gap); doc.text(line, M, y + size); y += size + gap; }
+      };
+      const rule = () => { need(10); doc.setDrawColor(200); doc.line(M, y + 4, W - M, y + 4); y += 12; };
+      const d0 = recs[0].startTime, d1 = recs[recs.length - 1].endTime || recs[recs.length - 1].startTime;
+      const day = v => v ? new Date(v).toLocaleDateString() : "";
+      const total = recs.reduce((n, r) => n + recHours(r), 0);
+      // cover
+      text(meta.customerName || currentCustomerName || "Job", 20, "bold", 6);
+      if (meta.customerAddress) text(meta.customerAddress, 11);
+      text([meta.project && `Project ${meta.project}`, meta.workOrder && `WO ${meta.workOrder}`].filter(Boolean).join("   ·   "), 11);
+      text(`${day(d0)} – ${day(d1)}   ·   ${recs.length} day record(s)   ·   ${total.toFixed(2)} h total`, 11);
+      if (meta.siteStatus) text(`Site status: ${String(meta.siteStatus).toUpperCase()}`, 11, "bold");
+      if (meta.sensorCount) text(`Sensors: ${meta.sensorCount}`, 11);
+      text(`Report made ${new Date().toLocaleString()}`, 8, "italic");
+      rule();
+      // checklists + counts (device lists on the meta-owner record)
+      const lists = Object.entries(meta.lists || {});
+      if (lists.length) {
+        text("Checklists", 13, "bold", 6);
+        for (const [, l] of lists) {
+          const items = Object.entries(l || {}).filter(([k]) => !String(k).startsWith("_")).map(([, v]) => v).filter(v => v && typeof v === "object");
+          const withPics = items.filter(v => v.images && Object.keys(v.images).length).length;
+          const run = items.filter(v => v.runDoneAt).length, lab = items.filter(v => v.labeledAt).length;
+          text(`${l._name || "List"}: ${items.length} item(s) · ${withPics} with photos` + (run ? ` · ${run} run` : "") + (lab ? ` · ${lab} labeled` : ""), 10);
+        }
+        const daily = Object.values(meta.tasks || {}).filter(v => v && typeof v === "object");
+        if (daily.length) text(`Daily tasks: ${daily.length} (${daily.filter(v => v.done || v.completed).length} done)`, 10);
+        rule();
+      }
+      // every day / night record
+      text("Daily log", 13, "bold", 6);
+      for (const r of recs) {
+        need(40);
+        text(`${day(r.startTime)}   ${recHours(r).toFixed(2)} h` + (r.workOrder && r.workOrder !== meta.workOrder ? `   WO ${r.workOrder}` : ""), 10.5, "bold", 3);
+        if (r.notes) text(r.notes, 9.5, "normal", 3);
+        y += 6;
+      }
+      // photos
+      const { pics, how } = await reportPhotos(safeProj);
+      if (pics.length) {
+        doc.addPage(); y = M;
+        text(`Photos (${how})`, 13, "bold", 6);
+        for (const p of pics) {
+          try {
+            const im = await loadPic(p.url);
+            const maxH = 300, sc = Math.min(CW / im.w, maxH / im.h), w = im.w * sc, h = im.h * sc;
+            need(h + 24);
+            doc.addImage(im.data, "JPEG", M + (CW - w) / 2, y, w, h); y += h + 4;
+            if (p.name) text(p.name, 8, "italic", 2);
+            y += 10;
+          } catch (e) { console.warn("[report] photo", p.url, e); }
+        }
+      }
+      const name = `${safeProj || "job"} - Job Report.pdf`;
+      return { blob: doc.output("blob"), name };
+    }
+
+    document.getElementById("jobReportBtn").addEventListener("click", async () => {
+      const btn = document.getElementById("jobReportBtn"), was = btn.textContent;
+      btn.disabled = true; btn.textContent = "Building PDF…";
+      try {
+        const { blob, name } = await buildJobReport();
+        const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+      } catch (e) { alert("Job report: " + e.message); console.error(e); }
+      finally { btn.disabled = false; btn.textContent = was; }
+    });
+
     const ONE_DRIVE_ROOT = "Job";
 
     // Encode each path segment individually so spaces / unicode become %xx
@@ -2080,9 +2222,18 @@
         const { ok, failed } = await mirrorStorageToOneDrive(fbBase, odBase, (target) => {
           btn.textContent = `Uploading… ${target.split("/").pop()}`;
         });
-        const summary = failed
+        let pdfNote = "";
+        try {                                    // + the whole-job report PDF, rebuilt on every upload (L 2026-10-16)
+          btn.textContent = "Uploading… job report PDF";
+          const { blob, name } = await buildJobReport();
+          const res = await fetch(`https://graph.microsoft.com/v1.0/me/drive/root:/${odEncode(`${odBase}/${name}`)}:/content`,
+                                  { method: "PUT", headers: { Authorization: `Bearer ${accessToken}` }, body: blob });
+          pdfNote = res.ok ? ` + "${name}"` : " (job report PDF failed - see console)";
+          if (!res.ok) console.error("[onedrive] report PUT", await res.text());
+        } catch (e) { pdfNote = ` (job report PDF: ${e.message})`; console.error(e); }
+        const summary = (failed
           ? `Uploaded ${ok} file(s) to OneDrive: ${odBase}. ${failed} failed — see console.`
-          : `Uploaded ${ok} file(s) to OneDrive: ${odBase}.`;
+          : `Uploaded ${ok} file(s) to OneDrive: ${odBase}.`) + pdfNote;
         // Mirror the alert to console so completed runs are inspectable later.
         console.info("[onedrive]", summary);
         alert(summary);
