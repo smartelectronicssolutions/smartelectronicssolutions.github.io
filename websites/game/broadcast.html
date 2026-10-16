@@ -105,6 +105,9 @@
         .tile .ed { display: flex; gap: 4px; margin-top: 4px; }
         .tile .ed input { flex: 1; min-width: 0; font: inherit; padding: 3px 6px; border-radius: 6px; border: 1px solid #ccc; }
         .tile .ed button { font: inherit; padding: 3px 8px; border-radius: 6px; border: 0; cursor: pointer; }
+        .tile .ed button.arm { background: #b3261e; color: #fff; font-weight: 700; }
+        .lv h3 button, .tile .nm button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+        .lv h3 button:hover, .tile .nm button:hover { text-decoration: underline; }
         .prev img { width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #000; border-radius: 8px; display: block; }
         .prev .meta { margin-top: 4px; }
         .pv .bc-btn { padding: 10px; }
@@ -317,7 +320,9 @@
         if (!beatTick) beatTick = setInterval(() => { if (beat && beat.running && !document.hidden) drawBeat(); }, 100);
     }
     function drawBeat() {
-        const b = beat, cur = b.running ? b.now + (performance.now() - b.at) / 1000 * 30 : b.now;
+        const b = beat;
+        let cur = b.running ? b.now + (performance.now() - b.at) / 1000 * 30 : b.now;
+        if (b.auto && cur > b.tg) cur = b.tg;              // auto-restart fires at the target - the clock stops there
         const left = b.tg - cur, el = $("beat");
         el.classList.toggle("over", left < 0);
         el.classList.toggle("near", b.auto && b.running && left >= 0 && left <= NEAR);
@@ -474,23 +479,40 @@
         const at = x => x.lastAt || x.bestAt || 0, newest = l => Math.max(...l.map(at));
         for (const [c, list] of [...byCourse.entries()].sort((a, b) => newest(b[1]) - newest(a[1]) || a[0] - b[0])) {
             const hue = (c * 47) % 360;
-            html += `<div class="lv" style="--h:${hue}"><h3>${esc(list[0].course)}</h3><div class="tiles">` + list.sort((a, b) => at(b) - at(a) || a.a - b.a).map(x => {
+            html += `<div class="lv" style="--h:${hue}"><h3><button class="go-lv" data-c="${c}" title="Warp to this level (star select)">▶ ${esc(list[0].course)}</button></h3><div class="tiles">` + list.sort((a, b) => at(b) - at(a) || a.a - b.a).map(x => {
                 const d = x.last != null && x.best != null ? x.last - x.best : null;
                 const dTxt = d == null ? "" : d === 0 ? '<span class="dn">= best</span>' : `<span class="up">+${(d / 30).toFixed(2)} s</span>`;
                 return `<div class="tile ${x.key === g.current ? "cur" : ""}">
-                    <div class="nm">${esc(x.star)}</div>
+                    <div class="nm"><button class="go-st" data-c="${x.c}" data-a="${x.a}" title="Start this level on this star">▶ ${esc(x.star)}</button></div>
                     <div class="best">${esc(x.bestTxt || "-")}</div>
                     <div class="row"><span>last ${esc(x.lastTxt || "-")}</span>${dTxt}</div>
                     ${spark(x.hist)}
                     <div class="row"><span>${x.pinned ? '<span class="pin">📌</span> ' : ""}target ${esc(x.targetTxt || "-")}</span><span>${x.runs} run${x.runs === 1 ? "" : "s"}</span></div>
                     <div class="row meta"><span>${x.avgTxt ? "avg " + esc(x.avgTxt) : ""}</span><span>${x.bestAt ? "PB " + ago(x.bestAt) : ""}</span></div>
                     <div class="ed"><input data-k="${esc(x.key)}" placeholder="target 0:00.0"><button data-set="${esc(x.key)}">Set</button>${x.pinned ? `<button data-clr="${esc(x.key)}">Clear</button>` : ""}</div>
+                    <div class="ed"><button data-undo="${esc(x.key)}" title="Remove only the newest run">↶ Undo last run</button><button data-del="${esc(x.key)}" title="Delete every time for this star">🗑 Delete times</button></div>
                 </div>`; }).join("") + `</div></div>`;
         }
         $("gt").innerHTML = html || "Grab a star with 👻 Beat your time on to start the list.";
         $("gt").querySelectorAll("input").forEach(i => { i.onfocus = () => gtEditing = true; i.onblur = () => setTimeout(() => gtEditing = false, 300); });
         $("gt").querySelectorAll("button[data-set]").forEach(b => b.onclick = () => setTarget(b.dataset.set, $("gt").querySelector(`input[data-k="${b.dataset.set}"]`).value));
         $("gt").querySelectorAll("button[data-clr]").forEach(b => b.onclick = () => setTarget(b.dataset.clr, ""));
+        // delete / undo: tap once to arm ("Sure?"), again within 4 s to do it (L 2026-10-16 "options to delete times")
+        const arm = (b, go) => b.onclick = async () => {
+            if (!b.classList.contains("arm")) { const t = b.textContent; b.classList.add("arm"); b.textContent = "Sure?"; gtEditing = true;
+                setTimeout(() => { b.classList.remove("arm"); b.textContent = t; gtEditing = false; }, 4000); return; }
+            gtEditing = false;
+            try { paintGhost(await go()); } catch (e) { $("msg").textContent = e.message; }
+        };
+        $("gt").querySelectorAll("button[data-undo]").forEach(b => arm(b, () => call("/ghost", { key: b.dataset.undo, undo: true })));
+        $("gt").querySelectorAll("button[data-del]").forEach(b => arm(b, () => call("/ghost", { key: b.dataset.del, delete: true })));
+        // warp (L 2026-10-16 "click on the level ... transfer me to that level ... click the star ... start me from that star")
+        const warp = async (c, a, b) => {
+            try { await call("/warp", { course: +c, act: +a || 0 }); $("msg").textContent = a ? `Warping to star ${a}…` : "Warping - pick a star"; }
+            catch (e) { $("msg").textContent = e.message; }
+        };
+        $("gt").querySelectorAll("button.go-lv").forEach(b => b.onclick = () => warp(b.dataset.c, 0));
+        $("gt").querySelectorAll("button.go-st").forEach(b => b.onclick = () => warp(b.dataset.c, b.dataset.a));
     }
     async function setTarget(key, val) {
         gtEditing = false;
