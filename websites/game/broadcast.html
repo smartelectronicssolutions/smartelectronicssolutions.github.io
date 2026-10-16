@@ -60,6 +60,12 @@
         .ach b { color: #1a0e04; }
         .pv { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; font-size: .8rem; }
         .prev { margin-top: 12px; }
+        .gt { width: 100%; border-collapse: collapse; font-size: .85rem; }
+        .gt td, .gt th { padding: 6px 4px; border-bottom: 1px solid rgba(255,255,255,.08); text-align: left; vertical-align: middle; }
+        .gt tr.cur { background: rgba(255,79,216,.12); }
+        .gt input { width: 6.5em; font: inherit; padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,.2); background: rgba(0,0,0,.3); color: inherit; }
+        .gt button { font: inherit; padding: 4px 8px; border-radius: 6px; border: 0; cursor: pointer; }
+        .gt .pin { color: #ff4fd8; font-weight: 700; }
         .prev img { width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #000; border-radius: 8px; display: block; }
         .prev .meta { margin-top: 4px; }
         .pv .bc-btn { padding: 10px; }
@@ -139,6 +145,12 @@
                 <div id="hint" class="hint hidden"></div>
             </section>
         </div>
+
+        <section class="bc-card" style="margin-top:16px">
+            <h2>Star times <span class="meta" id="gt-meta"></span></h2>
+            <div class="meta">Beat-your-time target = your last time + 2 s, unless you set one here (📌 pinned). Type like 0:42.5 and press Set; Clear goes back to automatic.</div>
+            <div id="gt" class="np meta">Grab a star with 👻 Beat your time on to start the list.</div>
+        </section>
 
         <section class="bc-card" style="margin-top:16px">
             <h2>Achievements <span class="meta" id="ach-meta"></span></h2>
@@ -373,7 +385,34 @@
         finally { prevBusy = false; }
     }
 
+    // ---- star times / target editor (L 2026-10-15 "can I edit the target time?") ----
+    let gtEditing = false;
+    function paintGhost(g) {
+        if (gtEditing) return;                       // don't wipe a value the user is typing
+        $("gt-meta").textContent = g.on ? "· auto-restart ON" : "· auto-restart off";
+        const rows = (g.stars || []).map(x => `<tr class="${x.key === g.current ? "cur" : ""}">
+            <td>${esc(x.course)}<br><span class="meta">${esc(x.star)}</span></td>
+            <td>last ${esc(x.lastTxt || "-")}<br><span class="meta">best ${esc(x.bestTxt || "-")} · ${x.runs} run(s)</span></td>
+            <td>${x.pinned ? '<span class="pin">📌</span> ' : ""}${esc(x.targetTxt || "-")}</td>
+            <td><input data-k="${esc(x.key)}" placeholder="0:00.0" value=""><button data-set="${esc(x.key)}">Set</button>
+                ${x.pinned ? `<button data-clr="${esc(x.key)}">Clear</button>` : ""}</td></tr>`).join("");
+        let cur = "";
+        if (g.current && !(g.stars || []).some(x => x.key === g.current))
+            cur = `<tr class="cur"><td colspan="3">Current star (${esc(g.current)}) has no time yet</td><td><input data-k="${esc(g.current)}" placeholder="0:00.0"><button data-set="${esc(g.current)}">Set</button></td></tr>`;
+        $("gt").innerHTML = rows || cur ? `<table class="gt">${cur}${rows}</table>` : "Grab a star with 👻 Beat your time on to start the list.";
+        $("gt").querySelectorAll("input").forEach(i => { i.onfocus = () => gtEditing = true; i.onblur = () => setTimeout(() => gtEditing = false, 300); });
+        $("gt").querySelectorAll("button[data-set]").forEach(b => b.onclick = () => setTarget(b.dataset.set, $("gt").querySelector(`input[data-k="${b.dataset.set}"]`).value));
+        $("gt").querySelectorAll("button[data-clr]").forEach(b => b.onclick = () => setTarget(b.dataset.clr, ""));
+    }
+    async function setTarget(key, val) {
+        gtEditing = false;
+        try { paintGhost(await call("/ghost", { key, target: val })); $("msg").textContent = val ? "Target set" : "Target back to automatic"; }
+        catch (e) { $("msg").textContent = e.message; }
+    }
+    async function loadGhost() { try { paintGhost(await call("/ghost")); } catch (e) { /* not a Lourio game */ } }
+
     async function poll() {
+        loadGhost();
         guard();
         loadRaCheats();
         try {
