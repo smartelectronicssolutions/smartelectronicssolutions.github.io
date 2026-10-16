@@ -74,6 +74,20 @@
         .gt input { width: 6.5em; font: inherit; padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,.2); background: rgba(0,0,0,.3); color: inherit; }
         .gt button { font: inherit; padding: 4px 8px; border-radius: 6px; border: 0; cursor: pointer; }
         .gt .pin { color: #ff4fd8; font-weight: 700; }
+        /* star times v2 (L 2026-10-16 "more detail ... colors of the same level and grid"): one colour per course */
+        .lv { border-left: 6px solid hsl(var(--h) 70% 50%); background: hsl(var(--h) 70% 50% / .07); border-radius: 8px; padding: 8px 10px; margin: 10px 0; }
+        .lv h3 { margin: 0 0 8px; font-size: .9rem; color: hsl(var(--h) 60% 32%); }
+        .lv .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
+        .tile { background: #fff; border: 1px solid hsl(var(--h) 50% 80%); border-radius: 8px; padding: 8px; font-size: .8rem; }
+        .tile.cur { outline: 3px solid #ff4fd8; }
+        .tile .nm { font-weight: 700; margin-bottom: 4px; }
+        .tile .best { font-size: 1.35rem; font-weight: 800; color: hsl(var(--h) 65% 35%); font-variant-numeric: tabular-nums; }
+        .tile .row { display: flex; justify-content: space-between; gap: 6px; font-variant-numeric: tabular-nums; }
+        .tile .up { color: #b3261e; } .tile .dn { color: #2e7d32; }
+        .tile svg { width: 100%; height: 26px; display: block; margin: 4px 0; }
+        .tile .ed { display: flex; gap: 4px; margin-top: 4px; }
+        .tile .ed input { flex: 1; min-width: 0; font: inherit; padding: 3px 6px; border-radius: 6px; border: 1px solid #ccc; }
+        .tile .ed button { font: inherit; padding: 3px 8px; border-radius: 6px; border: 0; cursor: pointer; }
         .prev img { width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #000; border-radius: 8px; display: block; }
         .prev .meta { margin-top: 4px; }
         .pv .bc-btn { padding: 10px; }
@@ -154,7 +168,7 @@
 
         <section class="bc-card">
             <h2>Star times <span class="meta" id="gt-meta"></span></h2>
-            <div class="meta">Beat-your-time target = your last time + 2 s, unless you set one here (📌 pinned). Type like 0:42.5 and press Set; Clear goes back to automatic.</div>
+            <div class="meta">One colour per level. Big number = your best; last run vs best; the line = your last runs (lower = faster). Target = last + 2 s unless pinned 📌 (type 0:42.5, Set; Clear = automatic).</div>
             <div id="gt" class="np meta">Grab a star with 👻 Beat your time on to start the list.</div>
         </section>
 
@@ -396,16 +410,37 @@
     function paintGhost(g) {
         if (gtEditing) return;                       // don't wipe a value the user is typing
         $("gt-meta").textContent = g.on ? "· auto-restart ON" : "· auto-restart off";
-        const rows = (g.stars || []).map(x => `<tr class="${x.key === g.current ? "cur" : ""}">
-            <td>${esc(x.course)}<br><span class="meta">${esc(x.star)}</span></td>
-            <td>last ${esc(x.lastTxt || "-")}<br><span class="meta">best ${esc(x.bestTxt || "-")} · ${x.runs} run(s)</span></td>
-            <td>${x.pinned ? '<span class="pin">📌</span> ' : ""}${esc(x.targetTxt || "-")}</td>
-            <td><input data-k="${esc(x.key)}" placeholder="0:00.0" value=""><button data-set="${esc(x.key)}">Set</button>
-                ${x.pinned ? `<button data-clr="${esc(x.key)}">Clear</button>` : ""}</td></tr>`).join("");
-        let cur = "";
-        if (g.current && !(g.stars || []).some(x => x.key === g.current))
-            cur = `<tr class="cur"><td colspan="3">Current star (${esc(g.current)}) has no time yet</td><td><input data-k="${esc(g.current)}" placeholder="0:00.0"><button data-set="${esc(g.current)}">Set</button></td></tr>`;
-        $("gt").innerHTML = rows || cur ? `<table class="gt">${cur}${rows}</table>` : "Grab a star with 👻 Beat your time on to start the list.";
+        const stars = g.stars || [];
+        const ago = ms => { if (!ms) return ""; const m = Math.round((Date.now() - ms) / 60000);
+            return m < 1 ? "just now" : m < 60 ? m + " min ago" : m < 1440 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " d ago"; };
+        const ft = f => { f = Math.max(0, f | 0); return Math.floor(f / 1800) + ":" + String(Math.floor(f / 30) % 60).padStart(2, "0") + "." + String(Math.floor((f % 30) * 10 / 3)).padStart(2, "0"); };
+        const spark = h => {                          // last runs, lower = faster; best run dotted
+            if (!h || h.length < 2) return "";
+            const lo = Math.min(...h), hi = Math.max(...h), W = 200, H = 26, r = (hi - lo) || 1;
+            const pts = h.map((v, i) => `${(i / (h.length - 1) * W).toFixed(1)},${(2 + (v - lo) / r * (H - 4)).toFixed(1)}`).join(" ");
+            return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><polyline points="${pts}" fill="none" stroke="hsl(var(--h) 65% 45%)" stroke-width="2"/></svg>`;
+        };
+        const byCourse = new Map();
+        for (const x of stars) { if (!byCourse.has(x.c)) byCourse.set(x.c, []); byCourse.get(x.c).push(x); }
+        let html = "";
+        if (g.current && !stars.some(x => x.key === g.current))
+            html += `<div class="lv" style="--h:0"><h3>Current star (${esc(g.current)}) - no time yet</h3><div class="ed"><input data-k="${esc(g.current)}" placeholder="target 0:00.0"><button data-set="${esc(g.current)}">Set</button></div></div>`;
+        for (const [c, list] of [...byCourse.entries()].sort((a, b) => a[0] - b[0])) {
+            const hue = (c * 47) % 360;
+            html += `<div class="lv" style="--h:${hue}"><h3>${esc(list[0].course)}</h3><div class="tiles">` + list.sort((a, b) => a.a - b.a).map(x => {
+                const d = x.last != null && x.best != null ? x.last - x.best : null;
+                const dTxt = d == null ? "" : d === 0 ? '<span class="dn">= best</span>' : `<span class="up">+${(d / 30).toFixed(2)} s</span>`;
+                return `<div class="tile ${x.key === g.current ? "cur" : ""}">
+                    <div class="nm">${esc(x.star)}</div>
+                    <div class="best">${esc(x.bestTxt || "-")}</div>
+                    <div class="row"><span>last ${esc(x.lastTxt || "-")}</span>${dTxt}</div>
+                    ${spark(x.hist)}
+                    <div class="row"><span>${x.pinned ? '<span class="pin">📌</span> ' : ""}target ${esc(x.targetTxt || "-")}</span><span>${x.runs} run${x.runs === 1 ? "" : "s"}</span></div>
+                    <div class="row meta"><span>${x.avgTxt ? "avg " + esc(x.avgTxt) : ""}</span><span>${x.bestAt ? "PB " + ago(x.bestAt) : ""}</span></div>
+                    <div class="ed"><input data-k="${esc(x.key)}" placeholder="target 0:00.0"><button data-set="${esc(x.key)}">Set</button>${x.pinned ? `<button data-clr="${esc(x.key)}">Clear</button>` : ""}</div>
+                </div>`; }).join("") + `</div></div>`;
+        }
+        $("gt").innerHTML = html || "Grab a star with 👻 Beat your time on to start the list.";
         $("gt").querySelectorAll("input").forEach(i => { i.onfocus = () => gtEditing = true; i.onblur = () => setTimeout(() => gtEditing = false, 300); });
         $("gt").querySelectorAll("button[data-set]").forEach(b => b.onclick = () => setTarget(b.dataset.set, $("gt").querySelector(`input[data-k="${b.dataset.set}"]`).value));
         $("gt").querySelectorAll("button[data-clr]").forEach(b => b.onclick = () => setTarget(b.dataset.clr, ""));
