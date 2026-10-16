@@ -49,6 +49,10 @@
         .clip.sel { outline: 2px solid #c85800; }
         .clip .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .clip input { flex-shrink: 0; }
+        .clip .tw { flex-shrink: 0; border: 1px solid #c8b49a; border-radius: 6px; background: #fff; padding: 2px 7px; font: inherit; font-size: .72rem; cursor: pointer; }
+        .rec-group .kids { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 2px 22px; border-left: 3px solid #e3c9a6; padding-left: 8px; }
+        .rec-group .kids.hidden { display: none; }
+        .clip.child { background: #fbf4ea; }
         .clip .del { flex-shrink: 0; border: 0; border-radius: 6px; padding: 3px 8px; cursor: pointer; background: transparent; font: inherit; }
         .clip .del.arm { background: #b3261e; color: #fff; font-weight: 700; }
         video { width: 100%; max-height: 360px; background: #000; border-radius: 6px; margin-top: 10px; }
@@ -668,18 +672,44 @@
     }
 
     // ---- recordings + edits ----
+    const openRecs = new Set();                         // recordings whose clip list is expanded
     async function loadClips() {
         try {
             const { clips } = await call("/clips");
             call("/runs?name=").then(r => { $("autoclip").checked = r.auto; }).catch(() => {});
-            $("clips").innerHTML = clips.length ? clips.map(c => `
-                <div class="clip${sel === c.name ? " sel" : ""}" data-n="${esc(c.name)}">
+            // recordings with their clips folded under them (L 2026-10-16 "can each recording expand to show the clips"):
+            // a clip = any file named "<recording stem> - ..." or "<recording stem> (clip ...)" etc.
+            const stem = n => n.replace(/\.[^.]+$/, "");
+            const parents = clips.filter(c => /^\d{4}-\d\d-\d\d \d\d-\d\d-\d\d$/.test(stem(c.name)));
+            const kids = new Map(parents.map(p => [stem(p.name), []]));
+            const loose = [];
+            for (const c of clips) {
+                if (parents.includes(c)) continue;
+                const k = stem(c.name).slice(0, 19);
+                (kids.has(k) ? kids.get(k) : loose).push(c);
+            }
+            const row = (c, child) => `
+                <div class="clip${child ? " child" : ""}${sel === c.name ? " sel" : ""}" data-n="${esc(c.name)}">
                     <input type="checkbox" class="jn" title="tick to join">
-                    <span class="nm">${esc(c.name)}</span>
+                    <span class="nm">${esc(child ? c.name.slice(19).replace(/^\s*-\s*/, "") || c.name : c.name)}</span>
                     <span>${c.sec ? fmt(c.sec) : ""} · ${c.mb} MB</span>
                     <button class="del" title="Delete (moves it to OneDrive\\pers\\videos\\games-deleted)">🗑</button>
-                </div>`).join("") : '<div class="np meta">No recordings yet - hit Record. They save to OneDrive\\pers\\videos\\games.</div>';
-            $("clips").querySelectorAll(".clip").forEach(el => el.onclick = e => { if (!e.target.classList.contains("jn") && !e.target.classList.contains("del")) pick(el.dataset.n); });
+                </div>`;
+            const html = parents.map(p => {
+                const ks = kids.get(stem(p.name)) || [];
+                const open = openRecs.has(p.name) || ks.some(k => k.name === sel);
+                return `<div class="rec-group">${row(p, false).replace('<span class="nm">',
+                        ks.length ? `<button class="tw" data-rec="${esc(p.name)}" title="Show / hide its clips">${open ? "▾" : "▸"} ${ks.length}</button><span class="nm">` : '<span class="nm">')}
+                        <div class="kids${open ? "" : " hidden"}">${ks.map(k => row(k, true)).join("")}</div></div>`;
+            }).join("") + loose.map(c => row(c, false)).join("");
+            $("clips").innerHTML = clips.length ? html : '<div class="np meta">No recordings yet - hit Record. They save to OneDrive\\pers\\videos\\games.</div>';
+            $("clips").querySelectorAll("button.tw").forEach(b => b.onclick = e => {
+                e.stopPropagation();
+                const n = b.dataset.rec, k = b.closest(".rec-group").querySelector(".kids");
+                openRecs.has(n) ? openRecs.delete(n) : openRecs.add(n);
+                k.classList.toggle("hidden", !openRecs.has(n)); b.textContent = (openRecs.has(n) ? "▾ " : "▸ ") + k.children.length;
+            });
+            $("clips").querySelectorAll(".clip").forEach(el => el.onclick = e => { if (!e.target.classList.contains("jn") && !e.target.classList.contains("del") && !e.target.classList.contains("tw")) pick(el.dataset.n); });
             // two taps: 🗑 arms ("Sure?"), a second tap within 4 s deletes (L 2026-10-16 "delete option ... for the clips")
             $("clips").querySelectorAll(".clip .del").forEach(b => b.onclick = async e => {
                 e.stopPropagation();
