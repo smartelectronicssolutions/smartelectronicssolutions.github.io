@@ -161,6 +161,19 @@
         <div class="bc-msg" id="si-msg"></div>
     </form>
 
+    <section id="agent-setup" class="bc-card hidden" style="max-width:560px">
+        <h2>Set up your Broadcast agent</h2>
+        <p class="meta" id="agent-state"></p>
+        <ol class="meta" style="line-height:1.7">
+            <li>Get the <b>Broadcast agent</b> from Luis and unzip it on the PC you play on (the one with OBS + RetroArch).</li>
+            <li>Run <code>BroadcastAgent.exe</code> - it opens <code>http://localhost:3067/setup</code>.</li>
+            <li>Sign in there with <b>this same account</b>, add your OBS WebSocket password (OBS: Tools &gt; WebSocket Server Settings) and your RetroArch folder.</li>
+            <li>In RetroArch turn on <b>Settings &gt; Network &gt; Network Commands</b>.</li>
+            <li>Come back here and refresh - the desk appears. Preview, video and edits open on your home network (the agent's LAN desk).</li>
+        </ol>
+    </section>
+
+    <div class="meta" id="mode-note" style="margin:0 0 10px"></div>
     <div id="desk" class="hidden bc-flow">
             <section class="bc-card">
                 <h2>Controls</h2>
@@ -231,7 +244,7 @@
 
         <section class="bc-card">
             <h2>Recordings &amp; quick edits</h2>
-            <div class="meta">📁 <a href="https://onedrive.live.com/my?id=%2Fpersonal%2Fd254359fe6777d5d%2FDocuments%2Fpers%2Fvideos%2Fgames" target="_blank" rel="noopener">Recordings folder</a>
+            <div class="meta" id="od-links">📁 <a href="https://onedrive.live.com/my?id=%2Fpersonal%2Fd254359fe6777d5d%2FDocuments%2Fpers%2Fvideos%2Fgames" target="_blank" rel="noopener">Recordings folder</a>
                 · 🗑 <a href="https://onedrive.live.com/my?id=%2Fpersonal%2Fd254359fe6777d5d%2FDocuments%2Fpers%2Fvideos%2Fgames-deleted" target="_blank" rel="noopener">Deleted folder</a> (OneDrive)</div>
             <label class="meta" style="display:block;margin:6px 0"><input type="checkbox" id="autoclip" checked> 🏁 Auto-clip my star runs when I stop recording (each timed run → its own clip, 2 s before the timer starts to 4 s after the grab)</label>
             <div class="clips" id="clips"><div class="np meta">loading…</div></div>
@@ -253,15 +266,24 @@
 <footer class="site-footer">&copy; 2026 Louman &mdash; luissolutions.github.io</footer>
 
 <script type="module">
-    import { auth, onAuthStateChanged, signInWithEmailAndPassword, database, ref, onValue, set } from "./assets/js/firebase-init.js";
+    import { auth, onAuthStateChanged, signInWithEmailAndPassword, database, ref, onValue, set, get, remove } from "./assets/js/firebase-init.js";
 
-    const API = "https://compman.luissolutions.us/broadcast";
+    // ---- three ways to reach a Broadcast desk (L 2026-10-16 "available for every user ... specific to that person's
+    // daemon ... heavy things LAN only"):
+    //   direct - se's bridge (compman.luissolutions.us), owner account only, everything works anywhere
+    //   lan    - this page is being served BY a user's Broadcast agent on their home network (http://<pc>:3067/)
+    //   relay  - any other signed-in user: commands go through Firebase {uid}/broadcast/rpc to THEIR agent;
+    //            the heavy cards (OBS preview, video, clip edits) point to their LAN desk instead
+    const LAN = location.protocol === "http:" && !/luissolutions|smartelectronicssolutions/.test(location.host);
+    let API = LAN ? location.origin + "/broadcast" : "https://compman.luissolutions.us/broadcast";
+    let MODE = LAN ? "lan" : "direct", agent = null;
     const $ = id => document.getElementById(id);
     const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
     const fmt = s => { s = Math.max(0, Math.round(s || 0)); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
     let obs = {}, sel = null, inT = 0, outT = null, timer = null;
 
     async function call(path, body) {
+        if (MODE === "relay") return relay(path, body);
         const t = await auth.currentUser.getIdToken();
         const r = await fetch(API + path, body ? { method: "POST", headers: { Authorization: "Bearer " + t, "Content-Type": "application/json" }, body: JSON.stringify(body) }
                                               : { headers: { Authorization: "Bearer " + t } });
@@ -269,6 +291,24 @@
         if (!r.ok) throw new Error(j.error || ("error " + r.status));
         return j;
     }
+
+    // relay: one request = {uid}/broadcast/rpc/<id>; the agent answers in rpcres/<id> (then we delete it)
+    function relay(path, body) {
+        const uid = auth.currentUser.uid, id = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+        return new Promise((resolve, reject) => {
+            const node = ref(database, `${uid}/broadcast/rpcres/${id}`);
+            const stop = onValue(node, sn => {
+                const v = sn.val(); if (!v) return;
+                stop(); clearTimeout(to); remove(node).catch(() => {});
+                (v.code >= 200 && v.code < 300) ? resolve(v.json) : reject(new Error((v.json && v.json.error) || ("error " + v.code)));
+            });
+            const to = setTimeout(() => { stop(); remove(ref(database, `${uid}/broadcast/rpc/${id}`)).catch(() => {});
+                reject(new Error("your Broadcast agent didn't answer - is it running on your PC?")); }, 20000);
+            set(ref(database, `${uid}/broadcast/rpc/${id}`), { method: body ? "POST" : "GET", path, body: body || null, at: Date.now() })
+                .catch(e => { stop(); clearTimeout(to); reject(e); });
+        });
+    }
+    const lanLink = () => agent && agent.lan ? `<a href="${esc(agent.lan)}" target="_blank" rel="noopener">your LAN desk</a>` : "your LAN desk";
 
     // ---- controls ----
     function paintObs(o) {
@@ -459,6 +499,7 @@
         catch (e) { $("msg").textContent = e.message; }
     };
     async function loadPreview() {
+        if (MODE === "relay") { $("prev-meta").innerHTML = "Preview: home network only - open " + lanLink(); return; }
         if (prevBusy || document.hidden || !obs.running) {
             if (!obs.running) $("prev-meta").textContent = "Preview: OBS is closed";
             return;
@@ -659,6 +700,7 @@
         sel = name; inT = 0; outT = null; $("v-in").textContent = "0:00"; $("v-out").textContent = "end";
         document.querySelectorAll(".clip").forEach(el => el.classList.toggle("sel", el.dataset.n === name));
         $("emsg").textContent = name.toLowerCase().endsWith(".mkv") ? "Preparing the video (first open of an .mkv takes a few seconds)…" : "";
+        if (MODE === "relay") { $("emsg").innerHTML = "Playback + edits are home network only - open " + lanLink(); return; }
         const t = await auth.currentUser.getIdToken();
         const v = $("vid");
         v.src = API + "/video?name=" + encodeURIComponent(name) + "&t=" + encodeURIComponent(t);
@@ -754,10 +796,24 @@
         clearInterval(timer);
         // who's the owner is decided on se (the bridge checks the token) - no account id in this page (L 2026-10-15)
         let ok = false;
+        MODE = LAN ? "lan" : "direct"; agent = null;
         if (user) { try { ok = !!(await call("/whoami")).owner; } catch (e) { ok = false; } }
+        if (user && !ok && !LAN) {                   // not se's owner: use this account's own agent, if it has one
+            try { agent = (await get(ref(database, `${user.uid}/broadcast/agent`))).val(); } catch (e) { agent = null; }
+            if (agent && Date.now() - (agent.at || 0) < 3 * 60 * 1000) { MODE = "relay"; ok = true; }
+        }
         $("signin").classList.toggle("hidden", !!ok);
         $("desk").classList.toggle("hidden", !ok);
-        if (user && !ok) $("si-msg").textContent = "This page is for the owner account only.";
+        $("od-links") && $("od-links").classList.toggle("hidden", MODE !== "direct");   // L's own OneDrive folders
+        $("agent-setup").classList.toggle("hidden", !(user && !ok));
+        if (user && !ok) {
+            $("si-msg").textContent = "";
+            $("signin").classList.add("hidden");
+            $("agent-state").textContent = agent ? `Your agent on ${agent.host || "your PC"} was last seen ${Math.round((Date.now() - agent.at) / 60000)} min ago - start it again.`
+                                                 : "No Broadcast agent is paired to this account yet.";
+        }
+        $("mode-note") && ($("mode-note").innerHTML = MODE === "relay" ? `Connected to your agent on <b>${esc(agent.host || "your PC")}</b> through the relay · heavy stuff (preview, video, edits) on ${lanLink()}`
+                                                     : MODE === "lan" ? "LAN desk - straight to the agent on this network" : "");
         if (ok) {
             wireCards();
             poll(); loadClips(); timer = setInterval(() => { if (!document.hidden) poll(); }, 5000);   // no reads while the tab is hidden
