@@ -114,6 +114,11 @@
         .say input { flex: 1 1 200px; min-width: 0; font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid #c8b49a; }
         .say select, .say button { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid #c8b49a; background: #fff; cursor: pointer; }
         .say button { background: #9146ff; color: #fff; border-color: #9146ff; font-weight: 700; }
+        /* tap-to-use suggestions (iPad has no Tab key - L 2026-10-16) */
+        .say-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+        .say-chips button { font: inherit; font-size: .75rem; padding: 6px 10px; border-radius: 99px; border: 1px solid #c8b49a; background: #fff;
+                            cursor: pointer; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+        .say-chips button.more { font-weight: 700; }
         .pv .bc-btn { padding: 10px; }
         .pv .bc-btn.on { background: #2e7d32; }
         .guide { margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: #f5ede0; line-height: 1.5; }
@@ -182,6 +187,7 @@
                     <select id="say-v" title="Voice"><option value="am_michael">Michael</option><option value="am_adam">Adam</option><option value="am_onyx">Onyx</option><option value="am_fenrir">Fenrir</option><option value="am_puck">Puck</option></select>
                     <button type="submit">Say</button>
                 </form>
+                <div class="say-chips" id="say-chips"></div>
                 <div class="bc-msg" id="msg"></div>
             </section>
 
@@ -712,8 +718,14 @@
     function showSug() {
         sugList = suggestions(); if (sugIdx >= sugList.length) sugIdx = 0;
         $("say-t").placeholder = "Tab ↹  " + sugList[sugIdx];
+        // the same lines as tap chips: 3 at a time, tap one = it goes in the box (then Say), 🔄 = the next 3
+        const pick = [0, 1, 2].map(i => sugList[(sugIdx + i) % sugList.length]);
+        $("say-chips").innerHTML = pick.map((t, i) => `<button type="button" data-i="${i}">${esc(t)}</button>`).join("") +
+            '<button type="button" class="more" title="More suggestions">🔄</button>';
+        $("say-chips").querySelectorAll("button[data-i]").forEach(b => b.onclick = () => { $("say-t").value = pick[+b.dataset.i]; $("say-t").focus(); });
+        $("say-chips").querySelector(".more").onclick = () => { sugIdx += 3; showSug(); };
     }
-    setInterval(() => { if (!$("say-t").value) { sugIdx++; showSug(); } }, 9000);
+    setInterval(() => { if (!$("say-t").value && document.activeElement?.closest?.(".say-chips") == null) { sugIdx++; showSug(); } }, 9000);
     setTimeout(showSug, 1500);
     $("say-t").addEventListener("keydown", e => {
         if (e.key !== "Tab" || e.shiftKey) return;
