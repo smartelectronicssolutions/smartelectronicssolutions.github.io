@@ -59,6 +59,9 @@
         .ach .bar i { display: block; height: 100%; background: #c85800; }
         .ach b { color: #1a0e04; }
         .pv { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; font-size: .8rem; }
+        .prev { margin-top: 12px; }
+        .prev img { width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #000; border-radius: 8px; display: block; }
+        .prev .meta { margin-top: 4px; }
         .pv .bc-btn { padding: 10px; }
         .pv .bc-btn.on { background: #2e7d32; }
         .guide { margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: #f5ede0; line-height: 1.5; }
@@ -115,6 +118,13 @@
                     <label><input type="checkbox" id="g-auto"> Auto-cover when a non-game app is in front</label>
                     <label><input type="checkbox" id="g-typing"> Cover sign-in / password windows</label>
                     <div class="meta" id="g-state"></div>
+                </div>
+                <div class="pv">
+                    <button class="bc-btn" id="b-frame">🖼 Stream frame (border + game info)</button>
+                </div>
+                <div class="prev">
+                    <img id="prev" alt="OBS preview">
+                    <div class="meta" id="prev-meta">Preview: what OBS is sending (low-res, refreshes every 2 s while OBS is open)</div>
                 </div>
                 <div class="bc-msg" id="msg"></div>
             </section>
@@ -335,6 +345,34 @@
         } catch (e) { $("rac").innerHTML = ""; }
     }
 
+    // ---- stream frame + OBS preview (L 2026-10-15) ----
+    let frameOn = false, prevUrl = null, prevBusy = false;
+    function paintFrame() {
+        $("b-frame").classList.toggle("on", frameOn);
+        $("b-frame").textContent = frameOn ? "🖼 Stream frame ON - tap to remove" : "🖼 Stream frame (border + game info)";
+    }
+    $("b-frame").onclick = async () => {
+        $("msg").textContent = "…";
+        try { await call("/action", { action: frameOn ? "frame_off" : "frame_on" }); frameOn = !frameOn; paintFrame(); $("msg").textContent = ""; }
+        catch (e) { $("msg").textContent = e.message; }
+    };
+    async function loadPreview() {
+        if (prevBusy || document.hidden || !obs.running) {
+            if (!obs.running) $("prev-meta").textContent = "Preview: OBS is closed";
+            return;
+        }
+        prevBusy = true;
+        try {
+            const t = await auth.currentUser.getIdToken();
+            const r = await fetch(API + "/preview", { headers: { Authorization: "Bearer " + t } });
+            if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || ("error " + r.status));
+            const u = URL.createObjectURL(await r.blob());
+            $("prev").src = u; if (prevUrl) URL.revokeObjectURL(prevUrl); prevUrl = u;
+            $("prev-meta").textContent = "Preview: what OBS is sending · " + new Date().toLocaleTimeString();
+        } catch (e) { $("prev-meta").textContent = "Preview: " + e.message; }
+        finally { prevBusy = false; }
+    }
+
     async function poll() {
         guard();
         loadRaCheats();
@@ -405,7 +443,11 @@
         $("signin").classList.toggle("hidden", !!ok);
         $("desk").classList.toggle("hidden", !ok);
         if (user && !ok) $("si-msg").textContent = "This page is for the owner account only.";
-        if (ok) { poll(); loadClips(); timer = setInterval(() => { if (!document.hidden) poll(); }, 5000); }   // no reads while the tab is hidden
+        if (ok) {
+            poll(); loadClips(); timer = setInterval(() => { if (!document.hidden) poll(); }, 5000);   // no reads while the tab is hidden
+            call("/frame").then(f => { frameOn = !!f.on; paintFrame(); }).catch(() => {});
+            clearInterval(window.__prevT); window.__prevT = setInterval(loadPreview, 2000);
+        }
     });
 </script>
 </body>
