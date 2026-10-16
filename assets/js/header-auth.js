@@ -27,9 +27,21 @@ export function init() {
         if (!open) emailEl?.focus();
     }
 
-    // Visible Account link (works on mobile + desktop)
+    // Visible Account link (works on mobile + desktop). Single tap = the dropdown panel; double-click / double-tap =
+    // the full login page reg.html (L 2026-10-16). Timed by hand - iOS doesn't reliably fire dblclick on a link.
+    // reg.html sits next to the Home link's target, so it resolves the same from any page depth.
+    let lastTap = 0;
     accountLink?.addEventListener("click", (e) => {
         e.preventDefault();
+        const now = Date.now();
+        if (now - lastTap < 400) {
+            const home = header.querySelector(".nav-home");
+            const reg = new URL("reg.html", home ? home.href : location.href);
+            reg.searchParams.set("next", location.pathname);
+            location.href = reg.href;
+            return;
+        }
+        lastTap = now;
         togglePanel();
     });
 

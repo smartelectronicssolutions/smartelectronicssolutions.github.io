@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en" class="theme-finance">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign In — Smart Solutions</title>
+    <link rel="stylesheet" href="assets/css/master.css">
+    <link rel="stylesheet" href="assets/css/contact.css">
+    <link rel="icon" href="assets/img/favicon.ico">
+</head>
+
+<body>
+    <!-- full-page login (L 2026-10-16: double-click / double-tap the header "Sign In" -> reg.html).
+         Same Login / Register toggle as websites/game/login.html; ?next=<page> returns there after. -->
+    <div id="header-placeholder"></div>
+
+    <section class="hero">
+        <span class="label">Smart Solutions</span>
+        <h1 id="reg-title">Sign In</h1>
+    </section>
+
+    <main class="contact-body">
+        <div class="contact-card" id="login-box">
+            <h2>Sign In</h2>
+            <form id="login-form">
+                <div class="form-group"><label for="login-email">Email</label><input type="email" id="login-email" autocomplete="username" required></div>
+                <div class="form-group"><label for="login-password">Password</label><input type="password" id="login-password" autocomplete="current-password" required></div>
+                <div class="submit-row"><button type="submit">Sign In</button><span id="login-status"></span></div>
+            </form>
+            <p>No account? <a href="#" id="toggle-register">Register here</a></p>
+        </div>
+
+        <div class="contact-card" id="register-box" style="display:none">
+            <h2>Register</h2>
+            <form id="registration-form">
+                <div class="form-group"><label for="reg-email">Email</label><input type="email" id="reg-email" autocomplete="username" required></div>
+                <div class="form-group"><label for="reg-password">Password</label><input type="password" id="reg-password" autocomplete="new-password" required></div>
+                <div class="form-group"><label for="reg-confirm-password">Confirm Password</label><input type="password" id="reg-confirm-password" autocomplete="new-password" required></div>
+                <div class="submit-row"><button type="submit">Register</button><span id="reg-status"></span></div>
+            </form>
+            <p>Have an account? <a href="#" id="toggle-login">Sign in here</a></p>
+        </div>
+
+        <div class="contact-card" id="signed-in" style="display:none">
+            <h2>Signed in</h2>
+            <p id="signed-in-as"></p>
+            <div class="submit-row"><button type="button" id="logout-button">Sign Out</button></div>
+        </div>
+    </main>
+
+    <div id="footer-placeholder"></div>
+
+    <script type="module">
+        import { auth, database, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, ref, set } from "./assets/js/firebase-init.js";
+        const $ = id => document.getElementById(id);
+        const back = () => { const n = new URLSearchParams(location.search).get("next") || ""; return /^\/[\w\/ %.-]*$/.test(n) && !n.startsWith("//") && !n.includes("..") ? n : "index.html"; };
+        const show = which => ["login-box", "register-box", "signed-in"].forEach(id => $(id).style.display = id === which ? "block" : "none");
+
+        $("login-form").addEventListener("submit", async e => {
+            e.preventDefault(); $("login-status").textContent = "";
+            try { await signInWithEmailAndPassword(auth, $("login-email").value.trim(), $("login-password").value); location.href = back(); }
+            catch (_) { $("login-status").textContent = "Invalid email or password."; $("login-status").className = "error"; }
+        });
+        $("registration-form").addEventListener("submit", async e => {
+            e.preventDefault(); const st = $("reg-status"); st.textContent = "";
+            if ($("reg-password").value !== $("reg-confirm-password").value) { st.textContent = "Passwords do not match."; st.className = "error"; return; }
+            try {
+                const email = $("reg-email").value.trim();
+                const cred = await createUserWithEmailAndPassword(auth, email, $("reg-password").value);
+                await set(ref(database, `${cred.user.uid}/profile`), { email });
+                location.href = back();
+            } catch (err) { st.textContent = err.message; st.className = "error"; }
+        });
+        $("toggle-register").onclick = e => { e.preventDefault(); show("register-box"); $("reg-title").textContent = "Register"; };
+        $("toggle-login").onclick = e => { e.preventDefault(); show("login-box"); $("reg-title").textContent = "Sign In"; };
+        $("logout-button").onclick = () => signOut(auth);
+        onAuthStateChanged(auth, user => {
+            if (user) { show("signed-in"); $("signed-in-as").textContent = user.email || "Signed in"; $("reg-title").textContent = "Account"; }
+            else if ($("signed-in").style.display === "block") { show("login-box"); $("reg-title").textContent = "Sign In"; }
+            else if ($("register-box").style.display !== "block") show("login-box");
+        });
+    </script>
+    <script src="assets/js/main.js"></script>
+</body>
+
+</html>
