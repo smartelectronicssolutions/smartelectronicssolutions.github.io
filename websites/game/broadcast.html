@@ -117,6 +117,10 @@
         .tile .up { color: #b3261e; } .tile .dn { color: #2e7d32; }
         .tile svg { width: 100%; height: 26px; display: block; margin: 4px 0; }
         .tile .ed { display: flex; gap: 4px; margin-top: 4px; }
+        .tile .runs { margin: 4px 0; max-height: 150px; overflow-y: auto; border-top: 1px solid hsl(var(--h) 50% 88%); }
+        .tile .run { display: grid; grid-template-columns: 2.4em 1fr auto; gap: 6px; align-items: center; padding: 2px 0; font-variant-numeric: tabular-nums; }
+        .tile .run.pb { font-weight: 800; color: hsl(var(--h) 65% 35%); }
+        .tile .run-play { font: inherit; font-size: .72rem; padding: 1px 6px; border-radius: 6px; border: 0; cursor: pointer; background: hsl(var(--h) 60% 90%); }
         .tile .ed input { flex: 1; min-width: 0; font: inherit; padding: 3px 6px; border-radius: 6px; border: 1px solid #ccc; }
         .tile .ed button { font: inherit; padding: 3px 8px; border-radius: 6px; border: 0; cursor: pointer; }
         .tile .ed button.arm { background: #b3261e; color: #fff; font-weight: 700; }
@@ -533,8 +537,9 @@
     // ---- star times / target editor (L 2026-10-15 "can I edit the target time?") ----
     let gtEditing = false;
     const gtOpen = new Set();                            // star tiles the user has expanded
+    let runClips = [], lastG = null;                     // recordings list (for each run's clip) + the last ghost payload
     function paintGhost(g) {
-        ghostOn = !!g.on;
+        lastG = g; ghostOn = !!g.on;
         if (gtEditing) return;                       // don't wipe a value the user is typing
         $("gt-meta").textContent = g.on ? "· auto-restart ON" : "· auto-restart off";
         const stars = g.stars || [];
@@ -546,6 +551,16 @@
             const lo = Math.min(...h), hi = Math.max(...h), W = 200, H = 26, r = (hi - lo) || 1;
             const pts = h.map((v, i) => `${(i / (h.length - 1) * W).toFixed(1)},${(2 + (v - lo) / r * (H - 4)).toFixed(1)}`).join(" ");
             return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><polyline points="${pts}" fill="none" stroke="hsl(var(--h) 65% 45%)" stroke-width="2"/></svg>`;
+        };
+        // every run, newest first (L 2026-10-16 "add the run to the star level card in its expanded state"); a run that
+        // was auto-clipped from a recording gets a play button. Clip names = "<rec> - <star> <0m13.53>.mp4", so a clip
+        // belongs to a run when both the star name and the time match.
+        const runsList = x => {
+            const h = x.hist || []; if (!h.length) return "";
+            const clipFor = f => { const tag = " - " + x.star + " " + ft(f).replace(":", "m") + ".";
+                const c = runClips.find(c => c.name.includes(tag)); return c ? c.name : null; };
+            return `<div class="runs">` + h.map((f, i) => ({ f, n: i + 1 })).reverse().map(({ f, n }) => { const cl = clipFor(f);
+                return `<div class="run${f === x.best ? " pb" : ""}"><span>#${n}</span><span>${ft(f)}${f === x.best ? " ★" : ""}</span>${cl ? `<button class="run-play" data-clip="${esc(cl)}" title="Play this run's clip">▶ clip</button>` : "<span></span>"}</div>`; }).join("") + `</div>`;
         };
         const byCourse = new Map();
         for (const x of stars) { if (!byCourse.has(x.c)) byCourse.set(x.c, []); byCourse.get(x.c).push(x); }
@@ -569,6 +584,7 @@
                     ${spark(x.hist)}
                     <div class="row"><span>${x.pinned ? '<span class="pin">📌</span> ' : ""}target ${esc(x.targetTxt || "-")}</span><span>${x.runs} run${x.runs === 1 ? "" : "s"}</span></div>
                     <div class="row meta"><span>${x.avgTxt ? "avg " + esc(x.avgTxt) : ""}</span><span>${x.bestAt ? "PB " + ago(x.bestAt) : ""}</span></div>
+                    ${runsList(x)}
                     <div class="ed"><input data-k="${esc(x.key)}" placeholder="target 0:00.0"><button data-set="${esc(x.key)}">Set</button>${x.pinned ? `<button data-clr="${esc(x.key)}">Clear</button>` : ""}</div>
                     <div class="ed"><button data-undo="${esc(x.key)}" title="Remove only the newest run">↶ Undo last run</button><button data-del="${esc(x.key)}" title="Delete every time for this star">🗑 Delete times</button></div>
                     </div>
@@ -596,6 +612,7 @@
             try { await call("/warp", { course: +c, act: +a || 0 }); $("msg").textContent = a ? `Warping to star ${a}…` : "Warping - pick a star"; }
             catch (e) { $("msg").textContent = e.message; }
         };
+        $("gt").querySelectorAll("button.run-play").forEach(b => b.onclick = () => { pick(b.dataset.clip); $("vid").scrollIntoView({ behavior: "smooth", block: "center" }); });
         $("gt").querySelectorAll("button.go-lv").forEach(b => b.onclick = () => warp(b.dataset.c, 0));
         $("gt").querySelectorAll("button.go-st").forEach(b => b.onclick = () => warp(b.dataset.c, b.dataset.a));
     }
@@ -695,6 +712,7 @@
     async function loadClips() {
         try {
             const { clips } = await call("/clips");
+            runClips = clips; if (lastG && !gtEditing) paintGhost(lastG);     // star cards show each run's clip
             call("/runs?name=").then(r => { $("autoclip").checked = r.auto; }).catch(() => {});
             // recordings with their clips folded under them (L 2026-10-16 "can each recording expand to show the clips"):
             // a clip = any file named "<recording stem> - ..." or "<recording stem> (clip ...)" etc.
