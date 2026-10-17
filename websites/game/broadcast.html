@@ -108,6 +108,7 @@
         .tile .top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
         .tile .top .nm { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .tile .more { display: none; }
+        .tile .tg { flex: none; font: inherit; font-size: 1rem; line-height: 1; padding: 4px 10px; border-radius: 6px; border: 0; cursor: pointer; background: hsl(var(--h) 50% 92%); }
         .tile.open .more { display: block; }
         .tile:not(.open) { padding: 5px 8px; }
         .tile:not(.open) .best { font-size: 1rem; }
@@ -237,7 +238,7 @@
                 <div id="hint" class="hint hidden"></div>
             </section>
 
-        <section class="bc-card">
+        <section class="bc-card" id="gt-card">
             <h2>Star times <span class="meta" id="gt-meta"></span></h2>
             <div class="meta">One colour per level. Big number = your best; last run vs best; the line = your last runs (lower = faster). Target = last + 2 s unless pinned 📌 (type 0:42.5, Set; Clear = automatic).</div>
             <div id="gt" class="np meta">Grab a star with 👻 Beat your time on to start the list.</div>
@@ -580,7 +581,7 @@
                 // folded = one line, star + best + last-vs-best; tap the card = everything below
                 return `<div class="tile ${x.key === g.current ? "cur" : ""} ${gtOpen.has(x.key) ? "open" : ""}" data-tk="${esc(x.key)}">
                     <div class="top"><div class="nm"><button class="go-st" data-c="${x.c}" data-a="${x.a}" title="Start this level on this star">▶ ${esc(x.star)}</button></div>
-                    <div class="best">${esc(x.bestTxt || "-")}</div></div>
+                    <div class="best">${esc(x.bestTxt || "-")}</div><button class="tg" title="Show / hide details">${gtOpen.has(x.key) ? "▴" : "▾"}</button></div>
                     <div class="row"><span>last ${esc(x.lastTxt || "-")}</span>${dTxt}</div>
                     <div class="more">
                     ${spark(x.hist)}
@@ -593,9 +594,20 @@
                 </div>`; }).join("") + `</div></div>`;
         }
         $("gt").innerHTML = html || "Grab a star with 👻 Beat your time on to start the list.";
-        $("gt").querySelectorAll(".tile[data-tk]").forEach(t => t.onclick = e => {
-            if (e.target.closest("button, input")) return;            // buttons/inputs keep their own job
-            const k = t.dataset.tk; gtOpen.has(k) ? gtOpen.delete(k) : gtOpen.add(k); t.classList.toggle("open", gtOpen.has(k));
+        // iPad (L 2026-10-16 "tap not working to make card bigger"): Safari snaps a tap on the card's plain area to
+        // the nearest button - the ▶ warp button - so the card never saw it (and you got warped). The touch is handled
+        // on touchend at its REAL target and the snapped click is cancelled; ▾ is a proper button too.
+        const flip = t => { const k = t.dataset.tk; gtOpen.has(k) ? gtOpen.delete(k) : gtOpen.add(k);
+            t.classList.toggle("open", gtOpen.has(k)); const b = t.querySelector(".tg"); if (b) b.textContent = gtOpen.has(k) ? "▴" : "▾"; };
+        $("gt").querySelectorAll(".tile[data-tk]").forEach(t => {
+            let t0 = null;
+            t.addEventListener("touchstart", e => { const p = e.touches[0]; t0 = { x: p.clientX, y: p.clientY }; }, { passive: true });
+            t.addEventListener("touchend", e => {
+                const p = e.changedTouches[0], moved = !t0 || Math.hypot(p.clientX - t0.x, p.clientY - t0.y) > 10; t0 = null;
+                if (moved || e.target.closest("button:not(.tg), input")) return;     // a scroll, or a real button press
+                e.preventDefault(); flip(t);                                        // no snapped click follows
+            });
+            t.onclick = e => { if (e.target.closest("button:not(.tg), input")) return; flip(t); };   // mouse
         });
         $("gt").querySelectorAll("input").forEach(i => { i.onfocus = () => gtEditing = true; i.onblur = () => setTimeout(() => gtEditing = false, 300); });
         $("gt").querySelectorAll("button[data-set]").forEach(b => b.onclick = () => setTarget(b.dataset.set, $("gt").querySelector(`input[data-k="${b.dataset.set}"]`).value));
@@ -707,6 +719,8 @@
             loadAch(s.playing?.source === "RetroArch" ? s.playing.title : null);
             const g = s.playing?.title || null;
             if (g !== qcGame) { qcGame = g; loadCheats(); }
+            // star times are a Mario thing (L 2026-10-16 "star times only applicable on mario game")
+            $("gt-card").classList.toggle("hidden", !/mario|lourio/i.test(g || ""));
         }
         catch (e) { $("msg").textContent = e.message; }
     }
