@@ -108,6 +108,8 @@
         .tile .top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
         .tile .top .nm { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .tile .more { display: none; }
+        .gt-x { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
+        .gt-x button { font: inherit; font-size: .75rem; padding: 6px 10px; border-radius: 99px; border: 1px solid #c8b49a; background: #fff; cursor: pointer; }
         .tile .tg { flex: none; font: inherit; font-size: 1rem; line-height: 1; padding: 4px 10px; border-radius: 6px; border: 0; cursor: pointer; background: hsl(var(--h) 50% 92%); }
         .tile.open .more { display: block; }
         .tile:not(.open) { padding: 5px 8px; }
@@ -251,6 +253,7 @@
         <section class="bc-card" id="gt-card">
             <h2>Star times <span class="meta" id="gt-meta"></span></h2>
             <div class="meta">One colour per level. Big number = your best; last run vs best; the line = your last runs (lower = faster). Target = last + 2 s unless pinned 📌 (type 0:42.5, Set; Clear = automatic).</div>
+            <div class="ed gt-x"><button id="gt-csv" title="Spreadsheet: one row per star, every run">⬇ Export CSV</button><button id="gt-json" title="Everything, as data">⬇ Export JSON</button><span class="meta" id="gt-xmsg"></span></div>
             <div id="gt" class="np meta">Grab a star with 👻 Beat your time on to start the list.</div>
         </section>
 
@@ -547,6 +550,36 @@
         });
     }
     $("ral-q").oninput = paintRaList;
+
+    // export the star times (L 2026-10-16 "add an export info button to the star times card") - built in the browser
+    // from what the card already has, so it works on the iPad too (Files / Share sheet)
+    function saveFile(name, text, type) {
+        const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name;
+        document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    }
+    function exportTimes(kind) {
+        const stars = (lastG && lastG.stars) || [];
+        if (!stars.length) { $("gt-xmsg").textContent = "No times yet"; return; }
+        const day = new Date().toISOString().slice(0, 10);
+        const f = fr => fr == null ? "" : Math.floor(fr / 1800) + ":" + String(Math.floor(fr / 30) % 60).padStart(2, "0") + "." + String(Math.floor((fr % 30) * 10 / 3)).padStart(2, "0");
+        const when = ms => ms ? new Date(ms).toLocaleString() : "";
+        const rows = [...stars].sort((a, b) => a.c - b.c || a.a - b.a);
+        if (kind === "json") {
+            saveFile(`star-times-${day}.json`, JSON.stringify({ exported: new Date().toISOString(), fps: 30, stars: rows.map(x => ({
+                course: x.course, courseNum: x.c, star: x.star, starNum: x.a, best: x.bestTxt, last: x.lastTxt, avg: x.avgTxt,
+                runs: x.runs, runTimes: (x.hist || []).map(f), runFrames: x.hist || [], target: x.targetTxt, pinned: x.pinned,
+                pbAt: x.bestAt ? new Date(x.bestAt).toISOString() : null, lastAt: x.lastAt ? new Date(x.lastAt).toISOString() : null })) }, null, 1), "application/json");
+        } else {
+            const q = v => /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v);
+            const head = ["Course", "Star", "Best", "Last", "Average", "Runs", "Target", "PB set", "Last run", "All runs (oldest first)"];
+            const body = rows.map(x => [x.course, x.star, x.bestTxt, x.lastTxt, x.avgTxt, x.runs, x.targetTxt + (x.pinned ? " (pinned)" : ""),
+                when(x.bestAt), when(x.lastAt), (x.hist || []).map(f).join(" | ")].map(q).join(","));
+            saveFile(`star-times-${day}.csv`, "\ufeff" + [head.join(","), ...body].join("\r\n"), "text/csv");
+        }
+        $("gt-xmsg").textContent = `Exported ${rows.length} stars`;
+    }
+    $("gt-csv").onclick = () => exportTimes("csv");
+    $("gt-json").onclick = () => exportTimes("json");
 
     // ---- stream frame + OBS preview (L 2026-10-15) ----
     let frameOn = false, prevUrl = null, prevBusy = false;
