@@ -147,6 +147,13 @@
         .qc button { font: inherit; font-size: .75rem; padding: 7px 10px; border-radius: 99px; border: 1px solid #c8b49a; background: #fff; cursor: pointer; }
         .qc button.on { background: #2e7d32; color: #fff; border-color: #2e7d32; }
         .qc .meta { width: 100%; }
+        .ral { margin-top: 10px; }
+        .ral summary { cursor: pointer; font-weight: 700; font-size: .85rem; }
+        .ral input { width: 100%; box-sizing: border-box; font: inherit; padding: 7px 10px; margin: 8px 0 6px; border-radius: 8px; border: 1px solid #c8b49a; }
+        .ral-l { display: flex; flex-wrap: wrap; gap: 6px; max-height: 260px; overflow-y: auto; }
+        .ral-l button { font: inherit; font-size: .75rem; padding: 6px 10px; border-radius: 99px; border: 1px solid #c8b49a; background: #fff; cursor: pointer; text-align: left; }
+        .ral-l button.on { background: #2e7d32; color: #fff; border-color: #2e7d32; }
+        .ral-l .meta { width: 100%; }
         .hidden { display: none !important; }
     </style>
     <script type="module" src="assets/js/auth-handling.js"></script>
@@ -234,6 +241,9 @@
                 <div id="st" class="st"></div>
                 <div id="qc" class="qc"></div>
                 <div id="rac" class="qc"></div>
+                <details id="ral" class="ral hidden"><summary>📜 Cheat list <span class="meta" id="ral-n"></span></summary>
+                    <input id="ral-q" type="search" placeholder="Search cheats (e.g. health, ammo, rupees)" autocomplete="off">
+                    <div id="ral-l" class="ral-l"></div><div class="meta" id="ral-msg"></div></details>
                 <div class="ed"><button class="go" id="b-hint">🔍 What should I do?</button><span class="meta" id="hint-meta"></span></div>
                 <div id="hint" class="hint hidden"></div>
             </section>
@@ -508,6 +518,36 @@
         } catch (e) { $("rac").innerHTML = ""; }
     }
 
+    // the game's WHOLE RetroArch cheat list (L 2026-10-16 "add cheats to broadcast of all faved games"): search, tap to
+    // switch on / off. Loaded when the game changes (not on every poll - that would wipe the search box).
+    let ralItems = [];
+    async function loadRaList(msg) {
+        try {
+            const r = await call("/racheat_list"); ralItems = r.items || [];
+            $("ral").classList.toggle("hidden", !ralItems.length);
+            $("ral-n").textContent = ralItems.length ? `(${ralItems.filter(x => x.on).length} on of ${ralItems.length})` : "";
+            $("ral-msg").textContent = msg || ""; paintRaList();
+        } catch (e) { ralItems = []; $("ral").classList.add("hidden"); }
+    }
+    function paintRaList() {
+        const q = $("ral-q").value.trim().toLowerCase();
+        const hits = ralItems.filter(x => !q || x.desc.toLowerCase().includes(q));
+        const show = hits.sort((a, b) => b.on - a.on || a.idx - b.idx).slice(0, 80);   // ON first; cap so a 1,700-code list stays light
+        $("ral-l").innerHTML = show.map(x => `<button data-i="${x.idx}" data-on="${x.on ? 1 : 0}" class="${x.on ? "on" : ""}">${x.on ? "✓ " : ""}${esc(x.desc)}</button>`).join("")
+            + (hits.length > show.length ? `<div class="meta">…${hits.length - show.length} more - search to narrow it down</div>` : "")
+            + (!hits.length ? `<div class="meta">No cheat matches "${esc(q)}"</div>` : "");
+        $("ral-l").querySelectorAll("button").forEach(b => b.onclick = async () => {
+            const on = b.dataset.on !== "1";
+            $("ral-l").querySelectorAll("button").forEach(x => x.disabled = true);
+            $("ral-msg").textContent = (on ? "Switching on" : "Switching off") + "… (RetroArch steps through its list - a long list takes a few seconds)";
+            let m;
+            try { const r = await call("/racheat_set", { idx: +b.dataset.i, on }); m = r.ok ? `✅ ${on ? "On" : "Off"}: ${r.desc || ""}` : "⚠️ didn't switch - try again"; }
+            catch (e) { m = "⚠️ " + e.message; }
+            loadRaList(m); loadRaCheats();
+        });
+    }
+    $("ral-q").oninput = paintRaList;
+
     // ---- stream frame + OBS preview (L 2026-10-15) ----
     let frameOn = false, prevUrl = null, prevBusy = false;
     function paintFrame() {
@@ -718,7 +758,7 @@
             const s = await call("/status"); paintObs(s.obs); paintPlaying(s.playing); paintState(s.playing?.state);
             loadAch(s.playing?.source === "RetroArch" ? s.playing.title : null);
             const g = s.playing?.title || null;
-            if (g !== qcGame) { qcGame = g; loadCheats(); }
+            if (g !== qcGame) { qcGame = g; loadCheats(); loadRaList(); }
             // star times are a Mario thing (L 2026-10-16 "star times only applicable on mario game")
             $("gt-card").classList.toggle("hidden", !/mario|lourio/i.test(g || ""));
         }
