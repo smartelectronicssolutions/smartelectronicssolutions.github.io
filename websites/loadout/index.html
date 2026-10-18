@@ -797,11 +797,18 @@ function stepNPCs(dt){for(const id of npcsIn(room)){const n=NPCS[id];
 function settleNPCs(){for(const id in NPCS){const n=NPCS[id];if(n.room!==room||!blocked(n.x,n.y))continue;
   for(let r=8;r<=96;r+=8){let done=false;for(let k=0;k<16&&!done;k++){const a=k/16*6.283,x=n.hx+Math.cos(a)*r,y=n.hy+Math.sin(a)*r;if(!blocked(x,y)){n.x=n.hx=n.tx=x;n.y=n.hy=n.ty=y;done=true;}}if(done)break;}}}
 function nearNPC(){let best=null,bd=1e9;for(const id of npcsIn(room)){const n=NPCS[id],dd=Math.hypot(player.x-n.x,player.y-n.y);if(dd<48&&dd<bd){bd=dd;best=id;}}return best;}
+// NEAR-ONLY LABELS (2026-10-18, L: "text only when close or clicked, same for people; houses + vehicles get an indicator
+// it's interactive, but no bunch of text everywhere in the map"). A name shows when you stand within LBL_NEAR px, for 5 s
+// after you tap near it, and always in EDIT ROOM. Otherwise doors/houses/vehicles/shop/storage get a small bobbing dot.
+const LBL_NEAR=84;let lblTap=null;
+function showLbl(x,y){if(editMode)return true;if(lblTap&&performance.now()-lblTap.t<5000&&Math.hypot(lblTap.x-x,lblTap.y-y)<70)return true;return Math.hypot(player.x-x,player.y-y)<LBL_NEAR;}
+function lblDot(x,y){const b=Math.round(Math.sin(performance.now()/320)*1.5);ctx.fillStyle="#3a1c08";ctx.beginPath();ctx.arc(x,y+b,4,0,7);ctx.fill();ctx.fillStyle="#f9c46e";ctx.beginPath();ctx.arc(x,y+b,2.6,0,7);ctx.fill();}
 function drawNPC(id){const n=NPCS[id];if(n.spirit||n.robe)return drawMind(id);const im=npcImg[id],dw=FW*SC,dh=FH*SC,dx=Math.round(n.x-dw/2),dy=Math.round(n.y-dh+8);
   ctx.fillStyle="rgba(0,0,0,.30)";ctx.beginPath();ctx.ellipse(n.x,n.y,10,4,0,0,7);ctx.fill();
   if(im&&im.complete){const base=n.dir==="up"?6:(n.dir==="down"?18:0);const sx=(base+(n.moving?(n.frame%6):0))*FW;
     ctx.save();if(n.dir==="left"){ctx.translate(dx+dw,dy);ctx.scale(-1,1);ctx.drawImage(im,sx,0,FW,FH,0,0,dw,dh);}else ctx.drawImage(im,sx,0,FW,FH,dx,dy,dw,dh);ctx.restore();}
   else{ctx.fillStyle="#6cc";ctx.fillRect(dx+dw*.3,dy+dh*.2,dw*.4,dh*.6);}
+  if(!showLbl(n.x,n.y-30))return;
   ctx.font="9px 'Pixelify Sans',monospace";ctx.textAlign="center";const tw=ctx.measureText(n.name).width+8;ctx.fillStyle="#ffe9b8";ctx.fillRect(n.x-tw/2,dy-13,tw,12);ctx.fillStyle="#4a2510";ctx.fillText(n.name,n.x,dy-4);ctx.textAlign="left";}
 function npcOpenJob(id){const n=NPCS[id];if(!n.jobs)return null;for(const j of n.jobs)if(JOBS[j]&&!JOBSUNLOCKED[j])return j;return null;}
 function dlgLines(id){const n=NPCS[id];const st=storyLines(id);if(st)return st;return npcOpenJob(id)?n.lines.concat(["Got a fresh ticket for you — it's on your Dispatch now. Gas up, grab the parts, go."]):n.lines;}
@@ -873,6 +880,7 @@ function drawMind(id){const n=NPCS[id],t=(performance.now()/1000),bob=n.spirit?M
   else{ctx.fillStyle="#1c1814";ctx.beginPath();ctx.moveTo(x-13,y);ctx.lineTo(x+13,y);ctx.lineTo(x+8,y-36);ctx.lineTo(x-8,y-36);ctx.fill();
     ctx.beginPath();ctx.arc(x,y-40,9,Math.PI,0);ctx.lineTo(x+9,y-32);ctx.lineTo(x-9,y-32);ctx.fill();
     ctx.fillStyle="#2b241d";ctx.fillRect(x-5,y-38,10,7);ctx.fillStyle="#ffb347";ctx.fillRect(x-3,y-36,2,2);ctx.fillRect(x+1,y-36,2,2);}
+  if(!showLbl(x,y-30))return;
   ctx.font="9px 'Pixelify Sans',monospace";ctx.textAlign="center";const tw=ctx.measureText(n.name).width+8,ty=y-54;ctx.fillStyle="#ffe9b8";ctx.fillRect(x-tw/2,ty-9,tw,12);ctx.fillStyle=n.spirit?"#2f5a8a":"#4a2510";ctx.fillText(n.name,x,ty);ctx.textAlign="left";}
 // the Glade: moonlit clearing, ring of trees, stone round table, fire; eight seats fill when the Circle is complete
 const GLADE_T={x:256,y:262,rx:92,ry:40};
@@ -910,7 +918,7 @@ function drawHoodGround(){const W=worldW(),H=worldH(),A=HOOD.ave,M=STREET_ROAD,r
    px(cc-110,G.y+18,220,14,"#c8402e");px(cc-104,G.y+32,6,40,"#9a9a9a");px(cc+98,G.y+32,6,40,"#9a9a9a");
    for(const gx of [cc-60,cc+40]){px(gx,G.y+52,20,30,"#c8402e");px(gx+4,G.y+56,12,8,"#1e2a33");px(gx+4,G.y+70,12,3,"#f2d27a");}
    px(G.x+306,G.y+30,100,70,"#d8d2c4");px(G.x+306,G.y+30,100,8,"#c8402e");px(G.x+344,G.y+70,24,30,"#5e3a24");px(G.x+316,G.y+48,18,14,"#7fb3cf");px(G.x+378,G.y+48,18,14,"#7fb3cf");
-   ctx.fillStyle="#fff";ctx.font="bold 9px 'Pixelify Sans',monospace";ctx.textAlign="center";ctx.fillText("FUEL · E TO FILL",cc,G.y+28);ctx.textAlign="left";}}
+   if(showLbl(cc,G.y+70)){ctx.fillStyle="#fff";ctx.font="bold 9px 'Pixelify Sans',monospace";ctx.textAlign="center";ctx.fillText("FUEL · E TO FILL",cc,G.y+28);ctx.textAlign="left";}else lblDot(cc,G.y+25);}}
 function drawHoodProps(){}   // props are catalog items (see OUTDOOR PROPS AS ITEMS)
 function hoodSolids(){HOOD_SOLID.length=0;const D=HOOD.pond,G=HOOD.gas,cc=G.x+150;
   for(let yy=-D.ry+8;yy<D.ry-8;yy+=12){const half=D.rx*Math.sqrt(1-(yy/D.ry)**2)-8;HOOD_SOLID.push({x:D.x-half,y:D.y+yy,w:half*2,h:12});}
@@ -938,6 +946,7 @@ function drawGlade(){
     for(let k=0;k<8;k++){const [sx,sy]=seats[k],[nm,col]=who[k];if(k===0||k===1)continue;   // Seth + Grove stand as NPCs
       if(col){const g=ctx.createRadialGradient(sx,sy-14,2,sx,sy-14,26);g.addColorStop(0,col+"cc");g.addColorStop(1,col+"00");ctx.fillStyle=g;ctx.fillRect(sx-28,sy-44,56,56);ctx.fillStyle=col;ctx.globalAlpha=.85;ctx.beginPath();ctx.arc(sx,sy-20,6,0,7);ctx.fill();ctx.fillRect(sx-8,sy-14,16,14);ctx.globalAlpha=1;}
       else{ctx.fillStyle="#1c1814";ctx.beginPath();ctx.arc(sx,sy-22,7,0,7);ctx.fill();ctx.fillRect(sx-9,sy-16,18,16);ctx.fillStyle="#ffb347";ctx.fillRect(sx-3,sy-23,2,2);ctx.fillRect(sx+1,sy-23,2,2);}
+      if(!showLbl(sx,sy))continue;
       ctx.font="8px 'Pixelify Sans',monospace";ctx.textAlign="center";ctx.fillStyle="#ffe9b8";const tw=ctx.measureText(nm).width+6;ctx.fillRect(sx-tw/2,sy+10,tw,10);ctx.fillStyle="#4a2510";ctx.fillText(nm,sx,sy+18);ctx.textAlign="left";}}
   const ex=ROOMS.glade.doors[0];drawGate(ex.x,ex.y,ex.w,ex.h,"NEIGHBORHOOD");}
 window.__loGo=(r,x,y)=>{if(ROOMS[r])go({to:r,entry:[x||256,y||300]});};window.__loNPCTick=(sec)=>{computeROOMR();settleNPCs();for(let t=0;t<sec;t+=1/30)stepNPCs(1/30);return npcsIn(room).map(id=>({id,x:Math.round(NPCS[id].x),y:Math.round(NPCS[id].y),inside:blocked(NPCS[id].x,NPCS[id].y)}));};
@@ -979,6 +988,7 @@ function drawFixture(id){const fx=FIXTURES[id],x=fxCX(fx),y=fxCY(fx);
   else{px(x-18,y-42,36,46,"#5e4326");px(x-18,y-42,36,3,"#7a5c34");
     for(let s=0;s<3;s++){const sy=y-38+s*14;px(x-16,sy+11,32,2,"#3a2a18");const cols=["#b23b3b","#3b6bb2","#5ba13b","#c9a13b","#8a4ab2"];
       for(let b=0;b<6;b++)px(x-15+b*5,sy,4,11,cols[(s*6+b)%5]);}}
+  if(!showLbl(x,y-20))return;
   ctx.font="8px 'Pixelify Sans',monospace";ctx.textAlign="center";const tw=ctx.measureText(fx.name).width+8;ctx.fillStyle="#ffe9b8";ctx.fillRect(x-tw/2,y-54,tw,11);ctx.fillStyle="#4a2510";ctx.fillText(fx.name,x,y-46);ctx.textAlign="left";}
 function fmtTxt(s){return String(s||"").replace(/â€"/g,"—").replace(/â€™/g,"’").replace(/â€œ/g,'"').replace(/â€/g,'"').replace(/Â/g,"");}
 function openReader(kind){$("reader").classList.add("open");if(_jLoad&&Object.keys(JOURNAL).length){showList(kind);return;}
@@ -1139,7 +1149,7 @@ function endPtr(e){if(!ptr||(e&&e.pointerId!==ptr.id))return;
   }
   joy=null;ptr=null;}
 cv.addEventListener("pointerup",endPtr);cv.addEventListener("pointercancel",()=>{joy=null;ptr=null;});
-function onPlayTap(p){if(isOpen()||transing)return;
+function onPlayTap(p){if(isOpen()||transing)return;lblTap={x:p.x,y:p.y,t:performance.now()};
   if(room==="street"){   // tap the shop or the van = walk to its front
     if(p.x>=SHOP_RECT.x&&p.x<=SHOP_RECT.x+SHOP_RECT.w&&p.y>=SHOP_RECT.y&&p.y<=SHOP_RECT.y+SHOP_RECT.h){moveTarget={x:SHOP_RECT.x+SHOP_RECT.w/2,y:SHOP_RECT.y+SHOP_RECT.h-2,openKey:null};return;}
     const sv=STREET_CARS.find(c=>c.k==="van");if(sv&&p.x>=sv.x&&p.x<=sv.x+156&&p.y>=sv.y&&p.y<=sv.y+96){moveTarget={x:sv.x+78,y:sv.y+30,openKey:null};return;}}
@@ -1330,7 +1340,7 @@ function render(){const R=ROOMS[room];
   for(const e of ents){if(e.t==="d")drawDecorItem(e.d);else if(e.t==="p")drawPlace(e.k,e.p);else if(e.t==="npc")drawNPC(e.id);else if(e.t==="fx")drawFixture(e.id);else drawPlayer();}
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b42",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b45",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
@@ -1382,6 +1392,7 @@ function houseArt(roof){const r0=(roof&&roof[0])||"#7a3f34",r1=(roof&&roof[1])||
 function drawHouseSprite(x,y,roof,label){ // 150x116 cottage (art 75x58 at 2x)
   ctx.fillStyle="rgba(0,0,0,.28)";ctx.beginPath();ctx.ellipse(x+75,y+114,66,7,0,0,7);ctx.fill();
   const sm=ctx.imageSmoothingEnabled;ctx.imageSmoothingEnabled=false;ctx.drawImage(houseArt(roof),x,y,150,116);ctx.imageSmoothingEnabled=sm;
+  if(!showLbl(x+75,y+100)){lblDot(x+75,y+10);return;}
   ctx.font="8px 'Pixelify Sans',monospace";ctx.textAlign="center";ctx.lineWidth=3;ctx.strokeStyle="#3a1c08";ctx.strokeText(label?("▾ "+label):"▾ ENTER HOUSE",x+75,y+12);ctx.fillStyle="#ffe9b8";ctx.fillText(label?("▾ "+label):"▾ ENTER HOUSE",x+75,y+12);}
 function drawStreet(){const W=worldW(),H=worldH();
   for(let y=0;y<H;y+=16)for(let x=0;x<W;x+=16){ctx.fillStyle=((x/16+y/16)%2===0)?"#5d9a3c":"#58933a";ctx.fillRect(x,y,16,16);}
@@ -1394,7 +1405,8 @@ function drawStreet(){const W=worldW(),H=worldH();
   for(const v of STREET_CARS){const im=catImg[v.k];const c=CAT[v.k];
     ctx.fillStyle="rgba(0,0,0,.30)";ctx.beginPath();ctx.ellipse(v.x+78,v.y+92,70,8,0,0,7);ctx.fill();
     if(im&&im.complete&&c){ctx.imageSmoothingEnabled=false;ctx.drawImage(im,v.x,v.y,c.w||156,c.h||96);}
-    if(v.k==="van"){ctx.fillStyle="#f2a541";ctx.font="8px 'Pixelify Sans',monospace";ctx.textAlign="center";ctx.fillText("▸ "+slab("van","THE VAN"),v.x+78,v.y+6);ctx.textAlign="left";}}
+    if(v.k==="van"&&!showLbl(v.x+78,v.y+60))lblDot(v.x+78,v.y+4);
+    else if(v.k==="van"){ctx.fillStyle="#f2a541";ctx.font="8px 'Pixelify Sans',monospace";ctx.textAlign="center";ctx.fillText("▸ "+slab("van","THE VAN"),v.x+78,v.y+6);ctx.textAlign="left";}}
   drawShop();drawHoodProps();
   const gd=ROOMS.street.doors.find(d=>d.to==="glade");if(gd)drawGate(gd.x,gd.y,gd.w,gd.h,"GLADE");}
 const STREET_ROAD={y:170,h:52};
@@ -1431,6 +1443,7 @@ function drawGate(x,y,w,h,label){
   for(let px0=x+4;px0<x+w-3;px0+=7)px(px0,y+3,2,h-6,"#5f3d22"); // planks
   px(x+2,y+2,w-4,2,"#8f5e38");                              // top light
   ctx.fillStyle="#e8c05a";ctx.beginPath();ctx.arc(x+w-6,y+h/2,2.2,0,7);ctx.fill(); // knob
+  if(!showLbl(x+w/2,y+h/2)){lblDot(x+w/2,fy-2);return;}
   ctx.fillStyle="#f2a541";ctx.font="8px 'Pixelify Sans',monospace";ctx.textAlign="center";ctx.fillText("▾ "+label,x+w/2,fy+2);ctx.textAlign="left";}
 function drawShop(){const x=SHOP_RECT.x,y=SHOP_RECT.y;
   ctx.fillStyle="rgba(0,0,0,.28)";ctx.beginPath();ctx.ellipse(x+60,y+92,60,7,0,0,7);ctx.fill();
@@ -1438,6 +1451,7 @@ function drawShop(){const x=SHOP_RECT.x,y=SHOP_RECT.y;
   px(x-4,y+14,128,18,"#b23b3b");for(let i=0;i<8;i++)px(x-4+i*16,y+14,8,18,"#e8e8e8");
   px(x+46,y+58,30,34,"#3a2d22");px(x+58,y+74,3,3,"#f2d27a");
   px(x+12,y+44,26,20,"#8fb8d0");px(x+84,y+44,26,20,"#8fb8d0");
+  if(!showLbl(x+60,y+70)){lblDot(x+60,y+8);return;}
   ctx.font="8px 'Pixelify Sans',monospace";ctx.textAlign="center";ctx.lineWidth=3;ctx.strokeStyle="#3a1c08";ctx.strokeText("▾ "+slab("shop","SHOP"),x+60,y+10);ctx.fillStyle="#ffe9b8";ctx.fillText("▾ "+slab("shop","SHOP"),x+60,y+10);}
 function drawDoor(d){if(d.to==="van")return;const SZ=24;const h=doorHitRect(d);const cx=h.x+h.w/2,cy=h.y+h.h/2,x=Math.round(cx-SZ/2),y=Math.round(cy-SZ/2);ctx.fillStyle="#08080b";ctx.fillRect(x,y,SZ,SZ);ctx.strokeStyle="rgba(110,190,255,.55)";ctx.lineWidth=1;ctx.strokeRect(x+.5,y+.5,SZ-1,SZ-1);}
 function drawPlace(key,p){const x=p.x,y=p.y,w=p.w,h=p.h,n=(byLoc[key]||[]).length;
@@ -1445,12 +1459,14 @@ function drawPlace(key,p){const x=p.x,y=p.y,w=p.w,h=p.h,n=(byLoc[key]||[]).lengt
     const c=CAT[p.sprite],s=Math.min((w*1.35)/c.w,(h+24)/c.h),dw=c.w*s,dh=c.h*s,dx=Math.round(x+w/2-dw/2),dy=Math.round(y+h-dh);
     ctx.fillStyle="rgba(0,0,0,.32)";ctx.beginPath();ctx.ellipse(x+w/2,y+h+2,dw*.36,5,0,0,7);ctx.fill();
     ctx.drawImage(catImg[p.sprite],dx,dy,dw,dh);
+    if(!showLbl(x+w/2,y+h/2)){lblDot(x+w/2,dy-4);return;}
     ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="center";ctx.fillStyle="#0c0f13";ctx.fillRect(x+w/2-26,y-13,52,11);
     ctx.lineWidth=3;ctx.strokeStyle="#3a1c08";ctx.strokeText(p.label.toUpperCase(),x+w/2,y-5);ctx.fillStyle="#ffe9b8";ctx.fillText(p.label.toUpperCase(),x+w/2,y-5);ctx.fillStyle="#f2a541";ctx.fillText("· "+n+" ·",x+w/2,y+h+11);return;}
   ctx.fillStyle="rgba(0,0,0,.35)";ctx.beginPath();ctx.ellipse(x+w/2,y+h+4,w/2,6,0,0,7);ctx.fill();
   ctx.fillStyle="#39424d";ctx.fillRect(x,y,w,h);ctx.fillStyle="#2b333c";ctx.fillRect(x,y+h*.55,w,h*.45);
   ctx.fillStyle="#48525e";ctx.fillRect(x,y,w,4);ctx.fillStyle="#20262d";ctx.fillRect(x,y+h-4,w,4);
   ctx.fillStyle="#f2a541";ctx.fillRect(x+w/2-6,y+h*.55-3,12,6);ctx.strokeStyle="#1a1f25";ctx.lineWidth=1;ctx.strokeRect(x+.5,y+.5,w-1,h-1);
+  if(!showLbl(x+w/2,y+h/2)){lblDot(x+w/2,y-6);return;}
   ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="center";ctx.fillStyle="#0c0f13";ctx.fillRect(x-6,y-13,w+12,11);
   ctx.lineWidth=3;ctx.strokeStyle="#3a1c08";ctx.strokeText(p.label.toUpperCase(),x+w/2,y-5);ctx.fillStyle="#ffe9b8";ctx.fillText(p.label.toUpperCase(),x+w/2,y-5);ctx.fillStyle="#f2a541";ctx.fillText("· "+n+" ·",x+w/2,y+h-6);}
 function drawPlayer(){const base=player.dir==="up"?6:(player.dir==="down"?18:0);const yRow=128,col=base+(player.moving?player.frame:0);
