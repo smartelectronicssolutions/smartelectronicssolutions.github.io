@@ -694,9 +694,11 @@ onValue(ref(db,BASE+"/games/loadout/ledger"),snap=>{const v=snap.val();
   if($("shop").classList.contains("open"))renderShop();});
 // HUD money = real PROFIT (income - expense) from the logged-in account's ledger. READ-ONLY mirror: the game NEVER writes ledgerTx.
 let PROFIT=0;
+/* b44: the real-profit read is OFF while the HUD shows the game wallet (TEST MODE) - it pulled the whole ~440 KB
+   money/ledger on every load and nothing used it. Restore when tying into finances:
 get(ref(db,BASE+"/money/ledger")).then(snap=>{const y=snap.val()||{};let inc=0,exp=0;
   for(const yr in y){const es=y[yr]||{};for(const k in es){const e=es[k]||{};const a=+e.amt||0;if(e.type==="income")inc+=a;else exp+=a;}}
-  PROFIT=inc-exp;/* TEST MODE: HUD money shows the game wallet (BAL), not real profit - restore this when tying into finances */}).catch(()=>{});
+  PROFIT=inc-exp;/* TEST MODE: HUD money shows the game wallet (BAL), not real profit - restore this when tying into finances * /}).catch(()=>{}); */
 function ledgerAdd(amt,name){const id="tx"+Date.now().toString(36)+Math.floor(Math.random()*1e3).toString(36);
   update(ref(db,BASE+"/games/loadout/ledger"),{[id]:{amt,name,date:Date.now(),source:"loadout"}}).catch(()=>{});}
 function itemPrice(it){return parseFloat(String(it.price||"").replace(/[^0-9.]/g,""))||0;}
@@ -948,7 +950,8 @@ function drawStoryTip(){if(editMode)return;let msg=null;
   if(!msg)return;ctx.font="9px 'Pixelify Sans',monospace";const tw=Math.min(W-16,ctx.measureText(msg).width+14);ctx.fillStyle="#ffe9b8";ctx.fillRect(8,30,tw,16);ctx.fillStyle="#4a2510";ctx.textAlign="left";ctx.fillText(msg,15,41,tw-12);}   // below the room-name badge
 // ===== Fixtures: computer + bookshelf -> journal reader (live from public/journalArticles) =====
 let JOURNAL={};
-get(ref(db,BASE+"/journal")).then(snap=>{JOURNAL=snap.val()||{};}).catch(()=>{});
+// b44: loaded on first open of the Computer/Bookshelf, not at boot (the journal node is ~780 KB)
+let _jLoad=null;function loadJournal(){return _jLoad||(_jLoad=get(ref(db,BASE+"/journal")).then(snap=>{JOURNAL=snap.val()||{};}).catch(()=>{_jLoad=null;}));}
 const FIXTURES={
   terminal:{room:"yourroom",x:98,y:120,w:40,h:58,name:"Computer",kind:"lib"},
   bookshelf:{room:"yourroom",x:300,y:120,w:40,h:62,name:"Bookshelf",kind:"books"},
@@ -978,7 +981,10 @@ function drawFixture(id){const fx=FIXTURES[id],x=fxCX(fx),y=fxCY(fx);
       for(let b=0;b<6;b++)px(x-15+b*5,sy,4,11,cols[(s*6+b)%5]);}}
   ctx.font="8px 'Pixelify Sans',monospace";ctx.textAlign="center";const tw=ctx.measureText(fx.name).width+8;ctx.fillStyle="#ffe9b8";ctx.fillRect(x-tw/2,y-54,tw,11);ctx.fillStyle="#4a2510";ctx.fillText(fx.name,x,y-46);ctx.textAlign="left";}
 function fmtTxt(s){return String(s||"").replace(/â€"/g,"—").replace(/â€™/g,"’").replace(/â€œ/g,'"').replace(/â€/g,'"').replace(/Â/g,"");}
-function openReader(kind){$("reader").classList.add("open");showList(kind);}
+function openReader(kind){$("reader").classList.add("open");if(_jLoad&&Object.keys(JOURNAL).length){showList(kind);return;}
+  $("readerTitle").textContent="Loading…";$("readerBack").style.display="none";$("readerBody").innerHTML="<div style='padding:16px;opacity:.7'>Loading readings…</div>";
+  loadJournal().then(()=>{if($("reader").classList.contains("open"))showList(kind);});}
+window.__loReader=openReader;   // test hook
 function showList(kind){$("readerTitle").textContent=kind==="books"?"Bookshelf — Readings":"Journal Library";$("readerBack").style.display="none";
   const arr=Object.entries(JOURNAL).filter(([k,v])=>v&&v.title).sort((a,b)=>(b[1].createdAt||0)-(a[1].createdAt||0));
   const body=$("readerBody");body.innerHTML="";
@@ -1616,7 +1622,14 @@ setInterval(()=>{const k=room+":"+Math.round(player.x)+":"+Math.round(player.y);
 window.addEventListener("visibilitychange",()=>{if(document.hidden)savePlayerState();});
 window.addEventListener("pagehide",savePlayerState);
 // restore last position, then start the loop (always starts even if the read fails)
-get(ref(db,BASE+"/games/loadout/playerState")).then(s=>{const v=s.val();if(v&&v.room&&ROOMS[v.room]){room=v.room;player.x=+v.x||player.x;player.y=+v.y||player.y;player.dir=v.dir||player.dir;}}).catch(()=>{}).finally(()=>requestAnimationFrame(frame));
+get(ref(db,BASE+"/games/loadout/playerState")).then(s=>{const v=s.val();if(v&&v.room&&ROOMS[v.room]){room=v.room;player.x=+v.x||player.x;player.y=+v.y||player.y;player.dir=v.dir||player.dir;}}).catch(()=>{}).finally(()=>{requestAnimationFrame(frame);deepLink();});
+// b44 DEEP LINKS: index.html#street / #van / #glade / #yourroom / #erikhouse ... jumps to that room;
+// #bag (backpack) #jobs #shop #char #yuki #edit open that screen. Read once at load and on hash change.
+function deepLink(){const h=decodeURIComponent(location.hash.slice(1)).toLowerCase();if(!h)return;
+  if(ROOMS[h]){if(h!==room)window.__loGo(h);return;}
+  const open={bag:()=>openInvHere(),backpack:()=>openInvHere(),jobs:()=>openJobs(),tickets:()=>openJobs(),shop:()=>openShop(),char:()=>openCharEditor(),yuki:()=>yukiOpen(true),edit:()=>{if(!editMode)$("editBtn").click();}}[h];
+  if(open)setTimeout(()=>{try{open();}catch(_){}},600);}
+window.addEventListener("hashchange",deepLink);
 
 // ===== Sprite Studio (grid pixel editor) =====
 const ST={w:24,h:32,cells:null,color:"#c9a06a",tool:"pencil",disp:12,loadKey:null};
