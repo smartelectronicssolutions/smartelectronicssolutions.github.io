@@ -275,7 +275,7 @@
   <header>
     <div><div class="kicker">Field Service RPG · v0.5 · live DB</div><h1>LOADOUT</h1>
       <div class="tagline">Walk your world. Open storage. Build your rooms.</div></div>
-    <div class="hudR"><div class="pill">💰 <b id="money">—</b></div><div class="pill" id="fuelPill">⛽ <b id="fuel">—</b></div><div class="pill">CARRY <b id="bagN">0</b></div><button class="btn ghost" id="acctBtn">👤 Log in</button><button class="btn ghost" id="editBtn">EDIT ROOM</button><button class="btn ghost" id="yukiBtn">🧚 Yuki</button><button class="btn" id="bagBtn">BACKPACK</button></div>
+    <div class="hudR"><div class="pill"><span id="clockIco">☀</span> <b id="clock">—</b></div><div class="pill" title="energy - sleep in a bed to refill">⚡ <b id="energy">—</b></div><div class="pill">💰 <b id="money">—</b></div><div class="pill" id="fuelPill">⛽ <b id="fuel">—</b></div><div class="pill">CARRY <b id="bagN">0</b></div><button class="btn ghost" id="acctBtn">👤 Log in</button><button class="btn ghost" id="editBtn">EDIT ROOM</button><button class="btn ghost" id="yukiBtn">🧚 Yuki</button><button class="btn" id="bagBtn">BACKPACK</button></div>
   </header>
   <div class="screen">
     <canvas id="game" width="512" height="512"></canvas>
@@ -921,6 +921,7 @@ function pickInteractable(){const cands=[];const add=(cx,cy,py,act)=>cands.push(
   if(room==="street"&&nearR(SHOP_RECT,16))add(SHOP_RECT.x+SHOP_RECT.w/2,SHOP_RECT.y+SHOP_RECT.h/2,SHOP_RECT.y-6,()=>openShop());
   const sid=nearStore();if(sid){const d=roomDecor[room][sid],c=CAT[d.k]||{w:32,h:32},s=d.s||1;add(d.x+c.w*s/2,d.y+c.h*s/2,d.y-8,()=>{if(d.storeArea){openArea(d.storeArea);}else{openPanelFor(d.storeLoc||("decor:"+room+":"+sid));}});}
   for(const {d:_cd} of decorList(room)){if(!_cd.changeStation)continue;const _cc=CAT[_cd.k]||{w:32,h:32},_cs=_cd.s||1,_ccx=_cd.x+_cc.w*_cs/2,_ccy=_cd.y+_cc.h*_cs;if(Math.hypot(player.x-_ccx,player.y-_ccy)<58){add(_ccx,_ccy,_cd.y-8,openCharEditor);break;}}
+  for(const {d:_bd} of decorList(room)){if(!/^bed/.test(_bd.k))continue;const _bc=CAT[_bd.k]||{w:32,h:32},_bs=_bd.s||1,_bx=_bd.x+_bc.w*_bs/2,_by=_bd.y+_bc.h*_bs;if(Math.hypot(player.x-_bx,player.y-_by)<64){add(_bx,_by-_bc.h*_bs/2,_bd.y-8,sleepNow);break;}}   // sleep (2026-10-18)
   const pk=nearPlace();if(pk){const p=PLACES[pk];add(p.x+p.w/2,p.y+p.h/2,p.y,()=>openContainer(pk));}
   if(!cands.length)return null;
   const fv=player.dir==="left"?[-1,0]:player.dir==="right"?[1,0]:player.dir==="up"?[0,-1]:[0,1];
@@ -1070,8 +1071,33 @@ function pollGamepad(){const pads=navigator.getGamepads?navigator.getGamepads():
  if(a){if(isOpen())closePanel();else if(!editMode&&!transing)tryOpen();}
  else if(b){if(isOpen())closePanel();}}
 window.addEventListener("gamepadconnected",e=>{try{console.log("gamepad connected:",e.gamepad.id);}catch(_){}});
+// ===== DAY CLOCK + ENERGY (2026-10-18, L: "keep Loadout on the web and copy Stardew's design: day clock, energy") =====
+// 6:00am -> 2:00am, 10 game minutes per 7 real seconds (Stardew's pace). The clock only runs while you walk the world -
+// menus, dialogue and edit mode pause it. Sleep in a bed = next day 6am, full energy. Still up at 2am = you pass out:
+// wake in Your Room on half energy, $50 for the ride home. Tickets cost energy + clock time. Out of energy = you walk slow.
+const DAY_START=360,DAY_END=1560,GMIN_PER_SEC=10/7,E_MAX=270,WEEK=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+let DAY={d:1,m:DAY_START,e:E_MAX},_dayLoaded=false,_daySaved=0,_dayShown="",_bannerT=0;
+get(ref(db,BASE+"/games/loadout/day")).then(s=>{const v=s.val();if(v&&v.d)DAY={d:+v.d||1,m:+v.m||DAY_START,e:(v.e==null?E_MAX:+v.e)};_dayLoaded=true;showDay();}).catch(()=>{_dayLoaded=true;showDay();});
+function saveDay(){if(!_dayLoaded)return;_daySaved=Date.now();set(ref(db,BASE+"/games/loadout/day"),{d:DAY.d,m:Math.round(DAY.m),e:Math.round(DAY.e)}).catch(()=>{});}
+addEventListener("pagehide",saveDay);
+function clockText(m){m=Math.floor(m/10)*10;let h=Math.floor(m/60)%24;const mm=String(m%60).padStart(2,"0"),ap=h<12?"am":"pm";h=h%12||12;return h+":"+mm+ap;}
+function showDay(){const t=WEEK[(DAY.d-1)%7]+" "+DAY.d+" · "+clockText(DAY.m),e=Math.max(0,Math.round(DAY.e));
+  player.speed=e<=0?64:108;
+  if(t+"|"+e===_dayShown)return;_dayShown=t+"|"+e;
+  const c=$("clock");if(c)c.textContent=t;const en=$("energy");if(en){en.textContent=e;en.style.color=e<=0?"#e05a4f":e<E_MAX*.25?"#f2a541":"";}
+  const ci=$("clockIco");if(ci)ci.textContent=(DAY.m>=1080||DAY.m<DAY_START)?"🌙":"☀";}
+function dayBanner(t){const b=$("roomB");b.textContent=t;clearTimeout(_bannerT);_bannerT=setTimeout(()=>{b.textContent=ROOMS[room].name;},3200);}
+function stepDay(dt){if(!_dayLoaded)return;DAY.m+=dt*GMIN_PER_SEC;if(DAY.m>=DAY_END){passOut();return;}showDay();if(Date.now()-_daySaved>30000)saveDay();}
+function spendTime(min){DAY.m=Math.min(DAY_END-10,DAY.m+min);showDay();saveDay();}   // a ticket eats the clock but never knocks you out mid-job
+function spendEnergy(n){DAY.e=Math.max(0,DAY.e-n);showDay();saveDay();}
+function newDay(e){DAY.d+=1;DAY.m=DAY_START;DAY.e=e;_dayShown="";showDay();saveDay();}
+function sleepNow(){if(transing)return;newDay(E_MAX);dayBanner(WEEK[(DAY.d-1)%7]+" "+DAY.d+" · rested ⚡"+E_MAX);}
+function passOut(){if(transing)return;const fee=BAL>=50?50:0;if(fee)ledgerAdd(-fee,"Passed out - ride home");
+  newDay(Math.round(E_MAX/2));go({to:"yourroom",entry:[256,140]});setTimeout(()=>dayBanner("You passed out at 2am"+(fee?" · -$"+fee:"")+" · ⚡"+Math.round(E_MAX/2)),400);}
+function nightAlpha(){return DAY.m<1080?0:Math.min(.45,(DAY.m-1080)/360*.45);}   // dusk from 6pm, full dark by midnight
+function jobCost(j){return{e:Math.round(30+j.miles/4),t:Math.round(60+j.miles*1.5)};}
 let _lastDraw=0;
-function frame(ts){requestAnimationFrame(frame);const dt=Math.min(.05,(ts-last)/1000||0);last=ts;computeROOMR();pollGamepad();unstick();if(!isOpen()&&!transing&&!editMode){if(!dlg)step(dt);stepNPCs(dt);}stepFairy(dt);if(ts-_lastDraw<27)return;_lastDraw=ts;ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle="#0e1216";ctx.fillRect(0,0,W,H);ctx.save();ctx.translate(roomOff.x,roomOff.y);render();drawFairy();ctx.restore();}
+function frame(ts){requestAnimationFrame(frame);const dt=Math.min(.05,(ts-last)/1000||0);last=ts;computeROOMR();pollGamepad();unstick();if(!isOpen()&&!transing&&!editMode){if(!dlg){step(dt);stepDay(dt);}stepNPCs(dt);}stepFairy(dt);if(ts-_lastDraw<27)return;_lastDraw=ts;ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle="#0e1216";ctx.fillRect(0,0,W,H);ctx.save();ctx.translate(roomOff.x,roomOff.y);render();drawFairy();ctx.restore();if(!editMode){const na=nightAlpha();if(na>0){ctx.fillStyle="rgba(12,18,52,"+na+")";ctx.fillRect(0,0,W,H);}}}
 function step(dt){let dx=0,dy=0;
   if(joy){dx=joy.dx;dy=joy.dy;moveTarget=null;}
   else{if(keys.has("left"))dx--;if(keys.has("right"))dx++;if(keys.has("up"))dy--;if(keys.has("down"))dy++;}
@@ -1118,7 +1144,7 @@ function render(){const R=ROOMS[room];
   for(const e of ents){if(e.t==="d")drawDecorItem(e.d);else if(e.t==="p")drawPlace(e.k,e.p);else if(e.t==="npc")drawNPC(e.id);else if(e.t==="fx")drawFixture(e.id);else drawPlayer();}
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px monospace";ctx.textAlign="left";ctx.fillText("build b14",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px monospace";ctx.textAlign="left";ctx.fillText("build b15",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
@@ -1670,17 +1696,18 @@ function renderJobs(){$("jobFuel").textContent=Math.round(FUEL)+"%";$("jobMiles"
   const ids=Object.keys(JOBS).filter(id=>JOBSUNLOCKED[id]);
   if(!ids.length){body.innerHTML='<div class="empty" style="padding:26px">No tickets yet — head to the <b>Neighborhood</b> and talk to the crew (Erik, Kevin, Nick). They hand out the work.</div>';return;}
   for(const id of ids){const j=JOBS[id];const need=Math.round(j.miles*FUEL_PER_MILE);
-    const partsOk=(j.parts||[]).every(p=>haveQty(p.name)>=p.qty),fuelOk=FUEL>=need;
+    const partsOk=(j.parts||[]).every(p=>haveQty(p.name)>=p.qty),fuelOk=FUEL>=need,jc=jobCost(j),enOk=DAY.e>=jc.e,timeOk=DAY.m+jc.t<=DAY_END-10;
     const c=document.createElement("div");c.className="jobcard";
     const pl=(j.parts||[]).map(p=>{const h=haveQty(p.name);return `<span class="jp ${h>=p.qty?"ok":"no"}">${esc(p.name)} ×${p.qty} · have ${h}</span>`;}).join("");
     c.innerHTML=`<div class="jhead"><b>${esc((j.site||"").replace(/�/g,"—"))}</b><span class="jpay">+$${j.payout}</span></div>
-      <div class="jmeta">${j.miles} mi · needs ${need}% fuel (have ${Math.round(FUEL)}%)</div>
+      <div class="jmeta">${j.miles} mi · needs ${need}% fuel (have ${Math.round(FUEL)}%) · ⚡${jc.e} · ${Math.round(jc.t/60*10)/10} h</div>
       <div class="jparts">${pl||'<span class="jp ok">no parts needed</span>'}</div>`;
     const b=document.createElement("button");b.className="jbtn";
-    b.textContent=!fuelOk?"⛽ Not enough gas — refuel":!partsOk?"Missing parts — buy at Field Supply":("Drive & complete  ·  +$"+j.payout);
-    b.disabled=!(fuelOk&&partsOk);b.onclick=()=>completeJob(id);c.appendChild(b);body.appendChild(c);}}
+    b.textContent=!fuelOk?"⛽ Not enough gas — refuel":!partsOk?"Missing parts — buy at Field Supply":!enOk?"⚡ Too tired — go sleep":!timeOk?"🌙 Too late today — sleep, go tomorrow":("Drive & complete  ·  +$"+j.payout);
+    b.disabled=!(fuelOk&&partsOk&&enOk&&timeOk);b.onclick=()=>completeJob(id);c.appendChild(b);body.appendChild(c);}}
 function completeJob(id){const j=JOBS[id];if(!j)return;const need=Math.round(j.miles*FUEL_PER_MILE);
-  if(FUEL<need||!(j.parts||[]).every(p=>haveQty(p.name)>=p.qty))return;
+  const jc=jobCost(j);if(FUEL<need||!(j.parts||[]).every(p=>haveQty(p.name)>=p.qty)||DAY.e<jc.e||DAY.m+jc.t>DAY_END-10)return;
+  spendEnergy(jc.e);spendTime(jc.t);
   const upd={};for(const p of (j.parts||[])){let n=p.qty;for(const it of ITEMS){if(it.name!==p.name||n<=0)continue;const t=Math.min(n,it.qty||0);if(t>0){it.qty-=t;n-=t;upd[it.cat+"/"+it.comp+"/"+it.name+"/quantity"]=it.qty;}}}
   if(Object.keys(upd).length)update(ref(db,BASE+"/money/inventory"),upd).catch(()=>{});
   set(ref(db,BASE+"/games/loadout/fuel"),Math.max(0,FUEL-need)).catch(()=>{});
