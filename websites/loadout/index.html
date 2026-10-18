@@ -341,9 +341,9 @@
 </style><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;700&display=swap" rel="stylesheet"></head><body>
 <div class="app"><div class="wrap">
   <header>
-    <div><div class="kicker">Field Service RPG · v0.5 · live DB</div><h1>LOADOUT</h1>
+    <div><div class="kicker">Field Service RPG · v0.5 · live DB</div><div class="logorow"><h1>LOADOUT</h1><button class="btn ghost" id="acctBtn">👤 Log in</button></div>
       <div class="tagline">Walk your world. Open storage. Build your rooms.</div></div>
-    <div class="hudR"><div class="pill"><span id="clockIco">☀</span> <b id="clock">—</b></div><div class="pill" title="energy - sleep in a bed to refill">⚡ <b id="energy">—</b></div><div class="pill">💰 <b id="money">—</b></div><div class="pill" id="fuelPill">⛽ <b id="fuel">—</b></div><div class="pill">CARRY <b id="bagN">0</b></div><button class="btn ghost" id="acctBtn">👤 Log in</button><button class="btn ghost" id="editBtn">EDIT ROOM</button><button class="btn ghost" id="yukiBtn">🧚 Yuki</button><button class="btn" id="bagBtn">BACKPACK</button></div>
+    <div class="hudR"><div class="pill"><span id="clockIco">☀</span> <b id="clock">—</b></div><div class="pill" title="energy - sleep in a bed to refill">⚡ <b id="energy">—</b></div><div class="pill">💰 <b id="money">—</b></div><div class="pill" id="fuelPill">⛽ <b id="fuel">—</b></div><div class="pill">CARRY <b id="bagN">0</b></div><button class="btn ghost" id="editBtn">EDIT ROOM</button><button class="btn ghost" id="yukiBtn">🧚 Yuki</button><button class="btn" id="bagBtn" hidden>BACKPACK</button></div>
   </header>
   <div class="screen">
     <canvas id="game" width="512" height="512"></canvas>
@@ -453,10 +453,6 @@
   <div class="storhint">Drag a container to arrange it · tap to open · drag from the tray above to place it here · drag onto an area tab to move it</div>
 </div></div>
 
-<div class="overlay" id="allstor"><div class="storwrap">
-  <div class="storhead"><div class="ic">📋</div><h2>All Storage</h2><div class="pill">TAP AN ITEM → ITS CRATE</div><button class="closeb" id="allClose">✕</button></div>
-  <div id="allBody" style="flex:1;min-height:0;overflow:auto;padding:12px 14px 48px"></div>
-</div></div>
 
 <div class="overlay" id="shop"><div class="storwrap" style="max-width:640px">
   <div class="storhead"><div class="ic">🛒</div><h2 id="shopTitle" contenteditable="false" spellcheck="false" title="Double-tap to rename">Field Supply Co.</h2><div class="pill">💰 $<b id="shopBal">0</b></div><button class="closeb" id="shopClose">✕</button></div>
@@ -1240,7 +1236,7 @@ function pollGamepad(){const pads=navigator.getGamepads?navigator.getGamepads():
  const a=edge(0),b=edge(1),bx=edge(2),by=edge(3),lb=edge(4),rb=edge(5),st=edge(9);
  if(bx||st){if($("overlay").classList.contains("open"))closePanel();else if(!isOpen()&&!transing&&!editMode)openPanelFor("bag");return;}
  if(by&&!editMode){const j=$("jobs");if(j.classList.contains("open"))j.classList.remove("open");else if(!isOpen())openJobs();return;}
- if((lb||rb)&&!isOpen()){hotSel=(hotSel+(rb?1:11))%12;try{localStorage.setItem("loadout:hotSel",hotSel);}catch(_){}renderHotbar();return;}
+ if((lb||rb)&&!isOpen()){const hn=Math.max(10,(byLoc.bag||[]).length);hotSel=(hotSel+(rb?1:hn-1))%hn;try{localStorage.setItem("loadout:hotSel",hotSel);}catch(_){}renderHotbar();return;}
  if(b){const op=["jobs","shop","storage","reader"].find(id=>$(id)&&$(id).classList.contains("open"));if(op){$(op).classList.remove("open");return;}}
  if(a){if(isOpen())closePanel();else if(!editMode&&!transing)tryOpen();}
  else if(b){if(isOpen())closePanel();}}
@@ -1325,7 +1321,7 @@ function render(){const R=ROOMS[room];
   for(const e of ents){if(e.t==="d")drawDecorItem(e.d);else if(e.t==="p")drawPlace(e.k,e.p);else if(e.t==="npc")drawNPC(e.id);else if(e.t==="fx")drawFixture(e.id);else drawPlayer();}
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px monospace";ctx.textAlign="left";ctx.fillText("build b27",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px monospace";ctx.textAlign="left";ctx.fillText("build b28",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
@@ -1336,26 +1332,6 @@ function drawFtile(gx,gy,fkey){const im=floorImg[fkey];if(!im||!im.complete)retu
 function drawWalls(){const W=worldW(),H=worldH();ctx.fillStyle="#0e1216";ctx.fillRect(0,0,W,ROOMR.y-8);ctx.fillRect(0,ROOMR.y+ROOMR.h+8,W,H);ctx.fillRect(0,0,ROOMR.x-8,H);ctx.fillRect(ROOMR.x+ROOMR.w+8,0,W,H);
   ctx.strokeStyle="#2a313b";ctx.lineWidth=2;ctx.strokeRect(ROOMR.x-6,ROOMR.y-6,ROOMR.w+12,ROOMR.h+12);ctx.strokeStyle="rgba(242,165,65,.16)";ctx.strokeRect(ROOMR.x-2,ROOMR.y-2,ROOMR.w+4,ROOMR.h+4);}
 function px(x,y,w,h,c){ctx.fillStyle=c;ctx.fillRect(x,y,w,h);}
-function drawVanSprite(x,y){ // ~156x96 cargo van, side view, cab on left
-  if(catImg.van&&catImg.van.complete&&CAT.van&&CAT.van.du){ctx.imageSmoothingEnabled=false;const _vw=(CAT.van.w||156)*vs("van"),_vh=(CAT.van.h||96)*vs("van");ctx.drawImage(catImg.van,x,y,_vw,_vh);ctx.fillStyle="#f2a541";ctx.font="8px monospace";ctx.textAlign="center";ctx.fillText("▸ "+slab("van","ENTER VAN"),x+_vw/2,y+6);ctx.textAlign="left";return;}
-  ctx.fillStyle="rgba(0,0,0,.30)";ctx.beginPath();ctx.ellipse(x+78,y+92,74,9,0,0,7);ctx.fill();
-  for(const wx of [x+36,x+120]){px(wx-15,y+66,30,26,"#15181c");px(wx-10,y+71,20,16,"#3a4048");px(wx-4,y+75,8,8,"#20262d");px(wx-2,y+77,4,4,"#565e68");}
-  px(x+2,y+58,152,7,"#6b727b");              // bumper/rocker
-  px(x+18,y+16,134,26,"#eef1f4");            // upper body
-  px(x+22,y+12,126,6,"#f6f8fa");             // roof
-  px(x+6,y+40,146,20,"#dfe3e7");             // lower body
-  px(x+6,y+55,146,5,"#bcc2c9");              // shading
-  px(x+6,y+30,16,30,"#d3d7db");              // cab front
-  px(x+9,y+20,22,15,"#7fb3cf");px(x+9,y+20,22,4,"#a9d2e6");  // windshield
-  px(x+42,y+20,26,15,"#7fb3cf");px(x+74,y+20,28,15,"#6fa6c4"); // side windows
-  ctx.strokeStyle="#9aa0a6";ctx.lineWidth=1;ctx.strokeRect(x+42.5,y+20.5,26,15);ctx.strokeRect(x+74.5,y+20.5,28,15);
-  px(x+70,y+40,2,20,"#b9bfc6");px(x+106,y+40,2,20,"#b9bfc6"); // door seams
-  px(x+90,y+49,11,3,"#8a9098");              // handle
-  px(x+6,y+52,146,3,"#f2a541");              // stripe
-  px(x+3,y+48,6,10,"#ffe3a0");               // headlight
-  px(x+2,y+33,5,6,"#c9ccd0");                // mirror
-  ctx.strokeStyle="#1a1f25";ctx.lineWidth=1;ctx.strokeRect(x+6.5,y+16.5,145,44);
-  ctx.fillStyle="#f2a541";ctx.font="8px monospace";ctx.textAlign="center";ctx.fillText("▸ "+slab("van","ENTER VAN"),x+80,y+6);}
 function drawHouseSprite(x,y,roof,label){ // ~150x116 cottage
   ctx.fillStyle="rgba(0,0,0,.28)";ctx.beginPath();ctx.ellipse(x+75,y+114,66,7,0,0,7);ctx.fill();
   px(x+14,y+50,122,62,"#c9a06a"); // wall
@@ -1638,22 +1614,7 @@ function openVanStorage(){openArea("van");}
 function openContainer(key){if(key==="closet"||key==="wardrobe"){openArea("closet");return;}if(key==="van_storage"){openVanStorage();return;}openPanelFor(key);}
 $("storClose").addEventListener("click",()=>$("storage").classList.remove("open"));
 function openAllStorage(){openPanelFor(ALL_LOC);}
-function openAllStorageOld(){const body=$("allBody");body.innerHTML="";
-  const seen=new Set(),order=[];const add=k=>{if(k&&k!=="bag"&&!seen.has(k)){seen.add(k);order.push(k);}};
-  for(const k in PLACES)add(k);if(typeof VZONES!=="undefined")VZONES.forEach(z=>add(z.loc));Object.keys(byLoc).forEach(add);for(const k in CONTAINERS)add(k);
-  const card=it=>{const d=document.createElement("div");d.className="it";
-    d.innerHTML=(it.img?`<img src="${esc(it.img)}" alt="${esc(it.name)}" onerror="imgReport(this);this.style.display='none'">`:`<div class="empty" style="position:absolute;inset:3px;font-size:.5rem;line-height:1.12;display:flex;align-items:center;justify-content:center;text-align:center;word-break:break-word;overflow:hidden">${esc(it.name)}</div>`)+((it.qty||0)>1?`<span class="qn">${it.qty}</span>`:"");
-    d.title=it.name;d.addEventListener("click",()=>{$("allstor").classList.remove("open");openPanelFor(it.loc==="bag"?null:it.loc);});return d;};
-  const sec=(loc,items)=>{const m=locMeta(loc);const s=document.createElement("div");s.className="allsec";
-    const h=document.createElement("div");h.className="allhead";h.innerHTML=`<span>${m.icon||"📦"} ${esc(m.label)}</span><b>${items.length}</b>`;s.appendChild(h);
-    const g=document.createElement("div");g.className="allgrid";
-    if(!items.length){g.innerHTML='<div style="grid-column:1/-1;opacity:.45;font-size:.7rem;padding:4px 2px">— empty —</div>';}else{items.forEach(it=>g.appendChild(card(it)));}
-    s.appendChild(g);body.appendChild(s);};
-  sec("bag",byLoc.bag||[]);for(const loc of order)sec(loc,byLoc[loc]||[]);
-  $("allstor").classList.add("open");}
 $("storAll").addEventListener("click",openAllStorage);
-$("allClose").addEventListener("click",()=>$("allstor").classList.remove("open"));
-$("allstor").addEventListener("click",e=>{if(e.target===$("allstor"))$("allstor").classList.remove("open");});
 $("storage").addEventListener("click",e=>{if(e.target===$("storage"))$("storage").classList.remove("open");});
 // tapping the blank background inside the storage view (scene padding or the backdrop picture itself,
 // anywhere that's not a container/chip/tray) backs out of storage
@@ -1716,8 +1677,6 @@ function scaleIcons(delta){const a=AREAS[curArea];if(!a)return;const s=Math.max(
 function addArea(){const name=(prompt("New storage area name (e.g. Rack, Cabinet, Garage):")||"").trim();if(!name)return;
   const icon=(prompt("An emoji icon for it:","🗄️")||"🗄️").trim()||"🗄️";const id="a"+Date.now().toString(36);
   set(ref(db,"public/games/loadout/areas/"+id),{name:name,icon:icon,bg:"pegboard",nw:320,nh:224}).then(()=>{openArea(id);renderPick(true);}).catch(()=>{});}
-function renameArea(){const a=AREAS[curArea];if(!a)return;const name=(prompt("Rename area:",a.name)||"").trim();if(!name)return;
-  const icon=(prompt("Emoji icon:",a.icon||"🗄️")||a.icon||"🗄️").trim();update(ref(db,"public/games/loadout/areas/"+curArea),{name:name,icon:icon}).catch(()=>{});}
 /* residentsOf, not just containers: with nesting a storage can also hold STORAGES, and deleting
    the parent would leave those pointing at an id that no longer exists - invisible in every view
    and unreachable from the tray. Count both, and say which. */
@@ -1997,10 +1956,6 @@ function placeIcon(pl){return pl==="bag"?"🎒":pl==="tray"?"🗃️":pl===ALL_L
 function containersIn(pl){return invAreaList().filter(k=>k!=="bag"&&placeOf(k)===pl);}
 function placeCount(pl){return pl==="bag"?invCount("bag"):pl===ALL_LOC?invCount(ALL_LOC):containersIn(pl).reduce((n,k)=>n+invCount(k),0);}
 function placeList(){const used=new Set(invAreaList().filter(k=>k!=="bag").map(placeOf));const order=Object.keys(AREAS).filter(a=>used.has(a));used.forEach(a=>{if(a!=="tray"&&order.indexOf(a)<0)order.push(a);});if(used.has("tray"))order.push("tray");return ["bag",...order];}
-function placeChip(pl,on){const c=document.createElement("span");c.className="achip place"+(on?" on":"");c.innerHTML=`${placeIcon(pl)} ${esc(placeLabel(pl))}<span class="n">${placeCount(pl)}</span>`;
-  c.addEventListener("click",()=>goPlace(pl));
-  if(pl==="bag"){c.addEventListener("dragover",e=>{if(!dragIt)return;e.preventDefault();c.classList.add("drop");});c.addEventListener("dragleave",()=>c.classList.remove("drop"));c.addEventListener("drop",e=>{e.preventDefault();c.classList.remove("drop");if(!dragIt)return;const it=dragIt.it;dragIt=null;if(it.loc!=="bag")invMove(it,"bag");});}
-  return c;}
 function recentDest(){try{return JSON.parse(localStorage.getItem("loadout:recentDest")||"[]");}catch(_){return[];}}
 function pushRecent(k){try{const r=recentDest().filter(x=>x!==k);r.unshift(k);localStorage.setItem("loadout:recentDest",JSON.stringify(r.slice(0,4)));}catch(_){}}
 function moveSelected(dest){const items=[...selSet].filter(it=>it.loc!==dest);items.forEach(it=>moveItem(it,dest));pushRecent(dest);
@@ -2025,7 +1980,6 @@ function renderPanel(){if(!$("overlay").classList.contains("open"))return;
   {const pn=$("pName"),ed=!PV&&k!==ALL_LOC&&k!=="bag"&&!AREAS[k];pn.textContent=PV?(invPlace?placeLabel(invPlace):"Inventory"):invLabel(k);pn.contentEditable="false";pn.dataset.loc=ed?k:"";pn.dataset.area=(PI&&AREAS[invPlace])?invPlace:"";pn.style.borderBottom="";pn.style.cursor="";pn.title=(ed||pn.dataset.area)?"Double-tap to rename":"";}
   $("pIc").textContent=PV?(invPlace?placeIcon(invPlace):"🎒"):invIcon(k);$("invN").textContent=PV?(invPlace?placeCount(invPlace):invCount(ALL_LOC)):invCount(k);$("pDel").style.display=(!PV&&k!==ALL_LOC&&k!=="bag"&&canDeleteContainer(k))?"":"none";
   const bar=$("invAreas");bar.innerHTML="";
-  const allChip=()=>{const c=document.createElement("span");c.className="achip"+(invPlace===ALL_LOC?" on":"");c.innerHTML=`📋 All<span class="n">${invCount(ALL_LOC)}</span>`;c.addEventListener("click",()=>{invPlace=ALL_LOC;invArea=ALL_LOC;openPlace=undefined;selSet.clear();selItem=null;renderPanel();});return c;};
   const r1=document.createElement("div");r1.className="invrow";
   if(invPlace==null){}   // top level: the tiles below ARE the locations - no chip copy of them (L 2026-10-18 "don't need the same things in 2 places")
   else{const back=document.createElement("span");back.className="achip mng";back.textContent="◀ Back";   // inside one: Back + just this one
@@ -2062,20 +2016,6 @@ function renderPanel(){if(!$("overlay").classList.contains("open"))return;
     const mv=document.createElement("button");mv.className="invmove";mv.textContent=`Move ${n} item${n>1?"s":""} to…`;mv.addEventListener("click",invOpenPick);
     to.appendChild(clr);to.appendChild(mv);$("phint").textContent=n>1?`${n} selected · tap more or Move`:"Tap more items to move several";}
   else $("phint").textContent="Pick a place · a container · tap items · Move";}
-function renderAllInto(grid){grid.innerHTML="";const seen=new Set(),order=[];const add=k=>{if(k&&k!=="bag"&&k!==ALL_LOC&&!seen.has(k)){seen.add(k);order.push(k);}};
-  for(const k in PLACES)add(k);if(typeof VZONES!=="undefined")VZONES.forEach(z=>add(z.loc));Object.keys(byLoc).forEach(add);for(const k in CONTAINERS)add(k);
-  let total=0;
-  for(const loc of order){const items=byLoc[loc]||[];total+=items.length;const m=locMeta(loc);const sec=document.createElement("div");sec.className="allsec";
-    const h=document.createElement("div");h.className="allhead";h.style.cursor="pointer";h.title="Open this crate here";h.innerHTML=`<span>${m.icon||"📦"} ${esc(m.label)}</span><b>${items.length}</b>`;h.addEventListener("click",()=>openPanelFor(loc));sec.appendChild(h);
-    const g=document.createElement("div");g.className="allgrid";
-    if(!items.length)g.innerHTML='<div style="grid-column:1/-1;opacity:.45;font-size:.7rem;padding:4px 2px">— empty —</div>';
-    for(const it of items){const d=document.createElement("div");d.className="it";d.title=it.name;
-      d.innerHTML=(it.img?`<img src="${esc(it.img)}" alt="${esc(it.name)}" onerror="imgFail(this)">`:`<div class="empty" style="position:absolute;inset:3px;padding:2px;font-size:.5rem;line-height:1.12;word-break:break-word;overflow:hidden;display:flex;align-items:center;justify-content:center;text-align:center">${esc(it.name)}</div>`)+((it.qty||0)>1?`<span class="qn">${it.qty}</span>`:"");
-      d.addEventListener("click",()=>openPanelFor(it.loc));
-      d.draggable=true;d.addEventListener("dragstart",e=>{dragIt={it,mode:"take"};d.classList.add("dragging");try{e.dataTransfer.setData("text/plain",it.name);e.dataTransfer.effectAllowed="move";}catch(_){}});d.addEventListener("dragend",()=>d.classList.remove("dragging"));
-      g.appendChild(d);}
-    sec.appendChild(g);grid.appendChild(sec);}
-  $("lCnt").textContent=total;$("lHead").firstChild.textContent="ALL STORAGE ";}
 function fill(grid,items,mode){grid.innerHTML="";if(!items.length){grid.innerHTML='<div class="empty">— empty —</div>';return;}
   for(const it of items){const d=document.createElement("div");d.className="it";
     d.innerHTML=(it.img?`<img src="${esc(it.img)}" alt="${esc(it.name)}" onerror="imgFail(this)">`:`<div class="empty" style="position:absolute;inset:3px;padding:2px;font-size:.5rem;line-height:1.12;word-break:break-word;overflow:hidden;display:flex;align-items:center;justify-content:center;text-align:center">${esc(it.name)}</div>`)+((it.qty||0)>1?`<span class="qn">${it.qty}</span>`:"")+(mode?`<span class="mv">${mode==="take"?"→":"←"}</span>`:"");
@@ -2121,14 +2061,16 @@ $("ie_room").addEventListener("change",async function(){if(this.value!=="__new__
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 // ===== STARDEW FEEL (2026-10-18): hotbar of the backpack under the screen, 1-9/0/-/= pick a slot, B/Tab opens the
 // backpack, parchment hover tooltip, a soft click on slots =====
-const HOTKEYS=["1","2","3","4","5","6","7","8","9","0","-","="];
+const HOTKEYS=["1","2","3","4","5","6","7","8","9","0"];   // 1-0; the rest of the backpack slides (L 2026-10-18)
 let hotSel=0;try{hotSel=+(localStorage.getItem("loadout:hotSel")||0)||0;}catch(_){}
 function renderHotbar(){const hb=$("hotbar");if(!hb)return;hb.innerHTML="";const bag=byLoc.bag||[];
-  for(let i=0;i<12;i++){const it=bag[i],s=document.createElement("div");s.className="hs"+(i===hotSel?" on":"");
-    s.innerHTML='<span class="hk">'+HOTKEYS[i]+'</span>'+(it?(it.img?'<img src="'+esc(it.img)+'" alt="'+esc(it.name)+'" onerror="imgFail(this)">':'<div class="empty" style="position:absolute;inset:6px;font-size:.45rem;line-height:1.1;overflow:hidden;display:flex;align-items:center;justify-content:center;text-align:center;color:#7a4a22">'+esc(it.name)+'</div>')+((it.qty||0)>1?'<span class="qn">'+it.qty+'</span>':""):"");
+  const n=Math.max(10,bag.length);if(hotSel>=n)hotSel=0;
+  for(let i=0;i<n;i++){const it=bag[i],s=document.createElement("div");s.className="hs"+(i===hotSel?" on":"");
+    s.innerHTML=(i<10?'<span class="hk">'+HOTKEYS[i]+'</span>':'')+(it?(it.img?'<img src="'+esc(it.img)+'" alt="'+esc(it.name)+'" onerror="imgFail(this)">':'<div class="empty" style="position:absolute;inset:6px;font-size:.45rem;line-height:1.1;overflow:hidden;display:flex;align-items:center;justify-content:center;text-align:center;color:#7a4a22">'+esc(it.name)+'</div>')+((it.qty||0)>1?'<span class="qn">'+it.qty+'</span>':""):"");
     if(it)s._it=it;
-    s.addEventListener("click",()=>{hotSel=i;try{localStorage.setItem("loadout:hotSel",i);}catch(_){}renderHotbar();if(it&&!editMode){openPanelFor("bag");selSet.add(it);selItem={it,mode:null};renderPanel();}});
-    hb.appendChild(s);}}
+    s.addEventListener("click",()=>{hotSel=i;try{localStorage.setItem("loadout:hotSel",i);}catch(_){}renderHotbar();if(!editMode){openPanelFor("bag");if(it){selSet.add(it);selItem={it,mode:null};}renderPanel();}});
+    hb.appendChild(s);}
+  hotScroll();}
 renderHotbar();
 let _svAc=null;function svBlip(f){try{_svAc=_svAc||new (window.AudioContext||window.webkitAudioContext)();const o=_svAc.createOscillator(),g=_svAc.createGain();o.type="square";o.frequency.value=f||660;g.gain.setValueAtTime(.035,_svAc.currentTime);g.gain.exponentialRampToValueAtTime(.0001,_svAc.currentTime+.07);o.connect(g);g.connect(_svAc.destination);o.start();o.stop(_svAc.currentTime+.08);}catch(_){}}
 document.addEventListener("pointerdown",e=>{const t=e.target.closest&&e.target.closest("#overlay .it:not(.slot0),#hotbar .hs,#overlay .achip,#overlay .invmove");if(t)svBlip(t.classList.contains("invmove")?520:t.classList.contains("achip")?440:660);},true);
@@ -2143,6 +2085,7 @@ document.addEventListener("pointerdown",e=>{const t=e.target.closest&&e.target.c
 addEventListener("keydown",e=>{if(isTypingEl()||editMode)return;const k=e.key;
   if(k==="b"||k==="B"||k==="Tab")   /* I = edit room already */{e.preventDefault();if($("overlay").classList.contains("open"))closePanel();else if(!isOpen()&&!transing){openPanelFor("bag");}return;}
   const hi=HOTKEYS.indexOf(k);if(hi>=0&&!isOpen()){hotSel=hi;try{localStorage.setItem("loadout:hotSel",hi);}catch(_){}renderHotbar();}});
+function hotScroll(){const hb=$("hotbar"),on=hb&&hb.querySelector(".hs.on");if(on)on.scrollIntoView({block:"nearest",inline:"nearest"});}
 function closePanel(){openPlace=undefined;$("overlay").classList.remove("open");}
 $("closeb").addEventListener("click",closePanel);
 $("overlay").addEventListener("click",e=>{if(e.target===$("overlay"))closePanel();});
@@ -2273,5 +2216,13 @@ input::placeholder,textarea::placeholder{color:#b08a5a}
 .hudR>*{flex:1 0 auto;min-width:92px;height:34px;display:inline-flex;align-items:center;justify-content:center;gap:5px;white-space:nowrap;margin:0;box-sizing:border-box}
 .hudR .pill,.hudR .btn,.hudR #bagBtn{font-size:.8rem!important;padding:0 10px!important;background:#f9c46e!important;color:#4a2510!important;border:2px solid #5c2e10!important;border-radius:6px!important;box-shadow:inset -2px -2px 0 #d9963f,inset 2px 2px 0 #fde4ae!important;text-shadow:none!important;font-weight:700}
 .hudR .btn:hover{background:#ffe39a!important}
+
+/* header: login beside the logo; hotbar = 10 slots across, slides for more (2026-10-18) */
+.logorow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.logorow #acctBtn{font-family:var(--mono);font-size:.8rem;height:30px;padding:0 12px;background:#f9c46e!important;color:#4a2510!important;border:2px solid #5c2e10!important;border-radius:6px;box-shadow:inset -2px -2px 0 #d9963f,inset 2px 2px 0 #fde4ae;text-shadow:none}
+@media (pointer:coarse) and (orientation:landscape){header>div:first-child{display:block!important}header>div:first-child>:not(.logorow),.logorow h1{display:none}}
+#hotbar{overflow-x:auto;justify-content:flex-start;scroll-snap-type:x mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+#hotbar::-webkit-scrollbar{display:none}
+#hotbar .hs{flex:0 0 calc((100% - 27px)/10);max-width:none;scroll-snap-align:start}
 </style>
 </body></html>
