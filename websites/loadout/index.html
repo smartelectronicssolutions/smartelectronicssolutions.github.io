@@ -1325,7 +1325,7 @@ function render(){const R=ROOMS[room];
   for(const e of ents){if(e.t==="d")drawDecorItem(e.d);else if(e.t==="p")drawPlace(e.k,e.p);else if(e.t==="npc")drawNPC(e.id);else if(e.t==="fx")drawFixture(e.id);else drawPlayer();}
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px monospace";ctx.textAlign="left";ctx.fillText("build b26",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px monospace";ctx.textAlign="left";ctx.fillText("build b27",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
@@ -1629,7 +1629,7 @@ onValue(ref(db,BASE+"/games/loadout/containers"),s=>{CONTAINERS=s.val()||{};if($
 function areaOf(loc){const cp=CPLACE[loc];if(cp&&cp.area==="tray")return null;if(cp&&cp.area)return cp.area;if(ZONEMETA[loc])return "van";if(loc==="wardrobe")return "closet";return null;}
 function posOf(loc,areaId){const p=CPLACE[loc];if(p&&p.area===areaId&&p.x!=null)return{x:p.x,y:p.y};const d=DEFAULT_XY[loc];if(d)return d;const h=hashStr(loc);return{x:20+((h%6)*46),y:26+((Math.floor(h/6)%5)*46)};}
 function areaCfg(id){return AREAS[id]||SEED_AREAS[id]||SEED_AREAS.van;}
-function openArea(areaId){curArea=(areaId in AREAS)?areaId:(Object.keys(AREAS)[0]||"van");const a=areaCfg(curArea);
+function openArea(areaId){areaPick=false;curArea=(areaId in AREAS)?areaId:(Object.keys(AREAS)[0]||"van");const a=areaCfg(curArea);
   $("storTitle").textContent=a.name;$("storIc").textContent=a.icon||"📦";
   const bg=$("storBg");bg.onload=()=>{if($("storage").classList.contains("open"))renderArea();};bg.src=A[a.bg]||A.closet;  // re-place containers once the backdrop has actually sized (fixes wrong initial positions)
   $("storBag").textContent=(byLoc.bag||[]).length;
@@ -1679,14 +1679,20 @@ function renderArea(){buildRail();renderAreaChips();const scene=$("storScene"),i
     makeContainerDrag(d,sub,scene,img,a);scene.appendChild(d);}
   renderTray();}
 const BACKDROPS=[{k:"pegboard",label:"Pegboard",nw:320,nh:224},{k:"shelf",label:"Shelf",nw:320,nh:224},{k:"cabinet",label:"Cabinet",nw:320,nh:224},{k:"cratewall",label:"Crates",nw:320,nh:224},{k:"closet",label:"Closet",nw:288,nh:288},{k:"vanside",label:"Van Side",nw:320,nh:288},{k:"vanback",label:"Van Back",nw:320,nh:288},{k:"vancargo",label:"Van Back",nw:320,nh:288},{k:"vanside_px",label:"Van Side (pixel)",nw:320,nh:288},{k:"vanback_px",label:"Van Back (pixel)",nw:320,nh:288}];
+// AREA VIEW TOP ROW (2026-10-18, L: "when I open an area don't show all the other areas, a back button like the containers
+// have that takes me to all of them"): inside an area = ◀ All areas + that area's tools; ◀ = the list of every area (+ Area)
+let areaPick=false;
 function renderAreaChips(){const bar=$("storAreas");bar.innerHTML="";
+  const mk=(cls,txt,fn)=>{const c=document.createElement("div");c.className="achip "+cls;c.textContent=txt;c.onclick=fn;bar.appendChild(c);};
+  if(!areaPick){mk("mng","◀ All areas",()=>{areaPick=true;renderAreaChips();});
+    mk("add","＋ Container",addContainer);mk("mng","🖼 Backdrop",togglePick);mk("mng","🗑 Delete",deleteArea);
+    mk("mng","🔎＋",()=>scaleIcons(0.2));mk("mng","🔎－",()=>scaleIcons(-0.2));return;}
+  mk("mng","✕ Back to "+((AREAS[curArea]&&AREAS[curArea].name)||"area"),()=>{areaPick=false;renderAreaChips();});
   for(const id in AREAS){const c=document.createElement("div");c.className="achip"+(id===curArea?" on":"");c.dataset.area=id;
     c.textContent=(AREAS[id].icon||"📦")+" "+AREAS[id].name;
     makeAreaChipDrag(c,id);   // tap still opens it; a DRAG carries the whole storage, contents included
     bar.appendChild(c);}
-  const mk=(cls,txt,fn)=>{const c=document.createElement("div");c.className="achip "+cls;c.textContent=txt;c.onclick=fn;bar.appendChild(c);};
-  mk("add","＋ Area",addArea);mk("add","＋ Container",addContainer);mk("mng","🖼 Backdrop",togglePick);mk("mng","🗑 Delete",deleteArea);
-  mk("mng","🔎＋",()=>scaleIcons(0.2));mk("mng","🔎－",()=>scaleIcons(-0.2));}
+  mk("add","＋ Area",addArea);}
 /* Drag a storage by its own tab - the gesture L asked for ("drag where it says rack"). Tap vs drag
    is the same 4px moved test used everywhere else in this file, so opening an area by tapping its
    tab is untouched. */
