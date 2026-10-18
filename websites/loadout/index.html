@@ -928,20 +928,63 @@ function hoodNear(){const dh=STREET_HOUSES.find(h=>h.lab==="house_dispatch"),G=H
   if(dh&&nearR({x:dh.at[0]+63,y:dh.at[1]+80,w:24,h:34},18))return{x:dh.at[0]+75,y:dh.at[1]+96,py:dh.at[1]+78,act:openJobs};
   if(nearR({x:G.x+80,y:G.y+48,w:140,h:40},22))return{x:G.x+150,y:G.y+66,py:G.y+44,act:()=>{refuel();dayBanner($("jobMsg").textContent);}};
   return null;}
+// GLADE ART (2026-10-18, L: "enhance the glade area" - same pack style as the props + houses). The still parts are
+// painted ONCE into a 256x256 art canvas (one art px = 2 world px): night grass with tufts + flowers, stars + moon,
+// a flagstone clearing and path, a ring of outlined night trees lit from the moon (top right), the stone table with
+// its fire pit and eight stone seats. Fire flicker, fireflies and the warm glow stay live on top.
+let _gladeC=null;
+function gladeArt(){if(_gladeC)return _gladeC;const c=document.createElement("canvas");c.width=256;c.height=256;const g=c.getContext("2d");
+  const P=(x,y,w,h,col)=>{g.fillStyle=col;g.fillRect(x,y,w,h);};let sd=7;const rnd=()=>((sd=(sd*16807)%2147483647)/2147483647);
+  const ell=(G,cx,cy,rx,ry,col)=>{G.fillStyle=col;for(let y=Math.floor(cy-ry);y<=cy+ry;y++){const t=1-((y+.5-cy)/ry)**2;if(t<0)continue;const hw=rx*Math.sqrt(t);G.fillRect(Math.round(cx-hw),y,Math.round(hw*2),1);}};
+  // ground: night grass + tufts + tiny flowers
+  P(0,0,256,256,"#1d3a1f");for(let i=0;i<900;i++){const x=rnd()*256|0,y=rnd()*256|0,k=rnd();P(x,y,1,1,k<.5?"#24472a":k<.85?"#16301a":"#2c5530");}
+  for(let i=0;i<140;i++){const x=rnd()*252|0,y=rnd()*250|0;P(x,y+1,1,2,"#2f5a32");P(x+2,y,1,3,"#2f5a32");P(x+1,y+2,1,1,"#16301a");}
+  for(let i=0;i<40;i++){const x=rnd()*250|0,y=rnd()*250|0,col=["#b9d4ff","#f4f1e8","#d6b8ff"][i%3];P(x,y,1,1,col);P(x+1,y+1,1,1,"#2f5a32");}
+  // stars + moon (top right)
+  for(let i=0;i<60;i++){const x=rnd()*256|0,y=rnd()*70|0;P(x,y,1,1,rnd()<.3?"#ffffff":"#8fa6c8");}
+  g.fillStyle="rgba(232,236,242,.10)";g.beginPath();g.arc(223,26,18,0,7);g.fill();
+  ell(g,223,26,8,8,"#dfe5ee");ell(g,222,25,7,7,"#f4f7fb");P(219,24,2,2,"#c9d1dc");P(225,28,2,1,"#c9d1dc");P(224,22,1,1,"#c9d1dc");
+  // clearing: dirt ring + flagstones, path down to the gate
+  ell(g,128,134,86,52,"#2e2a22");ell(g,128,133,84,50,"#3a3428");
+  for(let i=0;i<70;i++){const a=rnd()*6.283,r=.55+rnd()*.42,x=128+Math.cos(a)*84*r,y=133+Math.sin(a)*50*r;P(x|0,y|0,4,3,"#5f584c");P(x|0,y|0,4,1,"#7a7266");P((x|0)+3,(y|0)+2,1,1,"#4a443a");}
+  for(let y=170;y<256;y+=6){const o=(y/6)%2?0:3;for(let x=118+o;x<136;x+=7){P(x,y,6,4,"#5f584c");P(x,y,6,1,"#7a7266");P(x+5,y+3,1,1,"#4a443a");}}
+  // objects layer (outlined afterwards)
+  const o=document.createElement("canvas");o.width=256;o.height=256;const q=o.getContext("2d");
+  const blob=(cx,cy,r,ramp)=>{for(let y=Math.floor(cy-r);y<=cy+r;y++)for(let x=Math.floor(cx-r);x<=cx+r;x++){const nx=(x+.5-cx)/r,ny=(y+.5-cy)/r,d=nx*nx+ny*ny;if(d>1)continue;
+    const lit=(nx*.7-ny*.7)+(1-d)*.3;q.fillStyle=lit>.5?ramp[2]:lit>.05?ramp[1]:(lit>-.1&&(x+y)%2)?ramp[1]:ramp[0];q.fillRect(x,y,1,1);}};
+  const T=[["#0e2316","#183a24","#2a5a36","#4f8a5c"],["#10261a","#1d4329","#33663d","#5d9a66"]];
+  const trees=[];for(let i=0;i<22;i++){const a=i/22*6.283,tx=128+Math.cos(a)*118,ty=128+Math.sin(a)*118;if(ty>220&&Math.abs(tx-128)<30)continue;trees.push([tx,ty,i]);}
+  trees.sort((m,n)=>m[1]-n[1]);
+  for(const [tx,ty,i] of trees){const R=T[i%2];q.fillStyle="#2c2018";q.fillRect(Math.round(tx-2),Math.round(ty-4),4,9);q.fillStyle="#3d2c20";q.fillRect(Math.round(tx-2),Math.round(ty-4),1,9);
+    if(i%3===0){for(let k=0;k<3;k++){const w=12-k*3,yy=ty-4-k*6;for(let j=0;j<7;j++){const hw=w*(j+1)/7;for(let x=Math.round(tx-hw);x<=tx+hw;x++){const rel=(x-(tx-hw))/(2*hw||1);q.fillStyle=rel>.6?R[2]:rel>.25?R[1]:R[0];q.fillRect(x,Math.round(yy-7+j),1,1);}}}}
+    else{blob(tx,ty-10,9,R);blob(tx-6,ty-7,6,R);blob(tx+6,ty-7,6,R);blob(tx+2,ty-14,6,R);q.fillStyle=R[3];q.fillRect(Math.round(tx+4),Math.round(ty-17),1,1);q.fillRect(Math.round(tx+7),Math.round(ty-12),1,1);}}
+  // stone seats + table + fire pit (GLADE_T in art coords)
+  const TX=GLADE_T.x/2,TY=GLADE_T.y/2,RX=GLADE_T.rx/2,RY=GLADE_T.ry/2;
+  for(let k=0;k<8;k++){const a=-Math.PI/2+k*Math.PI/4,sx=TX+Math.cos(a)*(RX+15),sy=TY+Math.sin(a)*(RY+13);
+    const e=(cx,cy,rx,ry,col)=>{q.fillStyle=col;for(let y=Math.floor(cy-ry);y<=cy+ry;y++){const t=1-((y+.5-cy)/ry)**2;if(t<0)continue;const hw=rx*Math.sqrt(t);q.fillRect(Math.round(cx-hw),y,Math.round(hw*2),1);}};
+    e(sx,sy+3,5.5,3,"#4f4b45");e(sx,sy+1.5,5.5,2.6,"#8d887f");q.fillStyle="#b3ada2";q.fillRect(Math.round(sx-1),Math.round(sy),3,1);}
+  const E=(cx,cy,rx,ry,col)=>{q.fillStyle=col;for(let y=Math.floor(cy-ry);y<=cy+ry;y++){const t=1-((y+.5-cy)/ry)**2;if(t<0)continue;const hw=rx*Math.sqrt(t);q.fillRect(Math.round(cx-hw),y,Math.round(hw*2),1);}};
+  E(TX,TY+5,RX,RY,"#4a463f");E(TX,TY,RX,RY,"#7d786f");E(TX,TY-1,RX-2,RY-2,"#8d887f");
+  for(let x=Math.round(TX-RX+4);x<TX+RX-4;x++){const t=1-((x+.5-TX)/(RX-2))**2;if(t>0){q.fillStyle="#a8a297";q.fillRect(x,Math.round(TY-1-(RY-2)*Math.sqrt(t)),1,1);}}
+  q.strokeStyle="#6b665d";q.lineWidth=1;for(const r of [.45,.75]){q.beginPath();q.ellipse(TX,TY-1,(RX-2)*r,(RY-2)*r,0,0,7);q.stroke();}
+  E(TX,TY,11,5,"#2a2420");for(let k=0;k<10;k++){const a=k/10*6.283;q.fillStyle=k%2?"#6b655a":"#857e72";q.fillRect(Math.round(TX+Math.cos(a)*11-1),Math.round(TY+Math.sin(a)*5-1),2,2);}
+  q.fillStyle="#5a3a22";q.fillRect(Math.round(TX-6),Math.round(TY-1),12,2);q.fillStyle="#3d2716";q.fillRect(Math.round(TX-4),Math.round(TY+1),8,1);   // logs
+  // dark outline round every object, then lay the objects on the ground
+  const im=q.getImageData(0,0,256,256),d=im.data,out=new Uint8ClampedArray(d);const A=(x,y)=>x>=0&&y>=0&&x<256&&y<256&&d[(y*256+x)*4+3]>40;
+  for(let y=0;y<256;y++)for(let x=0;x<256;x++){if(A(x,y))continue;if(A(x+1,y)||A(x-1,y)||A(x,y+1)||A(x,y-1)){const i=(y*256+x)*4;out[i]=10;out[i+1]=18;out[i+2]=12;out[i+3]=255;}}
+  q.putImageData(new ImageData(out,256,256),0,0);g.drawImage(o,0,0);
+  return _gladeC=c;}
 function drawGlade(){
-  for(let y=0;y<H;y+=16)for(let x=0;x<W;x+=16){ctx.fillStyle=((x/16+y/16)%2===0)?"#22361f":"#1f321c";ctx.fillRect(x,y,16,16);}
-  ctx.fillStyle="#e8ecf2";ctx.beginPath();ctx.arc(446,52,16,0,7);ctx.fill();ctx.fillStyle="rgba(232,236,242,.12)";ctx.beginPath();ctx.arc(446,52,34,0,7);ctx.fill();
-  for(let i=0;i<22;i++){const a=i/22*6.283,tx=256+Math.cos(a)*236,ty=256+Math.sin(a)*236;if(ty>440&&Math.abs(tx-256)<60)continue;   // leave the path open
-    px(tx-4,ty-6,8,18,"#2c2018");ctx.fillStyle=i%2?"#16301c":"#1b3a22";ctx.beginPath();ctx.arc(tx,ty-12,18,0,7);ctx.fill();}
-  px(240,300,32,H-300,"#4a3c2c");px(240,300,3,H-300,"#5a4a38");   // path up from the gate
-  const T=GLADE_T,warm=ctx.createRadialGradient(T.x,T.y-10,10,T.x,T.y-10,190);warm.addColorStop(0,"rgba(255,160,60,.30)");warm.addColorStop(1,"rgba(255,160,60,0)");ctx.fillStyle=warm;ctx.fillRect(0,0,W,H);
+  const sm=ctx.imageSmoothingEnabled;ctx.imageSmoothingEnabled=false;ctx.drawImage(gladeArt(),0,0,512,512);ctx.imageSmoothingEnabled=sm;
+  const T=GLADE_T,now=performance.now()/1000,warm=ctx.createRadialGradient(T.x,T.y-10,10,T.x,T.y-10,190);warm.addColorStop(0,"rgba(255,160,60,.30)");warm.addColorStop(1,"rgba(255,160,60,0)");ctx.fillStyle=warm;ctx.fillRect(0,0,W,H);
   const seats=[];for(let k=0;k<8;k++){const a=-Math.PI/2+k*Math.PI/4;seats.push([T.x+Math.cos(a)*(T.rx+30),T.y+Math.sin(a)*(T.ry+26)]);}
-  for(const [sx,sy] of seats){ctx.fillStyle="#5d5f63";ctx.beginPath();ctx.ellipse(sx,sy+6,11,6,0,0,7);ctx.fill();ctx.fillStyle="#76797e";ctx.beginPath();ctx.ellipse(sx,sy+3,11,5,0,0,7);ctx.fill();}
-  ctx.fillStyle="#4f4b46";ctx.beginPath();ctx.ellipse(T.x,T.y+10,T.rx,T.ry,0,0,7);ctx.fill();
-  ctx.fillStyle="#7a756d";ctx.beginPath();ctx.ellipse(T.x,T.y,T.rx,T.ry,0,0,7);ctx.fill();
-  ctx.strokeStyle="#5f5a53";ctx.lineWidth=1;for(let r=0.35;r<1;r+=0.3){ctx.beginPath();ctx.ellipse(T.x,T.y,T.rx*r,T.ry*r,0,0,7);ctx.stroke();}
-  ctx.fillStyle="#2c2420";ctx.beginPath();ctx.ellipse(T.x,T.y,22,10,0,0,7);ctx.fill();
-  px(T.x-10,T.y-26,20,20,"#ff8c2a");px(T.x-6,T.y-36,12,16,"#ffb347");px(T.x-3,T.y-42,6,12,"#ffe08a");
+  // live fire: 2-px flame columns that flicker
+  for(let i=-4;i<=4;i++){const hgt=10+Math.abs(Math.sin(now*7+i*1.7))*12-Math.abs(i)*2;if(hgt<=0)continue;const x=T.x+i*2.4-1;
+    px(x,T.y-2-hgt,3,hgt,"#ff7a1a");px(x,T.y-2-hgt*.7,3,hgt*.7,"#ffb347");if(Math.abs(i)<2)px(x,T.y-2-hgt*.4,3,hgt*.4,"#ffe08a");}
+  if(((now*3)|0)%2)px(T.x+((now*13)%10)-5,T.y-32-((now*20)%10),2,2,"#ffd27a");   // spark
+  // fireflies
+  for(let i=0;i<14;i++){const fx=256+Math.cos(i*2.3+now*.3)*(150+i*5)+Math.sin(now*1.3+i)*14,fy=256+Math.sin(i*1.7+now*.25)*(130+i*4)+Math.cos(now*1.1+i)*10,al=.35+.65*Math.max(0,Math.sin(now*2+i*1.9));
+    ctx.globalAlpha=al;px(fx,fy,2,2,"#e8ff8a");ctx.globalAlpha=al*.25;px(fx-2,fy-2,6,6,"#e8ff8a");ctx.globalAlpha=1;}
   if(STORY.done){const who=[["Seth",0],["Grove","#9fe0a8"],["Kevin",0],["Cairn","#c9d3de"],["Luis",0],["Droplet","#7cc4ff"],["Nick",0],["Lumen","#ffe6a0"]];   // clockwise from the head of the table
     for(let k=0;k<8;k++){const [sx,sy]=seats[k],[nm,col]=who[k];if(k===0||k===1)continue;   // Seth + Grove stand as NPCs
       if(col){const g=ctx.createRadialGradient(sx,sy-14,2,sx,sy-14,26);g.addColorStop(0,col+"cc");g.addColorStop(1,col+"00");ctx.fillStyle=g;ctx.fillRect(sx-28,sy-44,56,56);ctx.fillStyle=col;ctx.globalAlpha=.85;ctx.beginPath();ctx.arc(sx,sy-20,6,0,7);ctx.fill();ctx.fillRect(sx-8,sy-14,16,14);ctx.globalAlpha=1;}
@@ -1340,7 +1383,7 @@ function render(){const R=ROOMS[room];
   for(const e of ents){if(e.t==="d")drawDecorItem(e.d);else if(e.t==="p")drawPlace(e.k,e.p);else if(e.t==="npc")drawNPC(e.id);else if(e.t==="fx")drawFixture(e.id);else drawPlayer();}
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b45",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b46",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
