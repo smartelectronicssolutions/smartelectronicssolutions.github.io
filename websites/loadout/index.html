@@ -734,7 +734,7 @@ function saveCrate(k){const p=PLACES[k];update(ref(db,"public/games/loadout/layo
 // doorway overrides
 let DOORS={};
 onValue(ref(db,"public/games/loadout/doors"),snap=>{DOORS=snap.val()||{};applyDoors();});
-function applyDoors(){for(const rm in ROOMS)ROOMS[rm].doors.forEach((d,i)=>{const o=DOORS[rm]&&DOORS[rm][i];if(o){d.x=o.x;d.y=o.y;if(o.w)d.w=o.w;if(o.h)d.h=o.h;}});}
+function applyDoors(){for(const rm in ROOMS)ROOMS[rm].doors.forEach((d,i)=>{const o=DOORS[rm]&&DOORS[rm][i];if(o){d.x=o.x;d.y=o.y;if(o.w)d.w=o.w;if(o.h)d.h=o.h;if(d.out&&isFinite(o.ox)&&isFinite(o.oy))d.out=[o.ox,o.oy];}});}
 onValue(ref(db,"public/games/loadout/streetCars"),snap=>{const v=snap.val()||{};STREET_CARS.forEach((c,i)=>{const o=v[i];if(o&&isFinite(o.x)&&isFinite(o.y)){c.x=o.x;c.y=o.y;}});});
 function saveCar(i){const c=STREET_CARS[i];update(ref(db,"public/games/loadout/streetCars"),{[i]:{x:c.x,y:c.y}}).catch(()=>{});}
 function saveDoor(rm,i){const d=ROOMS[rm].doors[i];update(ref(db,"public/games/loadout/doors/"+rm),{[i]:{x:d.x,y:d.y,w:d.w,h:d.h}}).catch(()=>{});}
@@ -1324,7 +1324,7 @@ function render(){const R=ROOMS[room];
   for(const e of ents){if(e.t==="d")drawDecorItem(e.d);else if(e.t==="p")drawPlace(e.k,e.p);else if(e.t==="npc")drawNPC(e.id);else if(e.t==="fx")drawFixture(e.id);else drawPlayer();}
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b41",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b42",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
@@ -1367,6 +1367,24 @@ const STREET_HOUSES=[{at:[59,28],roof:["#2f4f8a","#3b5fa0"],lab:"house_erik",def
   {at:[59,424],roof:["#356a5a","#3f7c6a"],lab:"house_luis",def:"LUIS'S"},{at:[287,424],roof:["#5a3a7a","#6a4a8c"],lab:"house_nick",def:"NICK'S"},
   {at:[587,424],roof:["#7a5a2a","#8c6a34"],lab:"house_dispatch",def:"SETH'S DISPATCH"},{at:[59,788],roof:["#4a6a8a","#5a7a9c"],lab:"house_sale",def:"FOR SALE"}];
 const STREET_CARS=[{k:"van",x:584,y:258},{k:"truck",x:812,y:258}];   // edit mode drags them; saved positions override (streetCars/<i>)
+// MOVABLE HOUSES + SHOP (2026-10-18, L: "can the houses be movable"): in EDIT ROOM on the street, drag a house (or the
+// shop) like furniture. A house carries its front door + the spot you step out to, so it still opens. Saved at
+// public/games/loadout/houses/<lab> = {x,y} (the shop under "shop"); the door is saved with it (doors/street).
+const HOUSE_DOOR={house_erik:"erikhouse",house_kevin:"kevinhouse",house_nick:"nickhouse",house_luis:"yourroom"};
+let _houseLoading=false;
+function houseDoor(h){const to=HOUSE_DOOR[h.lab];if(!to)return -1;return ROOMS.street.doors.findIndex(d=>d.to===to);}
+function houseProxy(h){if(h._p)return h._p;const p={};
+  const shift=(dx,dy)=>{if(_houseLoading)return;const di=houseDoor(h);if(di<0)return;const d=ROOMS.street.doors[di];d.x+=dx;d.y+=dy;if(d.out){d.out[0]+=dx;d.out[1]+=dy;}};
+  Object.defineProperty(p,"x",{get:()=>h.at[0],set:v=>{const dx=v-h.at[0];h.at[0]=v;shift(dx,0);}});
+  Object.defineProperty(p,"y",{get:()=>h.at[1],set:v=>{const dy=v-h.at[1];h.at[1]=v;shift(0,dy);}});
+  return h._p=p;}
+function saveHouse(idx){if(idx<0){update(ref(db,"public/games/loadout/houses"),{shop:{x:SHOP_RECT.x,y:SHOP_RECT.y}}).catch(()=>{});return;}
+  const h=STREET_HOUSES[idx];update(ref(db,"public/games/loadout/houses"),{[h.lab]:{x:h.at[0],y:h.at[1]}}).catch(()=>{});
+  const di=houseDoor(h);if(di>=0){const d=ROOMS.street.doors[di];update(ref(db,"public/games/loadout/doors/street"),{[di]:{x:d.x,y:d.y,w:d.w,h:d.h,...(d.out?{ox:d.out[0],oy:d.out[1]}:{})}}).catch(()=>{});}}
+onValue(ref(db,"public/games/loadout/houses"),snap=>{const v=snap.val()||{};_houseLoading=true;
+  for(const h of STREET_HOUSES){const o=v[h.lab];if(o&&isFinite(o.x)&&isFinite(o.y)){h.at[0]=o.x;h.at[1]=o.y;}}
+  if(v.shop&&isFinite(v.shop.x)&&isFinite(v.shop.y)){SHOP_RECT.x=v.shop.x;SHOP_RECT.y=v.shop.y;}
+  _houseLoading=false;});
 // standalone pixel door/gate (frame + wood panel + arch + knob + sign)
 function drawGate(x,y,w,h,label){
   ctx.fillStyle="rgba(0,0,0,.30)";ctx.beginPath();ctx.ellipse(x+w/2,y+h+2,w*0.62,5,0,0,7);ctx.fill();
@@ -1416,6 +1434,7 @@ function draggablesIn(rm){const list=[];
   for(const[k,p]of placesIn(rm))list.push({kind:"p",key:k,o:p,w:p.w,h:p.h});
   ROOMS[rm].doors.forEach((d,i)=>{let w=d.w,h=d.h;if(d.to==="van"&&CAT.van){w=(CAT.van.w||156)*vs("van");h=(CAT.van.h||96)*vs("van");}list.push({kind:"door",idx:i,o:d,w,h});});
   for(const id of fixIn(rm))list.push({kind:"fx",id,o:FIXTURES[id],w:FIXTURES[id].w,h:FIXTURES[id].h});
+  if(rm==="street"){STREET_HOUSES.forEach((h,i)=>list.push({kind:"house",idx:i,o:houseProxy(h),w:150,h:116}));list.push({kind:"shop",o:SHOP_RECT,w:SHOP_RECT.w,h:SHOP_RECT.h});}   // houses + shop (2026-10-18)
   if(rm==="street")STREET_CARS.forEach((c,i)=>list.push({kind:"car",idx:i,o:c,w:156,h:96}));   // parked van + truck
   return list;}
 $("editBtn").addEventListener("click",()=>{editMode=!editMode;selected=null;moveTarget=null;wallMode=false;floorMode=false;
@@ -1479,7 +1498,7 @@ cv.addEventListener("pointermove",e=>{if(!editMode)return;const p=toLogical(e);
   drag.it.o.x=nx;drag.it.o.y=ny;});
 function endDrag(){if(painting){painting=null;return;}if(!drag)return;const it=drag.it;
   selected={kind:it.kind,id:it.id,key:it.key,idx:it.idx};
-  if(drag.moved){if(it.kind==="d")saveRoom(room);else if(it.kind==="p")saveCrate(it.key);else if(it.kind==="door")saveDoor(room,it.idx);else if(it.kind==="fx")saveFixture(it.id);else if(it.kind==="car")saveCar(it.idx);}
+  if(drag.moved){if(it.kind==="d")saveRoom(room);else if(it.kind==="p")saveCrate(it.key);else if(it.kind==="door")saveDoor(room,it.idx);else if(it.kind==="fx")saveFixture(it.id);else if(it.kind==="car")saveCar(it.idx);else if(it.kind==="house")saveHouse(it.idx);else if(it.kind==="shop")saveHouse(-1);}
   drag=null;refreshTools();}
 cv.addEventListener("pointerup",endDrag);cv.addEventListener("pointercancel",endDrag);
 // TWO-FINGER PAN IN EDIT MODE (2026-10-18, L: "in edit mode can I use two fingers to move the map around, have it snap back
