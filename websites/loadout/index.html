@@ -684,7 +684,7 @@ function setFtile(rm,gx,gy,key){FTILES[rm]=FTILES[rm]||{};FTILES[rm][gx+"_"+gy]=
 // ---- canvas ----
 const cv=$("game");let ctx=cv.getContext("2d");ctx.imageSmoothingEnabled=false;
 const W=cv.width,H=cv.height,FW=A.frame.w,FH=A.frame.h,SC=1.6;
-const _bgc=document.createElement("canvas");_bgc.width=W;_bgc.height=H;const _bgctx=_bgc.getContext("2d");_bgctx.imageSmoothingEnabled=false;let _bgKey="",_bgTime=0;
+const _bgc=document.createElement("canvas");_bgc.width=W;_bgc.height=H;function worldW(){return Math.max(W,ROOMR.x+ROOMR.w+40);}function worldH(){return Math.max(H,ROOMR.y+ROOMR.h+40);}const _bgctx=_bgc.getContext("2d");_bgctx.imageSmoothingEnabled=false;let _bgKey="",_bgTime=0;
 const sheet=new Image();let sheetOk=false;sheet.onload=()=>sheetOk=true;sheet.src=A.charSheet;
 let charCanvas=null;   // custom composited character (LimeZu editor) overrides the default sheet when set
 /* Cold load (no cache) has nothing correct to draw yet. Better a player that appears a moment
@@ -717,7 +717,7 @@ function stepNPCs(dt){for(const id of npcsIn(room)){const n=NPCS[id];
       n.x=nx;n.y=ny;n.dir=Math.abs(ddx)>Math.abs(ddy)?(ddx<0?"left":"right"):(ddy<0?"up":"down");n.ft+=dt;n.frame=Math.floor(n.ft*7)%6;}}
   else{n.wait-=dt;if(n.wait<=0){
     // pick a stroll target on walkable ground, near home; if none of 8 tries is clear, stay put this turn
-    for(let k=0;k<8;k++){const a=Math.random()*6.283,r=24+Math.random()*44,tx=Math.max(40,Math.min(W-40,n.hx+Math.cos(a)*r)),ty=Math.max(110,Math.min(H-40,n.hy+Math.sin(a)*r));
+    for(let k=0;k<8;k++){const a=Math.random()*6.283,r=24+Math.random()*44,tx=Math.max(40,Math.min(Math.max(W,ROOMR.x+ROOMR.w+20)-40,n.hx+Math.cos(a)*r)),ty=Math.max(110,Math.min(Math.max(H,ROOMR.y+ROOMR.h+24)-40,n.hy+Math.sin(a)*r));
       if(!blocked(tx,ty)){n.tx=tx;n.ty=ty;n.moving=true;break;}}
     if(!n.moving)n.wait=1+Math.random()*2;}}
 }}
@@ -881,7 +881,15 @@ function showArticle(id){const a=JOURNAL[id];if(!a)return;$("readerTitle").textC
       else if(b.text)h+="<p>"+esc(fmtTxt(b.text))+"</p>";}}
   const body=$("readerBody");body.innerHTML=h;body.scrollTop=0;}
 $("readerClose").addEventListener("click",()=>$("reader").classList.remove("open"));
-let ROOMR={x:20,y:24,w:W-40,h:H-48};let ROOMSIZE={};let roomOff={x:0,y:0};function computeROOMR(){const sz=(ROOMSIZE&&ROOMSIZE[room])||{};ROOMR.w=Math.max(256,Math.min(W-40,(sz.w||(W-40))));ROOMR.h=Math.max(256,Math.min(H-48,(sz.h||(H-48))));roomOff.x=Math.round(W/2-(ROOMR.x+ROOMR.w/2));roomOff.y=Math.round(H/2-(ROOMR.y+ROOMR.h/2));}onValue(ref(db,"public/games/loadout/roomsize"),ss=>{ROOMSIZE=ss.val()||{};computeROOMR();});function trimRoom(rm){const rx=ROOMR.x,ry=ROOMR.y,rw=ROOMR.w,rh=ROOMR.h;const out=(gx,gy)=>{const x=gx*CELL,y=gy*CELL;return (x>=rx+rw)||(y>=ry+rh)||(x+CELL<=rx)||(y+CELL<=ry);};if(WALLS[rm]){for(const k of Object.keys(WALLS[rm])){const p=k.split("_");if(out(+p[0],+p[1])){delete WALLS[rm][k];remove(ref(db,"public/games/loadout/walls/"+rm+"/"+k)).catch(()=>{});}}}if(FTILES[rm]){for(const k of Object.keys(FTILES[rm])){const p=k.split("_");if(out(+p[0],+p[1])){delete FTILES[rm][k];remove(ref(db,"public/games/loadout/ftiles/"+rm+"/"+k)).catch(()=>{});}}}}function roomSizeSet(dw,dh){const sz=ROOMSIZE[room]||{w:ROOMR.w,h:ROOMR.h};sz.w=Math.max(256,Math.min(W-40,(sz.w||(W-40))+dw));sz.h=Math.max(256,Math.min(H-48,(sz.h||(H-48))+dh));ROOMSIZE[room]=sz;computeROOMR();trimRoom(room);try{set(ref(db,"public/games/loadout/roomsize/"+room),{w:sz.w,h:sz.h});}catch(e){}}setTimeout(()=>{const b=(id,fn)=>{const e=$(id);if(e)e.onclick=fn;};b("roomWmore",()=>roomSizeSet(48,0));b("roomWless",()=>roomSizeSet(-48,0));b("roomLmore",()=>roomSizeSet(0,48));b("roomLless",()=>roomSizeSet(0,-48));},0);
+let ROOMR={x:20,y:24,w:W-40,h:H-48};let ROOMSIZE={};let roomOff={x:0,y:0};const BIGW=W*3-40,BIGH=H*3-48;function roomMaxW(){return (room==="street"||room==="glade")?W-40:BIGW;}function roomMaxH(){return (room==="street"||room==="glade")?H-48:BIGH;}
+function computeROOMR(){const sz=(ROOMSIZE&&ROOMSIZE[room])||{};ROOMR.w=Math.max(256,Math.min(roomMaxW(),(sz.w||(W-40))));ROOMR.h=Math.max(256,Math.min(roomMaxH(),(sz.h||(H-48))));
+  // camera: centred when the room fits the screen, follows the player (clamped to the room edges) when it doesn't
+  if(ROOMR.w>W-40)roomOff.x=Math.round(Math.max(W-(ROOMR.x+ROOMR.w+20),Math.min(0,W/2-player.x)));else roomOff.x=Math.round(W/2-(ROOMR.x+ROOMR.w/2));
+  if(ROOMR.h>H-48)roomOff.y=Math.round(Math.max(H-(ROOMR.y+ROOMR.h+24),Math.min(0,H/2-player.y+40)));else roomOff.y=Math.round(H/2-(ROOMR.y+ROOMR.h/2));}onValue(ref(db,"public/games/loadout/roomsize"),ss=>{ROOMSIZE=ss.val()||{};computeROOMR();});function trimRoom(rm){const rx=ROOMR.x,ry=ROOMR.y,rw=ROOMR.w,rh=ROOMR.h;const out=(gx,gy)=>{const x=gx*CELL,y=gy*CELL;return (x>=rx+rw)||(y>=ry+rh)||(x+CELL<=rx)||(y+CELL<=ry);};if(WALLS[rm]){for(const k of Object.keys(WALLS[rm])){const p=k.split("_");if(out(+p[0],+p[1])){delete WALLS[rm][k];remove(ref(db,"public/games/loadout/walls/"+rm+"/"+k)).catch(()=>{});}}}if(FTILES[rm]){for(const k of Object.keys(FTILES[rm])){const p=k.split("_");if(out(+p[0],+p[1])){delete FTILES[rm][k];remove(ref(db,"public/games/loadout/ftiles/"+rm+"/"+k)).catch(()=>{});}}}}function roomSizeSet(dw,dh){const sz=ROOMSIZE[room]||{w:ROOMR.w,h:ROOMR.h};const ow=sz.w||(W-40),oh=sz.h||(H-48);
+  if(dw&&ow+dw>W-40)dw*=2;if(dh&&oh+dh>H-48)dh*=2;   // past one screen grow in 96s
+  sz.w=Math.max(256,Math.min(roomMaxW(),ow+dw));sz.h=Math.max(256,Math.min(roomMaxH(),oh+dh));
+  {const rgt=ROOMR.x+ROOMR.w,bot=ROOMR.y+ROOMR.h,ddw=sz.w-ow,ddh=sz.h-oh;(ROOMS[room].doors||[]).forEach((d,i)=>{let mv=false;
+    if(ddh&&d.y+d.h>=bot-8){d.y+=ddh;mv=true;}else if(ddw&&d.x+d.w>=rgt-8){d.x+=ddw;mv=true;}if(mv)saveDoor(room,i);});}ROOMSIZE[room]=sz;computeROOMR();trimRoom(room);try{set(ref(db,"public/games/loadout/roomsize/"+room),{w:sz.w,h:sz.h});}catch(e){}}setTimeout(()=>{const b=(id,fn)=>{const e=$(id);if(e)e.onclick=fn;};b("roomWmore",()=>roomSizeSet(48,0));b("roomWless",()=>roomSizeSet(-48,0));b("roomLmore",()=>roomSizeSet(0,48));b("roomLless",()=>roomSizeSet(0,-48));},0);
 const CELL=16;                        // wall grid cell
 let room="yourroom";
 const player={x:256,y:410,dir:"down",moving:false,t:0,frame:0,speed:108};
@@ -1161,13 +1169,14 @@ function step(dt){let dx=0,dy=0;
     checkDoors();}
   else player.frame=0;}
 function tileFloor(key){const im=floorImg[key];if(!im||!im.complete){ctx.fillStyle="#1a1f25";ctx.fillRect(0,0,W,H);return;}
-  for(let y=0;y<H;y+=im.height)for(let x=0;x<W;x+=im.width)ctx.drawImage(im,x,y);}
+  const ww=worldW(),wh=worldH();for(let y=0;y<wh;y+=im.height)for(let x=0;x<ww;x+=im.width)ctx.drawImage(im,x,y);}
 function render(){const R=ROOMS[room];
   // ---- cached static ground layer (floor/walls/doors/flat-decor) -> offscreen, blit each frame ----
   const _gk=room+"|"+ROOMR.x+"_"+ROOMR.y+"_"+ROOMR.w+"_"+ROOMR.h;
   const _now=(window.performance?performance.now():Date.now());
   if(editMode||_gk!==_bgKey||_now-_bgTime>800){_bgKey=_gk;_bgTime=_now;
-    const _m=ctx;ctx=_bgctx;ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,W,H);
+    if(_bgc.width!==worldW()||_bgc.height!==worldH()){_bgc.width=worldW();_bgc.height=worldH();_bgctx.imageSmoothingEnabled=false;}
+    const _m=ctx;ctx=_bgctx;ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,_bgc.width,_bgc.height);
     if(room==="street")drawStreet();else if(room==="glade")drawGlade();else{tileFloor(R.floor);
       for(const key in (FTILES[room]||{})){const p=key.split("_");drawFtile(+p[0],+p[1],FTILES[room][key]);}
       drawWalls();}
@@ -1186,7 +1195,7 @@ function render(){const R=ROOMS[room];
   for(const e of ents){if(e.t==="d")drawDecorItem(e.d);else if(e.t==="p")drawPlace(e.k,e.p);else if(e.t==="npc")drawNPC(e.id);else if(e.t==="fx")drawFixture(e.id);else drawPlayer();}
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px monospace";ctx.textAlign="left";ctx.fillText("build b16",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px monospace";ctx.textAlign="left";ctx.fillText("build b17",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
@@ -1194,7 +1203,7 @@ function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const
   if(d.store||d.storeArea){const bx=Math.round(d.x+c.w*s/2),by=Math.round(d.y+4);ctx.fillStyle="rgba(242,165,65,.9)";ctx.beginPath();ctx.arc(bx,by,7,0,7);ctx.fill();ctx.fillStyle="#0c0f13";ctx.font="9px monospace";ctx.textAlign="center";ctx.fillText(d.storeArea?"▣":"▤",bx,by+3);ctx.textAlign="left";}}
 function drawWallCell(gx,gy){const x=gx*CELL,y=gy*CELL;ctx.fillStyle="#4a4038";ctx.fillRect(x,y,CELL,CELL);ctx.fillStyle="#6b5e50";ctx.fillRect(x,y,CELL,4);ctx.fillStyle="#2e2822";ctx.fillRect(x,y+CELL-3,CELL,3);ctx.strokeStyle="#241f1a";ctx.lineWidth=1;ctx.strokeRect(x+.5,y+.5,CELL-1,CELL-1);}
 function drawFtile(gx,gy,fkey){const im=floorImg[fkey];if(!im||!im.complete)return;const x=gx*CELL,y=gy*CELL;ctx.drawImage(im,x%im.width,y%im.height,CELL,CELL,x,y,CELL,CELL);}
-function drawWalls(){ctx.fillStyle="#0e1216";ctx.fillRect(0,0,W,ROOMR.y-8);ctx.fillRect(0,ROOMR.y+ROOMR.h+8,W,H);ctx.fillRect(0,0,ROOMR.x-8,H);ctx.fillRect(ROOMR.x+ROOMR.w+8,0,W,H);
+function drawWalls(){const W=worldW(),H=worldH();ctx.fillStyle="#0e1216";ctx.fillRect(0,0,W,ROOMR.y-8);ctx.fillRect(0,ROOMR.y+ROOMR.h+8,W,H);ctx.fillRect(0,0,ROOMR.x-8,H);ctx.fillRect(ROOMR.x+ROOMR.w+8,0,W,H);
   ctx.strokeStyle="#2a313b";ctx.lineWidth=2;ctx.strokeRect(ROOMR.x-6,ROOMR.y-6,ROOMR.w+12,ROOMR.h+12);ctx.strokeStyle="rgba(242,165,65,.16)";ctx.strokeRect(ROOMR.x-2,ROOMR.y-2,ROOMR.w+4,ROOMR.h+4);}
 function px(x,y,w,h,c){ctx.fillStyle=c;ctx.fillRect(x,y,w,h);}
 function drawVanSprite(x,y){ // ~156x96 cargo van, side view, cab on left
@@ -1371,8 +1380,8 @@ function drawEditOverlay(){
     for(const it of draggablesIn(room)){/* KIND FIRST, then identity (2026-09-21, L: "computer doesn't show up as selected"). There was no "fx" branch, so a selected FIXTURE - the Computer, the Bookshelf - kept its plain outline and read as unselected even though it was selected, draggable and deletable. Matching on kind up front also stops an id/key collision across kinds from highlighting the wrong piece. */const isSel=selected&&selected.kind===it.kind&&((it.kind==="d"&&selected.id===it.id)||(it.kind==="p"&&selected.key===it.key)||(it.kind==="fx"&&selected.id===it.id)||(it.kind==="door"&&selected.idx===it.idx));
       ctx.strokeStyle=isSel?"rgba(242,165,65,.95)":(it.kind==="door"?"rgba(120,200,140,.75)":"rgba(99,182,199,.6)");ctx.lineWidth=isSel?2:1;ctx.strokeRect(it.o.x+.5,it.o.y+.5,it.w-1,it.h-1);}
     ctx.setLineDash([]);}
-  ctx.fillStyle="rgba(242,165,65,.94)";ctx.fillRect(0,H-19,W,19);ctx.fillStyle="#0c0f13";ctx.font="9px monospace";ctx.textAlign="center";
-  ctx.fillText(wallMode?"WALL MODE (W) — tap/drag grid to build/erase walls":floorMode?"FLOOR MODE (F) — pick a tile below, tap/drag to paint":"EDIT — tap select · drag move · green = doorway",W/2,H-6);}
+  ctx.save();ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle="rgba(242,165,65,.94)";ctx.fillRect(0,H-19,W,19);ctx.fillStyle="#0c0f13";ctx.font="9px monospace";ctx.textAlign="center";
+  ctx.fillText(wallMode?"WALL MODE (W) — tap/drag grid to build/erase walls":floorMode?"FLOOR MODE (F) — pick a tile below, tap/drag to paint":"EDIT — tap select · drag move · green = doorway",W/2,H-6);ctx.restore();}
 // tools
 function selZList(){const arr=[];for(const {d} of decorList(room))arr.push(d.z||0);for(const[,p]of placesIn(room))arr.push(p.z||0);return arr;}
 $("frontBtn").addEventListener("click",()=>{if(!selected)return;const mx=Math.max(0,...selZList())+1;setZ(mx);});
