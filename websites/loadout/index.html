@@ -678,6 +678,10 @@ onValue(ref(db,BASE+"/money/inventory"),snap=>{const tree=snap.val()||{};const a
     if(v.room&&!ZONEMETA[loc]&&!CLABEL[loc])CLABEL[loc]=v.room;
     arr.push({cat,comp,name,room:v.room||"",img:viaRelay(v.img||v.imageUrl||""),loc,price:v.price||v.actualPrice||"",qty:+v.quantity||0});}   // 'img' = onlineinventory canonical field; imageUrl = legacy fallback
   ITEMS=arr;$("loading").style.display="none";rebuild();});
+// RENAME = REAL DATA (2026-10-18, L: "yes change real data, use real data"): renaming a container/area in the game also
+// rewrites the inventory-app 'room' of every item inside it, so both apps show the same name.
+function syncRoomName(loc,name){if(!loc||!name)return;const upd={};for(const it of ITEMS){if(it.loc===loc&&it.room!==name){upd[`${it.cat}/${it.comp}/${it.name}/room`]=name;it.room=name;}}
+  if(Object.keys(upd).length)update(ref(db,BASE+"/money/inventory"),upd).catch(e=>console.warn(e));}
 function moveItem(it,newLoc){const base=`${it.cat}/${it.comp}/${it.name}`;it.loc=newLoc;const upd={[base+"/location"]:newLoc};
   if(newLoc!=="bag"){const lbl=locMeta(newLoc).label;it.room=lbl;upd[base+"/room"]=lbl;}   // sync the inventory-app 'room' field so the move shows there too
   update(ref(db,BASE+"/money/inventory"),upd).catch(e=>console.warn(e));rebuild();}
@@ -1320,7 +1324,7 @@ function render(){const R=ROOMS[room];
   for(const e of ents){if(e.t==="d")drawDecorItem(e.d);else if(e.t==="p")drawPlace(e.k,e.p);else if(e.t==="npc")drawNPC(e.id);else if(e.t==="fx")drawFixture(e.id);else drawPlayer();}
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b38",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b39",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
@@ -1457,7 +1461,7 @@ function slab(k,d){return SLABELS[k]||d;}
 function renameStruct(key,def){const cur=SLABELS[key]||def;const nn=prompt("Rename:",cur);if(nn===null)return;const v=nn.trim().slice(0,30);if(v)set(ref(db,"public/games/loadout/slabels/"+key),v).catch(()=>{});else remove(ref(db,"public/games/loadout/slabels/"+key)).catch(()=>{});}
 // tap-to-rename the shop + storage-area titles (mobile-friendly; contentEditable)
 (function(){var st=$("shopTitle");if(st){st.addEventListener("blur",function(){var v=st.textContent.trim().replace(/\s+/g," ").slice(0,30);if(v&&v!=="Field Supply Co.")set(ref(db,"public/games/loadout/slabels/shop"),v).catch(()=>{});else if(!v){remove(ref(db,"public/games/loadout/slabels/shop")).catch(()=>{});st.textContent=SLABELS.shop||"Field Supply Co.";}});st.addEventListener("keydown",function(e){if(e.key==="Enter"){e.preventDefault();st.blur();}});}
-var at=$("storTitle");if(at){at.addEventListener("blur",function(){var v=at.textContent.trim().replace(/\s+/g," ").slice(0,30);if(v&&curArea){if(AREAS[curArea])set(ref(db,"public/games/loadout/areas/"+curArea+"/name"),v).catch(()=>{});if(curArea==="van")set(ref(db,"public/games/loadout/slabels/van"),v).catch(()=>{});}});at.addEventListener("keydown",function(e){if(e.key==="Enter"){e.preventDefault();at.blur();}});}})();
+var at=$("storTitle");if(at){at.addEventListener("blur",function(){var v=at.textContent.trim().replace(/\s+/g," ").slice(0,30);if(v&&curArea){if(AREAS[curArea]){set(ref(db,"public/games/loadout/areas/"+curArea+"/name"),v).catch(()=>{});syncRoomName(curArea,v);}if(curArea==="van")set(ref(db,"public/games/loadout/slabels/van"),v).catch(()=>{});}});at.addEventListener("keydown",function(e){if(e.key==="Enter"){e.preventDefault();at.blur();}});}})();
 cv.addEventListener("pointerdown",e=>{if(!editMode)return;const p=toLogical(e);
   if(wallMode){const gx=Math.floor(p.x/CELL),gy=Math.floor(p.y/CELL);if(!inRoomGrid(gx,gy))return;
     painting=isWall(room,gx,gy)?"erase":"add";setWall(room,gx,gy,painting==="add");try{cv.setPointerCapture(e.pointerId);}catch(_){}return;}
@@ -1722,8 +1726,8 @@ function dblEdit(el,can){if(!el)return;let t0=0;const go=()=>{if(can&&!can())ret
   el.addEventListener("blur",()=>{el.contentEditable="false";});}
 dblEdit($("pName"),()=>!!($("pName").dataset.loc||$("pName").dataset.area));dblEdit($("storTitle"),()=>!!curArea);dblEdit($("shopTitle"));
 (function(){const pn=$("pName");if(!pn)return;
-  pn.addEventListener("blur",()=>{const ar=pn.dataset.area;if(ar){const v=pn.textContent.trim().replace(/\s+/g," ").slice(0,30);if(v&&AREAS[ar]&&v!==AREAS[ar].name)set(ref(db,"public/games/loadout/areas/"+ar+"/name"),v).catch(()=>{});else if(!v)pn.textContent=placeLabel(ar);return;}
-    const loc=pn.dataset.loc;if(!loc)return;const v=pn.textContent.trim().replace(/\s+/g," ").slice(0,40);if(v&&v!==locMeta(loc).label){set(ref(db,BASE+"/games/loadout/containers/"+loc),{name:v}).catch(()=>{});}else if(!v){if(String(loc).indexOf("c_")!==0)remove(ref(db,BASE+"/games/loadout/containers/"+loc)).catch(()=>{});pn.textContent=locMeta(loc).label;}});
+  pn.addEventListener("blur",()=>{const ar=pn.dataset.area;if(ar){const v=pn.textContent.trim().replace(/\s+/g," ").slice(0,30);if(v&&AREAS[ar]&&v!==AREAS[ar].name){set(ref(db,"public/games/loadout/areas/"+ar+"/name"),v).catch(()=>{});syncRoomName(ar,v);}else if(!v)pn.textContent=placeLabel(ar);return;}
+    const loc=pn.dataset.loc;if(!loc)return;const v=pn.textContent.trim().replace(/\s+/g," ").slice(0,40);if(v&&v!==locMeta(loc).label){set(ref(db,BASE+"/games/loadout/containers/"+loc),{name:v}).catch(()=>{});syncRoomName(loc,v);}else if(!v){if(String(loc).indexOf("c_")!==0)remove(ref(db,BASE+"/games/loadout/containers/"+loc)).catch(()=>{});pn.textContent=locMeta(loc).label;}});
   pn.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();pn.blur();}else if(e.key==="Escape"){e.preventDefault();const loc=pn.dataset.loc;if(loc)pn.textContent=locMeta(loc).label;pn.blur();}});
 })();
 // CAPACITY: a SPACE holds many containers, an ITEM holds one (2026-09-20, L chose "swap").
