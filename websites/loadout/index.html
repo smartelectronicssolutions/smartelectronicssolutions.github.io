@@ -992,7 +992,7 @@ function showArticle(id){const a=JOURNAL[id];if(!a)return;$("readerTitle").textC
       else if(b.text)h+="<p>"+esc(fmtTxt(b.text))+"</p>";}}
   const body=$("readerBody");body.innerHTML=h;body.scrollTop=0;}
 $("readerClose").addEventListener("click",()=>$("reader").classList.remove("open"));
-let editPan={x:0,y:0};   // edit-mode two-finger pan (2026-10-18)
+let editPan={x:0,y:0},editZoom=1;   // edit-mode pan + zoom (2026-10-18)   // edit-mode two-finger pan (2026-10-18)
 let ROOMR={x:20,y:24,w:W-40,h:H-48};let ROOMSIZE={};let roomOff={x:0,y:0};const BIGW=W*3-40,BIGH=H*3-48;function roomMaxW(){return room==="glade"?W-40:BIGW;}function roomMaxH(){return room==="glade"?H-48:BIGH;}
 function computeROOMR(){const sz=(ROOMSIZE&&ROOMSIZE[room])||(ROOMS[room]&&ROOMS[room].big)||{};ROOMR.w=Math.max(256,Math.min(roomMaxW(),(sz.w||(W-40))));ROOMR.h=Math.max(256,Math.min(roomMaxH(),(sz.h||(H-48))));
   // camera: centred when the room fits the screen, follows the player (clamped to the room edges) when it doesn't
@@ -1271,7 +1271,7 @@ function passOut(){if(transing)return;const fee=BAL>=50?50:0;if(fee)ledgerAdd(-f
 function nightAlpha(){return DAY.m<1080?0:Math.min(.45,(DAY.m-1080)/360*.45);}   // dusk from 6pm, full dark by midnight
 function jobCost(j){return{e:Math.round(30+j.miles/4),t:Math.round(60+j.miles*1.5)};}
 let _lastDraw=0;
-function frame(ts){requestAnimationFrame(frame);const dt=Math.min(.05,(ts-last)/1000||0);last=ts;computeROOMR();pollGamepad();unstick();if(!isOpen()&&!transing&&!editMode){if(!dlg){step(dt);stepDay(dt);}stepNPCs(dt);}stepFairy(dt);if(ts-_lastDraw<27)return;_lastDraw=ts;ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle="#0e1216";ctx.fillRect(0,0,VW,VH);ctx.save();ctx.translate(roomOff.x,roomOff.y);render();drawFairy();ctx.restore();if(!editMode){const na=nightAlpha();if(na>0){ctx.fillStyle="rgba(12,18,52,"+na+")";ctx.fillRect(0,0,VW,VH);
+function frame(ts){requestAnimationFrame(frame);const dt=Math.min(.05,(ts-last)/1000||0);last=ts;computeROOMR();pollGamepad();unstick();if(!isOpen()&&!transing&&!editMode){if(!dlg){step(dt);stepDay(dt);}stepNPCs(dt);}stepFairy(dt);if(ts-_lastDraw<27)return;_lastDraw=ts;ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle="#0e1216";ctx.fillRect(0,0,VW,VH);ctx.save();if(editMode&&editZoom!==1){ctx.translate(VW/2,VH/2);ctx.scale(editZoom,editZoom);ctx.translate(-VW/2,-VH/2);}ctx.translate(roomOff.x,roomOff.y);render();drawFairy();ctx.restore();if(!editMode){const na=nightAlpha();if(na>0){ctx.fillStyle="rgba(12,18,52,"+na+")";ctx.fillRect(0,0,VW,VH);
   {const lamps=decorList(room).filter(({d})=>d.k==="lamppost").map(({d})=>[d.x+8*(d.s||1),d.y+50*(d.s||1)]);ctx.save();ctx.translate(roomOff.x,roomOff.y);ctx.globalCompositeOperation="lighter";for(const [lx,ly] of lamps){const gr=ctx.createRadialGradient(lx,ly-40,2,lx,ly-14,70);gr.addColorStop(0,"rgba(255,214,120,"+(na*1.1)+")");gr.addColorStop(1,"rgba(255,214,120,0)");ctx.fillStyle=gr;ctx.fillRect(lx-70,ly-90,140,150);}ctx.restore();}}}}
 function step(dt){let dx=0,dy=0;
   if(joy){dx=joy.dx;dy=joy.dy;moveTarget=null;}
@@ -1320,7 +1320,7 @@ function render(){const R=ROOMS[room];
   for(const e of ents){if(e.t==="d")drawDecorItem(e.d);else if(e.t==="p")drawPlace(e.k,e.p);else if(e.t==="npc")drawNPC(e.id);else if(e.t==="fx")drawFixture(e.id);else drawPlayer();}
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px monospace";ctx.textAlign="left";ctx.fillText("build b34",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px monospace";ctx.textAlign="left";ctx.fillText("build b36",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
@@ -1419,7 +1419,7 @@ $("editBtn").addEventListener("click",()=>{editMode=!editMode;selected=null;move
   $("floorBtn").classList.remove("add");$("floorBtn").innerHTML='🟫 Floor <span style="opacity:.6">(F)</span>';$("floorPick").classList.remove("on");
   $("editBtn").textContent=editMode?"DONE":"EDIT ROOM";$("editBtn").className="btn"+(editMode?"":" ghost");
   cv.classList.toggle("edit",editMode);document.querySelector(".screen").classList.toggle("editing",editMode);
-  $("editTools").classList.toggle("on",editMode),(editMode||(editPan.x=editPan.y=0));refreshTools();});
+  $("editTools").classList.toggle("on",editMode),(editMode||(editPan.x=editPan.y=0,editZoom=1));refreshTools();});
 const WTX='🧱 Walls <span style="opacity:.6">(W)</span>',FTX='🟫 Floor <span style="opacity:.6">(F)</span>';
 $("wallBtn").addEventListener("click",()=>{if(room==="outside"){$("selLabel").innerHTML="Walls can't be edited outside — go into a room";return;}
   wallMode=!wallMode;floorMode=false;$("floorBtn").classList.remove("add");$("floorBtn").innerHTML=FTX;$("floorPick").classList.remove("on");
@@ -1444,7 +1444,7 @@ function refreshTools(){const on=!!selected;
     :selected.kind==="car"?(STREET_CARS[selected.idx].k==="van"?"The van":"The truck")
     :(customName(room,selected.key)||PLACES[selected.key].label);
   $("selLabel").innerHTML="Selected: <b>"+label+"</b>";}
-function toLogical(e){const r=cv.getBoundingClientRect();return {x:(e.clientX-r.left)*(VW/r.width)-roomOff.x,y:(e.clientY-r.top)*(VH/r.height)-roomOff.y};}
+function toLogical(e){const r=cv.getBoundingClientRect(),z=editMode?editZoom:1,sx=(e.clientX-r.left)*(VW/r.width),sy=(e.clientY-r.top)*(VH/r.height);return {x:(sx-VW/2)/z+VW/2-roomOff.x,y:(sy-VH/2)/z+VH/2-roomOff.y};}
 function pickAt(x,y){let best=null;for(const it of draggablesIn(room)){if(x>=it.o.x&&x<=it.o.x+it.w&&y>=it.o.y&&y<=it.o.y+it.h){const z=(it.o.z||0);if(!best||z>best._z||(z===best._z&&(it.o.y+it.h)>(best.o.y+best.h))){best=it;best._z=z;}}}return best;}
 // edit mode: double-click a storage piece to jump straight into it (no exit+walk+E)
 cv.addEventListener("dblclick",e=>{if(!editMode||isOpen()||transing)return;const p=toLogical(e);const it=pickAt(p.x,p.y);if(!it)return;const wasEdit=editMode;
@@ -1484,15 +1484,17 @@ cv.addEventListener("pointerup",endDrag);cv.addEventListener("pointercancel",end
 {const pts=new Map();let pan=null;const k=()=>VW/(cv.getBoundingClientRect().width||VW);
  const mid=()=>{const v=[...pts.values()];return{x:(v[0].x+v[1].x)/2,y:(v[0].y+v[1].y)/2};};
  cv.addEventListener("pointerdown",e=>{if(!editMode||e.pointerType==="mouse")return;pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
-   if(pts.size===2){if(drag&&!drag.moved)drag=null;painting=null;const m=mid();pan={cx:m.x,cy:m.y,px:editPan.x,py:editPan.y};e.stopImmediatePropagation();}
+   if(pts.size===2){if(drag&&!drag.moved)drag=null;painting=null;const m=mid(),v=[...pts.values()];pan={cx:m.x,cy:m.y,px:editPan.x,py:editPan.y,d0:Math.hypot(v[0].x-v[1].x,v[0].y-v[1].y)||1,z0:editZoom};e.stopImmediatePropagation();}
    else if(pts.size>2)e.stopImmediatePropagation();},{capture:true});
  cv.addEventListener("pointermove",e=>{if(!pts.has(e.pointerId))return;pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
-   if(!pan||pts.size<2)return;const m=mid(),s=k();
-   editPan.x=Math.max(-2000,Math.min(2000,pan.px+(m.x-pan.cx)*s));editPan.y=Math.max(-2000,Math.min(2000,pan.py+(m.y-pan.cy)*s));e.stopImmediatePropagation();},{capture:true});
+   if(!pan||pts.size<2)return;const m=mid(),s=k(),v=[...pts.values()],d=Math.hypot(v[0].x-v[1].x,v[0].y-v[1].y);
+   editZoom=Math.max(.4,Math.min(3,pan.z0*d/pan.d0));
+   editPan.x=Math.max(-2000,Math.min(2000,pan.px+(m.x-pan.cx)*s/editZoom));editPan.y=Math.max(-2000,Math.min(2000,pan.py+(m.y-pan.cy)*s/editZoom));e.stopImmediatePropagation();},{capture:true});
  const up=e=>{if(!pts.has(e.pointerId))return;pts.delete(e.pointerId);if(pan){if(pts.size<2)pan=null;e.stopImmediatePropagation();}};
  cv.addEventListener("pointerup",up,{capture:true});cv.addEventListener("pointercancel",up,{capture:true});
- cv.addEventListener("wheel",e=>{if(!editMode)return;e.preventDefault();const dx=e.shiftKey?e.deltaY:e.deltaX,dy=e.shiftKey?0:e.deltaY;
-   editPan.x=Math.max(-2000,Math.min(2000,editPan.x-dx));editPan.y=Math.max(-2000,Math.min(2000,editPan.y-dy));},{passive:false});}
+ cv.addEventListener("wheel",e=>{if(!editMode)return;e.preventDefault();
+   if(e.shiftKey||e.ctrlKey){const d=e.deltaY||e.deltaX;editZoom=Math.max(.4,Math.min(3,editZoom*Math.exp(-d*.0015)));return;}
+   editPan.x=Math.max(-2000,Math.min(2000,editPan.x-e.deltaX/editZoom));editPan.y=Math.max(-2000,Math.min(2000,editPan.y-e.deltaY/editZoom));},{passive:false});}
 
 function drawEditOverlay(){
   if(wallMode||floorMode){ctx.strokeStyle="rgba(255,255,255,.09)";ctx.lineWidth=1;
@@ -2261,5 +2263,16 @@ footer{font-size:.55rem;line-height:1.2;white-space:nowrap;overflow:hidden;text-
   header h1{flex:0 0 auto;margin:0;line-height:1}
   .hudR{flex:1 1 auto;min-width:0;width:auto!important}}
 @media (pointer:coarse) and (orientation:landscape){header h1{display:none}}
+
+/* READABLE TEXT (2026-10-18, L: "the text is white in some things and hard to read") - a contrast audit of every window
+   flagged: amber numbers/titles on parchment, the journal reader's light-grey body + titles, storage rail labels, Yuki hint */
+.pill b,#invN,#jobFuel,#jobMiles,#shopBal,#storBag,.palcat,.panel .ic,.storhead .ic,.phead .ic{color:#8a3d0c!important}
+.storrail .rl,.storrail .ri,.allhead,.allhead b{color:var(--sv-ink)!important}
+#readerBody,#readerBody :is(p,li,h1,h2,h3,h4,h5,span,div,td,th,b,strong,em,small,blockquote){color:var(--sv-ink)!important}
+#readerBody a{color:#8a3d0c!important}
+[style*="color:#f2d9a0"],[style*="color:#dbe0e6"],[style*="color:#cdd4da"]{color:var(--sv-ink)!important}
+#yukiChat .yhead .hint{color:#6b3a14!important}
+.storrail .rc{color:var(--sv-ink)!important}
+#storAll{background:#eaa95a!important;color:var(--sv-ink)!important}   /* a nav button, not a red close */
 </style>
 </body></html>
