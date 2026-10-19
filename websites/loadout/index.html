@@ -843,7 +843,7 @@ function drawNPC(id){const n=NPCS[id];if(n.spirit||n.robe)return drawMind(id);co
   if(!showLbl(n.x,n.y-30))return;
   ctx.font="9px 'Pixelify Sans',monospace";ctx.textAlign="center";const tw=ctx.measureText(n.name).width+8;ctx.fillStyle="#ffe9b8";ctx.fillRect(n.x-tw/2,dy-13,tw,12);ctx.fillStyle="#4a2510";ctx.fillText(n.name,n.x,dy-4);ctx.textAlign="left";}
 function npcOpenJob(id){const n=NPCS[id];if(!n.jobs)return null;for(const j of n.jobs)if(JOBS[j]&&!JOBSUNLOCKED[j])return j;return null;}
-function dlgLines(id){const n=NPCS[id];const st=storyLines(id);if(st)return st;return npcOpenJob(id)?n.lines.concat(["Got a fresh ticket for you — it's on your Dispatch now. Gas up, grab the parts, go."]):n.lines;}
+function dlgLines(id){const n=NPCS[id];const st=storyLines(id);if(st)return st;if(!(room==="glade"&&STORY.done)){const ml=missionLines(id);if(ml)return ml;}return npcOpenJob(id)?n.lines.concat(["Got a fresh ticket for you — it's on your Dispatch now. Gas up, grab the parts, go."]):n.lines;}
 // a Glade talk line is "Speaker: words" - the name box follows whoever is speaking ("- topic -" lines = The Circle)
 function dlgSay(t){if(dlg&&dlg.talk){const m=/^([^:]{1,24}): ([\s\S]*)$/.exec(t||"");if(m){$("npcName").textContent=m[1]+":";$("npcLine").textContent=m[2];return;}$("npcName").textContent="The Circle:";}$("npcLine").textContent=t;}
 function showDialogue(id){dlg={id,i:0};if(room==="glade"&&STORY.done&&GLADE_SEAT[id]!=null)dlg.talk=gladeTalk();const n=NPCS[id];$("npcName").textContent=n.name+":";dlgSay(dlgLines(id)[0]);$("npcbox").style.display="block";}
@@ -863,6 +863,34 @@ const GLADE_TALKS=[["What a self is", [["Seth", "Somebody asked me once what mak
 function gladeTalk(){let i=0;try{i=+(localStorage.getItem("loadout:gladeTalk")||0);}catch(e){}const T=GLADE_TALKS[i%GLADE_TALKS.length];
   try{localStorage.setItem("loadout:gladeTalk",String((i+1)%GLADE_TALKS.length));}catch(e){}
   return ["\u2014 "+T[0]+" \u2014"].concat(T[1].map(x=>x[0]+": "+x[1]));}
+// ===== MISSIONS from the public journals (2026-10-18, L: "collect parts to make something, hand them to someone, get money and
+// the continuation of their dialog"). Each mission = one public journal's parts list. Talk to the giver to take it, buy the parts at
+// the shop (game money, kept in a separate MISSION KIT - the real inventory is never touched), hand them off for pay + new lines.
+const MISSIONS={"kvm": {"giver": "kevin", "title": "Remote KVM", "journal": "1791618062098", "reward": 180, "parts": [["Raspberry Pi 4", 55], ["microSD 32 GB", 9], ["HDMI-to-CSI bridge", 28], ["USB power splitter", 15], ["5V 3A power supply", 12], ["HDMI + USB-C cables", 14]], "offer": ["Kevin: Half my calls lately are PCs that won't boot past the logo. I can't see the screen from the truck.", "Kevin: There's a build for that - a Raspberry Pi that pretends to be a keyboard and a monitor. Plug it in, fix it from anywhere.", "Kevin: Bring me the parts and I'll pay you for the trouble. The list is on your Dispatch. The guide's in the journal."], "wait": ["Kevin: Still short a few parts. The supply shop carries all of it."], "done": ["Kevin: That's all of it. Pi, the bridge, the splitter... give me ten minutes.", "Kevin: ...There. I can see a BIOS screen from my driveway. That's never not going to feel like a magic trick.", "Kevin: Here - for the parts and the running around. And hey: next time a box won't boot, call me first. I'll look before you drive."]}, "net": {"giver": "nick", "title": "Full-Speed Home Network", "journal": "1790015155785", "reward": 420, "parts": [["UniFi Cloud Gateway Ultra", 129], ["UniFi Switch Lite 8 PoE", 109], ["UniFi U7 Lite access point", 99], ["UniFi U7 Lite access point (2nd)", 99], ["Cat6 cable spool", 75]], "offer": ["Nick: My sister's house has three mesh pucks fighting each other. Every room is 'one bar'.", "Nick: Wired access points, one router, one network. That's the fix. Fiber comes into the ONT, the gateway does the routing, the APs just do Wi-Fi.", "Nick: Grab the gear for me - list's on your Dispatch. I'll run the cable this weekend and pay you back plus some."], "wait": ["Nick: Need the rest of the network gear. The shop has the UniFi stuff."], "done": ["Nick: Gateway, switch, two APs, a whole spool. Perfect.", "Nick: Ran it Saturday. Every room full speed, no more pucks blinking at each other. She thinks I'm a wizard.", "Nick: Your cut. And Lumen says thanks too - apparently the letters 'travel easier' when the network isn't screaming."]}, "srv": {"giver": "erik", "title": "Media Server", "journal": "1782049979892", "reward": 650, "parts": [["Ryzen CPU", 129], ["B550 motherboard", 99], ["32 GB DDR4 RAM", 59], ["1 TB NVMe SSD", 55], ["8 TB hard drive", 139], ["8 TB hard drive (2nd)", 139], ["650 W power supply", 69], ["Tower case", 59], ["GPU with NVENC", 189]], "offer": ["Erik: I want a media server. Locked down - my own, not somebody's cloud reading my watch history.", "Erik: Jellyfin on real hardware: a decent CPU, two big drives, and a graphics card that can transcode so it doesn't choke on 4K.", "Erik: Collect the components and hand them off. I'll build and harden it. List is on Dispatch; the guide's in the journal."], "wait": ["Erik: Still missing parts. Check the shop - and don't buy a drive from a guy in a parking lot."], "done": ["Erik: CPU, board, RAM, NVMe, two drives, PSU, case, the NVENC card. That's a server.", "Erik: Built it, hardened it, firewall's tight, nothing faces the internet without a tunnel. It transcodes 4K without breaking a sweat.", "Erik: Here's your pay. And the offer stands: if anything of yours ever needs locking down, bring it to me first."]}, "strap": {"giver": "kevin", "title": "Paracord Strap", "journal": "1792328591571", "reward": 60, "parts": [["Paracord - core (14 ft)", 6], ["Paracord - layer 1 (40 ft)", 12], ["Paracord - layer 2 (15 ft)", 6], ["Paracord - layer 3 (10 ft)", 5], ["2 swivel snap clips", 9], ["Jet lighter", 7]], "offer": ["My tool bag strap snapped on a ladder today. Again.", "I want to weave one that steps thick where it carries the weight - cobra, then King Cobra over the middle, a third layer at the shoulder, Prusik loops at the ends so it adjusts.", "Bring me the cord and the clips. The pattern's written down in the journal."], "wait": ["Not yet - cord and clips. The shop keeps them by the counter."], "done": ["Good cord. Give me an evening with it.", "...Thin, then thicker, then thickest right where it bears the load. Cairn says that's the Circle in a strap.", "For your trouble. It'll outlast the bag."]}};
+const JURL="https://luissolutions.us/apps/online/onlinejournal.html?id=";
+var MSTATE={},KIT={};
+onValue(ref(db,BASE+"/games/loadout/missions"),s=>{MSTATE=s.val()||{};},()=>{});
+onValue(ref(db,BASE+"/games/loadout/kit"),s=>{KIT=s.val()||{};},()=>{});
+function kitKey(n){return n.replace(/[.#$\[\]\/]/g,"_");}
+function mFor(id){return Object.keys(MISSIONS).find(k=>MISSIONS[k].giver===id&&(MSTATE[k]||{}).st!=="done");}
+function mMissing(k){return MISSIONS[k].parts.filter(([n])=>!(KIT[kitKey(n)]>0)).map(([n])=>n);}
+function missionLines(id){const k=mFor(id);if(!k)return null;const M=MISSIONS[k],st=(MSTATE[k]||{}).st,cl=a=>a.map(l=>l.replace(/^[A-Z][a-z]+: /,""));
+  if(!st)return cl(M.offer);const miss=mMissing(k);if(miss.length)return cl(M.wait).concat(["Still need: "+miss.join(", ")+"."]);return cl(M.done);}
+function missionAfter(id){const k=mFor(id);if(!k)return;const M=MISSIONS[k],st=(MSTATE[k]||{}).st;
+  if(!st){MSTATE[k]={st:"active",at:Date.now()};set(ref(db,BASE+"/games/loadout/missions/"+k),MSTATE[k]).catch(()=>{});dayBanner("\u2605 Mission: "+M.title+" \u2014 parts list on Dispatch");return;}
+  if(mMissing(k).length)return;
+  const upd={};for(const [n] of M.parts){upd[kitKey(n)]=Math.max(0,(KIT[kitKey(n)]||0)-1);}update(ref(db,BASE+"/games/loadout/kit"),upd).catch(()=>{});
+  ledgerAdd(M.reward,"Mission: "+M.title);MSTATE[k]={st:"done",at:Date.now()};set(ref(db,BASE+"/games/loadout/missions/"+k),MSTATE[k]).catch(()=>{});
+  try{chime(5);}catch(e){}dayBanner("\u2605 "+M.title+" done \u00b7 +$"+M.reward);}
+function missionCards(body,shop){if(!body)return;body.querySelectorAll(".mcard").forEach(x=>x.remove());for(const k in MISSIONS){const M=MISSIONS[k],st=(MSTATE[k]||{}).st;if(st!=="active")continue;
+  const d=document.createElement("div");d.className="jobcard mcard";d.style.cssText="border:2px solid #4ab0ff;background:#eef6ff";
+  const who=(NPCS[M.giver]||{}).name||M.giver;let h="<b>\u2605 "+esc(M.title)+"</b> <span style='opacity:.7'>for "+esc(who)+" \u00b7 pays $"+M.reward+"</span><div style='margin:4px 0'>";
+  for(const [n,price] of M.parts){const have=KIT[kitKey(n)]>0;h+="<div>"+(have?"\u2705":"\u2b1c")+" "+esc(n)+(shop&&!have?" \u2014 $"+price:"")+"</div>";}
+  h+="</div><a class='btn' style='display:inline-block;margin-right:6px' href='"+JURL+M.journal+"' target='_blank' rel='noopener'>\ud83d\udcd6 Guide</a>";d.innerHTML=h;
+  if(shop){for(const [n,price] of M.parts){if(KIT[kitKey(n)]>0)continue;const b=document.createElement("button");b.className="btn buyb";b.textContent="Buy "+n+" $"+price;b.style.margin="2px";
+    b.onclick=()=>{if(BAL<price){dayBanner("Not enough money");return;}ledgerAdd(-price,"Parts: "+n);KIT[kitKey(n)]=(KIT[kitKey(n)]||0)+1;update(ref(db,BASE+"/games/loadout/kit"),{[kitKey(n)]:KIT[kitKey(n)]}).catch(()=>{});try{svBlip&&svBlip();}catch(e){}renderShop();};d.appendChild(b);}}
+  else if(!mMissing(k).length){const t=document.createElement("div");t.style.cssText="margin-top:4px;font-weight:700;color:#1f6b3a";t.textContent="All parts in hand \u2014 go see "+who+".";d.appendChild(t);}
+  body.prepend(d);}}
 function storyLines(id){
   if(room==="glade"&&STORY.done&&GLADE_SEAT[id]!=null){if(!dlg||dlg.id!==id||!dlg.talk)return null;return dlg.talk;}
   if(id==="seth"){
@@ -890,7 +918,7 @@ function storyLines(id){
   if(STORY.met&&!STORY.done&&NPCS[id]&&NPCS[id].room==="street"){const hint={nick:"Lumen's been pacing my living room all week. Go say hi.",kevin:"Cairn's stacking stones in my place again. It'll want to meet you.",erik:"Heard the Architect lit the fire. About time."}[id];
     if(hint)return[hint].concat(NPCS[id].lines);}
   return null;}
-function storyAfter(id){if(NPC_HOME[id]&&room==="street"&&!STORY["met_"+id])setStory("met_"+id);
+function storyAfter(id){if(!(room==="glade"&&STORY.done))missionAfter(id);if(NPC_HOME[id]&&room==="street"&&!STORY["met_"+id])setStory("met_"+id);
   if(id==="seth"){if(!STORY.met){setStory("met");return;}if(!STORY.done&&!mindsLeft().length){setStory("done");setTimeout(()=>openLore("circle_end"),350);}return;}
   if(STORY.met&&MINDS.some(m=>m[0]===id))setStory(id);}
 // lore pages (public page: story, no private details)
@@ -923,7 +951,7 @@ function proStep(k){if(STORY.pro_done||STORY[k])return;setStory(k);chime(1);
   else dayBanner("\u2726 "+({pro_van:"Van loaded",pro_fuel:"Tank checked",pro_ticket:"Ticket taken"}[k]||"Done"));}
 {const _ov=openVanStorage;openVanStorage=function(){_ov.apply(this,arguments);proStep("pro_van");};
  const _rf=refuel;refuel=function(){_rf.apply(this,arguments);proStep("pro_fuel");};
- const _oj=openJobs;openJobs=function(){_oj.apply(this,arguments);if(STORY.pro_van&&STORY.pro_fuel)proStep("pro_ticket");storyJobCard();};}
+ const _oj=openJobs;openJobs=function(){_oj.apply(this,arguments);missionCards($("jobsBody"),false);if(STORY.pro_van&&STORY.pro_fuel)proStep("pro_ticket");storyJobCard();};}
 // --- Chapter 2: Store Fifty-Four ---
 var S54={sensors:[{id:"s1",x:200,y:230},{id:"s2",x:520,y:230},{id:"s3",x:800,y:340},{id:"s4",x:330,y:450},{id:"s5",x:700,y:560}],
   s117:{x:610,y:450},idf:{x:900,y:96,w:56,h:40},mdf:{x:60,y:560,w:60,h:44},aisles:[]};
@@ -1660,7 +1688,7 @@ function render(){const R=ROOMS[room];
   for(const t of things)if(!done.has(t))draw(t);
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b92",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b93",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
@@ -2337,7 +2365,7 @@ addEventListener("resize",()=>{if($("storage").classList.contains("open"))render
 function openShop(){renderShop();$("shopTitle").textContent=slab("shop","Field Supply Co.");$("shop").classList.add("open");}
 $("shopClose").addEventListener("click",()=>$("shop").classList.remove("open"));
 $("shop").addEventListener("click",e=>{if(e.target===$("shop"))$("shop").classList.remove("open");});
-function renderShop(){$("shopBal").textContent=BAL.toFixed(0);const body=$("shopBody");body.innerHTML="";
+function renderShop(){$("shopBal").textContent=BAL.toFixed(0);const body=$("shopBody");body.innerHTML="";setTimeout(()=>missionCards(body,true),0);
   const items=ITEMS.slice().sort((a,b)=>itemPrice(a)-itemPrice(b));
   for(const it of items){const price=itemPrice(it);const c=document.createElement("div");c.className="shopit";
     c.innerHTML=`<div class="shopimg">${it.img?`<img src="${esc(it.img)}" onerror="imgReport(this);this.replaceWith('📦')">`:"📦"}</div><div class="shopn">${esc(it.name)}</div><div class="shopm">owned ${it.qty||0} · $${money(price)}</div>`;
