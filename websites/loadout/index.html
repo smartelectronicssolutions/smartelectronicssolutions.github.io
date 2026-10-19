@@ -1155,15 +1155,25 @@ window.__loGo=(r,x,y)=>{if(ROOMS[r])go({to:r,entry:[x||256,y||300]});};window.__
 window.__loPlace=(x,y)=>{player.x=x;player.y=y;doorLock=false;return window.__loState();};
 window.__loWalk=(dir,steps)=>{for(let i=0;i<(steps||1);i++){if(transing)break;computeROOMR();keys.clear();keys.add(dir);step(1/30);}keys.clear();return window.__loState();};   // test hook: walk without animation frames (a locked screen stops rAF)
 window.__loState=()=>({room,x:Math.round(player.x),y:Math.round(player.y),lock:doorLock,trans:transing,story:STORY,npcs:npcsIn(room),fx:fixIn(room)});   // test hooks
-function drawStoryTip(){if(editMode)return;let msg=null;
+/* TIP TOP-RIGHT + FADE NEAR (b104, L 2026-10-19: "the text in the upper left conflicts with views, Erik's Place tag also blocks that text - have the text to the right,
+   and the tag and text go transparent when I walk near them"). The quest tip is drawn in SCREEN space at the top-right (no longer under the room-name tag), and both
+   the tip and the room tag fade to 25% while the player is under them. */
+function _pScreen(){return{x:player.x+roomOff.x,y:player.y+roomOff.y};}
+function tipBox(msg){ctx.save();ctx.setTransform(1,0,0,1,0,0);ctx.font="9px 'Pixelify Sans',monospace";const tw=Math.min(VW*.62,ctx.measureText(msg).width+14),x=VW-8-tw,y=8,h=16;
+  const ps=_pScreen(),near=ps.x>x-24&&ps.x<x+tw+24&&ps.y-40<y+h+24;ctx.globalAlpha=near?.25:1;
+  ctx.fillStyle="#ffe9b8";ctx.fillRect(x,y,tw,h);ctx.fillStyle="#4a2510";ctx.textAlign="left";ctx.fillText(msg,x+7,y+11,tw-12);ctx.restore();}
+function fadeRoomTag(){const b=$("roomB");if(!b)return;const r=b.getBoundingClientRect(),c=cv.getBoundingClientRect();if(!c.width)return;const k=VW/c.width;
+  const x0=(r.left-c.left)*k,x1=(r.right-c.left)*k,y1=(r.bottom-c.top)*k,ps=_pScreen();const near=!editMode&&ps.x>x0-24&&ps.x<x1+24&&ps.y-40<y1+24;
+  const o=near?"0.25":"";if(b.style.opacity!==o){b.style.opacity=o;b.style.transition="opacity .2s";}}
+function drawStoryTip(){fadeRoomTag();if(editMode)return;let msg=null;
   if(!STORY.pro_done){const d=[!STORY.pro_van&&"load the van",!STORY.pro_fuel&&"check the gas",!STORY.pro_ticket&&STORY.pro_van&&STORY.pro_fuel&&"take a ticket at Dispatch"].filter(Boolean);
     if(d.length)msg="\u2726 The Van at Dawn \u2014 "+d.join(" \u00b7 ");}
   else if(!STORY.c2_done&&room==="store54"){const n=c2n();msg=n<5?"\u2726 Store Fifty-Four \u2014 install the sensors ("+n+"/5)":!STORY.c2_ghost?"\u2726 Something is reading in aisle nine\u2026":!STORY.c2_idf?"\u2726 Follow 117's cable to the IDF":"\u2726 Trace it to the MDF by the loading door";}
   else if(STORY.pro_done&&!STORY.c2&&room==="street")msg="\u2726 A new ticket is waiting at Seth's Dispatch";
-  if(msg){ctx.font="9px 'Pixelify Sans',monospace";const tw=Math.min(W-16,ctx.measureText(msg).width+14);ctx.fillStyle="#ffe9b8";ctx.fillRect(8,30,tw,16);ctx.fillStyle="#4a2510";ctx.textAlign="left";ctx.fillText(msg,15,41,tw-12);return;}
+  if(msg){tipBox(msg);return;}
   if(!STORY.met){if(room==="street")msg="✦ A warm light glows to the north…";}
   else if(!STORY.done){const left=mindsLeft();msg=left.length?"✦ The Circle — find "+left.map(m=>m[1]).join(" · ")+", then return to the Glade":"✦ The Circle — all four minds found. Return to the Architect.";}
-  if(!msg)return;ctx.font="9px 'Pixelify Sans',monospace";const tw=Math.min(W-16,ctx.measureText(msg).width+14);ctx.fillStyle="#ffe9b8";ctx.fillRect(8,30,tw,16);ctx.fillStyle="#4a2510";ctx.textAlign="left";ctx.fillText(msg,15,41,tw-12);}   // below the room-name badge
+  if(!msg)return;tipBox(msg);}   // below the room-name badge
 // ===== Fixtures: computer + bookshelf -> journal reader (live from public/journalArticles) =====
 let JOURNAL={};
 // b44: loaded on first open of the Computer/Bookshelf, not at boot (the journal node is ~780 KB)
@@ -1707,7 +1717,7 @@ function render(){const R=ROOMS[room];
   for(const t of things)if(!done.has(t))draw(t);
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b103",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b104",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
