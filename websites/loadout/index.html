@@ -1402,7 +1402,7 @@ function render(){const R=ROOMS[room];
   for(const e of ents){if(e.t==="d")drawDecorItem(e.d);else if(e.t==="p")drawPlace(e.k,e.p);else if(e.t==="npc")drawNPC(e.id);else if(e.t==="fx")drawFixture(e.id);else drawPlayer();}
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b50",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b51",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
@@ -1767,7 +1767,7 @@ function posOf(loc,areaId){const p=CPLACE[loc];if(p&&p.area===areaId&&p.x!=null)
 function areaCfg(id){return AREAS[id]||SEED_AREAS[id]||SEED_AREAS.van;}
 function openArea(areaId){areaPick=false;curArea=(areaId in AREAS)?areaId:(Object.keys(AREAS)[0]||"van");const a=areaCfg(curArea);
   $("storTitle").textContent=a.name;$("storIc").textContent=a.icon||"📦";
-  const bg=$("storBg");bg.onload=()=>{if($("storage").classList.contains("open"))renderArea();};bg.src=A[a.bg]||A.closet;  // re-place containers once the backdrop has actually sized (fixes wrong initial positions)
+  const bg=$("storBg");bg.onload=()=>{if($("storage").classList.contains("open"))renderArea();};bg.src=bdSrc(a.bg)||A.closet;  // re-place containers once the backdrop has actually sized (fixes wrong initial positions)
   $("storBag").textContent=(byLoc.bag||[]).length;
   $("storage").classList.add("open");requestAnimationFrame(renderArea);}
 function openVanStorage(){openArea("van");}
@@ -1799,7 +1799,12 @@ function renderArea(){buildRail();renderAreaChips();const scene=$("storScene"),i
     d.title=(sa.name||sub)+" \u00b7 a storage inside this one \u00b7 "+n+" item"+(n===1?"":"s");
     makeContainerDrag(d,sub,scene,img,a);scene.appendChild(d);}
   renderTray();}
-const BACKDROPS=[{k:"pegboard",label:"Pegboard",nw:320,nh:224},{k:"shelf",label:"Shelf",nw:320,nh:224},{k:"cabinet",label:"Cabinet",nw:320,nh:224},{k:"cratewall",label:"Crates",nw:320,nh:224},{k:"closet",label:"Closet",nw:288,nh:288},{k:"vanside",label:"Van Side",nw:320,nh:288},{k:"vanback",label:"Van Back",nw:320,nh:288},{k:"vancargo",label:"Van Back",nw:320,nh:288},{k:"vanside_px",label:"Van Side (pixel)",nw:320,nh:288},{k:"vanback_px",label:"Van Back (pixel)",nw:320,nh:288}];
+// PACK-STYLE BACKDROPS (2026-10-18, L: "remake the backdrops - 2 for the van, closet, tabletop, desktop area, rack, cabinet with
+// shelves on top and one drawer at the bottom"). Files in assets/img/bd (art 2x). The old embedded ones still load for any
+// area that uses them, they just aren't offered in the picker any more.
+const BD_FILES={bd_vanside:"assets/img/bd/vanside.png",bd_vanback:"assets/img/bd/vanback.png",bd_closet:"assets/img/bd/closet.png",bd_tabletop:"assets/img/bd/tabletop.png",bd_desk:"assets/img/bd/desk.png",bd_rack:"assets/img/bd/rack.png",bd_cabinet:"assets/img/bd/cabinet.png"};
+const bdSrc=k=>A[k]||BD_FILES[k]||"";
+const BACKDROPS=[{k:"bd_vanside",label:"Van Side",nw:320,nh:288},{k:"bd_vanback",label:"Van Back",nw:320,nh:288},{k:"bd_closet",label:"Closet",nw:288,nh:288},{k:"bd_tabletop",label:"Tabletop",nw:320,nh:224},{k:"bd_desk",label:"Desk",nw:320,nh:224},{k:"bd_rack",label:"Rack",nw:320,nh:224},{k:"bd_cabinet",label:"Cabinet",nw:320,nh:224}];
 // AREA VIEW TOP ROW (2026-10-18, L: "when I open an area don't show all the other areas, a back button like the containers
 // have that takes me to all of them"): inside an area = ◀ All areas + that area's tools; ◀ = the list of every area (+ Area)
 let areaPick=false;
@@ -1848,10 +1853,10 @@ function togglePick(){$("storPick").classList.contains("on")?closePick():renderP
 function closePick(){$("storPick").classList.remove("on");}
 function renderPick(show){const el=$("storPick");const a=AREAS[curArea]||{};el.innerHTML='<div class="lbl">Backdrop for “'+esc(a.name||"")+'”</div>';
   for(const b of BACKDROPS){const d=document.createElement("div");d.className="bd"+(a.bg===b.k?" on":"");
-    d.style.backgroundImage="url("+(A[b.k]||"")+")";d.innerHTML="<span>"+b.label+"</span>";d.onclick=()=>setBackdrop(b);el.appendChild(d);}
+    d.style.backgroundImage="url("+bdSrc(b.k)+")";d.innerHTML="<span>"+b.label+"</span>";d.onclick=()=>setBackdrop(b);el.appendChild(d);}
   if(show)el.classList.add("on");}
 function setBackdrop(b){update(ref(db,"public/games/loadout/areas/"+curArea),{bg:b.k,nw:b.nw,nh:b.nh}).catch(()=>{});
-  const a=AREAS[curArea];if(a){a.bg=b.k;a.nw=b.nw;a.nh=b.nh;}$("storBg").src=A[b.k]||A.closet;requestAnimationFrame(renderArea);renderPick(true);}
+  const a=AREAS[curArea];if(a){a.bg=b.k;a.nw=b.nw;a.nh=b.nh;}$("storBg").src=bdSrc(b.k)||A.closet;requestAnimationFrame(renderArea);renderPick(true);}
 /* PICK THE THING, DON'T TYPE A WORD (2026-09-20, L: "I want to get the container that is L desk... put into the tray, that would in itself define it being a container"). A container used to be a name you typed; now it is chosen from the same furniture catalog the rooms use, and landing in the tray is what makes it a container - no dialog asking what kind of thing it is. */
 // + CONTAINER = NAME IT (2026-10-18, L: "the plus container button opens the assets list - should just be a name-it thing"):
 // type a name and it lands in the area you're in (drag it anywhere, or into the tray). The catalog rail still lets you drag a
