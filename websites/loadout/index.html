@@ -344,7 +344,7 @@
 <div class="app"><div class="wrap">
   <header>
     <h1>LOADOUT</h1>
-    <div class="hudR"><div class="pill"><span id="clockIco">☀</span> <b id="clock">—</b></div><div class="pill" title="energy - sleep in a bed to refill">⚡ <b id="energy">—</b></div><div class="pill">💰 <b id="money">—</b></div><div class="pill" id="fuelPill">⛽ <b id="fuel">—</b></div><div class="pill" hidden>CARRY <b id="bagN">0</b></div><button class="btn ghost" id="editBtn">EDIT ROOM</button><button class="btn ghost" id="yukiBtn">🧚 Yuki</button><button class="btn ghost" id="acctBtn">👤 Log in</button><button class="btn" id="bagBtn" hidden>BACKPACK</button></div>
+    <div class="hudR"><div class="pill"><span id="clockIco">☀</span> <b id="clock">—</b></div><div class="pill" title="energy - sleep in a bed to refill">⚡ <b id="energy">—</b></div><div class="pill">💰 <b id="money">—</b></div><div class="pill" id="fuelPill">⛽ <b id="fuel">—</b></div><div class="pill" hidden>CARRY <b id="bagN">0</b></div><button class="btn ghost" id="editBtn">EDIT ROOM</button><button class="btn ghost" id="yukiBtn">🧚 Yuki</button><button class="btn ghost" id="musBtn" title="music on / off (M)">♪ Off</button><button class="btn ghost" id="acctBtn">👤 Log in</button><button class="btn" id="bagBtn" hidden>BACKPACK</button></div>
   </header>
   <div class="screen">
     <canvas id="game" width="512" height="512"></canvas>
@@ -1086,6 +1086,7 @@ addEventListener("keydown",e=>{if(e.code==="Escape"){var _cl=false;var yc=$("yuk
     if(kk==="a"){$("addBtn").click();e.preventDefault();return;}}
   if(e.code==="KeyI"&&!isOpen()){$("editBtn").click();e.preventDefault();return;}
   if(e.code==="KeyJ"&&!isOpen()&&!editMode){openJobs();e.preventDefault();return;}
+  if(e.code==="KeyM"&&!(e.target.closest&&e.target.closest("input,textarea"))){musSet(!MUS.on);e.preventDefault();return;}
   if(e.code==="KeyT"&&!editMode&&!(e.target.closest&&e.target.closest("input,textarea"))){cycleTxs();e.preventDefault();return;}
   if(e.code==="KeyL"&&!isOpen()&&!editMode&&!(e.target.closest&&e.target.closest("input,textarea"))){toggleLights();e.preventDefault();return;}
   if((e.code==="KeyE"||e.code==="Enter")&&!isOpen()&&!editMode){tryOpen();e.preventDefault();return;}
@@ -1342,8 +1343,57 @@ const TXS=[1,1.15,1.3,1.5];let txi=0;try{txi=Math.max(0,TXS.indexOf(+localStorag
 function applyTxs(){document.documentElement.style.setProperty("--txs",TXS[txi]);try{fitPass();}catch(e){}}
 function cycleTxs(){txi=(txi+1)%TXS.length;try{localStorage.setItem("loadout:txs",TXS[txi]);}catch(e){}applyTxs();dayBanner("Text size "+Math.round(TXS[txi]*100)+"%");}
 applyTxs();
+// KEYGEN MUSIC (2026-10-18, L: "background music, keygen music, small files, 3 tracks, on/off button"). Three ORIGINAL
+// keygen-style chiptunes played by WebAudio - no files at all, nothing to license. Each song = a chord loop + a lead motif
+// written in chord-tone steps (so it fits every chord), a fast 32nd-note arpeggio, a bass, noise drums and the classic
+// echo on the lead. ♪ button or M toggles; remembered in this browser; songs rotate every 16 bars.
+const SONGS=[
+  {name:"Van Keys",bpm:140,base:57,ch:[[0,"m"],[-4,"M"],[3,"M"],[-2,"M"]],
+   lead:[2,-1,1,-1,2,3,-1,2,1,-1,0,-1,1,2,-1,-1,2,-1,3,-1,4,-1,3,2,1,-1,2,-1,0,-1,-1,-1]},
+  {name:"Patch Tuesday",bpm:128,base:52,ch:[[0,"m"],[-4,"M"],[-2,"M"],[-5,"m"]],
+   lead:[0,-1,0,2,-1,1,-1,2,3,-1,2,-1,1,-1,0,-1,4,-1,3,-1,2,-1,3,4,5,-1,4,-1,2,-1,-1,-1]},
+  {name:"Serial Number",bpm:150,base:50,ch:[[0,"M"],[-5,"M"],[-3,"m"],[-7,"M"]],
+   lead:[4,3,2,-1,4,-1,5,-1,4,3,2,-1,1,-1,2,-1,0,-1,1,2,-1,3,-1,4,-1,6,-1,5,4,-1,-1,-1]}];
+const MUS={on:false,ac:null,out:null,echo:null,pulse:null,pulse25:null,noise:null,song:0,step:0,t:0,timer:null};
+try{MUS.on=localStorage.getItem("loadout:music")==="1";}catch(e){}
+const hz=n=>440*Math.pow(2,(n-69)/12);
+function musInit(){if(MUS.ac)return;const ac=new (window.AudioContext||window.webkitAudioContext)();MUS.ac=ac;
+  MUS.out=ac.createGain();MUS.out.gain.value=.55;MUS.out.connect(ac.destination);
+  const d=ac.createDelay(1),fb=ac.createGain(),wet=ac.createGain();d.delayTime.value=60/SONGS[0].bpm*.75;fb.gain.value=.38;wet.gain.value=.45;
+  d.connect(fb);fb.connect(d);d.connect(wet);wet.connect(MUS.out);MUS.echo=d;
+  const pw=duty=>{const N=32,re=new Float32Array(N),im=new Float32Array(N);for(let n=1;n<N;n++)re[n]=2/(n*Math.PI)*Math.sin(n*Math.PI*duty);return ac.createPeriodicWave(re,im);};
+  MUS.pulse=pw(.125);MUS.pulse25=pw(.25);
+  const nb=ac.createBuffer(1,ac.sampleRate*.3,ac.sampleRate),nd=nb.getChannelData(0);for(let i=0;i<nd.length;i++)nd[i]=Math.random()*2-1;MUS.noise=nb;}
+function musTone(t,f,dur,wave,vol,toEcho,vib){const ac=MUS.ac,o=ac.createOscillator(),g=ac.createGain();
+  if(typeof wave==="string")o.type=wave;else o.setPeriodicWave(wave);o.frequency.setValueAtTime(f,t);
+  if(vib){const l=ac.createOscillator(),lg=ac.createGain();l.frequency.value=6;lg.gain.value=f*.012;l.connect(lg);lg.connect(o.frequency);l.start(t+.08);l.stop(t+dur);}
+  g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(vol,t+.005);g.gain.setValueAtTime(vol,t+dur*.7);g.gain.linearRampToValueAtTime(0,t+dur);
+  o.connect(g);g.connect(MUS.out);if(toEcho)g.connect(MUS.echo);o.start(t);o.stop(t+dur+.02);}
+function musHit(t,kind){const ac=MUS.ac,g=ac.createGain();
+  if(kind==="k"){const o=ac.createOscillator();o.frequency.setValueAtTime(140,t);o.frequency.exponentialRampToValueAtTime(40,t+.12);g.gain.setValueAtTime(.35,t);g.gain.exponentialRampToValueAtTime(.001,t+.16);o.connect(g);o.start(t);o.stop(t+.18);}
+  else{const n=ac.createBufferSource(),f=ac.createBiquadFilter();n.buffer=MUS.noise;f.type="highpass";f.frequency.value=kind==="s"?1800:7000;
+    const v=kind==="s"?.16:.05,l=kind==="s"?.12:.03;g.gain.setValueAtTime(v,t);g.gain.exponentialRampToValueAtTime(.001,t+l);n.connect(f);f.connect(g);n.start(t);n.stop(t+l+.02);}
+  g.connect(MUS.out);}
+function chordNotes(c){const r=c[0],third=c[1]==="m"?3:4;return [r,r+third,r+7];}
+function musTick(){const ac=MUS.ac;if(!ac)return;
+  while(MUS.t<ac.currentTime+.12){const S=SONGS[MUS.song],s16=60/S.bpm/4,st=MUS.step,bar=Math.floor(st/16)%S.ch.length,c=S.ch[bar],cn=chordNotes(c),t=MUS.t,i=st%16;
+    for(const h of [0,1]){const k=(i*2+h)%3;musTone(t+h*s16/2,hz(S.base+12+cn[k]+(i%8>=4?12:0)),s16/2*.9,MUS.pulse25,.035,false);}   // 32nd-note arpeggio
+    const li=S.lead[st%32];if(li>=0){const oct=Math.floor(li/3),nt=S.base+24+cn[li%3]+12*oct;let len=1;while(len<4&&S.lead[(st+len)%32]===-1)len++;musTone(t,hz(nt),s16*len*.95,MUS.pulse,.06,true,true);}
+    if(i%2===0)musTone(t,hz(S.base-12+c[0]+(i%4===2?12:0)),s16*1.8,"triangle",.16,false);                                       // bass on 8ths, octave bounce
+    if(i%8===0)musHit(t,"k");if(i%8===4)musHit(t,"s");if(i%2===1)musHit(t,"h");
+    MUS.t+=s16;MUS.step++;if(MUS.step>=16*S.ch.length*4){MUS.step=0;MUS.song=(MUS.song+1)%SONGS.length;MUS.echo.delayTime.setValueAtTime(60/SONGS[MUS.song].bpm*.75,MUS.t);}}}
+function musPaint(){const b=$("musBtn");if(b)b.textContent=MUS.on?"♪ On":"♪ Off";}
+function musSet(on){MUS.on=on;try{localStorage.setItem("loadout:music",on?"1":"0");}catch(e){}musPaint();
+  if(on){musInit();MUS.ac.resume();MUS.t=MUS.ac.currentTime+.05;if(!MUS.timer)MUS.timer=setInterval(musTick,25);dayBanner("♪ "+SONGS[MUS.song].name);}
+  else{if(MUS.timer){clearInterval(MUS.timer);MUS.timer=null;}if(MUS.ac)MUS.ac.suspend();}}
+$("musBtn").addEventListener("click",e=>{musSet(!MUS.on);e.currentTarget.blur();});
+musPaint();
+// browsers only allow sound after a tap/key - if it was left ON, start on the first one
+if(MUS.on){const go=()=>{window.removeEventListener("pointerdown",go,true);window.removeEventListener("keydown",go,true);if(MUS.on&&!MUS.timer)musSet(true);};
+  window.addEventListener("pointerdown",go,true);window.addEventListener("keydown",go,true);}
 function dayBanner(t){const b=$("roomB");b.textContent=t;clearTimeout(_bannerT);_bannerT=setTimeout(()=>{b.textContent=ROOMS[room].name;},3200);}
-function stepDay(dt){if(!_dayLoaded)return;DAY.m+=dt*GMIN_PER_SEC;if(DAY.m>=DAY_END){passOut();return;}showDay();if(Date.now()-_daySaved>30000)saveDay();}
+const NOCLOCK=/[?&]test/.test(location.search);   // ?test = the clock never runs (Droplet test tabs passed L out 3x on 2026-10-18)
+function stepDay(dt){if(!_dayLoaded||NOCLOCK)return;DAY.m+=dt*GMIN_PER_SEC;if(DAY.m>=DAY_END){passOut();return;}showDay();if(Date.now()-_daySaved>30000)saveDay();}
 function spendTime(min){DAY.m=Math.min(DAY_END-10,DAY.m+min);showDay();saveDay();}   // a ticket eats the clock but never knocks you out mid-job
 function spendEnergy(n){DAY.e=Math.max(0,DAY.e-n);showDay();saveDay();}
 function newDay(e){DAY.d+=1;DAY.m=DAY_START;DAY.e=e;_dayShown="";showDay();saveDay();}
@@ -1402,7 +1452,7 @@ function render(){const R=ROOMS[room];
   for(const e of ents){if(e.t==="d")drawDecorItem(e.d);else if(e.t==="p")drawPlace(e.k,e.p);else if(e.t==="npc")drawNPC(e.id);else if(e.t==="fx")drawFixture(e.id);else drawPlayer();}
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b51",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b52",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
