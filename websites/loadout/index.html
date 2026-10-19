@@ -334,6 +334,16 @@
 .dropbar{position:fixed;left:50%;top:8px;transform:translateX(-50%);z-index:5900;max-width:min(96vw,900px);display:flex;flex-wrap:wrap;gap:6px;justify-content:center;padding:8px 10px;background:#f7d9a4;border:2px solid #7a3f1a;border-radius:9px;box-shadow:0 6px 18px rgba(0,0,0,.45)}
 .dropbar .achip{cursor:default}
 .it.lifting{opacity:.35}
+/* PHONE PORTRAIT: game fills the screen, A/B float over its bottom-right, everything else is below - swipe down to reach it */
+@media (pointer:coarse) and (orientation:portrait){.app{overflow-y:auto!important;overflow-x:hidden}
+  .touch{position:fixed!important;right:10px;bottom:14px;margin:0!important;z-index:15;pointer-events:none}.touch .abtns{pointer-events:auto}
+  .abtn{width:58px!important;height:58px!important;opacity:.92}}
+/* PHONE LANDSCAPE + EDIT ROOM: the tool bar becomes a scrolling column on the right (where A/B live - hidden while editing) */
+@media (pointer:coarse) and (orientation:landscape){
+  .edittools.on{position:fixed!important;top:6px;right:6px;bottom:6px;width:max(150px,calc((100vw - 100dvh)/2 - 12px))!important;margin:0!important;flex-direction:column;flex-wrap:nowrap!important;
+    align-items:stretch!important;justify-content:flex-start!important;overflow-y:auto;z-index:18;padding:6px!important;gap:4px!important}
+  .edittools.on .tbtn,.edittools.on .hitgrp{font-size:.7rem!important;padding:5px 6px!important;width:100%}.edittools.on .sel{margin:0 0 4px!important;font-size:.7rem!important}
+  .edittools.on .hitgrp{flex-wrap:wrap;justify-content:center}.floorpick.on{position:fixed!important;left:6px;bottom:6px;max-width:calc((100vw - 100dvh)/2 - 12px);max-height:60vh;overflow:auto;z-index:18}}
 /* ONE LOOK FOR DELETE (2026-10-18, L: "delete in all places should be the red trash icon - check consistency"): every delete =
    a red 🗑 button (white icon); every close = the red ✕; back = ◀. */
 .tbtn.danger,#ie_del,.achip.del,#pDel{background:#e05a3a!important;color:#fff!important;border:2px solid #5c2e10!important;border-radius:6px!important;font-size:1rem!important;min-width:2.4em;text-align:center;box-shadow:inset 0 2px 0 #f08a6a!important}
@@ -1432,7 +1442,7 @@ function onPlayTap(p){if(isOpen()||transing)return;lblTap={x:p.x,y:p.y,t:perform
   let openKey=null;
   for(const [k,pl] of Object.entries(PLACES)){if(pl.room!==room)continue;if(p.x>=pl.x-4&&p.x<=pl.x+pl.w+4&&p.y>=pl.y-12&&p.y<=pl.y+pl.h+6){openKey=k;break;}}
   if(openKey){const pl=PLACES[openKey];moveTarget={x:pl.x+pl.w/2,y:pl.y+pl.h+10,openKey:null};return;}   // tap a container -> walk to it; press E to open
-  moveTarget={x:Math.max(12,Math.min(W-12,p.x)),y:Math.max(12,Math.min(H-12,p.y)),openKey:null};}
+  moveTarget={x:Math.max(12,Math.min(worldW()-12,p.x)),y:Math.max(12,Math.min(worldH()-12,p.y)),openKey:null};}   /* clamp to the ROOM, not the old 512 screen (taps past 512 just stopped there) */
 
 let last=0;
 function stepFairy(dt){fairy.vt+=dt;const off=player.dir==="left"?24:-24;const tx=player.x+off,ty=player.y-44;const k=Math.min(1,dt*6);fairy.x+=(tx-fairy.x)*k;fairy.y+=(ty-fairy.y)*k;fairy.px.unshift({x:fairy.x,y:fairy.y+Math.sin(fairy.vt*4)*3,a:1});if(fairy.px.length>8)fairy.px.pop();for(const p of fairy.px)p.a*=0.86;}
@@ -1688,7 +1698,7 @@ function render(){const R=ROOMS[room];
   for(const t of things)if(!done.has(t))draw(t);
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b93",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b94",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
@@ -1888,7 +1898,7 @@ $("editBtn").addEventListener("click",()=>{editMode=!editMode;selected=null;move
   $("floorBtn").classList.remove("add");$("floorBtn").innerHTML='🟫 Floor <span style="opacity:.6">(F)</span>';$("floorPick").classList.remove("on");
   $("editBtn").textContent=editMode?"DONE":"EDIT ROOM";$("editBtn").className="btn"+(editMode?"":" ghost");
   cv.classList.toggle("edit",editMode);document.querySelector(".screen").classList.toggle("editing",editMode);
-  $("editTools").classList.toggle("on",editMode),(editMode||(editPan.x=editPan.y=0,editZoom=1));refreshTools();});
+  $("editTools").classList.toggle("on",editMode),(editMode||(editPan.x=editPan.y=0,editZoom=1));refreshTools();requestAnimationFrame(()=>{try{fitPass();}catch(e){}});});
 const WTX='🧱 Walls <span style="opacity:.6">(W)</span>',FTX='🟫 Floor <span style="opacity:.6">(F)</span>';
 $("wallBtn").addEventListener("click",()=>{if(room==="outside"){$("selLabel").innerHTML="Walls can't be edited outside — go into a room";return;}
   wallMode=!wallMode;floorMode=false;$("floorBtn").classList.remove("add");$("floorBtn").innerHTML=FTX;$("floorPick").classList.remove("on");
@@ -2737,11 +2747,12 @@ $("pcdesk").addEventListener("click",e=>{if(e.target===$("pcdesk"))closeDesk();}
 function fitPass(){const app=document.querySelector(".app"),wrap=document.querySelector(".wrap"),scr=document.querySelector(".screen");
   if(!app||!wrap||!scr)return;
   const cs=getComputedStyle(app),pad=parseFloat(cs.paddingTop)+parseFloat(cs.paddingBottom);
-  let chrome=0;for(const el of wrap.children){if(el===scr)continue;const r=el.getBoundingClientRect();if(!r.height)continue;
+  const tallPhone=matchMedia("(pointer:coarse) and (orientation:portrait)").matches;let after=false;   /* phone portrait: the game gets the full height, hotbar + footer sit a swipe below (L 2026-10-18) */
+  let chrome=0;for(const el of wrap.children){if(el===scr){after=true;continue;}if(tallPhone&&after)continue;const r=el.getBoundingClientRect();if(!r.height)continue;
     const m=getComputedStyle(el);if(m.position==="fixed"||m.position==="absolute"||m.display==="none")continue; // overlaid controls take no flow space
     chrome+=r.height+parseFloat(m.marginTop)+parseFloat(m.marginBottom);}
   const wide=matchMedia("(pointer:coarse) and (orientation:landscape)").matches;
-  const side=wide?(()=>{const h=document.querySelector("header"),a=document.querySelector(".abtns");const L=h?h.getBoundingClientRect().right:0,R=a?window.innerWidth-a.getBoundingClientRect().left:0;return Math.max(L,R)+10;})():0;   // landscape touch: HUD column left, A/C buttons right - keep clear of both
+  const side=wide?(()=>{const h=document.querySelector("header"),et=document.getElementById("editTools"),a=(et&&et.classList.contains("on"))?et:document.querySelector(".abtns"),ar=a?a.getBoundingClientRect():null;const L=h?h.getBoundingClientRect().right:0,R=(ar&&ar.width)?window.innerWidth-ar.left:0;   /* editing: the right column is the tool bar (A/B are hidden) */return Math.max(L,R)+10;})():0;   // landscape touch: HUD column left, A/C buttons right - keep clear of both
   const availW=wide?Math.max(240,window.innerWidth-2*side):Math.min(app.clientWidth-24,1600),availH=window.innerHeight-pad-chrome-12;
   const size=Math.max(240,Math.min(availW,availH));
   {   // HORIZONTAL (2026-10-18, L: "fix up the horizontal view"): landscape stretches between the side columns too
