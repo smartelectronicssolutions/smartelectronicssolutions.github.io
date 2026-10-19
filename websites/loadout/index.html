@@ -996,9 +996,23 @@ const GLADE_T={x:256,y:262,rx:92,ry:40};
 const HOOD={ave:{x:486,w:52},roadS:{y:560,h:52},roadB:{y:924,h:52},park:{x:548,y:24,w:456,h:136},
   pond:{x:362,y:830,rx:80,ry:44},gas:{x:560,y:652,w:436,h:250},lot:{x:556,y:236,w:440,h:176}};
 const HOOD_SOLID=[];
+// GRASS (2026-10-18, L: "can you update the grass"): a pack-style tile instead of the flat checkerboard - 32x32 art at 2x,
+// 4 shades round the base colour, clumps, blade tufts, the odd pebble; flowers only in the park. Cached per colour.
+const _grassC={};
+function grassTile(base,fl){const key=base+(fl?"f":"");if(_grassC[key])return _grassC[key];const a=document.createElement("canvas");a.width=a.height=32;const g=a.getContext("2d");
+  const n=parseInt(base.slice(1),16),sh=k=>"rgb("+[n>>16,(n>>8)&255,n&255].map(v=>Math.max(0,Math.min(255,Math.round(v*k)))).join(",")+")";
+  let sd=fl?77:31;const rnd=()=>((sd=(sd*16807)%2147483647)/2147483647);const P=(x,y,w,h,c)=>{g.fillStyle=c;g.fillRect(x&31,y&31,w,h);};
+  g.fillStyle=base;g.fillRect(0,0,32,32);
+  for(let i=0;i<70;i++)P(rnd()*32|0,rnd()*32|0,1,1,rnd()<.5?sh(.9):sh(1.08));           // speckle
+  for(let i=0;i<6;i++){const x=rnd()*30|0,y=rnd()*30|0;P(x,y,3,2,sh(.86));P(x+1,y-1,1,1,sh(.86));}   // darker clumps
+  for(let i=0;i<9;i++){const x=rnd()*30|0,y=rnd()*29|0;P(x,y+1,1,2,sh(.78));P(x+1,y,1,3,sh(1.22));P(x+2,y+1,1,2,sh(.78));}   // blade tufts
+  if(rnd()<.9)P(rnd()*31|0,rnd()*31|0,1,1,"#9a9a8c");                                       // pebble
+  if(fl)for(let i=0;i<3;i++){const x=rnd()*30|0,y=rnd()*30|0,c=["#f4f1e8","#f4d84a","#e8a0c8"][i%3];P(x,y,1,1,c);P(x+1,y+1,1,1,c);P(x,y+1,1,1,sh(.8));}
+  const c=document.createElement("canvas");c.width=c.height=64;const cx=c.getContext("2d");cx.imageSmoothingEnabled=false;cx.drawImage(a,0,0,64,64);return _grassC[key]=c;}
+function gfill(x,y,w,h,base,fl){ctx.save();ctx.fillStyle=ctx.createPattern(grassTile(base,fl),"repeat");ctx.fillRect(x,y,w,h);ctx.restore();}
 function drawHoodGround(){const W=worldW(),H=worldH(),A=HOOD.ave,M=STREET_ROAD,roads=[M,HOOD.roadS,HOOD.roadB];
   // lawns: one lighter rectangle per house plot so the lots read as property
-  for(const [x,y,w,h] of [[20,24,228,136],[248,24,228,136],[20,232,228,318],[248,232,228,318],[20,622,228,292]])px(x+2,y+2,w-4,h-4,"#64a242");
+  for(const [x,y,w,h] of [[20,24,228,136],[248,24,228,136],[20,232,228,318],[248,232,228,318],[20,622,228,292]])gfill(x+2,y+2,w-4,h-4,"#63a143");
   // sidewalks + roads
   for(const R of roads){px(0,R.y-10,W,10,"#c9c3b5");if(R.y+R.h<H-2)px(0,R.y+R.h,W,10,"#c9c3b5");for(let x=0;x<W;x+=24){px(x,R.y-10,1,10,"#b0a998");}}
   px(A.x-10,M.y,10,H-M.y,"#c9c3b5");px(A.x+A.w,M.y,10,H-M.y,"#c9c3b5");
@@ -1008,7 +1022,7 @@ function drawHoodGround(){const W=worldW(),H=worldH(),A=HOOD.ave,M=STREET_ROAD,r
     for(let x=6;x<W;x+=34)if(x<A.x-20||x>A.x+A.w+10)px(x,R.y+R.h/2-1,18,3,"#e7c65a");}
   for(const R of roads)for(let k=0;k<6;k++){px(A.x-30,R.y+4+k*8,22,4,"#eeeeee");px(A.x+A.w+8,R.y+4+k*8,22,4,"#eeeeee");}   // crosswalks
   // park + the path from the Glade gate (top centre) round the fountain to the sidewalk
-  {const P=HOOD.park,cx=P.x+P.w/2;px(P.x+2,P.y+2,P.w-4,P.h-4,"#6aa847");px(cx-6,P.y,12,P.h,"#d9c8a0");
+  {const P=HOOD.park,cx=P.x+P.w/2;gfill(P.x+2,P.y+2,P.w-4,P.h-4,"#6aa847",1);px(cx-6,P.y,12,P.h,"#d9c8a0");
    ctx.strokeStyle="#d9c8a0";ctx.lineWidth=10;ctx.beginPath();ctx.ellipse(cx,84,62,34,0,0,7);ctx.stroke();}
   // parking lot behind Dispatch + Field Supply: a stall under each vehicle
   {const L=HOOD.lot;px(L.x,L.y,L.w,L.h,"#6f727a");px(L.x,L.y,L.w,3,"#8a8d94");for(const cx of [662,890])for(const dx of [-96,96])px(cx+dx,L.y+16,3,L.h-40,"#e7e7e7");}
@@ -1646,7 +1660,7 @@ function render(){const R=ROOMS[room];
   for(const t of things)if(!done.has(t))draw(t);
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b91",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b92",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
@@ -1701,7 +1715,7 @@ function drawHouseSprite(x,y,roof,label){ // 150x116 cottage (art 75x58 at 2x)
   if(!showLbl(x+75,y+100)){lblDot(x+75,y+10);return;}
   ctx.font="8px 'Pixelify Sans',monospace";ctx.textAlign="center";ctx.lineWidth=3;ctx.strokeStyle="#3a1c08";ctx.strokeText(label?("▾ "+label):"▾ ENTER HOUSE",x+75,y+12);ctx.fillStyle="#ffe9b8";ctx.fillText(label?("▾ "+label):"▾ ENTER HOUSE",x+75,y+12);}
 function drawStreet(){const W=worldW(),H=worldH();
-  for(let y=0;y<H;y+=16)for(let x=0;x<W;x+=16){ctx.fillStyle=((x/16+y/16)%2===0)?"#5d9a3c":"#58933a";ctx.fillRect(x,y,16,16);}
+  gfill(0,0,W,H,"#5b9a3c");
   drawHoodGround();
   px(0,STREET_ROAD.y,W,STREET_ROAD.h,"#3b3e44");px(0,STREET_ROAD.y,W,3,"#9aa0a6");px(0,STREET_ROAD.y+STREET_ROAD.h-3,W,3,"#9aa0a6");   // the road
   for(let x=6;x<W;x+=34)px(x,STREET_ROAD.y+STREET_ROAD.h/2-1,18,3,"#e7c65a");                              // centre line
