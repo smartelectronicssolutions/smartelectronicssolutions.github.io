@@ -416,7 +416,7 @@
     <button class="tbtn" id="smallerBtn" disabled>－ Size</button>
     <button class="tbtn" id="spriteBtn" disabled style="display:none">✏️ Sprite</button><!-- b116: hidden - 🎨 Sprites does both (selected piece / blank) -->
     <button class="tbtn" id="imgBtn" disabled>🖼 Image</button>
-    <span class="hitgrp" id="hitGrp" style="display:none"><span class="hitl">Stop zone</span><button class="tbtn" data-hit="base,3" title="deeper (Shift+↑)">⬆</button><button class="tbtn" data-hit="base,-3" title="shallower (Shift+↓)">⬇</button><button class="tbtn" data-hit="hw,-3" title="narrower (Shift+←)">⇥⇤</button><button class="tbtn" data-hit="hw,3" title="wider (Shift+→)">⇤⇥</button></span><button class="tbtn" id="nameBtn" disabled style="display:none">🏷 Rename</button><button class="tbtn" id="doesBtn" disabled>⚡ Does</button><button class="tbtn" id="storeBtn" disabled style="display:none">📦 Storage</button>
+    <span class="hitgrp" id="hitGrp" style="display:none"><span class="hitl">Stop zone</span><button class="tbtn" id="hshapeBtn" title="Box, or follow the drawing (for L-desks, odd shapes)">▢ Box</button><button class="tbtn" data-hit="base,3" title="deeper (Shift+↑)">⬆</button><button class="tbtn" data-hit="base,-3" title="shallower (Shift+↓)">⬇</button><button class="tbtn" data-hit="hw,-3" title="narrower (Shift+←)">⇥⇤</button><button class="tbtn" data-hit="hw,3" title="wider (Shift+→)">⇤⇥</button></span><button class="tbtn" id="nameBtn" disabled style="display:none">🏷 Rename</button><button class="tbtn" id="doesBtn" disabled>⚡ Does</button><button class="tbtn" id="storeBtn" disabled style="display:none">📦 Storage</button>
     <button class="tbtn" id="readerBtn" disabled style="display:none">📖 Reader</button><button class="tbtn" id="changeBtn" disabled style="display:none">👕 Change Station</button><!-- b119: Does replaces Storage / Reader / Change Station (L) -->
     <button class="tbtn danger" id="delBtn" disabled title="Remove">🗑</button>
   </div>
@@ -1332,6 +1332,9 @@ function hitAdjust(field,delta){if(!editMode||!selected||selected.kind!=="d")ret
 addEventListener("keydown",e=>{if(!editMode||!e.shiftKey||!selected||selected.kind!=="d")return;const map={ArrowUp:["base",3],ArrowDown:["base",-3],ArrowRight:["hw",3],ArrowLeft:["hw",-3]}[e.key];if(!map)return;
   if(e.target.closest&&e.target.closest("input,textarea"))return;e.preventDefault();e.stopImmediatePropagation();hitAdjust(map[0],map[1]);},true);
 document.addEventListener("click",e=>{const b=e.target.closest&&e.target.closest("#hitGrp [data-hit]");if(!b)return;const [f,v]=b.dataset.hit.split(",");hitAdjust(f,+v);});
+function hshapeLbl(){const b=$("hshapeBtn");if(!b)return;const d=selected&&selected.kind==="d"?(roomDecor[room]||{})[selected.id]:null,c=d&&CAT[d.k];const on=!!(c&&c.hshape);b.textContent=on?"\u25e9 Shape":"\u25a2 Box";b.classList.toggle("add",on);}
+$("hshapeBtn").addEventListener("click",e=>{e.stopPropagation();if(!editMode||!selected||selected.kind!=="d")return;const d=(roomDecor[room]||{})[selected.id];if(!d||!CAT[d.k])return;const c=CAT[d.k];
+  c.hshape=!c.hshape;update(ref(db,"public/games/loadout/catalog/"+d.k),{hshape:c.hshape||null}).catch(()=>{});hshapeLbl();dayBanner("Stop zone "+(c.label||d.k)+": "+(c.hshape?"follows the drawing":"box"));});
 function edSnap(){const rm=room;return JSON.stringify({d:roomDecor[rm]||{},dr:(ROOMS[rm].doors||[]).map(d=>({x:d.x,y:d.y,w:d.w,h:d.h})),w:WALLS[rm]||{},f:FTILES[rm]||{},
   p:placesIn(rm).map(([k,q])=>[k,q.x,q.y,q.z||0]),fx:fixIn(rm).map(id=>[id,FIXTURES[id].x,FIXTURES[id].y]),sz:ROOMSIZE[rm]||null});}
 function undoBegin(){if(!editMode)return;undoPend={room,s:edSnap()};}
@@ -1353,16 +1356,20 @@ addEventListener("keydown",e=>{if(editMode&&(e.ctrlKey||e.metaKey)&&!e.shiftKey&
 if(/[?&]test/.test(location.search))window.__loArrow=(side,dir)=>roomArrow({side,dir});   // test hook (?test only)
 // STOP-ZONE ARROWS (2026-10-18, L: "the barrier shrink the same as the map, with little arrows"): around the selected
 // piece's red box - top = deeper / shallower, left + right = wider / narrower (it stays centred). Gold out = grow, dark in = shrink.
-function hitBoxSel(){if(!editMode||!selected||selected.kind!=="d")return null;const d=(roomDecor[room]||{})[selected.id];if(!d)return null;return solidRects(room).find(b=>b._id===d)||null;}
-function hitArrowSpots(){const b=hitBoxSel();if(!b)return [];const cx=b.x+b.w/2,cy=b.y+b.h/2;
-  return [{side:"up",dir:1,x:cx-8,y:b.y-11,f:"base",v:3},{side:"up",dir:-1,x:cx+8,y:b.y-11,f:"base",v:-3},
-          {side:"left",dir:1,x:b.x-11,y:cy-8,f:"hw",v:3},{side:"left",dir:-1,x:b.x-11,y:cy+8,f:"hw",v:-3},
-          {side:"right",dir:1,x:b.x+b.w+11,y:cy-8,f:"hw",v:3},{side:"right",dir:-1,x:b.x+b.w+11,y:cy+8,f:"hw",v:-3}];}
-function drawHitArrows(){for(const a of hitArrowSpots()){const grow=a.dir>0,r=grow?6:5;ctx.save();ctx.translate(a.x,a.y);
-  ctx.fillStyle=grow?"rgba(242,165,65,.95)":"rgba(58,28,8,.88)";ctx.strokeStyle="#7a1f1a";ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(0,0,r+2,0,7);ctx.fill();ctx.stroke();
+function hitBoxSel(){if(!editMode||!selected||selected.kind!=="d")return null;const d=(roomDecor[room]||{})[selected.id];if(!d)return null;
+  const rs=solidRects(room).filter(b=>b._id===d);if(!rs.length)return null;let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;for(const b of rs){x0=Math.min(x0,b.x);y0=Math.min(y0,b.y);x1=Math.max(x1,b.x+b.w);y1=Math.max(y1,b.y+b.h);}
+  return{x:x0,y:y0,w:x1-x0,h:y1-y0,_id:d};}   /* b123: a Shape stop zone is many strips - the arrows go round all of them */
+/* b123 (L: "the arrows on the side of that are hard to click"): sized in SCREEN pixels (about 26 px across whatever the zoom), spread apart, generous hit area */
+function hitU(){try{const r=cv.getBoundingClientRect();return r.width?(VW/r.width)/(editZoom||1):1;}catch(e){return 1;}}
+function hitArrowSpots(){const b=hitBoxSel();if(!b)return [];const cx=b.x+b.w/2,cy=b.y+b.h/2,R=13*hitU(),gap=R*1.25,off=R*1.5;
+  return [{side:"up",dir:1,x:cx-gap,y:b.y-off,f:"base",v:3,R},{side:"up",dir:-1,x:cx+gap,y:b.y-off,f:"base",v:-3,R},
+          {side:"left",dir:1,x:b.x-off,y:cy-gap,f:"hw",v:3,R},{side:"left",dir:-1,x:b.x-off,y:cy+gap,f:"hw",v:-3,R},
+          {side:"right",dir:1,x:b.x+b.w+off,y:cy-gap,f:"hw",v:3,R},{side:"right",dir:-1,x:b.x+b.w+off,y:cy+gap,f:"hw",v:-3,R}];}
+function drawHitArrows(){for(const a of hitArrowSpots()){const grow=a.dir>0,r=a.R*.78;ctx.save();ctx.translate(a.x,a.y);
+  ctx.fillStyle=grow?"rgba(242,165,65,.97)":"rgba(58,28,8,.92)";ctx.strokeStyle="#7a1f1a";ctx.lineWidth=2*hitU();ctx.beginPath();ctx.arc(0,0,a.R,0,7);ctx.fill();ctx.stroke();
   const out={up:[0,-1],left:[-1,0],right:[1,0]}[a.side],d=grow?out:[-out[0],-out[1]],px=-d[1],py=d[0];
   ctx.fillStyle=grow?"#3a1c08":"#ffe9b8";ctx.beginPath();ctx.moveTo(d[0]*r*.8,d[1]*r*.8);ctx.lineTo(-d[0]*r*.4+px*r*.6,-d[1]*r*.4+py*r*.6);ctx.lineTo(-d[0]*r*.4-px*r*.6,-d[1]*r*.4-py*r*.6);ctx.closePath();ctx.fill();ctx.restore();}}
-function hitArrowAt(p){for(const a of hitArrowSpots())if(Math.hypot(p.x-a.x,p.y-a.y)<=9)return a;return null;}
+function hitArrowAt(p){let best=null,bd=1e9;for(const a of hitArrowSpots()){const d=Math.hypot(p.x-a.x,p.y-a.y);if(d<=a.R*1.15&&d<bd){bd=d;best=a;}}return best;}
 function roomArrowAt(p){if(!roomArrowsOK())return null;for(const a of roomArrowSpots())if(Math.hypot(p.x-a.x,p.y-a.y)<=14)return a;return null;}
 function shiftRoom(dx,dy){if(!dx&&!dy)return;const rm=room;
   for(const id in (roomDecor[rm]||{})){const d=roomDecor[rm][id];d.x+=dx;d.y+=dy;}saveRoom(rm);
@@ -1421,6 +1428,18 @@ $("bagBtn").addEventListener("click",()=>{bagSplit=true;openInvHere();});   // B
 function placesIn(r){return Object.entries(PLACES).filter(([k,p])=>p.room===r&&!isHidden(r,k));}
 function feetRect(x,y){return{x:x-feet.w/2,y:y-feet.h,w:feet.w,h:feet.h};}
 function hit(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;}
+// STOP ZONE FOLLOWS THE DRAWING (b122, L 2026-10-19: "I don't know if the boundary zone is working right on the L-desk"). A box can't
+// fit an L: the open floor under the desk top (where the chair goes) was solid. With CAT[k].hshape on, the stop zone is built from the
+// sprite's own pixels - only the opaque parts inside the usual depth (base) and width (hw) count - in 4-px cells, merged into strips.
+const _shapeCache={};
+function shapeCells(k){const c=CAT[k],im=catImg[k];if(!c||!im||!im.complete||!im.naturalWidth)return null;const key=k+"|"+(im._src||"").length+"|"+c.w+"x"+c.h;if(_shapeCache[key])return _shapeCache[key];
+  const W=+c.w,H=+c.h,oc=document.createElement("canvas");oc.width=W;oc.height=H;const o=oc.getContext("2d");o.drawImage(im,0,0,W,H);let dt;try{dt=o.getImageData(0,0,W,H).data;}catch(e){return null;}
+  const G=4,cols=Math.ceil(W/G),rows=Math.ceil(H/G),m=[];for(let gy=0;gy<rows;gy++){const r=[];for(let gx=0;gx<cols;gx++){let n=0,t=0;for(let y=gy*G;y<Math.min(H,gy*G+G);y++)for(let x=gx*G;x<Math.min(W,gx*G+G);x++){t++;if(dt[(y*W+x)*4+3]>60)n++;}r.push(n/t>.45);}m.push(r);}
+  return _shapeCache[key]={G,cols,rows,m};}
+function shapeRects(d,ox,oy,w,h,ch,sw){const S=shapeCells(d.k);if(!S)return null;const s=d.s||1,G=S.G*s,out=[],fl=!!d.flip,x0=ox+(w-sw)/2,x1=x0+sw,y0=oy+h-ch;
+  for(let gy=0;gy<S.rows;gy++){const ry=oy+gy*G;if(ry+G<=y0)continue;let run=-1;
+    for(let gx=0;gx<=S.cols;gx++){const on=gx<S.cols&&S.m[gy][fl?S.cols-1-gx:gx];if(on&&run<0)run=gx;if((!on||gx===S.cols)&&run>=0){let a=ox+run*G,b=ox+gx*G;a=Math.max(a,x0);b=Math.min(b,x1);const top=Math.max(ry,y0);if(b>a)out.push({x:a,y:top,w:b-a,h:Math.min(oy+h,ry+G)-top,_id:d});run=-1;}}}
+  return out;}
 function solidRects(r){const rects=[];if(r==="street")rects.push(...HOOD_SOLID);if(r==="store54")for(const a of S54.aisles)rects.push({x:a.x,y:a.y,w:a.w,h:a.h});
   if(r==="street"){for(const h of STREET_HOUSES){const B=houseBox(h);rects.push({x:B.x+14,y:B.y+Math.round(B.h*.2),w:B.w-28,h:(h.at[1]+92)-(B.y+Math.round(B.h*.2))});}
     for(const v of STREET_CARS)rects.push({x:v.x+8,y:v.y+44,w:140,h:44});}
@@ -1435,6 +1454,7 @@ function solidRects(r){const rects=[];if(r==="street")rects.push(...HOOD_SOLID);
     // HITBOX = the piece's floor footprint (2026-10-18, L: "really bad hitbox setups"): base = solid px up from the bottom,
     // hw = solid width centred under the art (a tree = its trunk, a lamp = its pole). Missing hw = full width less a little.
     const hwc=CAT[d.k].hw,ins=w>24?4:0,sw=(hwc!=null)?Math.min(w,Math.max(2,Math.round(hwc*s))):w-ins*2;   // width applies to the piece as you SEE it, rotated or not (was skipped when rotated - "width doesn't move")
+    if(CAT[d.k].hshape&&!((d.rot||0)%2)){const sr=shapeRects(d,ox,oy,w,h,ch,sw);if(sr){rects.push(...sr);continue;}}   /* b122 shape mode (not on rotated pieces) */
     rects.push({x:ox+(w-sw)/2,y:oy+h-ch,w:sw,h:ch,_id:d});}   // narrow props (fence_v) keep their whole width
   return rects;}
 function blocked(x,y){const r=feetRect(x,y);
@@ -1817,7 +1837,7 @@ function render(){const R=ROOMS[room];
   for(const t of things)if(!done.has(t))draw(t);
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b121",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b123",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
@@ -2104,7 +2124,7 @@ function refreshTools(){const on=!!selected;
   $("doesBtn").disabled=!(on&&selected.kind==="d");{const q=on&&selected.kind==="d"?doesOf(roomDecor[room][selected.id]):null,L=q?(DOES_LIST.find(x=>x[0]===q.t)||[])[1]:"";$("doesBtn").innerHTML="\u26a1 Does"+(L?": "+L.replace(/^\S+\s/,"").replace(/ \u2192 a room/,"")+(q.t==="door"&&q.to?" \u2192 "+((ROOMS[q.to]||{}).name||q.to):""):"");$("doesBtn").classList.toggle("add",!!q);}
   $("storeBtn").disabled=!(on&&selected.kind==="d");$("readerBtn").disabled=!(on&&selected.kind==="d");$("changeBtn").disabled=!(on&&selected.kind==="d");$("nameBtn").disabled=!(on&&(selected.kind==="d"||selected.kind==="p"||(selected.kind==="door"&&ROOMS[room].doors[selected.idx].to==="van")));
   if(on&&selected.kind==="d"){const dd=roomDecor[room][selected.id]||{};const isS=dd.store||dd.storeArea;$("storeBtn").innerHTML=(dd.storeArea||dd.store)?"📦 Storage ✓":"📦 Storage";$("storeBtn").classList.toggle("add",!!isS);$("readerBtn").innerHTML=dd.reader?"📖 Reader ✓":"📖 Reader";$("readerBtn").classList.toggle("add",!!dd.reader);$("changeBtn").innerHTML=dd.changeStation?"👕 Change Station ✓":"👕 Change Station";$("changeBtn").classList.toggle("add",!!dd.changeStation);}else{$("storeBtn").classList.remove("add");$("storeBtn").innerHTML="📦 Storage";$("readerBtn").classList.remove("add");$("readerBtn").innerHTML="📖 Reader";$("changeBtn").classList.remove("add");$("changeBtn").innerHTML="👕 Change Station";}
-  {const hg=$("hitGrp");if(hg)hg.style.display=(selected&&selected.kind==="d")?"":"none";}
+  {const hg=$("hitGrp");if(hg)hg.style.display=(selected&&selected.kind==="d")?"":"none";try{hshapeLbl();}catch(e){}}
   if(!selected){$("selLabel").innerHTML=wallMode?"Wall mode — tap/drag the grid to build or erase walls":"Tap a piece to select · drag to move";return;}
   let label=selected.kind==="pdoor"?(()=>{const q=(roomDecor[room][selected.id]||{}).does||{};return "Door \u2192 "+((ROOMS[q.to]||{}).name||q.to||"?")+" <span style='opacity:.7'>(drag to move it on the piece)</span>";})()
     :selected.kind==="d"?(customName(room,selected.id)||CAT[roomDecor[room][selected.id]?.k]?.label||"Furniture")
