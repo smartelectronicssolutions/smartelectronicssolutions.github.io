@@ -119,7 +119,7 @@
   .sw.on{outline:2px solid var(--amber);outline-offset:1px}
   .stsize{display:flex;gap:5px;align-items:center;font-family:var(--mono);font-size:.62rem;color:var(--muted);flex-wrap:wrap}
   .stsize input{width:46px;background:var(--slot);border:1px solid var(--edge);color:var(--text);border-radius:5px;padding:4px}
-  .stcanvaswrap{flex:1;min-width:260px;display:grid;place-items:center;background:var(--slot);border:1px solid var(--edge);border-radius:10px;padding:10px;overflow:auto}
+  .stcanvaswrap{flex:1;min-width:260px;display:grid;place-items:safe center;max-height:62vh;background:var(--slot);border:1px solid var(--edge);border-radius:10px;padding:10px;overflow:auto}
   canvas#stCanvas{image-rendering:pixelated;cursor:crosshair;background:#0a0d10;touch-action:none}
   .stfoot{display:flex;gap:8px;align-items:center;padding:12px 16px;border-top:1px solid var(--edge);flex-wrap:wrap}
   .stfoot input,.stfoot select{background:var(--slot);border:1px solid var(--edge);color:var(--text);border-radius:7px;padding:8px;font:inherit}
@@ -477,7 +477,7 @@
       <button class="sttool" id="stClear">Clear</button>
       <button class="sttool" id="stLoad">Load a piece…</button>
     </div>
-    <div class="stcanvaswrap"><canvas id="stCanvas" width="10" height="10"></canvas></div>
+    <div class="stcanvaswrap"><canvas id="stCanvas" width="10" height="10"></canvas></div><input type="file" id="stFile" accept="image/*" style="display:none">
   </div>
   <div class="stfoot">
     <input id="stName" placeholder="Name (e.g. Big house)">
@@ -1738,7 +1738,7 @@ function render(){const R=ROOMS[room];
   for(const t of things)if(!done.has(t))draw(t);
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b106",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b107",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
@@ -2128,28 +2128,49 @@ window.addEventListener("hashchange",deepLink);
 /* SPRITE STUDIO UPDATE (b106, L 2026-10-19: "update Sprite Studio a bit, make it have brush size"): brush 1-4 px for Draw/Erase, a square
    outline shows where the brush lands, fast drags draw a solid line (no gaps), and Undo (button or Ctrl+Z, 40 steps) - the studio's own,
    so Ctrl+Z in here never undoes the room behind it. */
-const ST={w:24,h:32,cells:null,color:"#c9a06a",tool:"pencil",disp:12,loadKey:null,brush:1,hist:[],last:null,hover:null};
+/* b107 (L 2026-10-19: "take the pixel studio from game hub - remove that and put those abilities into this"): + Line, Rect (Shift = filled),
+   Move (slide the whole drawing), Redo, zoom, grid on/off, size presets, Import an image, Export PNG (1x / 4x). */
+const ST={w:24,h:32,cells:null,color:"#c9a06a",tool:"pencil",disp:12,loadKey:null,brush:1,hist:[],redo:[],last:null,hover:null,zoom:1,grid:true,start:null,shape:null,moveFrom:null,moveBase:null};
 try{ST.brush=Math.max(1,Math.min(4,+(localStorage.getItem("loadout:stbrush")||1)||1));}catch(e){}
-function stSnap(){ST.hist.push(ST.cells.map(r=>r.slice()));if(ST.hist.length>40)ST.hist.shift();}
-function stUndo(){if(!ST.hist.length)return;const c=ST.hist.pop();ST.cells=c;ST.h=c.length;ST.w=c[0]?c[0].length:ST.w;$("stW").value=ST.w;$("stH").value=ST.h;stFit();stDraw();}
+function stSnap(){ST.hist.push(ST.cells.map(r=>r.slice()));if(ST.hist.length>40)ST.hist.shift();ST.redo=[];}
+function stSetCells(c){ST.cells=c;ST.h=c.length;ST.w=c[0]?c[0].length:ST.w;$("stW").value=ST.w;$("stH").value=ST.h;stFit();stDraw();}
+function stRedo(){if(!ST.redo.length)return;ST.hist.push(ST.cells.map(r=>r.slice()));stSetCells(ST.redo.pop());}
+function stUndo(){if(!ST.hist.length)return;ST.redo.push(ST.cells.map(r=>r.slice()));const c=ST.hist.pop();ST.cells=c;ST.h=c.length;ST.w=c[0]?c[0].length:ST.w;$("stW").value=ST.w;$("stH").value=ST.h;stFit();stDraw();}
 function stLine(x0,y0,x1,y1,f){const dx=Math.abs(x1-x0),dy=-Math.abs(y1-y0),sx=x0<x1?1:-1,sy=y0<y1?1:-1;let e=dx+dy;for(;;){f(x0,y0);if(x0===x1&&y0===y1)break;const e2=2*e;if(e2>=dy){e+=dy;x0+=sx;}if(e2<=dx){e+=dx;y0+=sy;}}}
 const PALS=["#000000","#ffffff","#c9a06a","#8c4a3d","#5e3128","#eef1f4","#c9ccd0","#7d848c","#3a4048","#7fb3cf","#a9d2e6","#63b6c7","#2e4a2b","#436b3b","#f2a541","#e2683f","#5e3a24","#a9772c","#39424d","#2b333c","#7a3f34","#b58e5a","#f2d27a","transparent"];
 function stBlank(w,h){return Array.from({length:h},()=>Array.from({length:w},()=>null));}
 $("studioBtn").addEventListener("click",openStudio);
 $("stClose").addEventListener("click",()=>$("studio").classList.remove("open"));
 $("studio").addEventListener("click",e=>{if(e.target===$("studio"))$("studio").classList.remove("open");});
-function openStudio(){ST.w=Math.max(4,Math.min(72,+$("stW").value||24));ST.h=Math.max(4,Math.min(72,+$("stH").value||32));ST.cells=stBlank(ST.w,ST.h);ST.hist=[];ST.loadKey=null;$("stTitle").textContent="Sprite Studio";$("stName").value="";$("stBase").value="";buildStTools();buildStPal();stFit();stDraw();$("studio").classList.add("open");}
-function buildStTools(){const t=$("stTools");t.innerHTML="";[["pencil","✏️ Draw"],["eraser","⌫ Erase"],["fill","🪣 Fill"],["pick","💧 Pick"]].forEach(([k,l])=>{const b=document.createElement("div");b.className="sttool"+(ST.tool===k?" on":"");b.textContent=l;b.onclick=()=>{ST.tool=k;buildStTools();};t.appendChild(b);});
-  const sz=document.createElement("div");sz.style.cssText="display:flex;gap:4px;align-items:center;flex-wrap:wrap;width:100%;margin-top:2px";sz.innerHTML="<span style='font-size:.62rem;opacity:.8'>Brush</span>";
+function openStudio(){ST.w=Math.max(4,Math.min(72,+$("stW").value||24));ST.h=Math.max(4,Math.min(72,+$("stH").value||32));ST.cells=stBlank(ST.w,ST.h);ST.hist=[];ST.redo=[];ST.loadKey=null;$("stTitle").textContent="Sprite Studio";$("stName").value="";$("stBase").value="";buildStTools();buildStPal();stFit();stDraw();$("studio").classList.add("open");}
+function buildStTools(){const t=$("stTools");t.innerHTML="";[["pencil","✏️ Draw"],["eraser","⌫ Erase"],["fill","🪣 Fill"],["pick","💧 Pick"],["line","╱ Line"],["rect","▭ Rect"],["move","✥ Move"]].forEach(([k,l])=>{const b=document.createElement("div");b.className="sttool"+(ST.tool===k?" on":"");b.textContent=l;b.onclick=()=>{ST.tool=k;buildStTools();};t.appendChild(b);});
+  const row=(lbl)=>{const r=document.createElement("div");r.style.cssText="grid-column:1/-1;display:flex;gap:4px;align-items:center;flex-wrap:wrap";if(lbl)r.innerHTML="<span style='font-size:.62rem;opacity:.8;min-width:34px'>"+lbl+"</span>";t.appendChild(r);return r;};
+  const chip=(r,txt,on,fn,title)=>{const b=document.createElement("div");b.className="sttool"+(on?" on":"");b.style.cssText="min-width:0;padding:3px 7px";b.textContent=txt;if(title)b.title=title;b.onclick=fn;r.appendChild(b);return b;};
+  const sz=row("");sz.innerHTML="";sz.innerHTML="<span style='font-size:.62rem;opacity:.8'>Brush</span>";
   [1,2,3,4].forEach(n=>{const b=document.createElement("div");b.className="sttool"+(ST.brush===n?" on":"");b.style.cssText="min-width:0;padding:3px 7px";b.textContent=n;b.title=n+"\u00d7"+n+" px";b.onclick=()=>{ST.brush=n;try{localStorage.setItem("loadout:stbrush",n);}catch(e){}buildStTools();};sz.appendChild(b);});
-  const u=document.createElement("div");u.className="sttool";u.style.cssText="padding:3px 7px";u.textContent="\u21b6 Undo";u.title="Undo (Ctrl+Z)";u.onclick=stUndo;sz.appendChild(u);t.appendChild(sz);}
+  const ur=row("");chip(ur,"\u21b6 Undo",false,stUndo,"Undo (Ctrl+Z)");chip(ur,"\u21b7 Redo",false,stRedo,"Redo (Ctrl+Y / Ctrl+Shift+Z)");
+  const zr=row("Zoom");chip(zr,"\u2212",false,()=>{ST.zoom=Math.max(.5,ST.zoom/1.25);stFit();stDraw();});chip(zr,"+",false,()=>{ST.zoom=Math.min(4,ST.zoom*1.25);stFit();stDraw();});
+  chip(zr,"Grid",ST.grid,()=>{ST.grid=!ST.grid;buildStTools();stDraw();},"Show the pixel grid");
+  const pr=row("Size");const sel=document.createElement("select");sel.style.cssText="font-size:.62rem;padding:2px;flex:1;min-width:0";
+  [["","Preset\u2026"],["16x16","Icon 16\u00d716"],["24x32","Item 24\u00d732"],["32x32","Tile 32\u00d732"],["32x48","Tall 32\u00d748"],["48x32","Wide 48\u00d732"],["48x48","Block 48\u00d748"],["64x32","Bench 64\u00d732"],["64x64","Big 64\u00d764"],["72x72","Max 72\u00d772"]].forEach(([v,l])=>{const o=document.createElement("option");o.value=v;o.textContent=l;sel.appendChild(o);});
+  sel.onchange=()=>{if(!sel.value)return;const[w,h]=sel.value.split("x").map(Number);$("stW").value=w;$("stH").value=h;$("stResize").click();sel.value="";};pr.appendChild(sel);
+  const io=row("");chip(io,"\u21a5 Import",false,()=>$("stFile").click(),"Import an image (PNG/JPG) - shrinks to fit 72 px");chip(io,"\u21a7 PNG",false,()=>stExport(1),"Download at 1x");chip(io,"\u21a7 4x",false,()=>stExport(4),"Download at 4x");}
+function stImg(scale){const oc=document.createElement("canvas");oc.width=ST.w*scale;oc.height=ST.h*scale;const o=oc.getContext("2d");
+  for(let y=0;y<ST.h;y++)for(let x=0;x<ST.w;x++){const v=ST.cells[y][x];if(v){o.fillStyle=v;o.fillRect(x*scale,y*scale,scale,scale);}}return oc;}
+function stExport(scale){const nm=(($("stName").value||"sprite").trim().replace(/[^\w\- ]+/g,"").replace(/\s+/g,"_")||"sprite")+(scale>1?"_"+scale+"x":"")+".png";
+  stImg(scale).toBlob(b=>{if(!b)return;const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download=nm;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},500);},"image/png");}
+function stImport(file){if(!file)return;const url=URL.createObjectURL(file),im=new Image();im.onload=()=>{let w=im.naturalWidth,h=im.naturalHeight;const k=Math.min(1,72/Math.max(w,h));w=Math.max(4,Math.round(w*k));h=Math.max(4,Math.round(h*k));
+    const oc=document.createElement("canvas");oc.width=w;oc.height=h;const o=oc.getContext("2d");o.imageSmoothingEnabled=k<1;o.drawImage(im,0,0,w,h);const dt=o.getImageData(0,0,w,h).data;stSnap();const c=stBlank(w,h);
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=(y*w+x)*4;if(dt[i+3]>40)c[y][x]="#"+[dt[i],dt[i+1],dt[i+2]].map(n=>n.toString(16).padStart(2,"0")).join("");}
+    stSetCells(c);URL.revokeObjectURL(url);};im.src=url;}
 function buildStPal(){const p=$("stPal");p.innerHTML="";PALS.forEach(c=>{const s=document.createElement("div");s.className="sw"+(c===ST.color?" on":"");s.style.background=c==="transparent"?"repeating-conic-gradient(#555 0 25%,#333 0 50%) 0/8px 8px":c;s.title=c;s.onclick=()=>{ST.color=c;if(c!=="transparent")$("stColor").value=c;buildStPal();};p.appendChild(s);});}
 $("stColor").addEventListener("input",e=>{ST.color=e.target.value;buildStPal();});
-function stFit(){ST.disp=Math.max(4,Math.floor(Math.min(360/ST.w,440/ST.h)));const cv=$("stCanvas");cv.width=ST.w*ST.disp;cv.height=ST.h*ST.disp;}
+function stFit(){ST.disp=Math.max(2,Math.floor(Math.min(360/ST.w,440/ST.h)*(ST.zoom||1)));const cv=$("stCanvas");cv.width=ST.w*ST.disp;cv.height=ST.h*ST.disp;}
 function stDraw(){const cv=$("stCanvas"),c=cv.getContext("2d");c.imageSmoothingEnabled=false;const d=ST.disp;
   for(let y=0;y<ST.h;y++)for(let x=0;x<ST.w;x++){c.fillStyle=((x+y)%2===0)?"#171b21":"#12161b";c.fillRect(x*d,y*d,d,d);const v=ST.cells[y][x];if(v){c.fillStyle=v;c.fillRect(x*d,y*d,d,d);}}
-  c.strokeStyle="rgba(255,255,255,.05)";for(let x=0;x<=ST.w;x++){c.beginPath();c.moveTo(x*d+.5,0);c.lineTo(x*d+.5,ST.h*d);c.stroke();}for(let y=0;y<=ST.h;y++){c.beginPath();c.moveTo(0,y*d+.5);c.lineTo(ST.w*d,y*d+.5);c.stroke();}
-  if(ST.hover&&(ST.tool==="pencil"||ST.tool==="eraser")){const n=ST.brush,o=Math.floor((n-1)/2);c.strokeStyle=ST.tool==="eraser"?"rgba(255,120,90,.95)":"rgba(255,233,184,.95)";c.lineWidth=1;c.strokeRect((ST.hover[0]-o)*d+.5,(ST.hover[1]-o)*d+.5,n*d-1,n*d-1);}}
+  if(ST.shape){c.fillStyle=ST.color==="transparent"?"rgba(255,120,90,.6)":ST.color;for(const [x,y] of ST.shape)c.fillRect(x*d,y*d,d,d);}
+  if(ST.grid){c.strokeStyle="rgba(255,255,255,.05)";for(let x=0;x<=ST.w;x++){c.beginPath();c.moveTo(x*d+.5,0);c.lineTo(x*d+.5,ST.h*d);c.stroke();}for(let y=0;y<=ST.h;y++){c.beginPath();c.moveTo(0,y*d+.5);c.lineTo(ST.w*d,y*d+.5);c.stroke();}}
+  if(ST.hover&&(ST.tool==="pencil"||ST.tool==="eraser"||ST.tool==="line")){const n=ST.brush,o=Math.floor((n-1)/2);c.strokeStyle=ST.tool==="eraser"?"rgba(255,120,90,.95)":"rgba(255,233,184,.95)";c.lineWidth=1;c.strokeRect((ST.hover[0]-o)*d+.5,(ST.hover[1]-o)*d+.5,n*d-1,n*d-1);}}
 let stPaint=false;
 function stCellAt(e){const cv=$("stCanvas"),r=cv.getBoundingClientRect();const x=Math.floor((e.clientX-r.left)/(r.width/ST.w)),y=Math.floor((e.clientY-r.top)/(r.height/ST.h));return (x>=0&&x<ST.w&&y>=0&&y<ST.h)?[x,y]:null;}
 function stApply(x,y){const col=ST.color==="transparent"?null:ST.color;
@@ -2157,18 +2178,28 @@ function stApply(x,y){const col=ST.color==="transparent"?null:ST.color;
   else if(ST.tool==="pick"){const v=ST.cells[y][x];if(v){ST.color=v;$("stColor").value=v;buildStPal();}}
   else if(ST.tool==="fill")stFill(x,y,ST.cells[y][x],col);}
 function stFill(x,y,t,rep){if(t===rep)return;const s=[[x,y]];while(s.length){const[cx,cy]=s.pop();if(cx<0||cy<0||cx>=ST.w||cy>=ST.h||ST.cells[cy][cx]!==t)continue;ST.cells[cy][cx]=rep;s.push([cx+1,cy],[cx-1,cy],[cx,cy+1],[cx,cy-1]);}}
-$("stCanvas").addEventListener("pointerdown",e=>{const c=stCellAt(e);if(!c)return;if(ST.tool!=="pick")stSnap();stPaint=true;ST.last=c;stApply(c[0],c[1]);stDraw();try{$("stCanvas").setPointerCapture(e.pointerId);}catch(_){}});
+function stShapeCells(a,b,filled){const out=[];if(ST.tool==="line"){const n=ST.brush,o=Math.floor((n-1)/2);stLine(a[0],a[1],b[0],b[1],(x,y)=>{for(let yy=y-o;yy<y-o+n;yy++)for(let xx=x-o;xx<x-o+n;xx++)if(xx>=0&&yy>=0&&xx<ST.w&&yy<ST.h)out.push([xx,yy]);});return out;}
+  const x0=Math.min(a[0],b[0]),x1=Math.max(a[0],b[0]),y0=Math.min(a[1],b[1]),y1=Math.max(a[1],b[1]);for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++)if(filled||x===x0||x===x1||y===y0||y===y1)out.push([x,y]);return out;}
+$("stCanvas").addEventListener("pointerdown",e=>{const c=stCellAt(e);if(!c)return;if(ST.tool!=="pick")stSnap();stPaint=true;ST.last=c;try{$("stCanvas").setPointerCapture(e.pointerId);}catch(_){}
+  if(ST.tool==="line"||ST.tool==="rect"){ST.start=c;ST.shape=stShapeCells(c,c,e.shiftKey);stDraw();return;}
+  if(ST.tool==="move"){ST.moveFrom=c;ST.moveBase=ST.cells.map(r=>r.slice());return;}
+  stApply(c[0],c[1]);stDraw();});
 $("stCanvas").addEventListener("pointermove",e=>{const c=stCellAt(e);ST.hover=c;if(!stPaint||ST.tool==="fill"||ST.tool==="pick"){stDraw();return;}if(!c)return;
+  if(ST.start){ST.shape=stShapeCells(ST.start,c,e.shiftKey);stDraw();return;}
+  if(ST.moveFrom){const dx=c[0]-ST.moveFrom[0],dy=c[1]-ST.moveFrom[1],nc=stBlank(ST.w,ST.h);for(let y=0;y<ST.h;y++)for(let x=0;x<ST.w;x++){const sx=x-dx,sy=y-dy;if(sx>=0&&sy>=0&&sx<ST.w&&sy<ST.h)nc[y][x]=ST.moveBase[sy][sx];}ST.cells=nc;stDraw();return;}
   const l=ST.last||c;stLine(l[0],l[1],c[0],c[1],(x,y)=>stApply(x,y));ST.last=c;stDraw();});
-$("stCanvas").addEventListener("pointerup",()=>{stPaint=false;ST.last=null;});
+$("stCanvas").addEventListener("pointerup",()=>{stPaint=false;ST.last=null;ST.moveFrom=null;ST.moveBase=null;
+  if(ST.start&&ST.shape){const col=ST.color==="transparent"?null:ST.color;for(const [x,y] of ST.shape)ST.cells[y][x]=col;}ST.start=null;ST.shape=null;stDraw();});
 $("stCanvas").addEventListener("pointerleave",()=>{ST.hover=null;if(!stPaint)stDraw();});
-addEventListener("keydown",e=>{if(!$("studio").classList.contains("open"))return;if((e.ctrlKey||e.metaKey)&&(e.key==="z"||e.key==="Z")&&!(e.target.closest&&e.target.closest("input,textarea"))){e.preventDefault();e.stopImmediatePropagation();stUndo();}},true);
+addEventListener("keydown",e=>{if(!$("studio").classList.contains("open"))return;if(!(e.ctrlKey||e.metaKey)||(e.target.closest&&e.target.closest("input,textarea")))return;const k=e.key.toLowerCase();
+  if(k==="z"&&!e.shiftKey){e.preventDefault();e.stopImmediatePropagation();stUndo();}else if(k==="y"||(k==="z"&&e.shiftKey)){e.preventDefault();e.stopImmediatePropagation();stRedo();}},true);
 $("stResize").addEventListener("click",()=>{stSnap();const nw=Math.max(4,Math.min(72,+$("stW").value||24)),nh=Math.max(4,Math.min(72,+$("stH").value||32));const nc=stBlank(nw,nh);for(let y=0;y<Math.min(nh,ST.h);y++)for(let x=0;x<Math.min(nw,ST.w);x++)nc[y][x]=ST.cells[y][x];ST.w=nw;ST.h=nh;ST.cells=nc;stFit();stDraw();});
+$("stFile").addEventListener("change",e=>{stImport(e.target.files&&e.target.files[0]);e.target.value="";});
 $("stClear").addEventListener("click",()=>{stSnap();ST.cells=stBlank(ST.w,ST.h);stDraw();});
 $("stLoad").addEventListener("click",()=>{const keys=Object.keys(CAT).sort();const k=prompt("Load which piece to edit?\n\n"+keys.join(", "));if(k&&CAT[k])stLoadPiece(k.trim());});
 function stLoadPiece(k){const c=CAT[k];const im=new Image();im.onload=()=>{const w=Math.min(72,c.w),h=Math.min(72,c.h);const oc=document.createElement("canvas");oc.width=w;oc.height=h;const o=oc.getContext("2d");o.imageSmoothingEnabled=false;o.drawImage(im,0,0,w,h);const dt=o.getImageData(0,0,w,h).data;ST.w=w;ST.h=h;ST.cells=stBlank(w,h);
   for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=(y*w+x)*4;if(dt[i+3]>40)ST.cells[y][x]="#"+[dt[i],dt[i+1],dt[i+2]].map(n=>n.toString(16).padStart(2,"0")).join("");}
-  $("stW").value=w;$("stH").value=h;ST.hist=[];ST.loadKey=k;$("stTitle").textContent="Editing: "+(c.label||k);$("stName").value=c.label||k;$("stBase").value=(c.base!=null?c.base:"");stFit();stDraw();};im.src=c.du||c.url;}
+  $("stW").value=w;$("stH").value=h;ST.hist=[];ST.redo=[];ST.loadKey=k;$("stTitle").textContent="Editing: "+(c.label||k);$("stName").value=c.label||k;$("stBase").value=(c.base!=null?c.base:"");stFit();stDraw();};im.src=c.du||c.url;}
 $("stSave").addEventListener("click",()=>{const oc=document.createElement("canvas");oc.width=ST.w;oc.height=ST.h;const o=oc.getContext("2d");
   let any=false;for(let y=0;y<ST.h;y++)for(let x=0;x<ST.w;x++){const v=ST.cells[y][x];if(v){o.fillStyle=v;o.fillRect(x,y,1,1);any=true;}}
   if(!any){alert("Draw something first.");return;}
