@@ -1413,7 +1413,7 @@ function placesIn(r){return Object.entries(PLACES).filter(([k,p])=>p.room===r&&!
 function feetRect(x,y){return{x:x-feet.w/2,y:y-feet.h,w:feet.w,h:feet.h};}
 function hit(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;}
 function solidRects(r){const rects=[];if(r==="street")rects.push(...HOOD_SOLID);if(r==="store54")for(const a of S54.aisles)rects.push({x:a.x,y:a.y,w:a.w,h:a.h});
-  if(r==="street"){for(const h of STREET_HOUSES)rects.push({x:h.at[0]+14,y:h.at[1]+24,w:122,h:68});
+  if(r==="street"){for(const h of STREET_HOUSES){const B=houseBox(h);rects.push({x:B.x+14,y:B.y+Math.round(B.h*.2),w:B.w-28,h:(h.at[1]+92)-(B.y+Math.round(B.h*.2))});}
     for(const v of STREET_CARS)rects.push({x:v.x+8,y:v.y+44,w:140,h:44});}
   if(r==="glade")rects.push({x:GLADE_T.x-GLADE_T.rx+10,y:GLADE_T.y-GLADE_T.ry+6,w:GLADE_T.rx*2-20,h:GLADE_T.ry*2});   // the round table
   if(r==="street")rects.push({x:SHOP_RECT.x+6,y:SHOP_RECT.y+28,w:SHOP_RECT.w-12,h:SHOP_RECT.h-32});           // shop
@@ -1772,7 +1772,7 @@ function render(){const R=ROOMS[room];
   for(const t of things)if(!done.has(t))draw(t);
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b110",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b111",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
@@ -1787,12 +1787,12 @@ function px(x,y,w,h,c){ctx.fillStyle=c;ctx.fillRect(x,y,w,h);}
 // 75x58 art canvas (one art px = 2 world px) - lap siding, shingle rows, brick chimney, framed windows + shutters,
 // panelled door, stone footing, dark outline - then cached. Same 150x116 footprint + door spot as before.
 const _houseArt={};
-function houseArt(roof){const r0=(roof&&roof[0])||"#7a3f34",r1=(roof&&roof[1])||"#8c4a3d",key=r0+r1;if(_houseArt[key])return _houseArt[key];
+function houseArt(roof,wall){const r0=(roof&&roof[0])||"#7a3f34",r1=(roof&&roof[1])||"#8c4a3d",wl=wall||"#c9a06a",key=r0+r1+wl;if(_houseArt[key])return _houseArt[key];
   const c=document.createElement("canvas");c.width=75;c.height=58;const g=c.getContext("2d");
   const P=(x,y,w,h,col)=>{g.fillStyle=col;g.fillRect(x,y,w,h);};
   const sh=(hex,k)=>{const n=parseInt(hex.slice(1),16);const f=v=>Math.max(0,Math.min(255,Math.round(v*k)));return "rgb("+f(n>>16)+","+f((n>>8)&255)+","+f(n&255)+")";};
   // wall: lap siding, lit from the left
-  P(7,25,61,30,"#c9a06a");for(let y=27;y<55;y+=3){P(7,y,61,1,"#a9814f");P(7,y+1,61,1,"#d8b27c");}
+  P(7,25,61,30,wl);for(let y=27;y<55;y+=3){P(7,y,61,1,sh(wl,.84));P(7,y+1,61,1,sh(wl,1.07));}
   P(60,25,8,30,"rgba(70,40,10,.16)");P(7,26,61,2,"rgba(60,30,10,.28)");          // right-end shade + eave shadow
   P(7,25,1,30,"#efe3c8");P(67,25,1,30,"#d9c9a8");                                   // corner boards
   // stone footing
@@ -1821,10 +1821,72 @@ function houseArt(roof){const r0=(roof&&roof[0])||"#7a3f34",r1=(roof&&roof[1])||
   for(let y=0;y<58;y++)for(let x=0;x<75;x++){if(A(x,y))continue;if(A(x+1,y)||A(x-1,y)||A(x,y+1)||A(x,y-1)){const i=(y*75+x)*4;o[i]=46;o[i+1]=29;o[i+2]=18;o[i+3]=255;}}
   g.putImageData(new ImageData(o,75,58),0,0);
   return _houseArt[key]=c;}
-function drawHouseSprite(x,y,roof,label){ // 150x116 cottage (art 75x58 at 2x)
-  ctx.fillStyle="rgba(0,0,0,.28)";ctx.beginPath();ctx.ellipse(x+75,y+114,66,7,0,0,7);ctx.fill();
-  const sm=ctx.imageSmoothingEnabled;ctx.imageSmoothingEnabled=false;ctx.drawImage(houseArt(roof),x,y,150,116);ctx.imageSmoothingEnabled=sm;
-  if(!showLbl(x+75,y+100)){lblDot(x+75,y+10);return;}
+// HOUSE STYLES (b111, L 2026-10-19: "add different style houses - Kevin's a larger 2-story house - more variety between houses").
+// Same pack style as the cottage (art px = 2 world px, lit from the left, dark outline). Every style keeps its FRONT DOOR at the
+// same spot (bottom centre of the old 150x116 cottage box), so the street doors, walks and saved positions all still line up;
+// a bigger house just grows up and out around it.
+const HOUSE_STYLES={cottage:{aw:75,ah:58},twostory:{aw:92,ah:72},ranch:{aw:75,ah:58},modern:{aw:75,ah:58}};
+function _hsOutline(g,w,h){const im=g.getImageData(0,0,w,h),d=im.data,o=new Uint8ClampedArray(d);const A=(x,y)=>x>=0&&y>=0&&x<w&&y<h&&d[(y*w+x)*4+3]>40;
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){if(A(x,y))continue;if(A(x+1,y)||A(x-1,y)||A(x,y+1)||A(x,y-1)){const i=(y*w+x)*4;o[i]=46;o[i+1]=29;o[i+2]=18;o[i+3]=255;}}g.putImageData(new ImageData(o,w,h),0,0);}
+function _hsKit(c){const g=c.getContext("2d");const P=(x,y,w,h,col)=>{g.fillStyle=col;g.fillRect(x,y,w,h);};
+  const sh=(hex,k)=>{const n=parseInt(hex.slice(1),16);const f=v=>Math.max(0,Math.min(255,Math.round(v*k)));return "rgb("+f(n>>16)+","+f((n>>8)&255)+","+f(n&255)+")";};
+  const win=(x,y,w,h,frame,shut)=>{if(shut){P(x-3,y,2,h+1,shut);P(x+w+1,y,2,h+1,shut);}P(x-1,y-1,w+2,h+2,frame);P(x,y,w,h,"#6fa5c4");P(x,y,w,2,"#a9d2e6");
+    for(let k=0;k<Math.min(w,h)-3;k++)P(x+1+k,y+h-3-k,1,1,"#cfe8f4");P(x+(w>>1),y,1,h,frame);P(x,y+(h>>1),w,1,frame);P(x-1,y+h+1,w+2,1,sh("#d9d2bf",.8));};
+  const door=(x,y,w,h,col,frame)=>{P(x-1,y-1,w+2,h+1,frame);P(x,y,w,h,col);P(x,y,w,1,sh(col,1.2));P(x+2,y+2,w-4,3,"#9fcbe0");P(x+2,y+2,w-4,1,"#cfe8f4");
+    P(x+2,y+7,(w>>1)-3,h-9,sh(col,.82));P(x+(w>>1)+1,y+7,(w>>1)-3,h-9,sh(col,.82));P(x+w-3,y+(h>>1)+1,2,2,"#f2d27a");};
+  return {g,P,sh,win,door};}
+function houseArtStyle(style,roof,wall){if(!style||style==="cottage")return houseArt(roof,wall);
+  const r0=(roof&&roof[0])||"#7a3f34",r1=(roof&&roof[1])||"#8c4a3d",key=style+r0+r1+(wall||"");if(_houseArt[key])return _houseArt[key];
+  const S=HOUSE_STYLES[style],c=document.createElement("canvas");c.width=S.aw;c.height=S.ah;const {g,P,sh,win,door}=_hsKit(c);
+  if(style==="twostory"){const wl=wall||"#e6e1d6",W0=6,W1=86;
+    // walls: two floors of lap siding with a band between them
+    P(W0,24,W1-W0,44,wl);for(let y=26;y<67;y+=3){P(W0,y,W1-W0,1,sh(wl,.88));P(W0,y+1,W1-W0,1,sh(wl,1.04));}
+    P(W1-8,24,8,44,"rgba(70,50,30,.14)");P(W0,25,W1-W0,2,"rgba(60,30,10,.25)");P(W0,45,W1-W0,2,sh(wl,.78));P(W0,45,W1-W0,1,sh(wl,1.08));
+    P(W0,24,1,44,"#f6f2ea");P(W1-1,24,1,44,sh(wl,.85));
+    P(W0-1,67,W1-W0+2,3,"#8d8a84");P(W0-1,67,W1-W0+2,1,"#aaa69e");for(let x=W0+1;x<W1;x+=5)P(x+(x%2),68,1,2,"#6c6963");
+    // chimney + roof (wide gable, shingle rows, ridge)
+    P(68,2,8,18,"#8a4a3a");for(let y=3;y<20;y+=2){P(68,y,8,1,"#6e3a2e");P(68+((y>>1)%2?3:1),y-1,1,1,"#6e3a2e");}P(68,2,1,18,"#a0604c");P(67,1,10,2,"#4a2a22");
+    for(let r=0;r<18;r++){const w=Math.round(28+r*3.6),x0=Math.round(46-w/2),y=6+r;P(x0,y,w,1,r%2?r1:r0);for(let x=x0+((r*3)%4);x<x0+w;x+=4)P(x,y,1,1,sh(r0,.72));P(x0,y,2,1,sh(r1,1.25));P(x0+w-2,y,2,1,sh(r0,.7));}
+    P(36,5,20,1,sh(r0,.6));P(2,23,88,2,sh(r0,.55));P(2,23,88,1,sh(r0,.8));
+    // dormer-free colonial: 4 upstairs windows, 2 down + the door under a little porch roof
+    for(const x of [12,30,56,74])win(x,29,8,11,"#f4f1e8",sh(r0,.85));
+    for(const x of [12,74])win(x,50,8,11,"#f4f1e8",sh(r0,.85));
+    P(33,46,26,3,sh(r0,.75));P(33,46,26,1,sh(r1,1.15));P(35,49,2,18,"#f4f1e8");P(55,49,2,18,"#f4f1e8");      // porch roof + columns
+    door(40,51,12,16,"#2f4f6a","#f4f1e8");P(38,67,16,3,"#9a9a9a");P(38,67,16,1,"#c4c4c4");                    // door (centre = art 46) + step
+    P(24,62,6,5,"#3a7a33");P(24,62,6,1,"#5ea347");P(62,62,6,5,"#3a7a33");P(62,62,6,1,"#5ea347");               // shrubs
+  } else if(style==="ranch"){const br=wall||"#9c4a3a";
+    // long low brick wall
+    P(3,31,69,24,br);for(let y=32;y<55;y+=3){P(3,y,69,1,sh(br,.72));const off=((y/3)|0)%2?0:3;for(let x=3+off;x<72;x+=6)P(x,y-2,1,2,sh(br,.72));}
+    P(3,31,69,2,"rgba(40,20,10,.35)");P(64,31,8,24,"rgba(40,20,10,.18)");P(3,31,1,24,sh(br,1.2));
+    P(2,54,71,3,"#8d8a84");P(2,54,71,1,"#aaa69e");
+    // hip roof: trapezoid, shingles, darker hips at the ends
+    for(let r=0;r<17;r++){const w=Math.round(41+r*2),x0=Math.round(37.5-w/2),y=14+r;P(x0,y,w,1,r%2?r1:r0);for(let x=x0+((r*5)%4);x<x0+w;x+=4)P(x,y,1,1,sh(r0,.72));P(x0,y,3,1,sh(r0,.62));P(x0+w-3,y,3,1,sh(r0,.62));}
+    P(17,13,41,1,sh(r0,.6));P(0,30,75,2,sh(r0,.5));
+    // big picture window, small window, door, garage-ish side
+    win(8,36,20,11,"#f4f1e8");win(52,37,9,9,"#f4f1e8");door(31,39,13,16,"#6b4226","#f4f1e8");P(29,55,17,3,"#9a9a9a");P(29,55,17,1,"#c4c4c4");
+    P(64,40,2,3,"#3a3e44");P(64,41,2,1,"#ffe08a");
+  } else if(style==="modern"){const ac=r0,dk="#33373e";
+    // flat roof slab with overhang
+    P(1,16,73,5,"#4a4e56");P(1,16,73,1,"#6a6f78");P(1,20,73,1,"#2a2d33");
+    // wall: charcoal panels left, wood slats right, a white box upstairs
+    P(5,21,40,34,dk);for(let x=5;x<45;x+=8)P(x,21,1,34,"#2a2d33");
+    P(45,21,25,34,"#a8743f");for(let x=46;x<70;x+=3){P(x,21,1,34,"#8a5a2e");}P(45,21,25,1,"#c99559");
+    P(44,10,28,11,"#eef1f4");P(44,10,28,1,"#ffffff");P(71,10,1,11,"#b9bfc7");P(43,9,30,2,"#4a4e56");               // upper box
+    P(48,12,20,6,"#2f5f8a");P(48,12,20,2,"#6fa5c4");P(57,12,1,6,"#1b1c20");                                        // ribbon window
+    P(8,25,22,25,"#1b1c20");P(9,26,20,23,"#4b7fa5");P(9,26,20,4,"#8fc0dc");for(let k=0;k<12;k++)P(11+k,46-k*1.5|0,1,1,"#cfe8f4");P(19,26,1,23,"#1b1c20");   // floor-to-ceiling glass
+    door(31,38,12,17,"#c99559","#1b1c20");P(29,55,16,3,"#b9bfc7");P(29,55,16,1,"#dfe3e7");
+    P(5,52,40,3,ac);P(5,52,40,1,sh(ac,1.25));                                                                        // accent planter strip (roof colour)
+    P(50,49,16,6,"#3a7a33");P(50,49,16,1,"#5ea347");P(52,47,3,2,"#5ea347");P(60,47,3,2,"#5ea347");
+    P(2,55,71,2,"#8d8a84");P(2,55,71,1,"#aaa69e");
+  }
+  _hsOutline(g,S.aw,S.ah);return _houseArt[key]=c;}
+// world box a house is drawn in: bottom-centre anchored on the old 150x116 cottage box at h.at
+function houseBox(h){const S=HOUSE_STYLES[h.style||"cottage"]||HOUSE_STYLES.cottage,w=S.aw*2,hh=S.ah*2;return {x:h.at[0]+75-w/2,y:h.at[1]+116-hh,w,h:hh};}
+function drawHouseSprite(x,y,roof,label,style,wall){ // 150x116 cottage (art 75x58 at 2x); other styles grow from the same bottom-centre
+  const B=houseBox({at:[x,y],style});ctx.fillStyle="rgba(0,0,0,.28)";ctx.beginPath();ctx.ellipse(x+75,y+114,B.w*.44,7,0,0,7);ctx.fill();
+  const sm=ctx.imageSmoothingEnabled;ctx.imageSmoothingEnabled=false;ctx.drawImage(houseArtStyle(style,roof,wall),B.x,B.y,B.w,B.h);ctx.imageSmoothingEnabled=sm;
+  y=B.y;   /* labels sit at the top of whatever was drawn */
+  if(!showLbl(x+75,B.y+B.h-16)){lblDot(x+75,y+10);return;}
   ctx.font="8px 'Pixelify Sans',monospace";ctx.textAlign="center";ctx.lineWidth=3;ctx.strokeStyle="#3a1c08";ctx.strokeText(label?("▾ "+label):"▾ ENTER HOUSE",x+75,y+12);ctx.fillStyle="#ffe9b8";ctx.fillText(label?("▾ "+label):"▾ ENTER HOUSE",x+75,y+12);}
 function drawStreet(){const W=worldW(),H=worldH();
   gfill(0,0,W,H,"#5b9a3c");
@@ -1832,7 +1894,7 @@ function drawStreet(){const W=worldW(),H=worldH();
   px(0,STREET_ROAD.y,W,STREET_ROAD.h,"#3b3e44");px(0,STREET_ROAD.y,W,3,"#9aa0a6");px(0,STREET_ROAD.y+STREET_ROAD.h-3,W,3,"#9aa0a6");   // the road
   for(let x=6;x<W;x+=34)px(x,STREET_ROAD.y+STREET_ROAD.h/2-1,18,3,"#e7c65a");                              // centre line
   for(const [x,y] of STREET_HOUSES.map(h=>h.at)){const sw=[160,550,914].find(s=>s>y+100)||y+124;px(x+59,y+114,32,sw-(y+114),"#c9c3b5");}   // front walks to the sidewalk
-  for(const h of STREET_HOUSES)drawHouseSprite(h.at[0],h.at[1],h.roof,slab(h.lab,h.def));
+  for(const h of STREET_HOUSES)drawHouseSprite(h.at[0],h.at[1],h.roof,slab(h.lab,h.def),h.style,h.wall);
   // parked vehicles (Luis's): the van opens its storage with E, like on the lot
   for(const v of STREET_CARS){const im=catImg[v.k];const c=CAT[v.k];
     ctx.fillStyle="rgba(0,0,0,.30)";ctx.beginPath();ctx.ellipse(v.x+78,v.y+92,70,8,0,0,7);ctx.fill();
@@ -1842,9 +1904,12 @@ function drawStreet(){const W=worldW(),H=worldH();
   drawShop();drawHoodProps();
   const gd=ROOMS.street.doors.find(d=>d.to==="glade");if(gd)drawGate(gd.x,gd.y,gd.w,gd.h,"GLADE");}
 const STREET_ROAD={y:170,h:52};
-const STREET_HOUSES=[{at:[59,28],roof:["#2f4f8a","#3b5fa0"],lab:"house_erik",def:"ERIK'S"},{at:[287,28],roof:["#8a3f34","#9c4a3d"],lab:"house_kevin",def:"KEVIN'S"},
-  {at:[59,424],roof:["#356a5a","#3f7c6a"],lab:"house_luis",def:"LUIS'S"},{at:[287,424],roof:["#5a3a7a","#6a4a8c"],lab:"house_nick",def:"NICK'S"},
-  {at:[587,424],roof:["#7a5a2a","#8c6a34"],lab:"house_dispatch",def:"SETH'S DISPATCH"},{at:[59,788],roof:["#4a6a8a","#5a7a9c"],lab:"house_sale",def:"FOR SALE"}];
+const STREET_HOUSES=[{at:[59,28],roof:["#3a3e46","#464b54"],style:"ranch",wall:"#9c4a3a",lab:"house_erik",def:"ERIK'S"},   /* b111 styles: Erik = brick ranch */
+  {at:[287,28],roof:["#8a3f34","#9c4a3d"],style:"twostory",wall:"#e6e1d6",lab:"house_kevin",def:"KEVIN'S"},                       /* Kevin = big 2-story colonial */
+  {at:[59,424],roof:["#356a5a","#3f7c6a"],style:"cottage",lab:"house_luis",def:"LUIS'S"},
+  {at:[287,424],roof:["#5a3a7a","#6a4a8c"],style:"modern",lab:"house_nick",def:"NICK'S"},                                           /* Nick = modern flat-roof */
+  {at:[587,424],roof:["#7a5a2a","#8c6a34"],style:"cottage",wall:"#a9b3ba",lab:"house_dispatch",def:"SETH'S DISPATCH"},             /* grey-blue siding */
+  {at:[59,788],roof:["#4a6a8a","#5a7a9c"],style:"cottage",wall:"#e3cf8a",lab:"house_sale",def:"FOR SALE"}];                       /* butter-yellow siding */
 const STREET_CARS=[{k:"van",x:584,y:258},{k:"truck",x:812,y:258}];   // edit mode drags them; saved positions override (streetCars/<i>)
 // MOVABLE HOUSES + SHOP (2026-10-18, L: "can the houses be movable"): in EDIT ROOM on the street, drag a house (or the
 // shop) like furniture. A house carries its front door + the spot you step out to, so it still opens. Saved at
@@ -1964,7 +2029,7 @@ function draggablesIn(rm){const list=[];
   for(const[k,p]of placesIn(rm))list.push({kind:"p",key:k,o:p,w:p.w,h:p.h});
   ROOMS[rm].doors.forEach((d,i)=>{let w=d.w,h=d.h;if(d.to==="van"&&CAT.van){w=(CAT.van.w||156)*vs("van");h=(CAT.van.h||96)*vs("van");}list.push({kind:"door",idx:i,o:d,w,h});});
   for(const id of fixIn(rm))list.push({kind:"fx",id,o:FIXTURES[id],w:FIXTURES[id].w,h:FIXTURES[id].h});
-  if(rm==="street"){STREET_HOUSES.forEach((h,i)=>list.push({kind:"house",idx:i,o:houseProxy(h),w:150,h:116}));list.push({kind:"shop",o:SHOP_RECT,w:SHOP_RECT.w,h:SHOP_RECT.h});}   // houses + shop (2026-10-18)
+  if(rm==="street"){STREET_HOUSES.forEach((h,i)=>list.push({kind:"house",idx:i,o:houseProxy(h),w:150,h:116}));   /* pick box stays the cottage footprint (door + front) so dragging feels the same */list.push({kind:"shop",o:SHOP_RECT,w:SHOP_RECT.w,h:SHOP_RECT.h});}   // houses + shop (2026-10-18)
   if(rm==="street")STREET_CARS.forEach((c,i)=>list.push({kind:"car",idx:i,o:c,w:156,h:96}));   // parked van + truck
   return list;}
 $("editBtn").addEventListener("click",()=>{editMode=!editMode;selected=null;moveTarget=null;wallMode=false;floorMode=false;
