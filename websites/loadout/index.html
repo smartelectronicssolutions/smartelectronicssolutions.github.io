@@ -1083,6 +1083,39 @@ function computeROOMR(){const sz=(ROOMSIZE&&ROOMSIZE[room])||(ROOMS[room]&&ROOMS
   {const rgt=ROOMR.x+ROOMR.w,bot=ROOMR.y+ROOMR.h,ddw=sz.w-ow,ddh=sz.h-oh;(ROOMS[room].doors||[]).forEach((d,i)=>{let mv=false;
     if(ddh&&d.y+d.h>=bot-8){d.y+=ddh;mv=true;}else if(ddw&&d.x+d.w>=rgt-8){d.x+=ddw;mv=true;}if(mv)saveDoor(room,i);});}ROOMSIZE[room]=sz;computeROOMR();trimRoom(room);try{set(ref(db,"public/games/loadout/roomsize/"+room),{w:sz.w,h:sz.h});}catch(e){}}setTimeout(()=>{const b=(id,fn)=>{const e=$(id);if(e)e.onclick=fn;};b("roomWmore",()=>roomSizeSet(48,0));b("roomWless",()=>roomSizeSet(-48,0));b("roomLmore",()=>roomSizeSet(0,48));b("roomLless",()=>roomSizeSet(0,-48));},0);
 const CELL=16;                        // wall grid cell
+// ROOM ARROWS (2026-10-18, L: "arrows around the map so I can widen it / build it out in that direction"). In EDIT ROOM each
+// side of an indoor room gets a big outward arrow (grow 48 px that way) and a small inward one (shrink). Right / down just
+// change the size; left / up also slide everything in the room (furniture, doors, walls, floor tiles, storage spots,
+// fixtures, you) over by the same amount, so the room grows on that side instead of the other.
+const ROOM_STEP=48;
+function roomArrowsOK(){return editMode&&!wallMode&&!floorMode&&room!=="street"&&room!=="glade"&&room!=="outside";}
+function roomArrowSpots(){const R=ROOMR,cx=R.x+R.w/2,cy=R.y+R.h/2;
+  return [{side:"up",dir:1,x:cx-12,y:R.y-34},{side:"up",dir:-1,x:cx+12,y:R.y-34},{side:"down",dir:1,x:cx-12,y:R.y+R.h+16},{side:"down",dir:-1,x:cx+12,y:R.y+R.h+16},
+          {side:"left",dir:1,x:R.x-30,y:cy-12},{side:"left",dir:-1,x:R.x-30,y:cy+12},{side:"right",dir:1,x:R.x+R.w+18,y:cy-12},{side:"right",dir:-1,x:R.x+R.w+18,y:cy+12}];}
+function drawRoomArrows(){if(!roomArrowsOK())return;
+  for(const a of roomArrowSpots()){const grow=a.dir>0,r=grow?10:7;ctx.save();ctx.translate(a.x,a.y);
+    ctx.fillStyle=grow?"rgba(242,165,65,.95)":"rgba(58,28,8,.85)";ctx.strokeStyle="#3a1c08";ctx.lineWidth=2;ctx.beginPath();ctx.arc(0,0,r+3,0,7);ctx.fill();ctx.stroke();
+    const out={up:[0,-1],down:[0,1],left:[-1,0],right:[1,0]}[a.side],d=grow?out:[-out[0],-out[1]];   // grow points out, shrink points in
+    ctx.fillStyle=grow?"#3a1c08":"#ffe9b8";ctx.beginPath();const ax=d[0],ay=d[1],px=-ay,py=ax;
+    ctx.moveTo(ax*r*.8,ay*r*.8);ctx.lineTo(-ax*r*.4+px*r*.6,-ay*r*.4+py*r*.6);ctx.lineTo(-ax*r*.4-px*r*.6,-ay*r*.4-py*r*.6);ctx.closePath();ctx.fill();ctx.restore();}}
+if(/[?&]test/.test(location.search))window.__loArrow=(side,dir)=>roomArrow({side,dir});   // test hook (?test only)
+function roomArrowAt(p){if(!roomArrowsOK())return null;for(const a of roomArrowSpots())if(Math.hypot(p.x-a.x,p.y-a.y)<=14)return a;return null;}
+function shiftRoom(dx,dy){if(!dx&&!dy)return;const rm=room;
+  for(const id in (roomDecor[rm]||{})){const d=roomDecor[rm][id];d.x+=dx;d.y+=dy;}saveRoom(rm);
+  (ROOMS[rm].doors||[]).forEach((d,i)=>{d.x+=dx;d.y+=dy;saveDoor(rm,i);});
+  const gx=Math.round(dx/CELL),gy=Math.round(dy/CELL);
+  for(const [store,node] of [[WALLS,"walls"],[FTILES,"ftiles"]]){if(!store[rm])continue;const nw={};
+    for(const k in store[rm]){const q=k.split("_");nw[(+q[0]+gx)+"_"+(+q[1]+gy)]=store[rm][k];}store[rm]=nw;set(ref(db,"public/games/loadout/"+node+"/"+rm),nw).catch(()=>{});}
+  for(const [k,pl] of placesIn(rm)){pl.x+=dx;pl.y+=dy;saveCrate(k);}
+  for(const id of fixIn(rm)){FIXTURES[id].x+=dx;FIXTURES[id].y+=dy;saveFixture(id);}
+  player.x+=dx;player.y+=dy;}
+function roomArrow(a){const step=ROOM_STEP*a.dir;const horiz=a.side==="left"||a.side==="right";const before=horiz?ROOMR.w:ROOMR.h;let got;
+  if(a.side==="right"||a.side==="down"){roomSizeSet(horiz?step:0,horiz?0:step);got=(horiz?ROOMR.w:ROOMR.h)-before;}   // far side: the old path (moves far-wall doors)
+  else{const sz=ROOMSIZE[room]||{w:ROOMR.w,h:ROOMR.h};const ow=sz.w||ROOMR.w,oh=sz.h||ROOMR.h;   // near side: size + slide everything, doors included
+    const nw=horiz?Math.max(256,Math.min(roomMaxW(),ow+step)):ow,nh=horiz?oh:Math.max(256,Math.min(roomMaxH(),oh+step));got=horiz?nw-ow:nh-oh;
+    if(got){if(got<0)shiftRoom(horiz?got:0,horiz?0:got);ROOMSIZE[room]={w:nw,h:nh};computeROOMR();if(got>0)shiftRoom(horiz?got:0,horiz?0:got);trimRoom(room);
+      try{set(ref(db,"public/games/loadout/roomsize/"+room),{w:nw,h:nh});}catch(e){}}}
+  try{svBlip&&svBlip();}catch(e){}dayBanner((got>0?"Room bigger ":got<0?"Room smaller ":"Room can't go further ")+({up:"⬆",down:"⬇",left:"⬅",right:"➡"}[a.side]));}
 let room="yourroom";
 const player={x:256,y:410,dir:"down",moving:false,t:0,frame:0,speed:108};
 const fairy={x:230,y:370,vt:0,px:[]};let yukiBusy=false,yukiHist=[];
@@ -1461,7 +1494,7 @@ function render(){const R=ROOMS[room];
   for(const e of ents){if(e.t==="d")drawDecorItem(e.d);else if(e.t==="p")drawPlace(e.k,e.p);else if(e.t==="npc")drawNPC(e.id);else if(e.t==="fx")drawFixture(e.id);else drawPlayer();}
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b65",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b66",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
@@ -1688,7 +1721,7 @@ function refreshTools(){const on=!!selected;
     :selected.kind==="house"?(()=>{const h=STREET_HOUSES[selected.idx]||{};return slab(h.lab,h.def||"House");})()
     :selected.kind==="shop"?slab("shop","Shop")
     :(customName(room,selected.key)||(PLACES[selected.key]||{}).label||"Item");
-  $("selLabel").innerHTML="Selected: <b class=\"rn\" title=\"double-click to rename\">"+label+"</b>"+($("nameBtn").disabled?"":" <span class=\"rnh\">· double-click the name to rename</span>");}
+  $("selLabel").innerHTML="Selected: <b class=\"rn\" title=\"double-click to rename\">"+label+"</b>";}
 // RENAME = DOUBLE-CLICK THE NAME (2026-10-18, L: "get rid of the rename button, rename on double-click of the name"): the
 // hidden 🏷 button keeps its logic; double-clicking the selected piece's name runs it.
 $("selLabel").addEventListener("dblclick",e=>{if(e.target.closest(".rn")&&!$("nameBtn").disabled)$("nameBtn").click();});
@@ -1706,6 +1739,8 @@ function renameStruct(key,def){const cur=SLABELS[key]||def;const nn=prompt("Rena
 // tap-to-rename the shop + storage-area titles (mobile-friendly; contentEditable)
 (function(){var st=$("shopTitle");if(st){st.addEventListener("blur",function(){var v=st.textContent.trim().replace(/\s+/g," ").slice(0,30);if(v&&v!=="Field Supply Co.")set(ref(db,"public/games/loadout/slabels/shop"),v).catch(()=>{});else if(!v){remove(ref(db,"public/games/loadout/slabels/shop")).catch(()=>{});st.textContent=SLABELS.shop||"Field Supply Co.";}});st.addEventListener("keydown",function(e){if(e.key==="Enter"){e.preventDefault();st.blur();}});}
 var at=$("storTitle");if(at){at.addEventListener("blur",function(){var v=at.textContent.trim().replace(/\s+/g," ").slice(0,30);if(v&&curArea){if(AREAS[curArea]){set(ref(db,"public/games/loadout/areas/"+curArea+"/name"),v).catch(()=>{});syncRoomName(curArea,v);}if(curArea==="van")set(ref(db,"public/games/loadout/slabels/van"),v).catch(()=>{});}});at.addEventListener("keydown",function(e){if(e.key==="Enter"){e.preventDefault();at.blur();}});}})();
+cv.addEventListener("pointerdown",e=>{if(!editMode)return;{const ar=roomArrowAt(toLogical(e));if(ar){e.stopImmediatePropagation();e.preventDefault();roomArrow(ar);return;}}
+},{capture:true});
 cv.addEventListener("pointerdown",e=>{if(!editMode)return;const p=toLogical(e);
   if(wallMode){const gx=Math.floor(p.x/CELL),gy=Math.floor(p.y/CELL);if(!inRoomGrid(gx,gy))return;
     painting=isWall(room,gx,gy)?"erase":"add";setWall(room,gx,gy,painting==="add");try{cv.setPointerCapture(e.pointerId);}catch(_){}return;}
@@ -1762,6 +1797,7 @@ function drawEditOverlay(){
     for(const it of draggablesIn(room)){/* KIND FIRST, then identity (2026-09-21, L: "computer doesn't show up as selected"). There was no "fx" branch, so a selected FIXTURE - the Computer, the Bookshelf - kept its plain outline and read as unselected even though it was selected, draggable and deletable. Matching on kind up front also stops an id/key collision across kinds from highlighting the wrong piece. */const isSel=selected&&selected.kind===it.kind&&((it.kind==="d"&&selected.id===it.id)||(it.kind==="p"&&selected.key===it.key)||(it.kind==="fx"&&selected.id===it.id)||(it.kind==="door"&&selected.idx===it.idx));
       ctx.strokeStyle=isSel?"rgba(242,165,65,.95)":(it.kind==="door"?"rgba(120,200,140,.75)":"rgba(99,182,199,.6)");ctx.lineWidth=isSel?2:1;ctx.strokeRect(it.o.x+.5,it.o.y+.5,it.w-1,it.h-1);}
     ctx.setLineDash([]);}
+  drawRoomArrows();
   ctx.save();ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle="rgba(242,165,65,.94)";ctx.fillRect(0,VH-19,VW,19);ctx.fillStyle="#0c0f13";ctx.font="9px 'Pixelify Sans',monospace";ctx.textAlign="center";
   ctx.fillText(wallMode?"WALL MODE (W) — tap/drag grid to build/erase walls":floorMode?"FLOOR MODE (F) — pick a tile below, tap/drag to paint":"EDIT — tap select · drag move · green = doorway",VW/2,VH-6);ctx.restore();}
 // tools
