@@ -348,7 +348,10 @@
 .dragghost b{position:absolute;right:2px;bottom:1px;font-size:.7rem;color:#fff;background:#c8402e;border-radius:9px;padding:0 5px}
 .dropbar{position:fixed;left:50%;top:8px;transform:translateX(-50%);z-index:5900;max-width:min(96vw,900px);display:flex;flex-wrap:wrap;gap:6px;justify-content:center;padding:8px 10px;background:#f7d9a4;border:2px solid #7a3f1a;border-radius:9px;box-shadow:0 6px 18px rgba(0,0,0,.45)}
 .dropbar .achip{cursor:default}
-.it.lifting{opacity:.35}[data-drop].drop{outline:3px dashed #e07b1a!important;outline-offset:-2px;background-color:rgba(242,165,65,.22)!important}
+.it.lifting{opacity:.35}
+.invsearch{padding:6px 10px 2px}.invsearch input{width:100%;box-sizing:border-box;font:inherit;font-size:.85rem;padding:8px 10px;border:2px solid #7a3f1a;border-radius:7px;background:#fff8e8;color:#3a1c08}.invsearch input:focus{outline:none;border-color:#e07b1a}
+#storAreas .xclose{background:#c8402e!important;color:#fff!important;border-color:#7a1f1a!important;min-width:2.2em;text-align:center}
+#invGrid .it.drop{outline:3px dashed #e07b1a!important;outline-offset:-2px;box-shadow:inset 4px 0 0 #e07b1a}[data-drop].drop{outline:3px dashed #e07b1a!important;outline-offset:-2px;background-color:rgba(242,165,65,.22)!important}
 .it img{-webkit-user-drag:none;user-select:none;-webkit-touch-callout:none}</style>
 </head><body>
 <div class="app"><div class="wrap">
@@ -419,6 +422,7 @@
 <div class="overlay" id="overlay"><div class="storwrap invwin">
   <div class="storhead"><div class="ic" id="pIc">🎒</div><h2 id="pName">Inventory</h2><div class="pill"><b id="invN">0</b> ITEMS</div><button class="closeb" id="pDel" title="Delete empty container" style="display:none">🗑</button><button class="closeb" id="closeb">✕</button></div>
   <div class="storbar" id="invAreas"></div>
+  <div class="invsearch"><input id="invQ" type="search" placeholder="🔍 Search all your items…" autocomplete="off" spellcheck="false"></div>
   <div class="invbody"><div class="allgrid" id="invGrid"></div></div>
   <div class="invfoot" id="invFoot">
     <div class="dcard" id="dcard"><img id="dImg" alt="" title="Tap to enlarge" style="cursor:zoom-in"><div style="flex:1;min-width:0"><div class="dn" id="dName"></div><div class="dm" id="dMeta"></div></div><button class="tbtn" id="dEdit" style="display:none">✎ Edit</button></div>
@@ -1462,7 +1466,7 @@ function render(){const R=ROOMS[room];
   for(const e of ents){if(e.t==="d")drawDecorItem(e.d);else if(e.t==="p")drawPlace(e.k,e.p);else if(e.t==="npc")drawNPC(e.id);else if(e.t==="fx")drawFixture(e.id);else drawPlayer();}
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b56",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b58",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
@@ -1820,6 +1824,17 @@ function hashStr(s){let h=0;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>
 onValue(ref(db,"public/games/loadout/areas"),s=>{const v=s.val();if(!v||!Object.keys(v).length){AREAS={...SEED_AREAS};set(ref(db,"public/games/loadout/areas"),SEED_AREAS).catch(()=>{});}else AREAS=v;
   if($("storage").classList.contains("open"))renderArea();});
 onValue(ref(db,BASE+"/games/loadout/cplace"),s=>{CPLACE=s.val()||{};if($("storage").classList.contains("open"))renderArea();});
+// ITEM ORDER (2026-10-18, L: "can I arrange the items in the grid"): per container, a list of item keys in your save
+// ({BASE}/games/loadout/order/<loc>); the real inventory records are never touched. Unknown items keep their old order at the end.
+var ORDER={};   // var + function decls: renderHotbar can run before this line (module-eval TDZ scar)
+function ikey(it){return it.cat+"/"+it.comp+"/"+it.name;}
+function okey(loc){return String(loc).replace(/[.#$\[\]\/]/g,"_");}
+function sortByOrder(items,loc){const o=ORDER[okey(loc)];if(!Array.isArray(o)||!o.length)return items;const pos=new Map(o.map((k,i)=>[k,i]));
+  return items.map((it,i)=>[it,pos.has(ikey(it))?pos.get(ikey(it)):1e6+i]).sort((a,b)=>a[1]-b[1]).map(x=>x[0]);}
+onValue(ref(db,BASE+"/games/loadout/order"),s=>{ORDER=s.val()||{};try{if($("overlay").classList.contains("open"))renderPanel();renderHotbar();}catch(e){}});
+function reorderDrop(it,loc,beforeKey){const list=sortByOrder((byLoc[loc]||[]).slice(),loc).map(ikey).filter(k=>k!==ikey(it));
+  let i=beforeKey?list.indexOf(beforeKey):-1;if(i<0)i=list.length;list.splice(i,0,ikey(it));ORDER[okey(loc)]=list;
+  set(ref(db,BASE+"/games/loadout/order/"+okey(loc)),list).catch(()=>{});try{svBlip&&svBlip();}catch(e){}renderPanel();try{renderHotbar();}catch(e){}}
 onValue(ref(db,BASE+"/games/loadout/containers"),s=>{CONTAINERS=s.val()||{};if($("storage").classList.contains("open"))renderArea();});
 // which area a container lives in (known van bags default to the van; explicit placement wins)
 function areaOf(loc){const cp=CPLACE[loc];if(cp&&cp.area==="tray")return null;if(cp&&cp.area)return cp.area;if(ZONEMETA[loc])return "van";if(loc==="wardrobe")return "closet";return null;}
@@ -1870,12 +1885,13 @@ function renderArea(){buildRail();renderAreaChips();const scene=$("storScene"),i
 // area that uses them, they just aren't offered in the picker any more.
 const BD_FILES={bd_vanside:"assets/img/bd/vanside.png",bd_vanback:"assets/img/bd/vanback.png",bd_closet:"assets/img/bd/closet.png",bd_tabletop:"assets/img/bd/tabletop.png",bd_desk:"assets/img/bd/desk.png",bd_rack:"assets/img/bd/rack.png",bd_cabinet:"assets/img/bd/cabinet.png"};
 const bdSrc=k=>A[k]||BD_FILES[k]||"";
-const BACKDROPS=[{k:"bd_vanside",label:"Van Side",nw:320,nh:288},{k:"bd_vanback",label:"Van Back",nw:320,nh:288},{k:"bd_closet",label:"Closet",nw:288,nh:288},{k:"bd_tabletop",label:"Tabletop",nw:320,nh:224},{k:"bd_desk",label:"Desk",nw:320,nh:224},{k:"bd_rack",label:"Rack",nw:320,nh:224},{k:"bd_cabinet",label:"Cabinet",nw:320,nh:224}];
+const BACKDROPS=[{k:"vancargo",label:"Van Back (photo)",nw:320,nh:288},{k:"bd_vanside",label:"Van Side",nw:320,nh:288},{k:"bd_vanback",label:"Van Back (pixel)",nw:320,nh:288},{k:"bd_closet",label:"Closet",nw:288,nh:288},{k:"bd_tabletop",label:"Tabletop",nw:320,nh:224},{k:"bd_desk",label:"Desk",nw:320,nh:224},{k:"bd_rack",label:"Rack",nw:320,nh:224},{k:"bd_cabinet",label:"Cabinet",nw:320,nh:224}];
 // AREA VIEW TOP ROW (2026-10-18, L: "when I open an area don't show all the other areas, a back button like the containers
 // have that takes me to all of them"): inside an area = ◀ All areas + that area's tools; ◀ = the list of every area (+ Area)
 let areaPick=false;
 function renderAreaChips(){const bar=$("storAreas");bar.innerHTML="";
   const mk=(cls,txt,fn)=>{const c=document.createElement("div");c.className="achip "+cls;c.textContent=txt;c.onclick=fn;bar.appendChild(c);};
+  mk("mng xclose","✕",()=>$("storage").classList.remove("open"));   // L 2026-10-18: a close X at the left of this bar - where the hand goes
   if(!areaPick){mk("mng","◀ All areas",()=>{areaPick=true;renderAreaChips();});
     mk("add","＋ Container",addContainer);mk("mng","🖼 Backdrop",togglePick);mk("mng","🗑 Delete",deleteArea);
     mk("mng","🔎＋",()=>scaleIcons(0.2));mk("mng","🔎－",()=>scaleIcons(-0.2));return;}
@@ -2211,6 +2227,10 @@ function invOpenPick(){invClosePick();const n=selSet.size;if(!n)return;const box
     (pl==="bag"?["bag"]:containersIn(pl)).forEach(k=>row.appendChild(dchip(k)));if(!row.children.length)return;card.appendChild(row);body.appendChild(card);});
   $("overlay").querySelector(".invwin").appendChild(box);}
 let invContOpen=false;try{invContOpen=localStorage.getItem("loadout:contOpen")==="1";}catch(_){}
+// SEARCH (2026-10-18, L: "I want to be able to search through all my items"): typing filters EVERY item you own (name, part #,
+// description, category, sub-category, container); results show where each one lives; clear the box to go back.
+var invQ="";
+function invMatch(i){if(!invQ)return true;const h=(i.name+" "+(i.part||"")+" "+(i.description||"")+" "+i.cat+" "+i.comp+" "+(i.loc==="bag"?"backpack":invLabel(i.loc))).toLowerCase();return invQ.split(/\s+/).every(w=>h.indexOf(w)>=0);}
 function renderPanel(){if(!$("overlay").classList.contains("open"))return;
   const k=invArea,PV=k===PLACES_VIEW;if(invPlace==null&&!PV)invPlace=(k===ALL_LOC||k==="bag")?k:placeOf(k);
   const PI=PV&&invPlace!=null;   // inside a location, showing all of its items
@@ -2230,17 +2250,18 @@ function renderPanel(){if(!$("overlay").classList.contains("open"))return;
     const rt=document.createElement("div");rt.className="invrow sub";rt.appendChild(tg);bar.appendChild(rt);
     if(invContOpen){const r2=document.createElement("div");r2.className="invrow sub";cs.forEach(c=>r2.appendChild(invChip(c,c===k,()=>{if(c===k){invArea=PLACES_VIEW;openPlace=undefined;}else{invArea=c;openPlace=c;}selSet.clear();selItem=null;$("dcard").classList.remove("show");renderPanel();})));bar.appendChild(r2);}}}
   bar.style.display=bar.childNodes.length?"":"none";
-  const g=$("invGrid"),items=k===ALL_LOC?ITEMS.filter(i=>(i.qty||0)>=1):PI?ITEMS.filter(i=>(i.qty||0)>=1&&placeOf(i.loc)===invPlace):(byLoc[k]||[]);g.innerHTML="";
+  const g=$("invGrid"),items=invQ?ITEMS.filter(i=>(i.qty||0)>=1&&invMatch(i)):k===ALL_LOC?ITEMS.filter(i=>(i.qty||0)>=1):PI?ITEMS.filter(i=>(i.qty||0)>=1&&placeOf(i.loc)===invPlace):sortByOrder((byLoc[k]||[]).slice(),k);g.innerHTML="";
+  if(!invQ&&k!==ALL_LOC&&!PI&&!(PV&&!PI))g.dataset.loc=k;else delete g.dataset.loc;
   selSet.forEach(it=>{if(items.indexOf(it)<0)selSet.delete(it);});
-  g.classList.toggle("ptiles",PV&&!PI);
-  if(PV&&!PI){const tiles=invPlace==null?[...placeList().map(pl=>({ic:placeIcon(pl),nm:placeLabel(pl),n:placeCount(pl),go:()=>goPlace(pl),keep:1})),{ic:"📋",nm:"All",n:invCount(ALL_LOC),keep:1,go:()=>{invPlace=ALL_LOC;invArea=ALL_LOC;openPlace=undefined;selSet.clear();selItem=null;renderPanel();}}]
+  g.classList.toggle("ptiles",PV&&!PI&&!invQ);
+  if(PV&&!PI&&!invQ){const tiles=invPlace==null?[...placeList().map(pl=>({ic:placeIcon(pl),nm:placeLabel(pl),n:placeCount(pl),go:()=>goPlace(pl),keep:1})),{ic:"📋",nm:"All",n:invCount(ALL_LOC),keep:1,go:()=>{invPlace=ALL_LOC;invArea=ALL_LOC;openPlace=undefined;selSet.clear();selItem=null;renderPanel();}}]
       :containersIn(invPlace).map(c=>({k:c,ic:invIcon(c),nm:invLabel(c),n:invCount(c),go:()=>{invArea=c;openPlace=c;renderPanel();}}));
     const empty=tiles.filter(t=>!t.n).length;tiles.splice(0,tiles.length,...tiles.filter(t=>t.n||t.keep));   // empty ones stay as chips above (drop targets), not tiles
     for(const t of tiles){const d=document.createElement("div");d.className="it ptile";if(t.k)d.dataset.drop=t.k;d.innerHTML=`<span class="pi">${t.ic}</span><span class="pn">${esc(t.nm)}</span><span class="qn">${t.n}</span>`;d.addEventListener("click",t.go);g.appendChild(d);}
     if(!tiles.length)g.innerHTML='<div class="empty" style="grid-column:1/-1">— empty —</div>';
     $("invTo").innerHTML="";$("dcard").classList.remove("show");$("phint").textContent=(invPlace==null?"Pick a place":"Pick a container")+(empty?` · ${empty} empty not shown`:"");return;}
-  if(!items.length)g.innerHTML='<div class="empty" style="grid-column:1/-1">— empty —</div>';
-  for(const it of items){const d=document.createElement("div");d.className="it"+(selSet.has(it)?" sel":"");d.title=it.name+((k===ALL_LOC||PI)?" · "+invLabel(it.loc):"");
+  if(!items.length)g.innerHTML=invQ?'<div class="empty" style="grid-column:1/-1">— nothing matches —</div>':'<div class="empty" style="grid-column:1/-1">— empty —</div>';
+  for(const it of items){const d=document.createElement("div");d.className="it"+(selSet.has(it)?" sel":"");d.dataset.ikey=ikey(it);d.title=it.name+((k===ALL_LOC||PI||invQ)?" · "+(it.loc==="bag"?"Backpack":invLabel(it.loc)):"");
     d.innerHTML=(it.img?`<img src="${esc(it.img)}" alt="${esc(it.name)}" onerror="imgFail(this)">`:`<div class="empty" style="position:absolute;inset:3px;padding:2px;font-size:.5rem;line-height:1.12;word-break:break-word;overflow:hidden;display:flex;align-items:center;justify-content:center;text-align:center">${esc(it.name)}</div>`)+((it.qty||0)>1?`<span class="qn">${it.qty}</span>`:"")+(selSet.has(it)?'<span class="ck">✓</span>':"");
     d.addEventListener("click",()=>{if(selSet.has(it))selSet.delete(it);else selSet.add(it);selItem=selSet.has(it)?{it,mode:null}:(selSet.size?{it:[...selSet].pop(),mode:null}:null);renderPanel();});
     itemDrag(d,it);
@@ -2252,7 +2273,7 @@ function renderPanel(){if(!$("overlay").classList.contains("open"))return;
   if(selSet.size){const n=selSet.size;const clr=document.createElement("span");clr.className="achip";clr.textContent="Clear";clr.addEventListener("click",()=>{selSet.clear();selItem=null;renderPanel();});
     const mv=document.createElement("button");mv.className="invmove";mv.textContent=`Move ${n} item${n>1?"s":""} to…`;mv.addEventListener("click",invOpenPick);
     to.appendChild(clr);to.appendChild(mv);$("phint").textContent=n>1?`${n} selected · tap more or Move`:"Tap more items to move several";}
-  else $("phint").textContent="Pick a place · a container · tap items · Move";}
+  else $("phint").textContent=invQ?`${items.length} found · tap one to see where it is`:"Pick a place · a container · tap items · Move";}
 function fill(grid,items,mode){grid.innerHTML="";if(!items.length){grid.innerHTML='<div class="empty">— empty —</div>';return;}
   for(const it of items){const d=document.createElement("div");d.className="it";
     d.innerHTML=(it.img?`<img src="${esc(it.img)}" alt="${esc(it.name)}" onerror="imgFail(this)">`:`<div class="empty" style="position:absolute;inset:3px;padding:2px;font-size:.5rem;line-height:1.12;word-break:break-word;overflow:hidden;display:flex;align-items:center;justify-content:center;text-align:center">${esc(it.name)}</div>`)+((it.qty||0)>1?`<span class="qn">${it.qty}</span>`:"")+(mode?`<span class="mv">${mode==="take"?"→":"←"}</span>`:"");
@@ -2260,12 +2281,15 @@ function fill(grid,items,mode){grid.innerHTML="";if(!items.length){grid.innerHTM
     itemDrag(d,it);
     grid.appendChild(d);}}
 let selItem=null,dragIt=null;
+$("invQ").addEventListener("input",e=>{invQ=e.target.value.trim().toLowerCase();selSet.clear();selItem=null;renderPanel();});
+$("invQ").addEventListener("keydown",e=>{if(e.key==="Escape"&&e.target.value){e.stopPropagation();e.preventDefault();e.target.value="";invQ="";renderPanel();}});
 // ITEM DRAG (2026-10-18, L: "I need better drag implementation to move items around"). The old cells used native HTML5
 // drag-and-drop, which never fires for a finger on iPhone/iPad and gives a faint ghost on desktop. Now: mouse = press and
 // move 6 px; touch = hold ~0.22 s then move (a quick swipe still scrolls the grid). A copy of the item follows the pointer,
 // whatever it is over that takes items lights up (container/place chips, container tiles, the backpack side, the open
 // container side, the hotbar), let go = moved. Dragging a SELECTED item carries every selected item.
-function itemDropTarget(x,y){const el=document.elementFromPoint(x,y);return el&&el.closest?el.closest("[data-drop]"):null;}
+function itemDropTarget(x,y){const el=document.elementFromPoint(x,y);if(!el||!el.closest)return null;
+  const cell=el.closest("#invGrid[data-loc] .it");if(cell&&!cell.classList.contains("ptile"))return cell;return el.closest("[data-drop]");}
 function itemDropDo(k,it){const many=selSet.has(it)&&selSet.size>1?[...selSet]:[it];const key=k==="__open"?openPlace:k;
   if(!key||key===ALL_LOC)return;let n=0;for(const x of many)if(x.loc!==key){moveItem(x,key);n++;}
   selSet.clear();selItem=null;$("dcard").classList.remove("show");
@@ -2282,12 +2306,14 @@ function itemDrag(d,it){let st=null;
     for(const k of locs){if(k===it.loc)continue;const c=document.createElement("span");c.className="achip";c.dataset.drop=k;c.innerHTML=(k==="bag"?"🎒 Backpack":`${invIcon(k)} ${esc(invLabel(k))}`);bar.appendChild(c);}
     document.body.appendChild(bar);st.bar=bar;place(st.x,st.y);try{navigator.vibrate&&navigator.vibrate(12);}catch(e){}};
   const place=(x,y)=>{if(!st||!st.ghost)return;st.ghost.style.left=x+"px";st.ghost.style.top=y+"px";const t=itemDropTarget(x,y);
-    if(t!==st.hi){if(st.hi)st.hi.classList.remove("drop");st.hi=t&&t.dataset.drop!==it.loc?t:null;if(st.hi)st.hi.classList.add("drop");}};
+    if(t!==st.hi){if(st.hi)st.hi.classList.remove("drop");st.hi=t&&(t.classList.contains("it")?t!==d:t.dataset.drop!==it.loc)?t:null;if(st.hi)st.hi.classList.add("drop");}};
   const mv=e=>{if(!st||e.pointerId!==st.id)return;st.x=e.clientX;st.y=e.clientY;const far=Math.hypot(e.clientX-st.sx,e.clientY-st.sy);
     if(!st.on){if(st.touch){if(far>10)end();return;}if(far>6)lift();else return;}e.preventDefault();place(e.clientX,e.clientY);};
   const tm=e=>{if(st&&st.on)e.preventDefault();};
   const up=e=>{if(!st||e.pointerId!==st.id)return;const was=st.on,t=st.hi;end();if(!was)return;
-    d._noClick=true;setTimeout(()=>{d._noClick=false;},0);if(t)itemDropDo(t.dataset.drop,it);};
+    d._noClick=true;setTimeout(()=>{d._noClick=false;},0);if(!t)return;
+    if(t.classList.contains("it")){const loc=$("invGrid").dataset.loc;if(loc&&it.loc===loc)reorderDrop(it,loc,t.dataset.ikey||null);else if(loc)itemDropDo(loc,it);return;}
+    itemDropDo(t.dataset.drop,it);};
   const cancel=()=>end();
   d.addEventListener("click",e=>{if(d._noClick){e.stopImmediatePropagation();e.preventDefault();}},true);
   d.addEventListener("contextmenu",e=>{if(st&&st.touch)e.preventDefault();});
@@ -2335,7 +2361,7 @@ function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','
 // backpack, parchment hover tooltip, a soft click on slots =====
 const HOTKEYS=["1","2","3","4","5","6","7","8","9","0"];   // 1-0; the rest of the backpack slides (L 2026-10-18)
 let hotSel=0;try{hotSel=+(localStorage.getItem("loadout:hotSel")||0)||0;}catch(_){}
-function renderHotbar(){const hb=$("hotbar");if(!hb)return;hb.dataset.drop="bag";hb.innerHTML="";const bag=byLoc.bag||[];
+function renderHotbar(){const hb=$("hotbar");if(!hb)return;hb.dataset.drop="bag";hb.innerHTML="";const bag=(typeof sortByOrder==="function")?sortByOrder((byLoc.bag||[]).slice(),"bag"):(byLoc.bag||[]);
   const n=Math.max(10,bag.length);if(hotSel>=n)hotSel=0;
   for(let i=0;i<n;i++){const it=bag[i],s=document.createElement("div");s.className="hs"+(i===hotSel?" on":"");
     s.innerHTML=(i<10?'<span class="hk">'+HOTKEYS[i]+'</span>':'')+(it?(it.img?'<img src="'+esc(it.img)+'" alt="'+esc(it.name)+'" onerror="imgFail(this)">':'<div class="empty" style="position:absolute;inset:6px;font-size:.45rem;line-height:1.1;overflow:hidden;display:flex;align-items:center;justify-content:center;text-align:center;color:#7a4a22">'+esc(it.name)+'</div>')+((it.qty||0)>1?'<span class="qn">'+it.qty+'</span>':""):"");
