@@ -1135,6 +1135,18 @@ addEventListener("pointerup",()=>{if(undoPend)undoEnd();},true);
 document.addEventListener("click",e=>{if(editMode&&e.target.closest&&e.target.closest("#editTools button, #palette .pit, #floorPick *")){undoBegin();undoEnd();}},true);
 addEventListener("keydown",e=>{if(editMode&&(e.ctrlKey||e.metaKey)&&!e.shiftKey&&(e.key==="z"||e.key==="Z")&&!(e.target.closest&&e.target.closest("input,textarea"))){e.preventDefault();undoLast();}});
 if(/[?&]test/.test(location.search))window.__loArrow=(side,dir)=>roomArrow({side,dir});   // test hook (?test only)
+// STOP-ZONE ARROWS (2026-10-18, L: "the barrier shrink the same as the map, with little arrows"): around the selected
+// piece's red box - top = deeper / shallower, left + right = wider / narrower (it stays centred). Gold out = grow, dark in = shrink.
+function hitBoxSel(){if(!editMode||!selected||selected.kind!=="d")return null;const d=(roomDecor[room]||{})[selected.id];if(!d)return null;return solidRects(room).find(b=>b._id===d)||null;}
+function hitArrowSpots(){const b=hitBoxSel();if(!b)return [];const cx=b.x+b.w/2,cy=b.y+b.h/2;
+  return [{side:"up",dir:1,x:cx-8,y:b.y-11,f:"base",v:3},{side:"up",dir:-1,x:cx+8,y:b.y-11,f:"base",v:-3},
+          {side:"left",dir:1,x:b.x-11,y:cy-8,f:"hw",v:3},{side:"left",dir:-1,x:b.x-11,y:cy+8,f:"hw",v:-3},
+          {side:"right",dir:1,x:b.x+b.w+11,y:cy-8,f:"hw",v:3},{side:"right",dir:-1,x:b.x+b.w+11,y:cy+8,f:"hw",v:-3}];}
+function drawHitArrows(){for(const a of hitArrowSpots()){const grow=a.dir>0,r=grow?6:5;ctx.save();ctx.translate(a.x,a.y);
+  ctx.fillStyle=grow?"rgba(242,165,65,.95)":"rgba(58,28,8,.88)";ctx.strokeStyle="#7a1f1a";ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(0,0,r+2,0,7);ctx.fill();ctx.stroke();
+  const out={up:[0,-1],left:[-1,0],right:[1,0]}[a.side],d=grow?out:[-out[0],-out[1]],px=-d[1],py=d[0];
+  ctx.fillStyle=grow?"#3a1c08":"#ffe9b8";ctx.beginPath();ctx.moveTo(d[0]*r*.8,d[1]*r*.8);ctx.lineTo(-d[0]*r*.4+px*r*.6,-d[1]*r*.4+py*r*.6);ctx.lineTo(-d[0]*r*.4-px*r*.6,-d[1]*r*.4-py*r*.6);ctx.closePath();ctx.fill();ctx.restore();}}
+function hitArrowAt(p){for(const a of hitArrowSpots())if(Math.hypot(p.x-a.x,p.y-a.y)<=9)return a;return null;}
 function roomArrowAt(p){if(!roomArrowsOK())return null;for(const a of roomArrowSpots())if(Math.hypot(p.x-a.x,p.y-a.y)<=14)return a;return null;}
 function shiftRoom(dx,dy){if(!dx&&!dy)return;const rm=room;
   for(const id in (roomDecor[rm]||{})){const d=roomDecor[rm][id];d.x+=dx;d.y+=dy;}saveRoom(rm);
@@ -1541,7 +1553,7 @@ function render(){const R=ROOMS[room];
   for(const e of ents){if(e.t==="d")drawDecorItem(e.d);else if(e.t==="p")drawPlace(e.k,e.p);else if(e.t==="npc")drawNPC(e.id);else if(e.t==="fx")drawFixture(e.id);else drawPlayer();}
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b75",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b76",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
@@ -1787,7 +1799,7 @@ function renameStruct(key,def){const cur=SLABELS[key]||def;const nn=prompt("Rena
 // tap-to-rename the shop + storage-area titles (mobile-friendly; contentEditable)
 (function(){var st=$("shopTitle");if(st){st.addEventListener("blur",function(){var v=st.textContent.trim().replace(/\s+/g," ").slice(0,30);if(v&&v!=="Field Supply Co.")set(ref(db,"public/games/loadout/slabels/shop"),v).catch(()=>{});else if(!v){remove(ref(db,"public/games/loadout/slabels/shop")).catch(()=>{});st.textContent=SLABELS.shop||"Field Supply Co.";}});st.addEventListener("keydown",function(e){if(e.key==="Enter"){e.preventDefault();st.blur();}});}
 var at=$("storTitle");if(at){at.addEventListener("blur",function(){var v=at.textContent.trim().replace(/\s+/g," ").slice(0,30);if(v&&curArea){if(AREAS[curArea]){set(ref(db,"public/games/loadout/areas/"+curArea+"/name"),v).catch(()=>{});syncRoomName(curArea,v);}if(curArea==="van")set(ref(db,"public/games/loadout/slabels/van"),v).catch(()=>{});}});at.addEventListener("keydown",function(e){if(e.key==="Enter"){e.preventDefault();at.blur();}});}})();
-cv.addEventListener("pointerdown",e=>{if(!editMode)return;{const ar=roomArrowAt(toLogical(e));if(ar){e.stopImmediatePropagation();e.preventDefault();roomArrow(ar);return;}}
+cv.addEventListener("pointerdown",e=>{if(!editMode)return;{const lp=toLogical(e),ha=hitArrowAt(lp);if(ha){e.stopImmediatePropagation();e.preventDefault();hitAdjust(ha.f,ha.v);return;}const ar=roomArrowAt(lp);if(ar){e.stopImmediatePropagation();e.preventDefault();roomArrow(ar);return;}}
 },{capture:true});
 cv.addEventListener("pointerdown",e=>{if(!editMode)return;const p=toLogical(e);
   if(wallMode){const gx=Math.floor(p.x/CELL),gy=Math.floor(p.y/CELL);if(!inRoomGrid(gx,gy))return;
@@ -1852,7 +1864,7 @@ function drawEditOverlay(){
        ctx.lineWidth=isSel?3:1.5;ctx.strokeStyle="rgba("+col+","+((isSel?.65:.32)+pu*(isSel?.35:.38))+")";ctx.beginPath();ctx.ellipse(cx,cy,rx,ry,0,0,7);ctx.stroke();
        if(isSel){ctx.lineWidth=1;ctx.strokeStyle="rgba("+col+","+(.25*(1-pu))+")";ctx.beginPath();ctx.ellipse(cx,cy,rx+6+pu*6,ry+3+pu*3,0,0,7);ctx.stroke();}}}
     ctx.setLineDash([]);}
-  drawRoomArrows();
+  drawRoomArrows();drawHitArrows();
   // hitboxes, red (the selected piece's is bold) - what you actually bump into
   {const selD=(selected&&selected.kind==="d")?(roomDecor[room]||{})[selected.id]:null;
    for(const b of solidRects(room)){if(b._id==null&&!editShowAllHits)continue;const isS=selD&&b._id===selD;ctx.fillStyle=isS?"rgba(226,74,58,.38)":"rgba(226,74,58,.14)";ctx.fillRect(b.x,b.y,b.w,b.h);
