@@ -1517,7 +1517,7 @@ function render(){const R=ROOMS[room];
   for(const e of ents){if(e.t==="d")drawDecorItem(e.d);else if(e.t==="p")drawPlace(e.k,e.p);else if(e.t==="npc")drawNPC(e.id);else if(e.t==="fx")drawFixture(e.id);else drawPlayer();}
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b68",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b69",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
@@ -1819,7 +1819,13 @@ function drawEditOverlay(){
     for(let y=ROOMR.y;y<=ROOMR.y+ROOMR.h;y+=CELL){ctx.beginPath();ctx.moveTo(ROOMR.x,y+.5);ctx.lineTo(ROOMR.x+ROOMR.w,y+.5);ctx.stroke();}}
   else{ctx.setLineDash([4,3]);ctx.lineWidth=1;
     for(const it of draggablesIn(room)){/* KIND FIRST, then identity (2026-09-21, L: "computer doesn't show up as selected"). There was no "fx" branch, so a selected FIXTURE - the Computer, the Bookshelf - kept its plain outline and read as unselected even though it was selected, draggable and deletable. Matching on kind up front also stops an id/key collision across kinds from highlighting the wrong piece. */const isSel=selected&&selected.kind===it.kind&&((it.kind==="d"&&selected.id===it.id)||(it.kind==="p"&&selected.key===it.key)||(it.kind==="fx"&&selected.id===it.id)||(it.kind==="door"&&selected.idx===it.idx));
-      ctx.strokeStyle=isSel?"rgba(242,165,65,.95)":(it.kind==="door"?"rgba(120,200,140,.75)":"rgba(99,182,199,.6)");ctx.lineWidth=isSel?2:1;ctx.strokeRect(it.o.x+.5,it.o.y+.5,it.w-1,it.h-1);}
+      // PULSING RING (2026-10-18, L: "instead of the dotted-line square use a pulsating ring"): an ellipse round each piece's
+      // footprint that breathes; the selected one is brighter, thicker and pulses faster; doors stay green
+      {ctx.setLineDash([]);const t=performance.now()/1000,ph=(it.o.x*.013+it.o.y*.007),pu=isSel?(.5+.5*Math.sin(t*6)):(.5+.5*Math.sin(t*2.6+ph));
+       const cx=it.o.x+it.w/2,cy=it.o.y+it.h*.78,rx=Math.max(10,it.w*.55)+pu*(isSel?4:2.5),ry=Math.max(6,Math.min(it.h*.32,rx*.5))+pu*(isSel?2:1.2);
+       const col=isSel?"242,165,65":(it.kind==="door"?"120,200,140":"99,182,199");
+       ctx.lineWidth=isSel?3:1.5;ctx.strokeStyle="rgba("+col+","+((isSel?.65:.32)+pu*(isSel?.35:.38))+")";ctx.beginPath();ctx.ellipse(cx,cy,rx,ry,0,0,7);ctx.stroke();
+       if(isSel){ctx.lineWidth=1;ctx.strokeStyle="rgba("+col+","+(.25*(1-pu))+")";ctx.beginPath();ctx.ellipse(cx,cy,rx+6+pu*6,ry+3+pu*3,0,0,7);ctx.stroke();}}}
     ctx.setLineDash([]);}
   drawRoomArrows();
   ctx.save();ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle="rgba(242,165,65,.94)";ctx.fillRect(0,VH-19,VW,19);ctx.fillStyle="#0c0f13";ctx.font="9px 'Pixelify Sans',monospace";ctx.textAlign="center";
