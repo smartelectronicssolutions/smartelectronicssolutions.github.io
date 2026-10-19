@@ -369,6 +369,15 @@
 .etrow>*{flex:0 0 auto}.etrow .tbtn{white-space:nowrap}
 .etrow .sel{margin-right:4px!important;white-space:nowrap;max-width:60vw;overflow:hidden;text-overflow:ellipsis}
 .etrow .hitgrp{display:inline-flex;flex-wrap:nowrap;gap:4px;align-items:center}
+/* b108 (L: "it's not swiping like the top - also add arrows"): disabled buttons swallowed the touch so the row never started a swipe ->
+   they pass touches through now; rows pan-x explicitly; mouse can drag or wheel them; ‹ › arrows at each end (shown only when the row overflows). */
+.etwrap{display:flex;align-items:center;gap:3px;min-width:0}
+.etwrap .etrow{flex:1;min-width:0;touch-action:pan-x}
+.etrow .tbtn:disabled{pointer-events:none}
+.etrow.dragging{cursor:grabbing;user-select:none}
+.etarr{flex:0 0 auto;width:22px;height:28px;display:grid;place-items:center;font:700 .9rem/1 "Pixelify Sans",monospace;color:#4a2510;background:#eaa95a;border:2px solid #5c2e10;border-radius:5px;cursor:pointer;user-select:none;padding:0}
+.etarr[hidden]{display:none}
+@media (pointer:coarse) and (orientation:landscape){.edittools.on .etarr{display:none}.edittools.on .etwrap{display:block}}
 @media (pointer:coarse) and (orientation:landscape){.edittools.on .etrow{flex-direction:column;align-items:stretch;overflow:visible}.edittools.on .etrow .sel{max-width:none;white-space:normal}}
 </style>
 </head><body>
@@ -410,6 +419,22 @@
   var made=rows.map(function(ids){var r=document.createElement("div");r.className="etrow";ids.forEach(function(id){var el=document.getElementById(id);if(el)r.appendChild(el);});return r;});
   var left=[].slice.call(et.children);made.forEach(function(r){et.appendChild(r);});
   left.forEach(function(el){if(el.className!=="etrow")made[2].appendChild(el);});   /* anything not listed -> the build row */
+  /* b108: arrows + mouse drag/wheel per row */
+  made.forEach(function(r){var w=document.createElement("div");w.className="etwrap";et.insertBefore(w,r);
+    var L=document.createElement("button");L.type="button";L.className="etarr";L.textContent="\u2039";L.title="scroll left";
+    var R=document.createElement("button");R.type="button";R.className="etarr";R.textContent="\u203a";R.title="scroll right";
+    w.appendChild(L);w.appendChild(r);w.appendChild(R);
+    function upd(){var over=r.scrollWidth>r.clientWidth+2;L.hidden=!over||r.scrollLeft<=1;R.hidden=!over||r.scrollLeft>=r.scrollWidth-r.clientWidth-1;}
+    function go(d){r.scrollBy({left:d*Math.max(80,r.clientWidth*.7),behavior:"smooth"});}
+    L.onclick=function(){go(-1);};R.onclick=function(){go(1);};
+    r.addEventListener("scroll",upd,{passive:true});try{new ResizeObserver(upd).observe(r);}catch(e){}addEventListener("resize",upd);setTimeout(upd,300);
+    r.addEventListener("wheel",function(e){if(r.scrollWidth<=r.clientWidth)return;var d=Math.abs(e.deltaX)>Math.abs(e.deltaY)?e.deltaX:e.deltaY;if(!d)return;r.scrollLeft+=d;e.preventDefault();},{passive:false});
+    var dn=null,moved=false;
+    r.addEventListener("pointerdown",function(e){if(e.pointerType!=="mouse"||e.button!==0)return;dn={x:e.clientX,s:r.scrollLeft};moved=false;});
+    addEventListener("pointermove",function(e){if(!dn)return;var dx=e.clientX-dn.x;if(Math.abs(dx)>5){moved=true;r.classList.add("dragging");}if(moved)r.scrollLeft=dn.s-dx;});
+    addEventListener("pointerup",function(){if(!dn)return;dn=null;setTimeout(function(){r.classList.remove("dragging");},0);});
+    r.addEventListener("click",function(e){if(moved){e.stopPropagation();e.preventDefault();moved=false;}},true);   /* a drag is not a click */
+  });
 })();</script>
   <div class="floorpick" id="floorPick"></div>
   <div class="controls">🎮 controller: stick walk · <span class="k">A</span> use · <span class="k">B</span> back · <span class="k">X</span> backpack · <span class="k">Y</span> tickets · <span class="k">LB/RB</span> hotbar<br>Move <span class="k">WASD</span>/<span class="k">arrows</span> or <b>tap to walk</b> · step through a <b>doorway</b> · <span class="k">E</span> at a crate</div>
@@ -1738,7 +1763,7 @@ function render(){const R=ROOMS[room];
   for(const t of things)if(!done.has(t))draw(t);
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b107",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b108",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
