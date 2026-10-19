@@ -414,8 +414,8 @@
     <button class="tbtn" id="smallerBtn" disabled>－ Size</button>
     <button class="tbtn" id="spriteBtn" disabled style="display:none">✏️ Sprite</button><!-- b116: hidden - 🎨 Sprites does both (selected piece / blank) -->
     <button class="tbtn" id="imgBtn" disabled>🖼 Image</button>
-    <span class="hitgrp" id="hitGrp" style="display:none"><span class="hitl">Stop zone</span><button class="tbtn" data-hit="base,3" title="deeper (Shift+↑)">⬆</button><button class="tbtn" data-hit="base,-3" title="shallower (Shift+↓)">⬇</button><button class="tbtn" data-hit="hw,-3" title="narrower (Shift+←)">⇥⇤</button><button class="tbtn" data-hit="hw,3" title="wider (Shift+→)">⇤⇥</button></span><button class="tbtn" id="nameBtn" disabled style="display:none">🏷 Rename</button><button class="tbtn" id="doesBtn" disabled>⚡ Does</button><button class="tbtn" id="storeBtn" disabled>📦 Storage</button>
-    <button class="tbtn" id="readerBtn" disabled>📖 Reader</button><button class="tbtn" id="changeBtn" disabled>👕 Change Station</button>
+    <span class="hitgrp" id="hitGrp" style="display:none"><span class="hitl">Stop zone</span><button class="tbtn" data-hit="base,3" title="deeper (Shift+↑)">⬆</button><button class="tbtn" data-hit="base,-3" title="shallower (Shift+↓)">⬇</button><button class="tbtn" data-hit="hw,-3" title="narrower (Shift+←)">⇥⇤</button><button class="tbtn" data-hit="hw,3" title="wider (Shift+→)">⇤⇥</button></span><button class="tbtn" id="nameBtn" disabled style="display:none">🏷 Rename</button><button class="tbtn" id="doesBtn" disabled>⚡ Does</button><button class="tbtn" id="storeBtn" disabled style="display:none">📦 Storage</button>
+    <button class="tbtn" id="readerBtn" disabled style="display:none">📖 Reader</button><button class="tbtn" id="changeBtn" disabled style="display:none">👕 Change Station</button><!-- b119: Does replaces Storage / Reader / Change Station (L) -->
     <button class="tbtn danger" id="delBtn" disabled title="Remove">🗑</button>
   </div>
 <script>/* b105: sort the edit bar into its 3 swipe rows (ids keep working - only the parents change) */
@@ -1815,7 +1815,7 @@ function render(){const R=ROOMS[room];
   for(const t of things)if(!done.has(t))draw(t);
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b118",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b119",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
@@ -2223,17 +2223,19 @@ $("doesBtn").addEventListener("click",e=>{e.stopPropagation();if(document.getEle
   const id=selected.id,d=roomDecor[room][id];if(!d)return;const cur=doesOf(d),m=document.createElement("div");m.id="doesMenu";
   m.style.cssText="position:fixed;z-index:4000;background:#f9c46e;border:3px solid #5c2e10;border-radius:8px;padding:6px;display:flex;flex-direction:column;gap:4px;max-height:70vh;overflow:auto;box-shadow:0 8px 24px rgba(0,0,0,.45);min-width:190px";
   const head=document.createElement("div");head.style.cssText="font:700 .7rem 'Pixelify Sans',monospace;color:#4a2510;padding:2px 4px";head.textContent="What does it do when you use it?";m.appendChild(head);
-  const set=fn=>{undoBegin();fn();saveRoom(room);undoEnd();closeDoes();refreshTools();};
+  const isStore=()=>!!(d.store||d.storeArea);
+  const offStore=()=>{if(!isStore())return true;$("storeBtn").disabled=false;$("storeBtn").click();return !isStore();};   /* b119: switching away from Storage releases it the safe way (containers -> tray) */
+  const set=fn=>{if(!offStore()){closeDoes();return;}undoBegin();fn();saveRoom(room);undoEnd();closeDoes();refreshTools();};
   const chip=(txt,on,fn)=>{const b=document.createElement("button");b.type="button";b.className="tbtn"+(on?" add":"");b.style.cssText="text-align:left;white-space:nowrap";b.textContent=txt;b.onclick=ev=>{ev.stopPropagation();fn();};m.appendChild(b);return b;};
   for(const [t,lab] of DOES_LIST){const on=t===""?!cur:(cur&&cur.t===t);
     chip(lab+(on?"  \u2713":""),on,()=>{
       if(t==="door"){m.innerHTML="";const h2=head.cloneNode();h2.textContent="Door goes to\u2026";m.appendChild(h2);
         Object.keys(ROOMS).filter(r=>r!==room&&r!=="van").forEach(r=>chip(ROOMS[r].name||r,cur&&cur.t==="door"&&cur.to===r,()=>set(()=>{const old=d.does&&d.does.t==="door"?d.does:{};d.does={t:"door",to:r,dx:old.dx!=null?old.dx:null,dy:old.dy!=null?old.dy:null,dw:old.dw||26,dh:old.dh||18};delete d.reader;delete d.changeStation;})));
         return;}
-      if(t==="storage"){closeDoes();if(!(d.store||d.storeArea))$("storeBtn").click();return;}     /* storage keeps its own setup (area / container) */
+      if(t==="storage"){closeDoes();if(!isStore()){delete d.does;delete d.reader;delete d.changeStation;$("storeBtn").disabled=false;$("storeBtn").click();}return;}     /* storage keeps its own setup (area / container) */
       if(t==="reader"){set(()=>{delete d.does;delete d.changeStation;d.reader=d.reader||"books";});return;}
       if(t==="change"){set(()=>{delete d.does;delete d.reader;d.changeStation=true;});return;}
-      if(t===""){if(d.store||d.storeArea){closeDoes();dayBanner("Storage is set - turn it off with \ud83d\udce6 Storage");return;}set(()=>{delete d.does;delete d.reader;delete d.changeStation;});return;}
+      if(t===""){set(()=>{delete d.does;delete d.reader;delete d.changeStation;});return;}
       set(()=>{d.does={t};delete d.reader;delete d.changeStation;});});}
   document.body.appendChild(m);const r=$("doesBtn").getBoundingClientRect(),mh=m.offsetHeight,mw=m.offsetWidth;
   m.style.left=Math.max(6,Math.min(innerWidth-mw-6,r.left))+"px";m.style.top=Math.max(6,(r.top-mh-6>6?r.top-mh-6:r.bottom+6))+"px";});
