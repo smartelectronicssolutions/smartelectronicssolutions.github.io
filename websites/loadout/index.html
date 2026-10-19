@@ -349,6 +349,7 @@
 .dropbar{position:fixed;left:50%;top:8px;transform:translateX(-50%);z-index:5900;max-width:min(96vw,900px);display:flex;flex-wrap:wrap;gap:6px;justify-content:center;padding:8px 10px;background:#f7d9a4;border:2px solid #7a3f1a;border-radius:9px;box-shadow:0 6px 18px rgba(0,0,0,.45)}
 .dropbar .achip{cursor:default}
 .it.lifting{opacity:.35}
+.hitgrp{display:inline-flex;align-items:center;gap:4px;padding:2px 6px;border:2px solid #e24a3a;border-radius:7px;background:rgba(226,74,58,.12)}.hitgrp .hitl{font-weight:700;color:#8a2a22;font-size:.75rem;margin-right:2px}.hitgrp .tbtn{min-width:2.4em;padding:4px 6px}
 #roomB.switch{cursor:pointer;pointer-events:auto;z-index:5}#roomB.switch::before{content:"💡 ";filter:grayscale(1) brightness(.7)}#roomB.switch.lit::before{filter:none}#roomB.lit{box-shadow:inset 0 2px 0 #d98a4a,0 0 10px 2px rgba(255,214,120,.65)!important}
 #selLabel .rn{cursor:text;border-bottom:1px dashed currentColor}#selLabel .rnh{opacity:.7;font-weight:400}
 .invsearch{padding:6px 10px 2px}.invsearch input{width:100%;box-sizing:border-box;font:inherit;font-size:.85rem;padding:8px 10px;border:2px solid #7a3f1a;border-radius:7px;background:#fff8e8;color:#3a1c08}.invsearch input:focus{outline:none;border-color:#e07b1a}
@@ -382,7 +383,7 @@
     <button class="tbtn" id="smallerBtn" disabled>－ Size</button>
     <button class="tbtn" id="spriteBtn" disabled>✏️ Sprite</button>
     <button class="tbtn" id="imgBtn" disabled>🖼 Image</button>
-    <button class="tbtn" id="nameBtn" disabled style="display:none">🏷 Rename</button><button class="tbtn" id="storeBtn" disabled>📦 Make Storage</button>
+    <span class="hitgrp" id="hitGrp" style="display:none"><span class="hitl">Stop zone</span><button class="tbtn" data-hit="base,3" title="deeper (Shift+↑)">⬆</button><button class="tbtn" data-hit="base,-3" title="shallower (Shift+↓)">⬇</button><button class="tbtn" data-hit="hw,-3" title="narrower (Shift+←)">⇥⇤</button><button class="tbtn" data-hit="hw,3" title="wider (Shift+→)">⇤⇥</button></span><button class="tbtn" id="nameBtn" disabled style="display:none">🏷 Rename</button><button class="tbtn" id="storeBtn" disabled>📦 Make Storage</button>
     <button class="tbtn" id="readerBtn" disabled>📖 Make Reader</button><button class="tbtn" id="changeBtn" disabled>👕 Make Change Station</button>
     <button class="tbtn danger" id="delBtn" disabled>🗑 Remove</button>
   </div>
@@ -1107,10 +1108,12 @@ const UNDO=[];let undoPend=null;
 // Shift + arrows on a selected piece tune ITS HITBOX for every copy of that piece (saved in the catalog):
 // Shift+Up/Down = deeper / shallower, Shift+Left/Right = narrower / wider. 3 px a press.
 var editShowAllHits=false;
+function hitAdjust(field,delta){if(!editMode||!selected||selected.kind!=="d")return;const d=(roomDecor[room]||{})[selected.id];if(!d||!CAT[d.k])return;const c=CAT[d.k];
+  const cur=field==="base"?(c.base!=null?c.base:14):(c.hw!=null?c.hw:Math.max(2,c.w-8));const nv=Math.max(0,Math.min(field==="base"?c.h:c.w,cur+delta));c[field]=nv;
+  update(ref(db,"public/games/loadout/catalog/"+d.k),{[field]:nv}).catch(()=>{});dayBanner("Stop zone "+(c.label||d.k)+": "+(c.hw!=null?c.hw:c.w-8)+" wide × "+(c.base!=null?c.base:14)+" deep");}
 addEventListener("keydown",e=>{if(!editMode||!e.shiftKey||!selected||selected.kind!=="d")return;const map={ArrowUp:["base",3],ArrowDown:["base",-3],ArrowRight:["hw",3],ArrowLeft:["hw",-3]}[e.key];if(!map)return;
-  if(e.target.closest&&e.target.closest("input,textarea"))return;e.preventDefault();e.stopImmediatePropagation();const d=(roomDecor[room]||{})[selected.id];if(!d||!CAT[d.k])return;const c=CAT[d.k];
-  const cur=map[0]==="base"?(c.base!=null?c.base:14):(c.hw!=null?c.hw:Math.max(2,c.w-8));const nv=Math.max(0,Math.min(map[0]==="base"?c.h:c.w,cur+map[1]));c[map[0]]=nv;
-  update(ref(db,"public/games/loadout/catalog/"+d.k),{[map[0]]:nv}).catch(()=>{});dayBanner("Hitbox "+(c.label||d.k)+": "+(c.hw!=null?c.hw:c.w-8)+" wide × "+(c.base!=null?c.base:14)+" deep");},true);
+  if(e.target.closest&&e.target.closest("input,textarea"))return;e.preventDefault();e.stopImmediatePropagation();hitAdjust(map[0],map[1]);},true);
+document.addEventListener("click",e=>{const b=e.target.closest&&e.target.closest("#hitGrp [data-hit]");if(!b)return;const [f,v]=b.dataset.hit.split(",");hitAdjust(f,+v);});
 function edSnap(){const rm=room;return JSON.stringify({d:roomDecor[rm]||{},dr:(ROOMS[rm].doors||[]).map(d=>({x:d.x,y:d.y,w:d.w,h:d.h})),w:WALLS[rm]||{},f:FTILES[rm]||{},
   p:placesIn(rm).map(([k,q])=>[k,q.x,q.y,q.z||0]),fx:fixIn(rm).map(id=>[id,FIXTURES[id].x,FIXTURES[id].y]),sz:ROOMSIZE[rm]||null});}
 function undoBegin(){if(!editMode)return;undoPend={room,s:edSnap()};}
@@ -1536,7 +1539,7 @@ function render(){const R=ROOMS[room];
   for(const e of ents){if(e.t==="d")drawDecorItem(e.d);else if(e.t==="p")drawPlace(e.k,e.p);else if(e.t==="npc")drawNPC(e.id);else if(e.t==="fx")drawFixture(e.id);else drawPlayer();}
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b73",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b74",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
@@ -1755,6 +1758,7 @@ function refreshTools(){const on=!!selected;
   $("imgBtn").disabled=!(on&&selected.kind==="p");
   $("storeBtn").disabled=!(on&&selected.kind==="d");$("readerBtn").disabled=!(on&&selected.kind==="d");$("changeBtn").disabled=!(on&&selected.kind==="d");$("nameBtn").disabled=!(on&&(selected.kind==="d"||selected.kind==="p"||(selected.kind==="door"&&ROOMS[room].doors[selected.idx].to==="van")));
   if(on&&selected.kind==="d"){const dd=roomDecor[room][selected.id]||{};const isS=dd.store||dd.storeArea;$("storeBtn").innerHTML=(dd.storeArea||dd.store)?"📦 Storage: ON":"📦 Make Storage";$("storeBtn").classList.toggle("add",!!isS);$("readerBtn").innerHTML=dd.reader?"📖 Reader: ON":"📖 Make Reader";$("readerBtn").classList.toggle("add",!!dd.reader);$("changeBtn").innerHTML=dd.changeStation?"👕 Change Station: ON":"👕 Make Change Station";$("changeBtn").classList.toggle("add",!!dd.changeStation);}else{$("storeBtn").classList.remove("add");$("storeBtn").innerHTML="📦 Make Storage";$("readerBtn").classList.remove("add");$("readerBtn").innerHTML="📖 Make Reader";$("changeBtn").classList.remove("add");$("changeBtn").innerHTML="👕 Make Change Station";}
+  {const hg=$("hitGrp");if(hg)hg.style.display=(selected&&selected.kind==="d")?"":"none";}
   if(!selected){$("selLabel").innerHTML=wallMode?"Wall mode — tap/drag the grid to build or erase walls":"Tap a piece to select · drag to move";return;}
   let label=selected.kind==="d"?(customName(room,selected.id)||CAT[roomDecor[room][selected.id]?.k]?.label||"Furniture")
     :selected.kind==="door"?((ROOMS[room].doors[selected.idx].to==="van")?("Van ("+slab("van","the van")+")"):("Doorway → "+((ROOMS[ROOMS[room].doors[selected.idx].to]||{}).name||ROOMS[room].doors[selected.idx].to)))
