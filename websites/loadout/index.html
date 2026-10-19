@@ -210,9 +210,9 @@
   .storpick{display:none;gap:7px;flex-wrap:wrap;align-items:center;padding:8px 10px;border-bottom:1px solid var(--edge);background:var(--slot)}
   .storpick.on{display:flex}
   .storpick .lbl{width:100%;font-family:var(--mono);font-size:.55rem;color:var(--dim);letter-spacing:.04em}
-  .storpick .bd{width:66px;height:46px;border:2px solid var(--edge);border-radius:5px;image-rendering:pixelated;background-size:cover;background-position:center;cursor:pointer}
+  .storpick .bd{position:relative;margin-bottom:calc(1.6rem + 8px);width:66px;height:46px;border:2px solid var(--edge);border-radius:5px;image-rendering:pixelated;background-size:cover;background-position:center;cursor:pointer}
   .storpick .bd.on{border-color:var(--amber)}
-  .storpick .bd span{display:block;font-family:var(--mono);font-size:.5rem;color:#cdd4da;text-align:center;margin-top:47px;white-space:nowrap}
+  .storpick .bd span{position:absolute;left:50%;top:calc(100% + 4px);transform:translateX(-50%);font-family:var(--mono);font-size:.5rem;color:#cdd4da;text-align:center;white-space:nowrap;padding:2px 5px}   /* label sits in the reserved space below the thumb (was margin-top:47px = covered by the next row) */
   .stortray{display:flex;gap:6px;flex-wrap:wrap;padding:8px 10px;border-top:1px solid var(--edge);min-height:30px;background:var(--panel)}
   .stortray.drop{outline:2px dashed var(--amber);outline-offset:-3px;background:rgba(242,165,65,.08)}
   .traychip{font-family:var(--mono);font-size:.58rem;color:#cdd4da;background:var(--slot);border:1px dashed var(--edgehi);border-radius:7px;padding:5px 8px;cursor:grab;touch-action:none;user-select:none}
@@ -336,7 +336,11 @@
   .buyb.sell{background:#eaa95a;color:#4a2510;border:2px solid #5c2e10;box-shadow:inset -2px -2px 0 #c47a2f,inset 2px 2px 0 #fbd294;text-shadow:none}
   .jbtn:disabled,.buyb:disabled{background:#d8b07a;color:#7a5530;box-shadow:none;text-shadow:none;opacity:.8}
   #svTip b{display:block;font-size:.95rem;margin-bottom:3px}#svTip span{display:block;font-size:.72rem;color:#8a5a2a}
-</style><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;700&display=swap" rel="stylesheet"></head><body>
+</style><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;700&display=swap" rel="stylesheet"><style id="txScale">/* TEXT SIZE (2026-10-18, L: "make things bigger on a really large resolution - text mainly"): every UI font is rem,
+   so the root size scales all of it. 16px up to ~1650px wide, then grows with the screen (19.75px at 2560, 25px at 3840);
+   T cycles an extra 100/115/130/150 %, remembered in this browser. */
+:root{--txs:1}html{font-size:calc(clamp(16px,calc(9px + .42vw),26px) * var(--txs))}</style>
+</head><body>
 <div class="app"><div class="wrap">
   <header>
     <h1>LOADOUT</h1>
@@ -1082,6 +1086,7 @@ addEventListener("keydown",e=>{if(e.code==="Escape"){var _cl=false;var yc=$("yuk
     if(kk==="a"){$("addBtn").click();e.preventDefault();return;}}
   if(e.code==="KeyI"&&!isOpen()){$("editBtn").click();e.preventDefault();return;}
   if(e.code==="KeyJ"&&!isOpen()&&!editMode){openJobs();e.preventDefault();return;}
+  if(e.code==="KeyT"&&!editMode&&!(e.target.closest&&e.target.closest("input,textarea"))){cycleTxs();e.preventDefault();return;}
   if(e.code==="KeyL"&&!isOpen()&&!editMode&&!(e.target.closest&&e.target.closest("input,textarea"))){toggleLights();e.preventDefault();return;}
   if((e.code==="KeyE"||e.code==="Enter")&&!isOpen()&&!editMode){tryOpen();e.preventDefault();return;}
   if(MAP[e.code]){keys.add(MAP[e.code]);e.preventDefault();}});
@@ -1333,6 +1338,10 @@ const isLamp=k=>k==="portrait"||(CAT[k]&&CAT[k].cat==="Lamps");
 function toggleLights(){if(room==="street"||room==="glade"){dayBanner("No light switch out here");return;}
   LIGHTS[room]=!LIGHTS[room];try{localStorage.setItem("loadout:lights",JSON.stringify(LIGHTS));}catch(e){}
   try{svBlip&&svBlip();}catch(e){}dayBanner(LIGHTS[room]?"💡 Lights on":"Lights off");}
+const TXS=[1,1.15,1.3,1.5];let txi=0;try{txi=Math.max(0,TXS.indexOf(+localStorage.getItem("loadout:txs")));}catch(e){}
+function applyTxs(){document.documentElement.style.setProperty("--txs",TXS[txi]);try{fitPass();}catch(e){}}
+function cycleTxs(){txi=(txi+1)%TXS.length;try{localStorage.setItem("loadout:txs",TXS[txi]);}catch(e){}applyTxs();dayBanner("Text size "+Math.round(TXS[txi]*100)+"%");}
+applyTxs();
 function dayBanner(t){const b=$("roomB");b.textContent=t;clearTimeout(_bannerT);_bannerT=setTimeout(()=>{b.textContent=ROOMS[room].name;},3200);}
 function stepDay(dt){if(!_dayLoaded)return;DAY.m+=dt*GMIN_PER_SEC;if(DAY.m>=DAY_END){passOut();return;}showDay();if(Date.now()-_daySaved>30000)saveDay();}
 function spendTime(min){DAY.m=Math.min(DAY_END-10,DAY.m+min);showDay();saveDay();}   // a ticket eats the clock but never knocks you out mid-job
@@ -1393,7 +1402,7 @@ function render(){const R=ROOMS[room];
   for(const e of ents){if(e.t==="d")drawDecorItem(e.d);else if(e.t==="p")drawPlace(e.k,e.p);else if(e.t==="npc")drawNPC(e.id);else if(e.t==="fx")drawFixture(e.id);else drawPlayer();}
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b48",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b50",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
@@ -1844,7 +1853,12 @@ function renderPick(show){const el=$("storPick");const a=AREAS[curArea]||{};el.i
 function setBackdrop(b){update(ref(db,"public/games/loadout/areas/"+curArea),{bg:b.k,nw:b.nw,nh:b.nh}).catch(()=>{});
   const a=AREAS[curArea];if(a){a.bg=b.k;a.nw=b.nw;a.nh=b.nh;}$("storBg").src=A[b.k]||A.closet;requestAnimationFrame(renderArea);renderPick(true);}
 /* PICK THE THING, DON'T TYPE A WORD (2026-09-20, L: "I want to get the container that is L desk... put into the tray, that would in itself define it being a container"). A container used to be a name you typed; now it is chosen from the same furniture catalog the rooms use, and landing in the tray is what makes it a container - no dialog asking what kind of thing it is. */
-function addContainer(){paletteMode="container";$("palTitle").textContent="Pick a container for the tray";paletteOpen=true;buildPalette();$("palette").classList.add("open");}
+// + CONTAINER = NAME IT (2026-10-18, L: "the plus container button opens the assets list - should just be a name-it thing"):
+// type a name and it lands in the area you're in (drag it anywhere, or into the tray). The catalog rail still lets you drag a
+// furniture piece in as a container with art.
+function addContainer(){const nm=(prompt("Name the new container (e.g. Top drawer, Parts bin):")||"").trim().slice(0,40);if(!nm)return;
+  const key="c_"+nm.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"").slice(0,20)+"_"+Date.now().toString(36).slice(-5);
+  set(ref(db,BASE+"/games/loadout/containers/"+key),{name:nm}).catch(()=>{});placeContainer(key,(curArea&&AREAS[curArea])?curArea:"tray",40,40);}
 /* `art` is the catalog key, so the chip can BE the desk instead of a generic box. It is the one field this added, and only ever read defensively - an older container without it still renders. */
 function makeContainerFrom(k,area,x,y){const nm=((CAT[k]||{}).label||"Container").slice(0,40);const key="c_"+nm.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"").slice(0,20)+"_"+Date.now().toString(36).slice(-5);set(ref(db,BASE+"/games/loadout/containers/"+key),{name:nm,art:k}).catch(()=>{});/* through placeContainer, never a raw cplace write, so a rail drop onto a one-slot item still swaps */placeContainer(key,area||"tray",x,y);return key;}
 $("pDel").addEventListener("click",()=>{if(!canDeleteContainer(openPlace)){if(openPlace&&(byLoc[openPlace]||[]).length)alert("Move its items out first.");return;}remove(ref(db,BASE+"/games/loadout/containers/"+openPlace)).catch(()=>{});remove(ref(db,BASE+"/games/loadout/cplace/"+openPlace)).catch(()=>{});$("overlay").classList.remove("open");});
