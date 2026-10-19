@@ -1104,6 +1104,13 @@ function drawRoomArrows(){if(!roomArrowsOK())return;
 // 40-deep stack. Ctrl+Z (Cmd+Z) puts the room back - furniture, doors, walls, floor tiles, storage spots, fixtures, size -
 // and saves it. One drag of walls / floor paint = one undo.
 const UNDO=[];let undoPend=null;
+// Shift + arrows on a selected piece tune ITS HITBOX for every copy of that piece (saved in the catalog):
+// Shift+Up/Down = deeper / shallower, Shift+Left/Right = narrower / wider. 3 px a press.
+var editShowAllHits=false;
+addEventListener("keydown",e=>{if(!editMode||!e.shiftKey||!selected||selected.kind!=="d")return;const map={ArrowUp:["base",3],ArrowDown:["base",-3],ArrowRight:["hw",3],ArrowLeft:["hw",-3]}[e.key];if(!map)return;
+  if(e.target.closest&&e.target.closest("input,textarea"))return;e.preventDefault();e.stopImmediatePropagation();const d=(roomDecor[room]||{})[selected.id];if(!d||!CAT[d.k])return;const c=CAT[d.k];
+  const cur=map[0]==="base"?(c.base!=null?c.base:14):(c.hw!=null?c.hw:Math.max(2,c.w-8));const nv=Math.max(0,Math.min(map[0]==="base"?c.h:c.w,cur+map[1]));c[map[0]]=nv;
+  update(ref(db,"public/games/loadout/catalog/"+d.k),{[map[0]]:nv}).catch(()=>{});dayBanner("Hitbox "+(c.label||d.k)+": "+(c.hw!=null?c.hw:c.w-8)+" wide × "+(c.base!=null?c.base:14)+" deep");},true);
 function edSnap(){const rm=room;return JSON.stringify({d:roomDecor[rm]||{},dr:(ROOMS[rm].doors||[]).map(d=>({x:d.x,y:d.y,w:d.w,h:d.h})),w:WALLS[rm]||{},f:FTILES[rm]||{},
   p:placesIn(rm).map(([k,q])=>[k,q.x,q.y,q.z||0]),fx:fixIn(rm).map(id=>[id,FIXTURES[id].x,FIXTURES[id].y]),sz:ROOMSIZE[rm]||null});}
 function undoBegin(){if(!editMode)return;undoPend={room,s:edSnap()};}
@@ -1188,7 +1195,10 @@ function solidRects(r){const rects=[];if(r==="street")rects.push(...HOOD_SOLID);
     if(cb!=null){if(cb<=0)continue;}else if(!isSolid(d.k))continue;
     const s=d.s||1;let w=CAT[d.k].w*s,h=CAT[d.k].h*s;if((d.rot||0)%2){const t=w;w=h;h=t;}
     const ch=(cb!=null)?Math.max(1,Math.round(cb*s)):((CAT[d.k].h>=80)?Math.round(h*0.5):14);
-    const ins=w>24?4:0;rects.push({x:d.x+ins,y:d.y+h-ch,w:w-ins*2,h:ch});}   // narrow props (fence_v) keep their whole width
+    // HITBOX = the piece's floor footprint (2026-10-18, L: "really bad hitbox setups"): base = solid px up from the bottom,
+    // hw = solid width centred under the art (a tree = its trunk, a lamp = its pole). Missing hw = full width less a little.
+    const hwc=CAT[d.k].hw,ins=w>24?4:0,sw=(hwc!=null&&!((d.rot||0)%2))?Math.min(w,Math.max(2,Math.round(hwc*s))):w-ins*2;
+    rects.push({x:d.x+(w-sw)/2,y:d.y+h-ch,w:sw,h:ch,_id:d});}   // narrow props (fence_v) keep their whole width
   return rects;}
 function blocked(x,y){const r=feetRect(x,y);
   if(room!=="outside"){if(r.x<ROOMR.x||r.y<ROOMR.y-24||r.x+r.w>ROOMR.x+ROOMR.w||r.y+r.h>ROOMR.y+ROOMR.h)return true;}
@@ -1526,7 +1536,7 @@ function render(){const R=ROOMS[room];
   for(const e of ents){if(e.t==="d")drawDecorItem(e.d);else if(e.t==="p")drawPlace(e.k,e.p);else if(e.t==="npc")drawNPC(e.id);else if(e.t==="fx")drawFixture(e.id);else drawPlayer();}
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b71",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b72",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
@@ -1837,6 +1847,10 @@ function drawEditOverlay(){
        if(isSel){ctx.lineWidth=1;ctx.strokeStyle="rgba("+col+","+(.25*(1-pu))+")";ctx.beginPath();ctx.ellipse(cx,cy,rx+6+pu*6,ry+3+pu*3,0,0,7);ctx.stroke();}}}
     ctx.setLineDash([]);}
   drawRoomArrows();
+  // hitboxes, red (the selected piece's is bold) - what you actually bump into
+  {const selD=(selected&&selected.kind==="d")?(roomDecor[room]||{})[selected.id]:null;
+   for(const b of solidRects(room)){if(b._id==null&&!editShowAllHits)continue;const isS=selD&&b._id===selD;ctx.fillStyle=isS?"rgba(226,74,58,.38)":"rgba(226,74,58,.14)";ctx.fillRect(b.x,b.y,b.w,b.h);
+     if(isS){ctx.strokeStyle="rgba(226,74,58,.95)";ctx.lineWidth=1.5;ctx.strokeRect(b.x+.5,b.y+.5,b.w-1,b.h-1);}}}
   ctx.save();ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle="rgba(242,165,65,.94)";ctx.fillRect(0,VH-19,VW,19);ctx.fillStyle="#0c0f13";ctx.font="9px 'Pixelify Sans',monospace";ctx.textAlign="center";
   ctx.fillText(wallMode?"WALL MODE (W) — tap/drag grid to build/erase walls":floorMode?"FLOOR MODE (F) — pick a tile below, tap/drag to paint":"EDIT — tap select · drag move · green = doorway",VW/2,VH-6);ctx.restore();}
 // tools
@@ -1974,11 +1988,7 @@ function areaOf(loc){const cp=CPLACE[loc];if(cp&&cp.area==="tray")return null;if
 function posOf(loc,areaId){const p=CPLACE[loc];if(p&&p.area===areaId&&p.x!=null)return{x:p.x,y:p.y};const d=DEFAULT_XY[loc];if(d)return d;const h=hashStr(loc);return{x:20+((h%6)*46),y:26+((Math.floor(h/6)%5)*46)};}
 function areaCfg(id){return AREAS[id]||SEED_AREAS[id]||SEED_AREAS.van;}
 function openArea(areaId){areaPick=false;curArea=(areaId in AREAS)?areaId:(Object.keys(AREAS)[0]||"van");const a=areaCfg(curArea);
-  // EMPTY AREA = ITS OWN CONTAINER (2026-10-18, L: "if there's only one it takes the whole area, I like that - but I need to create
-  // that container first"): an area with nothing in it gets one container named after it, which fills the area (solo), so
-  // items can go straight in. Add more containers later and it shrinks to a box like any other.
-  if(BASE!=="public"&&!residentsOf(curArea).length){const nm=(a.name||"Area").slice(0,40),key="c_"+curArea.replace(/[^a-z0-9]+/gi,"_").slice(0,24)+"_main";
-    if(!CONTAINERS[key]){set(ref(db,BASE+"/games/loadout/containers/"+key),{name:nm}).catch(()=>{});placeContainer(key,curArea,24,24);}}
+  // (b54 auto-container on an empty area REMOVED 2026-10-18, L: "when I make an item a storage I don't need it to make a container of its name right off the bat")
   $("storTitle").textContent=a.name;$("storIc").textContent=a.icon||"📦";
   const bg=$("storBg");bg.onload=()=>{if($("storage").classList.contains("open"))renderArea();};bg.src=bdSrc(a.bg)||A.closet;  // re-place containers once the backdrop has actually sized (fixes wrong initial positions)
   $("storBag").textContent=(byLoc.bag||[]).length;
@@ -2003,7 +2013,7 @@ function renderArea(){buildRail();renderAreaChips();const scene=$("storScene"),i
     const isc=(a.iconScale||1);
     if(solo){d.classList.add("solo");d.style.left="6px";d.style.top="6px";d.style.width="calc(100% - 12px)";d.style.height="calc(100% - 12px)";d.style.fontSize=(2.2*isc)+"rem";}
     else{d.style.left=(pos.x*sw)+"px";d.style.top=(pos.y*sh)+"px";d.style.width=(54*isc)+"px";d.style.height=(48*isc)+"px";d.style.fontSize=(1.3*isc)+"rem";}
-    const fi=(byLoc[loc]||[]).find(i=>i.img);   // FACE = the first item's photo (2026-10-18, L: "a picture of the first item ... click opens the list")
+    const fi=sortByOrder((byLoc[loc]||[]).slice(),loc).find(i=>i.img);   // first in YOUR arranged order   // FACE = the first item's photo (2026-10-18, L: "a picture of the first item ... click opens the list")
     d.innerHTML=(fi?'<img class="vzimg" src="'+esc(fi.img)+'" alt="" onerror="this.remove()">':'')+'<span class="nm">'+esc(m.label)+'</span><span class="cnt'+(n?"":" zero")+'">'+n+'</span>';d.title=m.label+" · "+n+" item"+(n===1?"":"s");
     makeContainerDrag(d,loc,scene,img,a);scene.appendChild(d);}
   for(const sub of nestedIn(curArea)){const pos=posOf(sub,curArea),n=countIn(sub),sa=AREAS[sub]||{};
@@ -2388,9 +2398,9 @@ function renderPanel(){if(!$("overlay").classList.contains("open"))return;
   selSet.forEach(it=>{if(items.indexOf(it)<0)selSet.delete(it);});
   g.classList.toggle("ptiles",PV&&!PI&&!invQ);
   if(PV&&!PI&&!invQ){const tiles=invPlace==null?[...placeList().map(pl=>({ic:placeIcon(pl),nm:placeLabel(pl),n:placeCount(pl),go:()=>goPlace(pl),keep:1})),{ic:"📋",nm:"All",n:invCount(ALL_LOC),keep:1,go:()=>{invPlace=ALL_LOC;invArea=ALL_LOC;openPlace=undefined;selSet.clear();selItem=null;renderPanel();}}]
-      :containersIn(invPlace).map(c=>({k:c,ic:invIcon(c),nm:invLabel(c),n:invCount(c),go:()=>{invArea=c;openPlace=c;renderPanel();}}));
+      :containersIn(invPlace).map(c=>({k:c,img:(sortByOrder((byLoc[c]||[]).slice(),c).find(i=>i.img)||{}).img,ic:invIcon(c),nm:invLabel(c),n:invCount(c),go:()=>{invArea=c;openPlace=c;renderPanel();}}));
     const empty=tiles.filter(t=>!t.n).length;tiles.splice(0,tiles.length,...tiles.filter(t=>t.n||t.keep));   // empty ones stay as chips above (drop targets), not tiles
-    for(const t of tiles){const d=document.createElement("div");d.className="it ptile";if(t.k)d.dataset.drop=t.k;d.innerHTML=`<span class="pi">${t.ic}</span><span class="pn">${esc(t.nm)}</span><span class="qn">${t.n}</span>`;d.addEventListener("click",t.go);g.appendChild(d);}
+    for(const t of tiles){const d=document.createElement("div");d.className="it ptile";if(t.k)d.dataset.drop=t.k;d.innerHTML=`<span class="pi">${t.img?`<img src="${esc(t.img)}" alt="" style="width:2.6em;height:2.6em;object-fit:contain;mix-blend-mode:multiply">`:t.ic}</span><span class="pn">${esc(t.nm)}</span><span class="qn">${t.n}</span>`;d.addEventListener("click",t.go);g.appendChild(d);}
     if(!tiles.length)g.innerHTML='<div class="empty" style="grid-column:1/-1">— empty —</div>';
     $("invTo").innerHTML="";$("dcard").classList.remove("show");$("phint").textContent=(invPlace==null?"Pick a place":"Pick a container")+(empty?` · ${empty} empty not shown`:"");return;}
   if(!items.length)g.innerHTML=invQ?'<div class="empty" style="grid-column:1/-1">— nothing matches —</div>':'<div class="empty" style="grid-column:1/-1">— empty —</div>';
