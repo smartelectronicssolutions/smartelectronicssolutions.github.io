@@ -349,6 +349,7 @@
 .dropbar{position:fixed;left:50%;top:8px;transform:translateX(-50%);z-index:5900;max-width:min(96vw,900px);display:flex;flex-wrap:wrap;gap:6px;justify-content:center;padding:8px 10px;background:#f7d9a4;border:2px solid #7a3f1a;border-radius:9px;box-shadow:0 6px 18px rgba(0,0,0,.45)}
 .dropbar .achip{cursor:default}
 .it.lifting{opacity:.35}
+.bagdock{border-top:3px solid #7a3f1a;background:rgba(122,63,26,.08);padding:6px 10px 8px;max-height:38vh;overflow:auto}.bagdock .bdh{font-weight:700;color:#3a1c08;font-size:.85rem;margin-bottom:6px;display:flex;gap:8px;align-items:baseline}.bagdock .bdhint{font-weight:400;font-size:.72rem;opacity:.7;margin-left:auto}#pBag.on{background:#e8b51a!important}
 .hitgrp{display:inline-flex;align-items:center;gap:4px;padding:2px 6px;border:2px solid #e24a3a;border-radius:7px;background:rgba(226,74,58,.12)}.hitgrp .hitl{font-weight:700;color:#8a2a22;font-size:.75rem;margin-right:2px}.hitgrp .tbtn{min-width:2.4em;padding:4px 6px}
 #roomB.switch{cursor:pointer;pointer-events:auto;z-index:5}#roomB.switch::before{content:"💡 ";filter:grayscale(1) brightness(.7)}#roomB.switch.lit::before{filter:none}#roomB.lit{box-shadow:inset 0 2px 0 #d98a4a,0 0 10px 2px rgba(255,214,120,.65)!important}
 #selLabel .rn{cursor:text;border-bottom:1px dashed currentColor}#selLabel .rnh{opacity:.7;font-weight:400}
@@ -427,6 +428,7 @@
   <div class="storbar" id="invAreas"></div>
   <div class="invsearch"><input id="invQ" type="search" placeholder="🔍 Search all your items…" autocomplete="off" spellcheck="false"></div>
   <div class="invbody"><div class="allgrid" id="invGrid"></div></div>
+  <div class="bagdock" id="bagDock" style="display:none"><div class="bdh">🎒 Backpack <b id="bagDockN">0</b><span class="bdhint">drag items up or down to move them</span></div><div class="allgrid" id="bagGrid"></div></div>
   <div class="invfoot" id="invFoot">
     <div class="dcard" id="dcard"><img id="dImg" alt="" title="Tap to enlarge" style="cursor:zoom-in"><div style="flex:1;min-width:0"><div class="dn" id="dName"></div><div class="dm" id="dMeta"></div></div><button class="tbtn" id="dEdit" style="display:none">✎ Edit</button></div>
     <div class="storbar invto" id="invTo"></div>
@@ -704,7 +706,7 @@ onValue(ref(db,BASE+"/money/inventory"),snap=>{const tree=snap.val()||{};const a
 function syncRoomName(loc,name){if(!loc||!name)return;const upd={};for(const it of ITEMS){if(it.loc===loc&&it.room!==name){upd[`${it.cat}/${it.comp}/${it.name}/room`]=name;it.room=name;}}
   if(Object.keys(upd).length)update(ref(db,BASE+"/money/inventory"),upd).catch(e=>console.warn(e));}
 function moveItem(it,newLoc){const base=`${it.cat}/${it.comp}/${it.name}`;it.loc=newLoc;const upd={[base+"/location"]:newLoc};
-  if(newLoc!=="bag"){const lbl=locMeta(newLoc).label;it.room=lbl;upd[base+"/room"]=lbl;}   // sync the inventory-app 'room' field so the move shows there too
+  if(newLoc!=="bag"){const lbl=locMeta(newLoc).label;it.room=lbl;upd[base+"/room"]=lbl;}else{it.room=null;upd[base+"/room"]=null;}   // into the bag = no room (a stale "Flex Top" stuck after a round trip, 2026-10-18)   // sync the inventory-app 'room' field so the move shows there too
   update(ref(db,BASE+"/money/inventory"),upd).catch(e=>console.warn(e));rebuild();}
 // ===== economy (ledger-driven wallet, all on public/loadout/ledger) =====
 let BAL=0;
@@ -1539,7 +1541,7 @@ function render(){const R=ROOMS[room];
   for(const e of ents){if(e.t==="d")drawDecorItem(e.d);else if(e.t==="p")drawPlace(e.k,e.p);else if(e.t==="npc")drawNPC(e.id);else if(e.t==="fx")drawFixture(e.id);else drawPlayer();}
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b74",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b75",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
@@ -2380,12 +2382,18 @@ var invQ="";
 function invMatch(i){if(!invQ)return true;const h=(i.name+" "+(i.part||"")+" "+(i.description||"")+" "+i.cat+" "+i.comp+" "+(i.loc==="bag"?"backpack":invLabel(i.loc))).toLowerCase();return invQ.split(/\s+/).every(w=>h.indexOf(w)>=0);}
 // QUICK SWITCH (2026-10-18, L: "in the container view show the backpack button up top to quick switch"): 🎒 jumps to the
 // backpack; from the backpack the same button jumps straight back to the container you came from.
-var bagPrev=null;   // {a: invArea, p: invPlace} of the view you came from
-function bagSwitch(){if(invArea==="bag"){if(!bagPrev)return;const pv=bagPrev;openPanelFor(pv.a===PLACES_VIEW?PLACES_VIEW:pv.a);if(pv.a===PLACES_VIEW){invPlace=pv.p;openPlace=undefined;renderPanel();}}
-  else{bagPrev={a:invArea,p:invPlace};openPanelFor("bag");}}
-function prevLabel(){if(!bagPrev)return"";return bagPrev.a===PLACES_VIEW?(bagPrev.p==null?"Inventory":placeLabel(bagPrev.p)):invLabel(bagPrev.a);}
-function paintBagBtn(){const b=$("pBag");if(!b)return;const inBag=invArea==="bag",back=inBag&&bagPrev&&bagPrev.a!=="bag";
-  b.style.display=(inBag&&!back)||invQ?"none":"";b.textContent=inBag?"↩ "+prevLabel():"🎒 Backpack "+invCount("bag");}
+// BACKPACK DOCK (2026-10-18, L: "when I open backpack can it grid downward instead of a new window, so I can drag to transfer"):
+// in any container / place view the 🎒 button opens the backpack as a second grid UNDER the items; drag between the two.
+var bagDock=false;try{bagDock=localStorage.getItem("loadout:bagdock")==="1";}catch(e){}
+function bagSwitch(){bagDock=!bagDock;try{localStorage.setItem("loadout:bagdock",bagDock?"1":"0");}catch(e){}renderPanel();}
+function paintBagBtn(){const b=$("pBag");if(!b)return;const inBag=invArea==="bag";b.style.display=inBag?"none":"";
+  b.textContent=(bagDock?"▾ ":"🎒 ")+"Backpack "+invCount("bag");b.classList.toggle("on",bagDock&&!inBag);renderBagDock(bagDock&&!inBag);}
+function renderBagDock(on){const dk=$("bagDock");if(!dk)return;dk.style.display=on?"":"none";if(!on)return;dk.dataset.drop="bag";
+  const bg=$("bagGrid"),items=sortByOrder((byLoc.bag||[]).slice(),"bag");$("bagDockN").textContent=items.length;bg.innerHTML="";
+  if(!items.length)bg.innerHTML='<div class="empty" style="grid-column:1/-1">— backpack is empty · drag items here —</div>';
+  for(const it of items){const d=document.createElement("div");d.className="it";d.dataset.ikey=ikey(it);d.title=it.name+" · Backpack";
+    d.innerHTML=(it.img?`<img src="${esc(it.img)}" alt="${esc(it.name)}" onerror="imgFail(this)">`:`<div class="empty" style="position:absolute;inset:3px;padding:2px;line-height:1.12;word-break:break-word;overflow:hidden;display:flex;align-items:center;justify-content:center;text-align:center">${esc(it.name)}</div>`)+((it.qty||0)>1?`<span class="qn">${it.qty}</span>`:"");
+    d.addEventListener("click",()=>{showDetail(it);$("dMeta").textContent=it.cat+" · "+it.comp+" · in Backpack";});itemDrag(d,it);bg.appendChild(d);}}
 function renderPanel(){if(!$("overlay").classList.contains("open"))return;try{paintBagBtn();}catch(e){}
   const k=invArea,PV=k===PLACES_VIEW;if(invPlace==null&&!PV)invPlace=(k===ALL_LOC||k==="bag")?k:placeOf(k);
   const PI=PV&&invPlace!=null;   // inside a location, showing all of its items
@@ -2407,6 +2415,7 @@ function renderPanel(){if(!$("overlay").classList.contains("open"))return;try{pa
   bar.style.display=bar.childNodes.length?"":"none";
   const g=$("invGrid"),items=invQ?ITEMS.filter(i=>(i.qty||0)>=1&&invMatch(i)):k===ALL_LOC?ITEMS.filter(i=>(i.qty||0)>=1):PI?ITEMS.filter(i=>(i.qty||0)>=1&&placeOf(i.loc)===invPlace):sortByOrder((byLoc[k]||[]).slice(),k);g.innerHTML="";
   if(!invQ&&k!==ALL_LOC&&!PI&&!(PV&&!PI))g.dataset.loc=k;else delete g.dataset.loc;
+  {const ib=g.parentElement;if(ib){if(g.dataset.loc&&k!=="bag")ib.dataset.drop=k;else delete ib.dataset.drop;}}
   selSet.forEach(it=>{if(items.indexOf(it)<0)selSet.delete(it);});
   g.classList.toggle("ptiles",PV&&!PI&&!invQ);
   if(PV&&!PI&&!invQ){const tiles=invPlace==null?[...placeList().map(pl=>({ic:placeIcon(pl),nm:placeLabel(pl),n:placeCount(pl),go:()=>goPlace(pl),keep:1})),{ic:"📋",nm:"All",n:invCount(ALL_LOC),keep:1,go:()=>{invPlace=ALL_LOC;invArea=ALL_LOC;openPlace=undefined;selSet.clear();selItem=null;renderPanel();}}]
