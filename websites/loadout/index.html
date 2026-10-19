@@ -932,10 +932,7 @@ function drawHoodGround(){const W=worldW(),H=worldH(),A=HOOD.ave,M=STREET_ROAD,r
   {const D=HOOD.pond;ctx.fillStyle="#3b6f9a";ctx.beginPath();ctx.ellipse(D.x,D.y+4,D.rx+6,D.ry+6,0,0,7);ctx.fill();ctx.fillStyle="#4a8cc2";ctx.beginPath();ctx.ellipse(D.x,D.y,D.rx,D.ry,0,0,7);ctx.fill();
    for(const [dx,dy] of [[-40,-12],[34,10],[-12,18],[44,-16]]){ctx.fillStyle="#4f9a3a";ctx.beginPath();ctx.arc(D.x+dx,D.y+dy,7,.4,6);ctx.lineTo(D.x+dx,D.y+dy);ctx.fill();}}
   // gas station: lot, canopy centred over two pumps, kiosk on the right, stalls along the front
-  {const G=HOOD.gas,cc=G.x+150;px(G.x,G.y,G.w,G.h,"#7d8087");for(let x=G.x+20;x<G.x+G.w-10;x+=44)px(x,G.y+G.h-34,3,26,"#e7e7e7");
-   px(cc-110,G.y+18,220,14,"#c8402e");px(cc-104,G.y+32,6,40,"#9a9a9a");px(cc+98,G.y+32,6,40,"#9a9a9a");
-   for(const gx of [cc-60,cc+40]){px(gx,G.y+52,20,30,"#c8402e");px(gx+4,G.y+56,12,8,"#1e2a33");px(gx+4,G.y+70,12,3,"#f2d27a");}
-   px(G.x+306,G.y+30,100,70,"#d8d2c4");px(G.x+306,G.y+30,100,8,"#c8402e");px(G.x+344,G.y+70,24,30,"#5e3a24");px(G.x+316,G.y+48,18,14,"#7fb3cf");px(G.x+378,G.y+48,18,14,"#7fb3cf");
+  {const G=HOOD.gas,cc=G.x+150;{const sm=ctx.imageSmoothingEnabled;ctx.imageSmoothingEnabled=false;ctx.drawImage(gasArt(),G.x,G.y,G.w,G.h);ctx.imageSmoothingEnabled=sm;}
    if(showLbl(cc,G.y+70)){ctx.fillStyle="#fff";ctx.font="bold 9px 'Pixelify Sans',monospace";ctx.textAlign="center";ctx.fillText("FUEL · E TO FILL",cc,G.y+28);ctx.textAlign="left";}else lblDot(cc,G.y+25);}}
 function drawHoodProps(){}   // props are catalog items (see OUTDOOR PROPS AS ITEMS)
 function hoodSolids(){HOOD_SOLID.length=0;const D=HOOD.pond,G=HOOD.gas,cc=G.x+150;
@@ -1466,7 +1463,7 @@ function render(){const R=ROOMS[room];
   for(const e of ents){if(e.t==="d")drawDecorItem(e.d);else if(e.t==="p")drawPlace(e.k,e.p);else if(e.t==="npc")drawNPC(e.id);else if(e.t==="fx")drawFixture(e.id);else drawPlayer();}
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b58",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b59",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
@@ -1571,12 +1568,59 @@ function drawGate(x,y,w,h,label){
   ctx.fillStyle="#e8c05a";ctx.beginPath();ctx.arc(x+w-6,y+h/2,2.2,0,7);ctx.fill(); // knob
   if(!showLbl(x+w/2,y+h/2)){lblDot(x+w/2,fy-2);return;}
   ctx.fillStyle="#f2a541";ctx.font="8px 'Pixelify Sans',monospace";ctx.textAlign="center";ctx.fillText("▾ "+label,x+w/2,fy+2);ctx.textAlign="left";}
+// SHOP + GAS STATION ART (2026-10-18, L: "update the shop and gas station"): same pack style as the houses - painted once
+// into small art canvases (one art px = 2 world px), dark outline, 4-shade ramps, then cached. Same footprints + hitboxes.
+function artOutline(g,w,h,r,gg,b){const im=g.getImageData(0,0,w,h),d=im.data,o=new Uint8ClampedArray(d);const A=(x,y)=>x>=0&&y>=0&&x<w&&y<h&&d[(y*w+x)*4+3]>40;
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){if(A(x,y))continue;if(A(x+1,y)||A(x-1,y)||A(x,y+1)||A(x,y-1)){const i=(y*w+x)*4;o[i]=r;o[i+1]=gg;o[i+2]=b;o[i+3]=255;}}
+  g.putImageData(new ImageData(o,w,h),0,0);}
+let _shopC=null,_gasC=null;
+function shopArt(){if(_shopC)return _shopC;const c=document.createElement("canvas");c.width=64;c.height=48;const g=c.getContext("2d");const P=(x,y,w,h,col)=>{g.fillStyle=col;g.fillRect(x,y,w,h);};
+  // brick walls
+  P(2,14,60,32,"#8a4a3a");for(let y=15;y<46;y+=3){P(2,y,60,1,"#6e3a2e");for(let x=2+((y/3)%2?0:3);x<62;x+=6)P(x,y+1,1,2,"#6e3a2e");}P(2,14,1,32,"#a0604c");P(61,14,1,32,"#5e3128");
+  P(2,44,60,2,"#5f5a52");P(2,44,60,1,"#8d887f");                                               // footing
+  // sign board + bag icon
+  P(18,2,28,8,"#3a2418");P(19,3,26,6,"#f2d27a");P(19,3,26,1,"#ffe9a8");P(29,4,6,4,"#c8402e");P(30,3,4,1,"#7a1f1a");P(31,5,2,1,"#f4f1e8");
+  // striped awning with a scalloped edge
+  for(let x=0;x<64;x++){const red=((x/4)|0)%2===0;for(let y=10;y<16;y++)P(x,y,1,1,red?(y<11?"#d65a4a":"#b23b3b"):(y<11?"#ffffff":"#e8e8e8"));}
+  for(let x=0;x<64;x+=4)P(x+1,16,2,1,((x/4)|0)%2===0?"#8a2a2a":"#c9ced6");
+  // two display windows with goods
+  for(const wx of [6,42]){P(wx,20,16,13,"#f4f1e8");P(wx+1,21,14,11,"#6fa5c4");P(wx+1,21,14,3,"#a9d2e6");for(let k=0;k<3;k++)P(wx+2+k,24-k,1,1,"#cfe8f4");
+    P(wx+2,28,3,4,"#e8b51a");P(wx+6,27,3,5,"#3fd07a");P(wx+10,29,4,3,"#c8402e");P(wx,33,16,1,"#d9d2bf");}
+  // glass door + handle + mat
+  P(25,24,14,20,"#f4f1e8");P(26,25,12,19,"#4d6c86");P(26,25,12,3,"#7fa3c0");P(31,25,1,19,"#f4f1e8");P(29,34,1,3,"#c9ced6");P(33,34,1,3,"#c9ced6");P(24,44,16,2,"#7a3f34");
+  // little planters
+  for(const px0 of [2,56]){P(px0,40,6,4,"#6b4426");P(px0,37,6,3,"#3a7a33");P(px0+1,36,2,1,"#5ea347");}
+  artOutline(g,64,48,30,18,12);return _shopC=c;}
+function gasArt(){if(_gasC)return _gasC;const W=218,H=125,c=document.createElement("canvas");c.width=W;c.height=H;const g0=c.getContext("2d");let g=g0;const P=(x,y,w,h,col)=>{g.fillStyle=col;g.fillRect(x,y,w,h);};
+  let sd=11;const rnd=()=>((sd=(sd*16807)%2147483647)/2147483647);
+  // asphalt lot: speckle + oil stains + curb
+  P(0,0,W,H,"#6f7279");for(let i=0;i<700;i++)P(rnd()*W|0,rnd()*H|0,1,1,rnd()<.5?"#62656c":"#7b7e85");
+  for(const [ox,oy] of [[48,44],[98,46],[30,95],[150,100]]){g.fillStyle="rgba(30,30,36,.35)";g.beginPath();g.ellipse(ox,oy,7,3,0,0,7);g.fill();}
+  P(0,0,W,2,"#9a9da3");P(0,H-2,W,2,"#55585e");
+  // parking stalls along the front
+  for(let x=10;x<W-5;x+=22){P(x,H-17,2,13,"#e7e7e7");}P(10,H-5,W-15,1,"#e7e7e7");
+  const o=document.createElement("canvas");o.width=W;o.height=H;g=o.getContext("2d");   // objects on their own layer so only they get outlined
+  // pump islands + pumps (under the canopy)
+  for(const ix of [45,95]){P(ix-6,38,22,6,"#a3a9b2");P(ix-6,38,22,1,"#c9ced6");P(ix-6,43,22,1,"#565b63");
+    P(ix,24,10,15,"#c8402e");P(ix,24,10,2,"#e0604a");P(ix+9,24,1,15,"#8a2a22");P(ix+2,27,6,4,"#1e2a33");P(ix+3,28,2,1,"#3fd07a");P(ix+2,33,6,1,"#f2d27a");
+    P(ix+10,28,1,6,"#2a2c31");P(ix+11,33,2,2,"#2a2c31");}                                         // hose + nozzle
+  // canopy: pillars, red fascia with a white band, lit underside
+  for(const cx of [22,126]){P(cx,15,4,24,"#a3a9b2");P(cx,15,1,24,"#c9ced6");P(cx+3,15,1,24,"#7a8089");}
+  P(18,7,114,3,"#f4f1e8");P(18,10,114,5,"#c8402e");P(18,10,114,1,"#e0604a");P(18,14,114,1,"#8a2a22");P(18,8,114,1,"#ffffff");
+  for(let x=24;x<128;x+=20)P(x,15,8,1,"#fff6cf");                                                // lights on the underside
+  // kiosk on the right
+  P(153,15,50,35,"#e6dfcf");P(153,15,50,1,"#f7f1e2");P(202,15,1,35,"#b9b2a2");
+  P(151,11,54,5,"#c8402e");P(151,11,54,1,"#e0604a");P(151,15,54,1,"#8a2a22");
+  for(const wx of [157,187]){P(wx,22,12,9,"#f4f1e8");P(wx+1,23,10,7,"#6fa5c4");P(wx+1,23,10,2,"#a9d2e6");P(wx+2,26,1,1,"#cfe8f4");}
+  P(172,32,12,18,"#5e3a24");P(172,32,12,1,"#7d5232");P(173,33,10,7,"#4d6c86");P(181,42,1,2,"#f2d27a");
+  P(158,40,9,9,"#e8ebef");P(158,40,9,2,"#9fd0f0");P(159,43,7,1,"#b9bfc7");                           // ice chest
+  P(153,48,50,2,"#8d887f");
+  // price sign by the road
+  P(6,4,2,26,"#565b63");P(1,2,12,12,"#1b1c20");P(2,3,10,10,"#c8402e");P(3,5,8,2,"#f2d27a");P(3,9,8,2,"#f2d27a");
+  artOutline(g,W,H,24,22,20);g0.drawImage(o,0,0);return _gasC=c;}
 function drawShop(){const x=SHOP_RECT.x,y=SHOP_RECT.y;
-  ctx.fillStyle="rgba(0,0,0,.28)";ctx.beginPath();ctx.ellipse(x+60,y+92,60,7,0,0,7);ctx.fill();
-  px(x,y+30,120,62,"#6a5a48");px(x,y+30,120,4,"#8a7a64");px(x,y+86,120,6,"#4a3e30");
-  px(x-4,y+14,128,18,"#b23b3b");for(let i=0;i<8;i++)px(x-4+i*16,y+14,8,18,"#e8e8e8");
-  px(x+46,y+58,30,34,"#3a2d22");px(x+58,y+74,3,3,"#f2d27a");
-  px(x+12,y+44,26,20,"#8fb8d0");px(x+84,y+44,26,20,"#8fb8d0");
+  ctx.fillStyle="rgba(0,0,0,.28)";ctx.beginPath();ctx.ellipse(x+60,y+92,62,7,0,0,7);ctx.fill();
+  {const sm=ctx.imageSmoothingEnabled;ctx.imageSmoothingEnabled=false;ctx.drawImage(shopArt(),x-4,y-4,128,96);ctx.imageSmoothingEnabled=sm;}
   if(!showLbl(x+60,y+70)){lblDot(x+60,y+8);return;}
   ctx.font="8px 'Pixelify Sans',monospace";ctx.textAlign="center";ctx.lineWidth=3;ctx.strokeStyle="#3a1c08";ctx.strokeText("▾ "+slab("shop","SHOP"),x+60,y+10);ctx.fillStyle="#ffe9b8";ctx.fillText("▾ "+slab("shop","SHOP"),x+60,y+10);}
 function drawDoor(d){if(d.to==="van"||!editMode)return;const SZ=24;const h=doorHitRect(d);const cx=h.x+h.w/2,cy=h.y+h.h/2,x=Math.round(cx-SZ/2),y=Math.round(cy-SZ/2);ctx.fillStyle="#08080b";ctx.fillRect(x,y,SZ,SZ);ctx.strokeStyle="rgba(110,190,255,.55)";ctx.lineWidth=1;ctx.strokeRect(x+.5,y+.5,SZ-1,SZ-1);}
