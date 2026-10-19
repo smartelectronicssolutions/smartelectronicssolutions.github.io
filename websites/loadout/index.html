@@ -450,7 +450,7 @@
   var hud=document.querySelector("header .hudR");if(hud)swipeRow(hud,"hudwrap");
 })();</script>
   <div class="floorpick" id="floorPick"></div>
-  <div class="controls">🎮 controller: stick walk · <span class="k">A</span> use · <span class="k">B</span> back · <span class="k">X</span> backpack · <span class="k">Y</span> tickets · <span class="k">LB/RB</span> hotbar<br>Move <span class="k">WASD</span>/<span class="k">arrows</span> or <b>tap to walk</b> · step through a <b>doorway</b> · <span class="k">E</span> at a crate</div>
+  <div class="controls">🎮 controller: stick walk · <span class="k">A</span> use · <span class="k">B</span> back · <span class="k">X</span> backpack · <span class="k">Y</span> tickets · <span class="k">LB/RB</span> hotbar<br>Move <span class="k">WASD</span>/<span class="k">arrows</span> or <b>tap to walk</b> · hold <span class="k">Shift</span> to run · step through a <b>doorway</b> · <span class="k">E</span> at a crate</div>
   <div class="touch">
     <div class="dpad"><span></span><div class="dbtn" data-d="up">▲</div><span></span>
       <div class="dbtn" data-d="left">◀</div><span></span><div class="dbtn" data-d="right">▶</div>
@@ -1399,6 +1399,8 @@ addEventListener("keydown",e=>{if(e.code==="Escape"){var _cl=false;var yc=$("yuk
   if((e.code==="KeyE"||e.code==="Enter")&&!isOpen()&&!editMode){tryOpen();e.preventDefault();return;}
   if(MAP[e.code]){keys.add(MAP[e.code]);e.preventDefault();}});
 addEventListener("keyup",e=>{if(MAP[e.code])keys.delete(MAP[e.code]);});
+/* RUN (b117, L 2026-10-19: "can I add a shift hold to run"): hold Shift (or click the left stick on a controller) = 1.75x speed. Not while editing - Shift+arrows nudge stop zones there. */
+var RUN=false,_runPad=false;addEventListener("keydown",e=>{if(e.key==="Shift"&&!editMode)RUN=true;});addEventListener("keyup",e=>{if(e.key==="Shift"){RUN=_runPad;}});addEventListener("blur",()=>{RUN=false;});
 document.querySelectorAll(".dbtn").forEach(b=>{const d=b.dataset.d;
   const on=e=>{e.preventDefault();keys.add(d);},off=e=>{e.preventDefault();keys.delete(d);};
   b.addEventListener("touchstart",on,{passive:false});b.addEventListener("touchend",off);b.addEventListener("touchcancel",off);
@@ -1629,7 +1631,7 @@ function applyLoadoutEdits(reply){
 }
 // HOW TO PLAY - what Yuki tells anyone who asks (b114). Keep in step with the controls strip under the game.
 const YUKI_GUIDE="HOW TO PLAY LOADOUT (use this when asked):\n"+
- "- Move: WASD or arrow keys; on a phone drag anywhere on the screen like a joystick, or tap a spot to walk there. Controller: left stick.\n"+
+ "- Move: WASD or arrow keys; on a phone drag anywhere on the screen like a joystick, or tap a spot to walk there. Controller: left stick. Hold Shift (or click the left stick) to RUN.\n"+
  "- Use / open / talk: E (or Enter, or the A / E button). Walk up to a crate, a person, a desk or a shelf and press E. E closes it again.\n"+
  "- Change rooms: just walk through a doorway or a house's front door. Out on the street, step onto the GLADE gate up north.\n"+
  "- Backpack: the bar of slots under the game; tap a slot, or press B / Tab. On a controller LB / RB move along it; scroll it with the mouse wheel or a swipe.\n"+
@@ -1644,7 +1646,7 @@ const sys="You are "+yukiName+", a warm, playful, slightly shy fairy companion i
 (function(){var b=$("yukiBtn");if(b)b.onclick=function(){yukiOpen(true);};var cl=$("yukiClose");if(cl)cl.onclick=function(){yukiOpen(false);};var sb=$("yukiSendBtn");if(sb)sb.onclick=yukiSend;var inp=$("yukiInput");if(inp)inp.addEventListener("keydown",function(e){if(e.key==="Enter"){e.preventDefault();yukiSend();}});addEventListener("keydown",function(e){if(e.key==="Escape"){var yc=$("yukiChat");if(yc&&yc.style.display==="flex"){e.stopImmediatePropagation();yukiOpen(false);return;}}if((e.key==="c"||e.key==="C")&&!isTypingEl()){var c=$("yukiChat");yukiOpen(!(c&&c.style.display==="flex"));}});if(typeof cv!=="undefined")cv.addEventListener("pointerdown",function(e){var r=cv.getBoundingClientRect();var cx=(e.clientX-r.left)*(cv.width/r.width),cy=(e.clientY-r.top)*(cv.height/r.height);if(Math.hypot(cx-fairy.x,cy-fairy.y)<20&&matchMedia("(pointer:coarse)").matches){e.stopPropagation();e.preventDefault();yukiOpen(true);}},true);})();
 function unstick(){if(editMode||transing)return;if(!blocked(player.x,player.y))return;const pgx=Math.floor(player.x/CELL),pgy=Math.floor(player.y/CELL);for(let r=1;r<=48;r++){for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++){if(Math.max(Math.abs(dx),Math.abs(dy))!==r)continue;const cx=(pgx+dx+0.5)*CELL,cy=(pgy+dy+0.5)*CELL;if(!blocked(cx,cy)){player.x=cx;player.y=cy;moveTarget=null;return;}}}}
 let gpDriving=false,gpPrev={};
-function pollGamepad(){const pads=navigator.getGamepads?navigator.getGamepads():[];let gp=null;for(const p of pads){if(p){gp=p;break;}}
+function pollGamepad(){const pads=navigator.getGamepads?navigator.getGamepads():[];let gp=null;try{for(const q of pads){if(q&&q.buttons&&q.buttons[10]){const was=_runPad;_runPad=!!q.buttons[10].pressed;if(_runPad!==was)RUN=_runPad;break;}}}catch(e){}for(const p of pads){if(p){gp=p;break;}}
  if(!gp){if(gpDriving){joy=null;gpDriving=false;}return;}
  let ax=gp.axes[0]||0,ay=gp.axes[1]||0;const bp=(i)=>gp.buttons[i]&&gp.buttons[i].pressed;
  if(bp(14))ax=-1;else if(bp(15))ax=1;if(bp(12))ay=-1;else if(bp(13))ay=1;
@@ -1772,7 +1774,7 @@ function step(dt){let dx=0,dy=0;
     // FACING HYSTERESIS (2026-09-28): keep the current facing until the other axis leads by 25% - a near-diagonal used to flip
     // up/side every frame (joystick + tap-to-walk made it look like a flicker)
     if(side?(ay>ax*1.25):(ax<=ay*1.25)){player.dir=dy<0?"up":"down";}else{player.dir=dx<0?"left":"right";}
-    const l=Math.hypot(dx,dy)||1;dx/=l;dy/=l;const nx=player.x+dx*player.speed*dt,ny=player.y+dy*player.speed*dt;const px=player.x,py=player.y;
+    const l=Math.hypot(dx,dy)||1;dx/=l;dy/=l;const _sp=player.speed*(RUN?1.75:1);const nx=player.x+dx*_sp*dt,ny=player.y+dy*_sp*dt;const px=player.x,py=player.y;
     if(!blocked(nx,player.y))player.x=nx;if(!blocked(player.x,ny))player.y=ny;
     if(moveTarget&&Math.abs(player.x-px)<0.02&&Math.abs(player.y-py)<0.02){if(moveTarget.openKey&&nearPlace()===moveTarget.openKey){const ok=moveTarget.openKey;moveTarget=null;openContainer(ok);}else moveTarget=null;}
     const moved=Math.abs(player.x-px)>0.01||Math.abs(player.y-py)>0.01;
@@ -1812,7 +1814,7 @@ function render(){const R=ROOMS[room];
   for(const t of things)if(!done.has(t))draw(t);
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b116",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b117",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
