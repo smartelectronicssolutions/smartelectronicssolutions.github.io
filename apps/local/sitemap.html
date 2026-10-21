@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.2">
+    <meta name="version" content="1.0.3">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Site Map</title>
     <!-- SITE MAP (2026-10-21, L: "quickly parse a site's structure to see what they have available... something that shows the
@@ -46,6 +46,17 @@
         .sm-imgs .n { position: absolute; right: 2px; bottom: 2px; font-size: 10px; line-height: 14px; background: rgba(0,0,0,.7); color: #fff; border-radius: 8px; padding: 0 5px; }
         .sm-imgs.sm-small img { width: 40px; height: 40px; }
         .sm-imgs-head { font-size: 13px; opacity: .75; margin: 6px 0 0; }
+        /* URL PROBE (2026-10-21, L: "combine Site Loader + Dynamic URL Generator into the mapper, a type of url probing") */
+        .sm-probe { margin: 6px 0 10px; }
+        .sm-probe summary { cursor: pointer; font-size: 14px; opacity: .85; }
+        .sm-probe textarea { width: 100%; min-height: 84px; box-sizing: border-box; padding: 8px 10px; font: inherit; font-family: ui-monospace, Consolas, monospace; font-size: 14px; margin: 8px 0 0; }
+        .sm-probe .hint { font-size: 12px; opacity: .65; margin: 4px 0 6px; }
+        .sm-probe table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+        .sm-probe th, .sm-probe td { text-align: left; padding: 5px 6px; border-bottom: 1px solid rgba(128,128,128,.3); vertical-align: top; word-break: break-all; }
+        .sm-probe td.st { font-weight: 700; white-space: nowrap; }
+        .sm-probe .ok { color: #2e9e5b; } .sm-probe .redir { color: #c58a1b; } .sm-probe .miss { opacity: .55; } .sm-probe .bad { color: #e05555; }
+        .sm-probe td .meta { display: block; font-size: 11px; opacity: .65; }
+        .sm-probe td a { margin-right: 6px; }
         .sm-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
         pre.sm-out { white-space: pre-wrap; word-break: break-word; font-size: 12px; max-height: 50vh; overflow: auto; }
     </style>
@@ -76,6 +87,18 @@
             </select>
             <button id="sm-go">Map it</button>
         </div>
+        <details class="sm-probe" id="sm-probe">
+            <summary>URL probe - try paths and see what answers</summary>
+            <textarea id="sm-probe-list" placeholder="one path per line, relative to the site above (or full URLs)&#10;admin/&#10;page{1-10}.html&#10;{wp-admin,login,api,sitemap.xml}&#10;files/{rand6}.pdf" spellcheck="false"></textarea>
+            <div class="hint">{1-10} counts, {01-10} keeps the zeros, {a,b,c} picks each, {rand6} = 6 random letters/digits. Up to 40 URLs a go.</div>
+            <div class="sm-row">
+                <select id="sm-probe-repeat" title="how many times to roll each {rand} line"><option value="1">rand x1</option><option value="5">rand x5</option><option value="10">rand x10</option><option value="20">rand x20</option></select>
+                <button id="sm-probe-go">Probe</button>
+                <button id="sm-probe-copy" hidden>Copy results</button>
+                <span id="sm-probe-status" class="sm-note"></span>
+            </div>
+            <div id="sm-probe-out"></div>
+        </details>
         <div id="sm-status" class="sm-note"></div>
         <div id="sm-summary" class="sm-chips"></div>
         <div id="sm-images"></div>
@@ -110,6 +133,83 @@
         }
         $("#sm-go").onclick = run;
         $("#sm-url").addEventListener("keydown", e => { if (e.key === "Enter") run(); });
+
+        // URL PROBE: patterns expand here, the fetcher probes them (POST {probe, urls}), the table shows what answered.
+        const RAND = "abcdefghijklmnopqrstuvwxyz0123456789";
+        const rnd = n => Array.from({ length: n }, () => RAND[Math.floor(Math.random() * RAND.length)]).join("");
+        function expand(line) {   // {1-10} {01-10} {a,b,c} - cartesian, capped; {randN} rolled later per repeat
+            let outs = [line];
+            for (let guard = 0; guard < 6; guard++) {
+                const next = [];
+                let grew = false;
+                for (const s of outs) {
+                    const m = s.match(/\{(\d+)-(\d+)\}|\{([^{}]*,[^{}]*)\}/);
+                    if (!m) { next.push(s); continue; }
+                    grew = true;
+                    let vals = [];
+                    if (m[1] !== undefined) {
+                        const a = parseInt(m[1], 10), b = parseInt(m[2], 10), pad = m[1].length > 1 && m[1][0] === "0" ? m[1].length : 0;
+                        for (let i = Math.min(a, b); i <= Math.max(a, b) && vals.length < 200; i++) vals.push(pad ? String(i).padStart(pad, "0") : String(i));
+                    } else vals = m[3].split(",").map(x => x.trim()).filter(Boolean);
+                    for (const v of vals) next.push(s.slice(0, m.index) + v + s.slice(m.index + m[0].length));
+                }
+                outs = next.slice(0, 200);
+                if (!grew) break;
+            }
+            return outs;
+        }
+        function buildList() {
+            const base = $("#sm-url").value.trim() || "";
+            const rep = parseInt($("#sm-probe-repeat").value, 10) || 1;
+            const urls = [];
+            for (const raw of $("#sm-probe-list").value.split("\n").map(s => s.trim()).filter(Boolean)) {
+                for (const line of expand(raw)) {
+                    const times = /\{rand\d*\}/i.test(line) ? rep : 1;
+                    for (let i = 0; i < times; i++) {
+                        const rolled = line.replace(/\{rand(\d*)\}/gi, (_, n) => rnd(parseInt(n || "6", 10)));
+                        try {
+                            const u = /^https?:\/\//i.test(rolled) ? new URL(rolled) : new URL(rolled, /^https?:\/\//i.test(base) ? base : "https://" + base);
+                            urls.push(u.href);
+                        } catch (_) {}
+                    }
+                }
+            }
+            return [...new Set(urls)];
+        }
+        let lastProbe = null;
+        async function runProbe() {
+            const urls = buildList();
+            const st = $("#sm-probe-status");
+            if (!urls.length) { st.className = "sm-note err"; st.textContent = $("#sm-url").value.trim() ? "nothing to probe - add a line" : "put the site in the box above first"; return; }
+            if (urls.length > 40) { st.className = "sm-note err"; st.textContent = `${urls.length} URLs - cap is 40, narrow the pattern`; return; }
+            $("#sm-probe-go").disabled = true; st.className = "sm-note"; st.textContent = `probing ${urls.length} ...`; $("#sm-probe-out").innerHTML = ""; $("#sm-probe-copy").hidden = true;
+            try {
+                const r = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ probe: true, urls }) });
+                const j = await r.json();
+                if (!r.ok || j.error) throw new Error(j.error || ("HTTP " + r.status));
+                lastProbe = j; renderProbe(j);
+                const hits = j.results.filter(x => x.status >= 200 && x.status < 300).length;
+                st.textContent = `${j.results.length} probed, ${hits} answered, ${j.seconds}s${j.dropped ? ` (${j.dropped} dropped over the cap)` : ""}`;
+                $("#sm-probe-copy").hidden = false;
+            } catch (e) { st.className = "sm-note err"; st.textContent = "failed: " + (e.message || e); }
+            $("#sm-probe-go").disabled = false;
+        }
+        function cls(x) { return x.error ? "bad" : x.status >= 200 && x.status < 300 ? "ok" : x.status >= 300 && x.status < 400 ? "redir" : x.status ? "miss" : "bad"; }
+        function renderProbe(j) {
+            const base = $("#sm-url").value.trim();
+            const rel = u => { try { const b = new URL(/^https?:\/\//i.test(base) ? base : "https://" + base); const x = new URL(u); return x.host === b.host ? x.pathname + x.search : u; } catch (_) { return u; } };
+            const rows = j.results.slice().sort((a, b) => (cls(a) === "ok" ? 0 : 1) - (cls(b) === "ok" ? 0 : 1) || a.url.localeCompare(b.url)).map(x => {
+                const moved = x.final && x.final.replace(/\/$/, "") !== x.url.replace(/\/$/, "") ? `<span class="meta">→ ${esc(rel(x.final))}</span>` : "";
+                const meta = [x.type, x.bytes != null ? (x.bytes > 1024 ? Math.round(x.bytes / 1024) + " KB" : x.bytes + " B") : "", x.ms + " ms"].filter(Boolean).join(" · ");
+                const can = x.status >= 200 && x.status < 300 && /html/.test(x.type || "");
+                return `<tr><td class="st ${cls(x)}">${x.error ? esc(x.error.slice(0, 40)) : x.status}</td><td><code>${esc(rel(x.url))}</code>${x.title ? `<span class="meta">${esc(x.title)}</span>` : ""}${moved}<span class="meta">${esc(meta)}</span></td><td><a href="${esc(x.final || x.url)}" target="_blank" rel="noopener noreferrer">open</a>${can ? `<a href="#" data-map="${esc(x.final || x.url)}">map</a>` : ""}</td></tr>`;
+            }).join("");
+            $("#sm-probe-out").innerHTML = `<table><thead><tr><th>status</th><th>url</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+            $("#sm-probe-out").querySelectorAll("a[data-map]").forEach(a => a.onclick = e => { e.preventDefault(); $("#sm-url").value = a.dataset.map; run(); window.scrollTo({ top: 0, behavior: "smooth" }); });
+        }
+        $("#sm-probe-go").onclick = runProbe;
+        $("#sm-probe-copy").onclick = () => lastProbe && copy(lastProbe.results.map(x => `${x.error ? "ERR " + x.error : x.status}\t${x.url}${x.final && x.final !== x.url ? " -> " + x.final : ""}\t${x.type || ""}\t${x.title || ""}`).join("\n"), "probe results");
+        try { if (new URLSearchParams(location.search).get("probe") !== null) $("#sm-probe").open = true; } catch (_) {}
 
         function chip(label, val) { return val ? `<span class="sm-chip"><b>${esc(val)}</b> ${esc(label)}</span>` : ""; }
         // a thumb strip: the images load straight from the site (no proxy); one that refuses (hotlink block) just drops out
