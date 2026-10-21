@@ -3,13 +3,14 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.0">
+    <meta name="version" content="1.0.1">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Site Map</title>
     <!-- SITE MAP (2026-10-21, L: "quickly parse a site's structure to see what they have available... something that shows the
          data type used... put it with the other local tools"). Same house style as the other apps/local pages. The browser cannot
-         read other sites (CORS), so the page asks the owner-gated fetcher on se (chat bridge /broadcast/crawl -> ops\crawl\crawl_ext.py)
-         and draws the tree here. Sign in as Luis; nothing is stored. -->
+         read other sites (CORS), so the page asks the fetcher on se (chat bridge /broadcast/crawl -> ops\crawl\crawl_ext.py)
+         and draws the tree here. Generic since 2026-10-21 (L: "I want a generic one"): no sign-in; the fetcher only reads public
+         sites on 80/443, 8 sites per visitor per 10 minutes. Nothing is stored. -->
     <link rel="stylesheet" href="../assets/css/online.css">
     <link rel="icon" href="../../favicon.ico">
     <script>
@@ -52,7 +53,7 @@
     </header>
 
     <main>
-        <p class="sm-note">Paste a site. It reads the sitemap, follows the navigation, and shows what each page is made of: headings, forms and their input types, tables and their columns, lists, cards, structured data, the APIs the scripts call. Same site only, capped, nothing stored.</p>
+        <p class="sm-note">Paste a site. It reads the sitemap, follows the navigation, and shows what each page is made of: headings, forms and their input types, tables and their columns, lists, cards, structured data, the APIs the scripts call. Public sites only, same site only, capped, nothing stored, no sign-in.</p>
         <div class="sm-row">
             <input type="url" id="sm-url" placeholder="https://example.com" autocomplete="url" inputmode="url">
             <select id="sm-depth" title="how many clicks deep from the home page">
@@ -79,22 +80,18 @@
     </main>
 
     <script type="module">
-        import { auth, onAuthStateChanged } from "../assets/js/firebase-init.js";
         const $ = s => document.querySelector(s);
         const API = "https://compman.luissolutions.us/broadcast/crawl";
         const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-        let user = null, last = null;
-        onAuthStateChanged(auth, u => { user = u; $("#sm-status").textContent = u ? "" : "sign in (any app page) - the fetcher is owner only"; });
+        let last = null;
         try { const q = new URLSearchParams(location.search).get("url"); if (q) $("#sm-url").value = q; } catch (_) {}
 
         async function run() {
             const url = $("#sm-url").value.trim(); if (!url) { $("#sm-url").focus(); return; }
-            if (!user) { $("#sm-status").className = "sm-note err"; $("#sm-status").textContent = "sign in first"; return; }
             $("#sm-go").disabled = true; $("#sm-status").className = "sm-note"; $("#sm-status").textContent = "reading " + url + " ...";
             $("#sm-summary").innerHTML = ""; $("#sm-tree").innerHTML = ""; $("#sm-actions").hidden = true;
             try {
-                const tok = await user.getIdToken();
-                const r = await fetch(`${API}?url=${encodeURIComponent(url)}&depth=${$("#sm-depth").value}&max=${$("#sm-max").value}`, { headers: { Authorization: "Bearer " + tok } });
+                const r = await fetch(`${API}?url=${encodeURIComponent(url)}&depth=${$("#sm-depth").value}&max=${$("#sm-max").value}`);
                 const j = await r.json();
                 if (!r.ok || j.error) throw new Error(j.error || ("HTTP " + r.status));
                 last = j; render(j);
