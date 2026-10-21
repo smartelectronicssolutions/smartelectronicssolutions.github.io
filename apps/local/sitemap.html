@@ -3,14 +3,17 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.3">
+    <meta name="version" content="1.0.4">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Site Map</title>
+    <title>Toolbox - Site Map</title>
     <!-- SITE MAP (2026-10-21, L: "quickly parse a site's structure to see what they have available... something that shows the
          data type used... put it with the other local tools"). Same house style as the other apps/local pages. The browser cannot
          read other sites (CORS), so the page asks the fetcher on se (chat bridge /broadcast/crawl -> ops\crawl\crawl_ext.py)
          and draws the tree here. Generic since 2026-10-21 (L: "I want a generic one"): no sign-in; the fetcher only reads public
-         sites on 80/443, 8 sites per visitor per 10 minutes. Nothing is stored. -->
+         sites on 80/443, 8 sites per visitor per 10 minutes. Nothing is stored.
+         TOOLBOX (2026-10-21, L: "like a toolbox app"): three tools on one page - Site map (views: Overview / Build / Images / Data),
+         URL probe (the old Site Loader + URL Generator), Zero writer (the old testbed zerowriter, now in the browser: File System
+         Access API picks a folder and writes zerofill_*.bin; desktop Chrome/Edge). ?probe / ?zero open a tab. -->
     <link rel="stylesheet" href="../assets/css/online.css">
     <link rel="icon" href="../../favicon.ico">
     <script>
@@ -58,20 +61,81 @@
         .sm-probe td .meta { display: block; font-size: 11px; opacity: .65; }
         .sm-probe td a { margin-right: 6px; }
         .sm-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+        /* TOOLBOX tabs + site-map views */
+        .sm-tools, .sm-views { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 12px; }
+        .sm-tools button, .sm-views button { padding: 8px 14px; font: inherit; font-size: 15px; border-radius: 16px; border: 1px solid currentColor; background: transparent; color: inherit; cursor: pointer; opacity: .75; }
+        .sm-tools button.on, .sm-views button.on { opacity: 1; font-weight: 700; background: rgba(128,128,128,.18); }
+        .sm-views button { font-size: 14px; padding: 6px 12px; }
+        .sm-tool[hidden], .sm-view[hidden] { display: none; }
+        .sm-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; margin: 8px 0; }
+        .sm-card { border: 1px solid currentColor; border-radius: 10px; padding: 10px 12px; font-size: 14px; }
+        .sm-card h3 { margin: 0 0 6px; font-size: 14px; opacity: .8; text-transform: uppercase; letter-spacing: .04em; }
+        .sm-card ul { margin: 0; padding-left: 16px; } .sm-card li { margin: 2px 0; } .sm-card .big { font-size: 22px; font-weight: 700; }
+        .sm-card code { font-size: 12px; word-break: break-all; }
+        table.sm-tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; margin: 8px 0; }
+        table.sm-tbl th, table.sm-tbl td { text-align: left; padding: 4px 5px; border-bottom: 1px solid rgba(128,128,128,.3); vertical-align: top; }
+        table.sm-tbl td.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+        table.sm-tbl td.path { word-break: break-all; max-width: 44vw; }
+        .sm-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; margin: 8px 0; }
+        .sm-gallery figure { margin: 0; border: 1px solid rgba(128,128,128,.4); border-radius: 8px; padding: 6px; font-size: 11px; overflow: hidden; }
+        .sm-gallery img { width: 100%; height: 96px; object-fit: contain; background: rgba(128,128,128,.12); border-radius: 4px; display: block; }
+        .sm-gallery figcaption { margin-top: 4px; line-height: 1.3; word-break: break-all; }
+        .sm-gallery figcaption b { display: block; font-size: 11px; }
+        .sm-gallery figcaption .dim { opacity: .7; }
+        /* MEDIA view */
+        .sm-media { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin: 8px 0; }
+        .sm-media figure { margin: 0; border: 1px solid rgba(128,128,128,.4); border-radius: 8px; padding: 6px; font-size: 12px; overflow: hidden; }
+        .sm-media video, .sm-media img.thumb { width: 100%; max-height: 150px; background: #000; border-radius: 4px; display: block; object-fit: contain; }
+        .sm-media audio { width: 100%; }
+        .sm-media figcaption { margin-top: 4px; word-break: break-all; line-height: 1.3; }
+        /* ZERO WRITER */
+        .zw-bar { height: 10px; border: 1px solid currentColor; border-radius: 6px; overflow: hidden; margin: 10px 0 6px; }
+        .zw-bar div { height: 100%; width: 0; background: currentColor; opacity: .6; transition: width .3s; }
+        .zw-stat { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; }
+        .zw-log { font-family: ui-monospace, Consolas, monospace; font-size: 12px; white-space: pre-wrap; max-height: 30vh; overflow: auto; margin-top: 8px; opacity: .85; }
+        #tool-zero label { display: block; font-size: 13px; opacity: .8; margin-top: 8px; }
+        #tool-zero input[type=text], #tool-zero input[type=number] { padding: 8px 10px; font: inherit; font-size: 16px; width: 120px; }
+        /* LOADING (2026-10-21, L: "add a loading message") */
+        .sm-loading { display: flex; align-items: center; gap: 10px; margin: 10px 0; padding: 10px 12px; border: 1px solid currentColor; border-radius: 10px; font-size: 14px; }
+        .sm-loading[hidden] { display: none; }
+        .sm-loading .spin { width: 18px; height: 18px; border: 3px solid rgba(128,128,128,.35); border-top-color: currentColor; border-radius: 50%; animation: smspin .9s linear infinite; flex: 0 0 auto; }
+        .sm-loading .bar { position: absolute; left: 0; bottom: 0; height: 3px; width: 0; background: currentColor; opacity: .5; transition: width 1s linear; }
+        .sm-loading { position: relative; overflow: hidden; }
+        .sm-loading b { font-variant-numeric: tabular-nums; }
+        @keyframes smspin { to { transform: rotate(360deg); } }
         pre.sm-out { white-space: pre-wrap; word-break: break-word; font-size: 12px; max-height: 50vh; overflow: auto; }
+        /* OVERFLOW (2026-10-21, L: "some overflow issues ... with the info that populates"): nothing populated may push the page sideways */
+        main { overflow-x: hidden; }
+        .sm-tool, .sm-view { max-width: 100%; min-width: 0; }
+        .sm-tree, .sm-page, .sm-card, .sm-chip, .sm-note, .sm-gallery figcaption, .sm-media figcaption, .sm-probe td, table.sm-tbl td, .zw-log { overflow-wrap: anywhere; }
+        .sm-page a, .sm-page code, .sm-card code, .sm-card li, .sm-probe code, table.sm-tbl code { overflow-wrap: anywhere; word-break: break-word; }
+        .sm-tree ul { padding-left: 12px; }
+        .sm-page { margin-left: 4px; }
+        .sm-scroll { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .sm-scroll table { min-width: 420px; }
+        .sm-imgs { max-width: 100%; }
+        .sm-group { margin: 14px 0 6px; padding-top: 8px; border-top: 1px solid rgba(128,128,128,.35); font-size: 14px; }
+        .sm-group b { font-weight: 700; } .sm-group .ttl { display: block; font-size: 12px; }
     </style>
 </head>
 
 <body>
     <header style="position:relative;">
         <div class="logo-box"><a href="../../index.html" title="Home"><img src="../../assets/img/android-chrome-192x192.png" alt="Home" style="height:40px;vertical-align:middle;"></a></div>
-        <h1>Site Map</h1>
+        <h1>Toolbox</h1>
         <button id="theme-toggle" title="Toggle theme">☀️</button>
         <script src="../assets/js/theme-toggle.js"></script>
     </header>
 
     <main>
-        <p class="sm-note">Paste a site. It reads the sitemap, follows the navigation, and shows what each page is made of: headings, forms and their input types, tables and their columns, lists, cards, structured data, the APIs the scripts call. Public sites only, same site only, capped, nothing stored, no sign-in.</p>
+        <div class="sm-tools" id="sm-tools">
+            <button data-tool="map" class="on">Site map</button>
+            <button data-tool="probe">URL probe</button>
+            <button data-tool="zero">Zero writer</button>
+        </div>
+
+        <section class="sm-tool" id="tool-map">
+        <p class="sm-note">Paste a site. It reads the sitemap, follows the navigation, and shows what the site is made of, four ways: Overview (what's there), Build (how it's put together), Images (every picture, real sizes), Data (forms, tables, APIs). Public sites only, same site only, capped, nothing stored, no sign-in.</p>
         <div class="sm-row">
             <input type="url" id="sm-url" placeholder="https://example.com" autocomplete="url" inputmode="url">
             <select id="sm-depth" title="how many clicks deep from the home page">
@@ -87,8 +151,35 @@
             </select>
             <button id="sm-go">Map it</button>
         </div>
-        <details class="sm-probe" id="sm-probe">
+        <div class="sm-loading" id="sm-loading" hidden><div class="spin"></div><div><span id="sm-loading-text">reading...</span> <b id="sm-loading-t">0s</b></div><div class="bar" id="sm-loading-bar"></div></div>
+        <div id="sm-status" class="sm-note"></div>
+        <div class="sm-views" id="sm-views" hidden>
+            <button data-view="overview" class="on">Overview</button>
+            <button data-view="build">Build</button>
+            <button data-view="images">Images</button>
+            <button data-view="media">Media</button>
+            <button data-view="data">Data</button>
+        </div>
+        <div class="sm-actions" id="sm-actions" hidden>
+            <button id="sm-json">Copy JSON</button>
+            <button id="sm-md">Copy Markdown</button>
+            <button id="sm-dl">Download JSON</button>
+        </div>
+        <div class="sm-view" id="view-overview">
+            <div id="sm-summary" class="sm-chips"></div>
+            <div id="sm-images"></div>
+            <div id="sm-tree" class="sm-tree"></div>
+        </div>
+        <div class="sm-view" id="view-build" hidden></div>
+        <div class="sm-view" id="view-images" hidden></div>
+        <div class="sm-view" id="view-media" hidden></div>
+        <div class="sm-view" id="view-data" hidden></div>
+        </section>
+
+        <section class="sm-tool" id="tool-probe" hidden>
+        <details class="sm-probe" id="sm-probe" open>
             <summary>URL probe - try paths and see what answers</summary>
+            <div class="sm-row"><input type="url" id="sm-probe-base" placeholder="https://example.com (site to probe)" autocomplete="url" inputmode="url"></div>
             <textarea id="sm-probe-list" placeholder="one path per line, relative to the site above (or full URLs)&#10;admin/&#10;page{1-10}.html&#10;{wp-admin,login,api,sitemap.xml}&#10;files/{rand6}.pdf" spellcheck="false"></textarea>
             <div class="hint">{1-10} counts, {01-10} keeps the zeros, {a,b,c} picks each, {rand6} = 6 random letters/digits. Up to 40 URLs a go.</div>
             <div class="sm-row">
@@ -97,17 +188,37 @@
                 <button id="sm-probe-copy" hidden>Copy results</button>
                 <span id="sm-probe-status" class="sm-note"></span>
             </div>
+            <div class="sm-loading" id="sm-probe-loading" hidden><div class="spin"></div><div><span id="sm-probe-loading-text">probing...</span> <b id="sm-probe-loading-t">0s</b></div><div class="bar" id="sm-probe-loading-bar"></div></div>
             <div id="sm-probe-out"></div>
         </details>
-        <div id="sm-status" class="sm-note"></div>
-        <div id="sm-summary" class="sm-chips"></div>
-        <div id="sm-images"></div>
-        <div class="sm-actions" id="sm-actions" hidden>
-            <button id="sm-json">Copy JSON</button>
-            <button id="sm-md">Copy Markdown</button>
-            <button id="sm-dl">Download JSON</button>
+        </section>
+
+        <section class="sm-tool" id="tool-zero" hidden>
+        <p class="sm-note">Zero writer: fills a folder with zero-filled files (zerofill_*.bin) to wipe a drive's free space or make big test files. Runs in the browser on this device; needs desktop Chrome or Edge (it asks for a folder, you pick it). Don't fill C: - Windows needs room.</p>
+        <div id="zw-cap" class="sm-note err" hidden>This browser can't write to a folder. Open the page in desktop Chrome or Edge.</div>
+        <div class="sm-row">
+            <div><label for="zw-mode">Mode</label>
+                <select id="zw-mode"><option value="single">one file of N GB</option><option value="fill">fill until the drive is full</option></select></div>
+            <div id="zw-size-box"><label for="zw-gb">Size (GB)</label><input type="number" id="zw-gb" value="1" min="0.01" step="0.5" inputmode="decimal"></div>
+            <div><label for="zw-piece">File pieces</label>
+                <select id="zw-piece"><option value="4">4 GB (FAT32 safe)</option><option value="1">1 GB</option><option value="0">one file</option></select></div>
         </div>
-        <div id="sm-tree" class="sm-tree"></div>
+        <div class="sm-row">
+            <button id="zw-pick">Pick folder</button>
+            <span id="zw-folder" class="sm-note">no folder yet</span>
+        </div>
+        <div class="sm-row">
+            <button id="zw-start" disabled>Start</button>
+            <button id="zw-stop" hidden>Stop</button>
+            <button id="zw-clean" disabled>Clean up zerofill files</button>
+        </div>
+        <div class="zw-bar"><div id="zw-fill"></div></div>
+        <div class="zw-stat">
+            <span>written <b id="zw-written">0</b></span><span>target <b id="zw-target">-</b></span><span>rate <b id="zw-rate">-</b></span><span>files <b id="zw-files">0</b></span><span>elapsed <b id="zw-elapsed">0s</b></span>
+        </div>
+        <div class="sm-note">In "fill" mode it writes until the drive refuses, then deletes the last (partial) file so the drive isn't left at zero. Stop any time; Clean up removes every zerofill_*.bin in the folder.</div>
+        <div id="zw-log" class="zw-log"></div>
+        </section>
     </main>
 
     <script type="module">
@@ -117,19 +228,45 @@
         let last = null;
         try { const q = new URLSearchParams(location.search).get("url"); if (q) $("#sm-url").value = q; } catch (_) {}
 
+        // LOADING: a pulsing box with what is being read and a ticking clock; the thin bar fills over the fetcher's 25 s budget
+        const loaders = {};
+        function loading(id, text, budget) {
+            const box = $("#" + id); if (!box) return;
+            if (loaders[id]) { clearInterval(loaders[id]); loaders[id] = null; }
+            if (!text) { box.hidden = true; return; }
+            const t0 = Date.now(); box.hidden = false; $("#" + id + "-text").textContent = text; $("#" + id + "-t").textContent = "0s"; $("#" + id + "-bar").style.width = "0%";
+            loaders[id] = setInterval(() => { const s = Math.round((Date.now() - t0) / 1000); $("#" + id + "-t").textContent = s + "s"; $("#" + id + "-bar").style.width = Math.min(100, 100 * s / (budget || 25)) + "%"; if (s >= 20) $("#" + id + "-text").textContent = text + " (big site, the read stops at 25 s and shows what it got)"; }, 1000);
+        }
+
+        // TOOLBOX tabs + site-map views (plain show/hide; the data stays, so views switch instantly)
+        function showTool(name) {
+            document.querySelectorAll("#sm-tools button").forEach(b => b.classList.toggle("on", b.dataset.tool === name));
+            document.querySelectorAll(".sm-tool").forEach(s => s.hidden = s.id !== "tool-" + name);
+            if (name === "probe" && !$("#sm-probe-base").value) $("#sm-probe-base").value = $("#sm-url").value;
+            try { history.replaceState(null, "", name === "map" ? location.pathname + (location.search.replace(/[?&](probe|zero)(=[^&]*)?/g, "").replace(/^&/, "?") || "") : location.pathname + "?" + name); } catch (_) {}
+        }
+        document.querySelectorAll("#sm-tools button").forEach(b => b.onclick = () => showTool(b.dataset.tool));
+        function showView(name) {
+            document.querySelectorAll("#sm-views button").forEach(b => b.classList.toggle("on", b.dataset.view === name));
+            document.querySelectorAll(".sm-view").forEach(s => s.hidden = s.id !== "view-" + name);
+        }
+        document.querySelectorAll("#sm-views button").forEach(b => b.onclick = () => showView(b.dataset.view));
+
         async function run() {
             const url = $("#sm-url").value.trim(); if (!url) { $("#sm-url").focus(); return; }
-            $("#sm-go").disabled = true; $("#sm-status").className = "sm-note"; $("#sm-status").textContent = "reading " + url + " ...";
-            $("#sm-summary").innerHTML = ""; $("#sm-images").innerHTML = ""; $("#sm-tree").innerHTML = ""; $("#sm-actions").hidden = true;
+            $("#sm-go").disabled = true; $("#sm-status").className = "sm-note"; $("#sm-status").textContent = "";
+            loading("sm-loading", `Reading ${url.replace(/^https?:\/\//, "")} - sitemap first, then up to ${$("#sm-max").value} pages, ${$("#sm-depth").value} deep`, 25);
+            $("#sm-summary").innerHTML = ""; $("#sm-images").innerHTML = ""; $("#sm-tree").innerHTML = ""; $("#sm-actions").hidden = true; $("#sm-views").hidden = true;
+            ["build", "images", "media", "data"].forEach(v => $("#view-" + v).innerHTML = "");
             try {
                 const r = await fetch(`${API}?url=${encodeURIComponent(url)}&depth=${$("#sm-depth").value}&max=${$("#sm-max").value}`);
                 const j = await r.json();
                 if (!r.ok || j.error) throw new Error(j.error || ("HTTP " + r.status));
-                last = j; render(j);
+                last = j; render(j); renderBuild(j); renderImages(j); renderMedia(j); renderData(j); $("#sm-views").hidden = false;
                 $("#sm-status").textContent = `${j.pages.length} pages read${j.sitemap_only ? ", +" + j.sitemap_only + " more from the sitemap" : ""} in ${j.seconds}s${j.partial ? " (capped - raise the limits for more)" : ""}${j.cached ? " (cached)" : ""}`;
                 $("#sm-actions").hidden = false;
             } catch (e) { $("#sm-status").className = "sm-note err"; $("#sm-status").textContent = "failed: " + (e.message || e); }
-            $("#sm-go").disabled = false;
+            loading("sm-loading", ""); $("#sm-go").disabled = false;
         }
         $("#sm-go").onclick = run;
         $("#sm-url").addEventListener("keydown", e => { if (e.key === "Enter") run(); });
@@ -159,7 +296,7 @@
             return outs;
         }
         function buildList() {
-            const base = $("#sm-url").value.trim() || "";
+            const base = $("#sm-probe-base").value.trim() || $("#sm-url").value.trim() || "";
             const rep = parseInt($("#sm-probe-repeat").value, 10) || 1;
             const urls = [];
             for (const raw of $("#sm-probe-list").value.split("\n").map(s => s.trim()).filter(Boolean)) {
@@ -180,9 +317,10 @@
         async function runProbe() {
             const urls = buildList();
             const st = $("#sm-probe-status");
-            if (!urls.length) { st.className = "sm-note err"; st.textContent = $("#sm-url").value.trim() ? "nothing to probe - add a line" : "put the site in the box above first"; return; }
+            if (!urls.length) { st.className = "sm-note err"; st.textContent = ($("#sm-probe-base").value.trim() || $("#sm-url").value.trim()) ? "nothing to probe - add a line" : "put the site in the box first"; return; }
             if (urls.length > 40) { st.className = "sm-note err"; st.textContent = `${urls.length} URLs - cap is 40, narrow the pattern`; return; }
-            $("#sm-probe-go").disabled = true; st.className = "sm-note"; st.textContent = `probing ${urls.length} ...`; $("#sm-probe-out").innerHTML = ""; $("#sm-probe-copy").hidden = true;
+            $("#sm-probe-go").disabled = true; st.className = "sm-note"; st.textContent = ""; $("#sm-probe-out").innerHTML = ""; $("#sm-probe-copy").hidden = true;
+            loading("sm-probe-loading", `Probing ${urls.length} URL${urls.length === 1 ? "" : "s"}, 6 at a time`, 25);
             try {
                 const r = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ probe: true, urls }) });
                 const j = await r.json();
@@ -192,11 +330,11 @@
                 st.textContent = `${j.results.length} probed, ${hits} answered, ${j.seconds}s${j.dropped ? ` (${j.dropped} dropped over the cap)` : ""}`;
                 $("#sm-probe-copy").hidden = false;
             } catch (e) { st.className = "sm-note err"; st.textContent = "failed: " + (e.message || e); }
-            $("#sm-probe-go").disabled = false;
+            loading("sm-probe-loading", ""); $("#sm-probe-go").disabled = false;
         }
         function cls(x) { return x.error ? "bad" : x.status >= 200 && x.status < 300 ? "ok" : x.status >= 300 && x.status < 400 ? "redir" : x.status ? "miss" : "bad"; }
         function renderProbe(j) {
-            const base = $("#sm-url").value.trim();
+            const base = $("#sm-probe-base").value.trim() || $("#sm-url").value.trim();
             const rel = u => { try { const b = new URL(/^https?:\/\//i.test(base) ? base : "https://" + base); const x = new URL(u); return x.host === b.host ? x.pathname + x.search : u; } catch (_) { return u; } };
             const rows = j.results.slice().sort((a, b) => (cls(a) === "ok" ? 0 : 1) - (cls(b) === "ok" ? 0 : 1) || a.url.localeCompare(b.url)).map(x => {
                 const moved = x.final && x.final.replace(/\/$/, "") !== x.url.replace(/\/$/, "") ? `<span class="meta">→ ${esc(rel(x.final))}</span>` : "";
@@ -204,12 +342,12 @@
                 const can = x.status >= 200 && x.status < 300 && /html/.test(x.type || "");
                 return `<tr><td class="st ${cls(x)}">${x.error ? esc(x.error.slice(0, 40)) : x.status}</td><td><code>${esc(rel(x.url))}</code>${x.title ? `<span class="meta">${esc(x.title)}</span>` : ""}${moved}<span class="meta">${esc(meta)}</span></td><td><a href="${esc(x.final || x.url)}" target="_blank" rel="noopener noreferrer">open</a>${can ? `<a href="#" data-map="${esc(x.final || x.url)}">map</a>` : ""}</td></tr>`;
             }).join("");
-            $("#sm-probe-out").innerHTML = `<table><thead><tr><th>status</th><th>url</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
-            $("#sm-probe-out").querySelectorAll("a[data-map]").forEach(a => a.onclick = e => { e.preventDefault(); $("#sm-url").value = a.dataset.map; run(); window.scrollTo({ top: 0, behavior: "smooth" }); });
+            $("#sm-probe-out").innerHTML = `<div class="sm-scroll"><table><thead><tr><th>status</th><th>url</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+            $("#sm-probe-out").querySelectorAll("a[data-map]").forEach(a => a.onclick = e => { e.preventDefault(); $("#sm-url").value = a.dataset.map; showTool("map"); run(); window.scrollTo({ top: 0, behavior: "smooth" }); });
         }
         $("#sm-probe-go").onclick = runProbe;
         $("#sm-probe-copy").onclick = () => lastProbe && copy(lastProbe.results.map(x => `${x.error ? "ERR " + x.error : x.status}\t${x.url}${x.final && x.final !== x.url ? " -> " + x.final : ""}\t${x.type || ""}\t${x.title || ""}`).join("\n"), "probe results");
-        try { if (new URLSearchParams(location.search).get("probe") !== null) $("#sm-probe").open = true; } catch (_) {}
+        try { const sp = new URLSearchParams(location.search); if (sp.get("probe") !== null) showTool("probe"); else if (sp.get("zero") !== null) showTool("zero"); } catch (_) {}
 
         function chip(label, val) { return val ? `<span class="sm-chip"><b>${esc(val)}</b> ${esc(label)}</span>` : ""; }
         // a thumb strip: the images load straight from the site (no proxy); one that refuses (hotlink block) just drops out
@@ -271,8 +409,196 @@
                 ${tables ? `<div class="k">Tables</div><ul>${tables}</ul>` : ""}
                 ${apis ? `<div class="k">APIs / data</div><ul>${apis}</ul>` : ""}
                 ${(p.images_list || []).length ? `<div class="k">Images on this page</div>${thumbs(p.images_list.slice(0, 12), true)}` : ""}
+                ${(p.media_list || []).length ? `<div class="k">Media on this page</div><ul>${p.media_list.slice(0, 10).map(m => `<li>${esc(m.kind)}: <a href="${esc(m.src)}" target="_blank" rel="noopener noreferrer">${esc(name(m.src).slice(0, 50))}</a></li>`).join("")}</ul>` : ""}
             </div>`;
         }
+        // ---- BUILD view: how the site is put together (site-wide cards + a per-page table)
+        const kb = n => n == null ? "-" : n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : n >= 1024 ? Math.round(n / 1024) + " KB" : n + " B";
+        const name = u => { try { return decodeURIComponent((new URL(u).pathname.split("/").pop() || "/").split("?")[0]) || u; } catch (_) { return u; } };
+        function card(title, body) { return `<div class="sm-card"><h3>${esc(title)}</h3>${body}</div>`; }
+        function lst(items, max) { items = items || []; return items.length ? `<ul>${items.slice(0, max || 12).map(x => `<li>${x}</li>`).join("")}</ul>${items.length > (max || 12) ? `<div class="ttl">+${items.length - (max || 12)} more</div>` : ""}` : `<div class="ttl">none seen</div>`; }
+        function renderBuild(j) {
+            const b = (j.types || {}).build; const n = j.pages.length;
+            if (!b) { $("#view-build").innerHTML = `<div class="sm-note">Build details need a fresh read - run Map it again (this result came from the cache).</div>`; return; }
+            const libs = Object.entries(b.libs || {}).sort((a, c) => c[1] - a[1]).map(([k, v]) => `${esc(k)} <span class="ttl">${v}/${n}</span>`);
+            const platform = [b.generator ? `generator: <b>${esc(b.generator)}</b>` : "", ...(j.types.hints || []).map(h => `<b>${esc(h)}</b>`), b.lang ? `lang ${esc(b.lang)}` : "", `viewport meta on ${b.viewport}/${n}`].filter(Boolean);
+            const hosts = Object.entries(b.hosts || {}).map(([k, v]) => `<code>${esc(k)}</code> <span class="ttl">x${v}</span>`);
+            const trackers = Object.entries(b.trackers || {}).map(([k, v]) => `${esc(k)} <span class="ttl">${v}/${n}</span>`);
+            const layout = ["header", "nav", "main", "footer", "aside", "section", "article"].map(t => `&lt;${t}&gt; <span class="ttl">${(b.layout || {})[t] || 0}/${n}</span>`);
+            const scripts = (b.scripts || []).map(s => `<code>${esc(name(s))}</code>`), styles = (b.styles || []).map(s => `<code>${esc(name(s))}</code>`), fonts = (b.fonts || []).map(s => `<code>${esc(s.replace(/^https?:\/\//, "").slice(0, 70))}</code>`);
+            $("#view-build").innerHTML = `<div class="sm-cards">
+                ${card("Platform", lst(platform, 8))}
+                ${card("Libraries seen", lst(libs, 16))}
+                ${card("Pulls from (other hosts)", lst(hosts, 15))}
+                ${card("Trackers / analytics", lst(trackers, 10))}
+                ${card("Weight", `<div class="big">${kb(b.bytes)}</div><div>${n} pages read, ${kb(Math.round(b.bytes / Math.max(1, n)))} a page, ${Math.round((b.elements || 0) / Math.max(1, n))} elements a page</div>${b.biggest && b.biggest.path ? `<div class="ttl">heaviest: ${esc(b.biggest.path)} (${kb(b.biggest.bytes)})</div>` : ""}`)}
+                ${card("Scripts", `<div class="big">${(b.scripts || []).length} <span class="ttl" style="font-size:13px">files + ${b.inline || 0} inline blocks</span></div>${lst(scripts, 10)}`)}
+                ${card("Stylesheets + fonts", `<div class="big">${(b.styles || []).length}</div>${lst(styles, 8)}${fonts.length ? `<div class="k" style="margin-top:6px">Fonts</div>${lst(fonts, 6)}` : ""}`)}
+                ${card("Layout tags (pages using them)", lst(layout, 7))}
+            </div>
+            <div class="sm-scroll"><table class="sm-tbl"><thead><tr><th>page</th><th>size</th><th>elems</th><th>js</th><th>css</th><th>layout</th></tr></thead><tbody>
+            ${j.pages.slice().sort((a, c) => (c.build ? c.build.bytes : 0) - (a.build ? a.build.bytes : 0)).map(p => { const x = p.build || {}; const L = x.layout || {}; const flags = ["header", "nav", "main", "footer"].filter(t => L[t]).map(t => t[0].toUpperCase()).join("") || "-"; return `<tr><td class="path"><a href="${esc(p.url)}" target="_blank" rel="noopener noreferrer">${esc(p.path)}</a>${p.title ? `<div class="ttl">${esc(p.title.slice(0, 50))}</div>` : ""}</td><td class="num">${kb(x.bytes)}</td><td class="num">${x.elements ?? "-"}</td><td class="num">${(x.scripts || []).length}+${x.inline || 0}</td><td class="num">${(x.styles || []).length}</td><td class="num" title="H header, N nav, M main, F footer">${flags}</td></tr>`; }).join("")}
+            </tbody></table></div>`;
+        }
+        // ---- IMAGES view (L 2026-10-21 "a nice setup for images for each section, largest image shown first"): grouped by
+        // page (each page = a section), every group sorted largest first as the real pixel sizes arrive - the figures are
+        // reordered in place, never re-rendered, so nothing reloads or flickers. "All" modes flatten the site.
+        let galleryMode = "page";
+        const dims = {};   // src -> [w, h] once a picture has loaded (shared by every view)
+        const area = src => dims[src] ? dims[src][0] * dims[src][1] : -1;
+        function fmtOf(src) { const m = (src.split("?")[0].match(/\.([a-z0-9]{2,5})$/i) || [])[1]; return m ? m.toLowerCase().replace("jpeg", "jpg") : "?"; }
+        function renderImages(j) {
+            const top = (j.types || {}).images_top || [];
+            if (!top.length) { $("#view-images").innerHTML = `<div class="sm-note">No images on the pages read.</div>`; return; }
+            const fmts = {}; top.forEach(im => { const f = fmtOf(im.src); fmts[f] = (fmts[f] || 0) + 1; });
+            const chips = Object.entries(fmts).sort((a, c) => c[1] - a[1]).map(([k, v]) => chip(k, v)).join("");
+            $("#view-images").innerHTML = `<div class="sm-chips">${chip("pictures", top.length)}${chip("img tags in all", j.types.images)}${chips}</div>
+                <div class="sm-row"><select id="sm-gal-sort"><option value="page">by page, largest first</option><option value="size">all, largest first</option><option value="uses">all, most used first</option><option value="name">all, by name</option></select><button id="sm-gal-copy">Copy image URLs</button><span class="sm-note" id="sm-gal-note">sizes fill in as the pictures load, then each group re-sorts</span></div>
+                <div id="sm-gallery"></div>`;
+            $("#sm-gal-sort").value = galleryMode;
+            $("#sm-gal-sort").onchange = () => { galleryMode = $("#sm-gal-sort").value; drawGallery(j); };
+            $("#sm-gal-copy").onclick = () => copy(top.map(im => im.src).join("\n"), "image URLs");
+            drawGallery(j);
+        }
+        function figureHtml(im) {
+            const d = dims[im.src];
+            return `<figure data-src="${esc(im.src)}"><a href="${esc(im.src)}" target="_blank" rel="noopener noreferrer"><img src="${esc(im.src)}" alt="${esc(im.alt || "")}" loading="lazy" referrerpolicy="no-referrer" onerror="this.closest('figure').style.opacity=.35;this.closest('figure').querySelector('.dim').textContent='blocked / missing'"></a><figcaption><b>${esc(name(im.src).slice(0, 40))}</b><span class="dim">${d ? d.join(" x ") + " px" : "..."}</span> · ${esc(fmtOf(im.src))}${im.n ? ` · ${im.n} page${im.n === 1 ? "" : "s"}` : ""}${im.kind === "og" ? " · share image" : im.kind === "icon" ? " · icon" : ""}${im.alt ? `<div class="ttl">${esc(im.alt.slice(0, 50))}</div>` : ""}</figcaption></figure>`;
+        }
+        function sortFigs(list, mode) {
+            return list.slice().sort((a, c) => mode === "uses" ? (c.n || 0) - (a.n || 0) : mode === "name" ? name(a.src).localeCompare(name(c.src)) : (area(c.src) - area(a.src)) || (c.n || 0) - (a.n || 0));
+        }
+        function drawGallery(j) {
+            const top = (j.types || {}).images_top || []; const byTop = {}; top.forEach(im => byTop[im.src] = im);
+            let html = "";
+            if (galleryMode === "page") {
+                j.pages.slice().sort((a, c) => a.path.localeCompare(c.path)).forEach(p => {
+                    const list = (p.images_list || []).map(im => Object.assign({}, im, { n: (byTop[im.src] || {}).n || 1 }));
+                    if (!list.length) return;
+                    html += `<div class="sm-group"><b>${esc(p.path)}</b> <span class="ttl">${esc(p.title || "")} · ${list.length} image${list.length === 1 ? "" : "s"}</span></div><div class="sm-gallery" data-group="${esc(p.path)}">${sortFigs(list, "size").map(figureHtml).join("")}</div>`;
+                });
+                if (!html) html = `<div class="sm-note">No images on the pages read.</div>`;
+            } else {
+                html = `<div class="sm-gallery" data-group="all">${sortFigs(top, galleryMode).map(figureHtml).join("")}</div>`;
+            }
+            $("#sm-gallery").innerHTML = html;
+            const pending = new Set();
+            const reorder = () => { pending.forEach(g => { if (galleryMode === "uses" || galleryMode === "name") return; const figs = [...g.children]; figs.sort((a, c) => (area(c.dataset.src) - area(a.dataset.src))); figs.forEach(f => g.appendChild(f)); }); pending.clear(); };
+            let t = null;
+            $("#sm-gallery").querySelectorAll("img").forEach(img => {
+                const fig = img.closest("figure"), g = fig.parentElement;
+                const done = () => { if (!img.naturalWidth) return; dims[fig.dataset.src] = [img.naturalWidth, img.naturalHeight]; const d = fig.querySelector(".dim"); if (d) d.textContent = img.naturalWidth + " x " + img.naturalHeight + " px"; pending.add(g); clearTimeout(t); t = setTimeout(reorder, 350); };
+                if (img.complete) done(); else img.addEventListener("load", done);
+            });
+        }
+        // ---- MEDIA view: videos / audio / embeds / linked files (players read duration + size here, nothing is proxied)
+        const secs = s => !isFinite(s) ? "live/unknown" : s >= 3600 ? Math.floor(s / 3600) + "h " + Math.floor((s % 3600) / 60) + "m" : s >= 60 ? Math.floor(s / 60) + "m " + Math.round(s % 60) + "s" : Math.round(s) + "s";
+        const ytId = u => (u.match(/(?:youtube(?:-nocookie)?\.com\/(?:embed\/|watch\?v=|v\/)|youtu\.be\/)([\w-]{6,})/) || [])[1];
+        function renderMedia(j) {
+            const t = j.types || {}; const all = t.media_top || [];
+            if (!t.media_counts) { $("#view-media").innerHTML = `<div class="sm-note">Media details need a fresh read - run Map it again (this result came from the cache).</div>`; return; }
+            if (!all.length) { $("#view-media").innerHTML = `<div class="sm-chips">${chip("video tags", t.videos)}${chip("iframes", t.iframes)}</div><div class="sm-note">No video, audio, embeds or linked media files on the pages read. Try the URL probe with paths like videos/{rand6}.mp4 or media/{1-20}.mp4 to feel for hidden ones.</div>`; return; }
+            const c = t.media_counts; const chips = [chip("videos", c.video), chip("audio", c.audio), chip("embeds", c.embed), chip("linked files", c.file)].join("");
+            const vids = all.filter(m => m.kind === "video"), auds = all.filter(m => m.kind === "audio"), embs = all.filter(m => m.kind === "embed"), files = all.filter(m => m.kind === "file");
+            const byExt = {}; files.forEach(f => { const e = (f.mime || fmtOf(f.src)).toLowerCase(); byExt[e] = (byExt[e] || 0) + 1; });
+            const cap = (m, extra) => `<figcaption><b>${esc(name(m.src).slice(0, 48))}</b> <span class="ttl">${m.n} page${m.n === 1 ? "" : "s"}</span>${extra ? `<div class="dim">${extra}</div>` : ""}<div><a href="${esc(m.src)}" target="_blank" rel="noopener noreferrer">open</a></div></figcaption>`;
+            const vhtml = vids.slice(0, 12).map((m, i) => `<figure><video preload="metadata" controls playsinline muted ${m.poster ? `poster="${esc(m.poster)}"` : ""} data-i="${i}"><source src="${esc(m.src)}" ${m.mime ? `type="${esc(m.mime)}"` : ""}></video>${cap(m, `<span class="vmeta" data-i="${i}">reading...</span>`)}</figure>`).join("");
+            const ahtml = auds.slice(0, 12).map((m, i) => `<figure><audio preload="metadata" controls data-i="${i}"><source src="${esc(m.src)}" ${m.mime ? `type="${esc(m.mime)}"` : ""}></audio>${cap(m, `<span class="ameta" data-i="${i}">reading...</span>`)}</figure>`).join("");
+            const ehtml = embs.slice(0, 16).map(m => { const id = ytId(m.src); return `<figure>${id ? `<a href="https://www.youtube.com/watch?v=${esc(id)}" target="_blank" rel="noopener noreferrer"><img class="thumb" src="https://i.ytimg.com/vi/${esc(id)}/hqdefault.jpg" alt="" loading="lazy" referrerpolicy="no-referrer"></a>` : ""}<figcaption><b>${esc(m.text || (m.src.includes("vimeo") ? "Vimeo" : id ? "YouTube" : "embed"))}</b> <span class="ttl">${m.n} page${m.n === 1 ? "" : "s"}</span><div class="dim">${esc(m.src.replace(/^https?:\/\//, "").slice(0, 70))}</div><div><a href="${esc(m.src)}" target="_blank" rel="noopener noreferrer">open</a></div></figcaption></figure>`; }).join("");
+            const fhtml = Object.entries(byExt).sort((a, b) => b[1] - a[1]).map(([e, n]) => `<div class="k">.${esc(e)} <span class="ttl">x${n}</span></div><ul>${files.filter(f => (f.mime || fmtOf(f.src)).toLowerCase() === e).slice(0, 25).map(f => `<li><a href="${esc(f.src)}" target="_blank" rel="noopener noreferrer">${esc(name(f.src).slice(0, 60))}</a> <span class="ttl">${f.n} page${f.n === 1 ? "" : "s"}</span></li>`).join("")}</ul>`).join("");
+            $("#view-media").innerHTML = `<div class="sm-chips">${chips}${chip("video tags in all", t.videos)}${chip("iframes in all", t.iframes)}</div>
+                <div class="sm-row"><button id="sm-media-copy">Copy media URLs</button><span class="sm-note">players only load headers until you press play</span></div>
+                ${vhtml ? `<div class="k">Videos</div><div class="sm-media">${vhtml}</div>` : ""}
+                ${ahtml ? `<div class="k">Audio</div><div class="sm-media">${ahtml}</div>` : ""}
+                ${ehtml ? `<div class="k">Embeds</div><div class="sm-media">${ehtml}</div>` : ""}
+                ${fhtml ? `<div class="k">Linked files</div><div class="sm-page">${fhtml}</div>` : ""}`;
+            $("#sm-media-copy").onclick = () => copy(all.map(m => m.src).join("\n"), "media URLs");
+            $("#view-media").querySelectorAll("video").forEach(v => { const meta = $("#view-media").querySelector(`.vmeta[data-i="${v.dataset.i}"]`); v.addEventListener("loadedmetadata", () => { meta.textContent = `${secs(v.duration)} · ${v.videoWidth} x ${v.videoHeight} px`; }); v.addEventListener("error", () => { meta.textContent = "can't read here (blocked or missing)"; }, true); });
+            $("#view-media").querySelectorAll("audio").forEach(a => { const meta = $("#view-media").querySelector(`.ameta[data-i="${a.dataset.i}"]`); a.addEventListener("loadedmetadata", () => { meta.textContent = secs(a.duration); }); a.addEventListener("error", () => { meta.textContent = "can't read here (blocked or missing)"; }, true); });
+        }
+        // ---- DATA view: forms, tables, APIs, structured data across the whole site
+        function renderData(j) {
+            const t = j.types || {};
+            const inputs = Object.entries(t.inputs || {}).sort((a, c) => c[1] - a[1]).map(([k, v]) => chip(k, v)).join("");
+            const forms = j.pages.flatMap(p => (p.forms || []).map(f => `<tr><td class="path">${esc(p.path)}</td><td><code>${esc(f.method.toUpperCase())} ${esc(f.action.replace(/^https?:\/\/[^/]+/, "") || "/")}</code></td><td>${f.inputs.map(i => `${esc(i.name || "?")} <em>${esc(i.type)}</em>`).join(", ") || "-"}</td></tr>`)).join("");
+            const tables = j.pages.flatMap(p => (p.tables || []).map(tb => `<tr><td class="path">${esc(p.path)}</td><td class="num">${tb.rows}</td><td>${esc(tb.cols.filter(Boolean).join(" | ") || "(no header)")}</td></tr>`)).join("");
+            const apis = (t.apis || []).map(a => `<code>${esc(a)}</code>`);
+            const ld = Object.entries(t.jsonld || {}).sort((a, c) => c[1] - a[1]).map(([k, v]) => `${esc(k)} <span class="ttl">x${v}</span>`);
+            const pagesWithJsonld = j.pages.filter(p => (p.jsonld || []).length).map(p => `${esc(p.path)} <span class="ttl">${esc(p.jsonld.join(", "))}</span>`);
+            $("#view-data").innerHTML = `<div class="sm-cards">
+                ${card("Inputs by type", inputs ? `<div class="sm-chips">${inputs}</div>` : `<div class="ttl">no form fields</div>`)}
+                ${card("APIs / data the scripts call", lst(apis, 20))}
+                ${card("Structured data (JSON-LD)", lst(ld, 10) + (pagesWithJsonld.length ? lst(pagesWithJsonld, 8) : ""))}
+                ${card("Counts", `<ul><li>forms ${t.forms || 0}</li><li>tables ${t.tables || 0}</li><li>lists ${t.lists || 0}</li><li>cards ${t.cards || 0}</li><li>buttons ${t.buttons || 0}</li><li>iframes ${t.iframes || 0}</li><li>videos ${t.videos || 0}</li></ul>`)}
+            </div>
+            ${forms ? `<div class="k">Forms</div><div class="sm-scroll"><table class="sm-tbl"><thead><tr><th>page</th><th>sends to</th><th>fields</th></tr></thead><tbody>${forms}</tbody></table></div>` : ""}
+            ${tables ? `<div class="k">Tables</div><div class="sm-scroll"><table class="sm-tbl"><thead><tr><th>page</th><th>rows</th><th>columns</th></tr></thead><tbody>${tables}</tbody></table></div>` : ""}`;
+        }
+
+        // ---- ZERO WRITER (the old testbed/zerowriter server.py, in the browser): File System Access API - the user picks
+        // a folder, we write zerofill_<ts>_<i>.bin in 64 MB chunks. Needs desktop Chrome/Edge; no server, nothing leaves the device.
+        const ZW = { dir: null, running: false, stop: false, written: 0, target: 0, files: [], t0: 0, timer: null };
+        const CHUNK = 64 * 1024 * 1024, ZEROS = new Uint8Array(CHUNK);
+        const zlog = m => { const l = $("#zw-log"); l.textContent += `[${new Date().toLocaleTimeString()}] ${m}\n`; l.scrollTop = l.scrollHeight; };
+        if (!window.showDirectoryPicker) { $("#zw-cap").hidden = false; $("#zw-pick").disabled = true; }
+        $("#zw-mode").onchange = () => { $("#zw-size-box").style.display = $("#zw-mode").value === "single" ? "" : "none"; };
+        $("#zw-pick").onclick = async () => {
+            try { ZW.dir = await window.showDirectoryPicker({ mode: "readwrite" }); $("#zw-folder").textContent = "folder: " + ZW.dir.name; $("#zw-start").disabled = false; $("#zw-clean").disabled = false; zlog("picked folder " + ZW.dir.name); }
+            catch (e) { if (e.name !== "AbortError") zlog("picker failed: " + e.message); }
+        };
+        function zwPaint() {
+            const el = (Date.now() - ZW.t0) / 1000;
+            $("#zw-written").textContent = kb(ZW.written); $("#zw-target").textContent = ZW.target ? kb(ZW.target) : "until full";
+            $("#zw-rate").textContent = el > 0 ? kb(Math.round(ZW.written / el)) + "/s" : "-"; $("#zw-files").textContent = ZW.files.length;
+            $("#zw-elapsed").textContent = el < 60 ? Math.round(el) + "s" : Math.floor(el / 60) + "m " + Math.round(el % 60) + "s";
+            $("#zw-fill").style.width = ZW.target ? Math.min(100, 100 * ZW.written / ZW.target) + "%" : "100%";
+        }
+        async function zwWrite(dir, target, pieceBytes, onProgress) {   // returns {written, files, full} - pure so it can be tested with a fake dir
+            const ts = Math.floor(Date.now() / 1000); let written = 0, idx = 0, full = false; const files = [];
+            while ((!target || written < target) && !ZW.stop && !full) {
+                const name = `zerofill_${ts}_${idx}.bin`; let fileBytes = 0;
+                const fh = await dir.getFileHandle(name, { create: true }); files.push(name);
+                const w = await fh.createWritable();
+                try {
+                    const cap = pieceBytes || (target || Infinity);
+                    while (fileBytes < cap && (!target || written < target) && !ZW.stop) {
+                        const left = Math.min(CHUNK, cap - fileBytes, target ? target - written : CHUNK);
+                        await w.write(left === CHUNK ? ZEROS : ZEROS.subarray(0, left));
+                        fileBytes += left; written += left; onProgress && onProgress(written, files.length);
+                    }
+                } catch (e) { full = true; zlog(`write stopped on ${name}: ${e.name} ${e.message}`.slice(0, 160)); }
+                try { await w.close(); } catch (_) {}
+                if (full) { try { await dir.removeEntry(name); files.pop(); zlog(`removed the partial ${name} so the drive keeps some room`); } catch (_) {} }
+                idx++;
+                if (!pieceBytes && !full) break;
+            }
+            return { written, files, full };
+        }
+        $("#zw-start").onclick = async () => {
+            if (!ZW.dir || ZW.running) return;
+            const mode = $("#zw-mode").value, gb = parseFloat($("#zw-gb").value) || 0, piece = parseFloat($("#zw-piece").value) || 0;
+            const target = mode === "single" ? Math.round(gb * 1024 * 1024 * 1024) : 0;
+            if (mode === "single" && !target) { zlog("size?"); return; }
+            if (mode === "fill" && !confirm(`Fill the drive holding "${ZW.dir.name}" until it is full?\nDon't do this on C:.`)) return;
+            ZW.running = true; ZW.stop = false; ZW.written = 0; ZW.target = target; ZW.files = []; ZW.t0 = Date.now();
+            $("#zw-start").disabled = true; $("#zw-stop").hidden = false; $("#zw-pick").disabled = true;
+            zlog(mode === "single" ? `writing ${gb} GB into ${ZW.dir.name}` : `filling ${ZW.dir.name} until the drive is full`);
+            ZW.timer = setInterval(zwPaint, 500);
+            try {
+                const r = await zwWrite(ZW.dir, target, piece ? Math.round(piece * 1024 * 1024 * 1024) : 0, (w, f) => { ZW.written = w; ZW.files.length = f; });
+                ZW.written = r.written; zlog(`${ZW.stop ? "stopped" : r.full ? "drive full" : "done"}: ${kb(r.written)} in ${r.files.length} file(s)`);
+            } catch (e) { zlog("failed: " + e.message); }
+            clearInterval(ZW.timer); zwPaint(); ZW.running = false;
+            $("#zw-start").disabled = false; $("#zw-stop").hidden = true; $("#zw-pick").disabled = false;
+        };
+        $("#zw-stop").onclick = () => { ZW.stop = true; zlog("stopping after this chunk..."); };
+        $("#zw-clean").onclick = async () => {
+            if (!ZW.dir || ZW.running) return;
+            let n = 0;
+            try { for await (const [nm, h] of ZW.dir.entries()) { if (h.kind === "file" && /^zerofill_\d+_\d+\.bin$/.test(nm)) { await ZW.dir.removeEntry(nm); n++; } } } catch (e) { zlog("clean up failed: " + e.message); }
+            zlog(`removed ${n} zerofill file(s)`); ZW.written = 0; ZW.files = []; ZW.target = 0; zwPaint();
+        };
+        window.__zwWrite = zwWrite;   // for a test with a fake folder handle
+
         function md(j) {
             const lines = [`# ${j.host} - site map (${j.pages.length} pages, depth ${j.depth})`, ""];
             const t = j.types;
@@ -280,6 +606,8 @@
             const inputs = Object.entries(t.inputs).map(([k, n]) => `${k} x${n}`).join(", "); if (inputs) lines.push(`Inputs: ${inputs}`);
             if (t.hints.length) lines.push(`Built with: ${t.hints.join(", ")}`); if (t.apis.length) lines.push(`APIs: ${t.apis.join(", ")}`);
             if ((t.images_top || []).length) { lines.push("", "Images, most used first:"); t.images_top.slice(0, 20).forEach(im => lines.push(`- ${im.src}${im.alt ? ` (${im.alt})` : ""} x${im.n}`)); }
+            if ((t.media_top || []).length) { lines.push("", "Media:"); t.media_top.slice(0, 30).forEach(m => lines.push(`- ${m.kind}: ${m.src} x${m.n}`)); }
+            if (t.build) { const b = t.build; lines.push("", "Build:", `- generator: ${b.generator || "-"}; libraries: ${Object.keys(b.libs || {}).join(", ") || "-"}`, `- pulls from: ${Object.entries(b.hosts || {}).map(([k, v]) => `${k} x${v}`).join(", ") || "-"}`, `- trackers: ${Object.keys(b.trackers || {}).join(", ") || "-"}`, `- weight: ${kb(b.bytes)} over ${j.pages.length} pages; scripts ${(b.scripts || []).length} files + ${b.inline || 0} inline; stylesheets ${(b.styles || []).length}; fonts ${(b.fonts || []).length}`); }
             lines.push("");
             j.pages.sort((a, b) => a.path.localeCompare(b.path)).forEach(p => {
                 lines.push(`## ${p.path}  ${p.title}`);
