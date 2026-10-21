@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
-<meta name="version" content="1.0.7">
+<meta name="version" content="1.0.8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0c0f13"><title>Loadout</title>
 <style>
@@ -421,7 +421,7 @@
     <button class="tbtn add" id="addBtn">🛋 Furniture</button>
     <button class="tbtn" id="studioBtn">🎨 Sprites</button>
     <button class="tbtn" id="wallBtn">🧱 Walls <span style="opacity:.6">(W)</span></button>
-    <button class="tbtn" id="floorBtn">🟫 Floor <span style="opacity:.6">(F)</span></button><button class="tbtn" id="roomWless">W-</button><button class="tbtn" id="roomWmore">W+</button><button class="tbtn" id="roomLless">L-</button><button class="tbtn" id="roomLmore">L+</button>
+    <button class="tbtn" id="floorBtn">🟫 Floor <span style="opacity:.6">(F)</span></button><button class="tbtn" id="roomWless">W-</button><button class="tbtn" id="roomWmore">W+</button><button class="tbtn" id="roomLless">L-</button><button class="tbtn" id="roomLmore">L+</button><button class="tbtn" id="newAreaBtn" title="Make a new map area with a doorway from where you stand">➕ New area</button><button class="tbtn" id="removeAreaBtn" style="display:none" title="Remove this area and every doorway into it">✖ Remove area</button>
     <span class="sel" id="selLabel">Tap a piece to select · drag to move</span>
     <button class="tbtn" id="frontBtn" disabled>▲ Front</button>
     <button class="tbtn" id="backBtn" disabled>▼ Back</button>
@@ -439,7 +439,7 @@
 (function(){var et=document.getElementById("editTools");if(!et)return;
   var rows=[["selLabel","frontBtn","backBtn","rotBtn","mirBtn","biggerBtn","smallerBtn"],
             ["doesBtn","spriteBtn","imgBtn","hitGrp","nameBtn","storeBtn","readerBtn","changeBtn"],
-            ["addBtn","studioBtn","wallBtn","floorBtn","roomWless","roomWmore","roomLless","roomLmore","delBtn"]];   /* b118: 🗑 at the right end of the bottom row (L) */
+            ["addBtn","studioBtn","wallBtn","floorBtn","roomWless","roomWmore","roomLless","roomLmore","newAreaBtn","removeAreaBtn","delBtn"]];   /* b118: 🗑 at the right end of the bottom row (L) */
   var made=rows.map(function(ids){var r=document.createElement("div");r.className="etrow";ids.forEach(function(id){var el=document.getElementById(id);if(el)r.appendChild(el);});return r;});
   var left=[].slice.call(et.children);made.forEach(function(r){et.appendChild(r);});
   left.forEach(function(el){if(el.className!=="etrow")made[2].appendChild(el);});   /* anything not listed -> the build row */
@@ -831,9 +831,9 @@ function sellItem(it){const q=it.qty||0,amt=sellPrice(it);if(q<1){$("shopMsg").t
 let roomDecor={};        // {room:{id:{k,x,y,s?,z?}}}
 let decorInDB={};        // {room:true} once authoritative in DB
 function seedDefaults(rm){const o={};(DEFAULT_DECOR[rm]||[]).forEach((d,i)=>o["def"+i]={...d});return o;}
-onValue(ref(db,"public/games/loadout/decor"),snap=>{const v=snap.val()||{};
-  for(const rm in ROOMS){ if(v[rm]){roomDecor[rm]=v[rm];decorInDB[rm]=true;} else if(!decorInDB[rm]){roomDecor[rm]=seedDefaults(rm);} }
+let DECOR_RAW={};onValue(ref(db,"public/games/loadout/decor"),snap=>{DECOR_RAW=snap.val()||{};applyDecorRaw();
   if(paletteOpen) buildPalette();});
+function applyDecorRaw(){const v=DECOR_RAW;for(const rm in ROOMS){ if(v[rm]){roomDecor[rm]=v[rm];decorInDB[rm]=true;} else if(!decorInDB[rm]){roomDecor[rm]=seedDefaults(rm);} }}
 function saveRoom(rm){decorInDB[rm]=true;set(ref(db,"public/games/loadout/decor/"+rm),roomDecor[rm]||{}).catch(e=>console.warn(e));}
 function newId(){return "p"+Date.now().toString(36)+Math.floor(Math.random()*1e4).toString(36);}
 function decorList(rm){const o=roomDecor[rm]||{};return Object.entries(o).map(([id,d])=>({id,d}));}
@@ -850,6 +850,19 @@ function applyDoors(){for(const rm in ROOMS)ROOMS[rm].doors.forEach((d,i)=>{cons
 onValue(ref(db,"public/games/loadout/streetCars"),snap=>{const v=snap.val()||{};STREET_CARS.forEach((c,i)=>{const o=v[i];if(o&&isFinite(o.x)&&isFinite(o.y)){c.x=o.x;c.y=o.y;}});});
 function saveCar(i){const c=STREET_CARS[i];update(ref(db,"public/games/loadout/streetCars"),{[i]:{x:c.x,y:c.y}}).catch(()=>{});}
 function saveDoor(rm,i){const d=ROOMS[rm].doors[i];update(ref(db,"public/games/loadout/doors/"+rm),{[i]:{x:d.x,y:d.y,w:d.w,h:d.h}}).catch(()=>{});}
+// CUSTOM AREAS (2026-10-21, L: "+ New area"): rooms made in edit mode live at public/games/loadout/rooms/<id> =
+// {name, floor, custom:1, doors:[{to,x,y,w,h,entry}]}. A BASE room's record may carry xdoors = extra doorways appended
+// after its built-in ones (so "Your Room" can grow a door to a new area). Merged into ROOMS here, then the saved door
+// positions (DOORS) and furniture (DECOR_RAW) are re-applied so a room that arrives late still gets its stuff.
+const BASE_DOORS={};for(const rm in ROOMS)BASE_DOORS[rm]=ROOMS[rm].doors.map(d=>({...d}));
+let XROOMS={};
+onValue(ref(db,"public/games/loadout/rooms"),s=>{XROOMS=s.val()||{};applyXRooms();});
+function applyXRooms(){
+  for(const id in ROOMS){if(ROOMS[id].custom&&!XROOMS[id]&&id!==room)delete ROOMS[id];}   // removed elsewhere (never while you stand in it)
+  for(const id in XROOMS){const r=XROOMS[id];if(!r)continue;
+    if(BASE_DOORS[id]){if(r.xdoors||ROOMS[id].doors.length!==BASE_DOORS[id].length)ROOMS[id].doors=BASE_DOORS[id].map(d=>({...d})).concat((r.xdoors||[]).filter(Boolean).map(d=>({...d})));}
+    else{const o=ROOMS[id]||{};ROOMS[id]=Object.assign(o,{name:r.name||id,floor:r.floor||"wood",custom:1,doors:(r.doors||[]).filter(Boolean).map(d=>({...d}))});if(r.big)ROOMS[id].big=r.big;else delete ROOMS[id].big;}}
+  applyDoors();applyDecorRaw();}
 // walls (grid of solid cells)
 let WALLS={};
 onValue(ref(db,"public/games/loadout/walls"),snap=>{WALLS=snap.val()||{};});
@@ -2135,7 +2148,7 @@ function draggablesIn(rm){const list=[];
 $("editBtn").addEventListener("click",()=>{editMode=!editMode;selected=null;moveTarget=null;wallMode=false;floorMode=false;
   $("wallBtn").classList.remove("add");$("wallBtn").innerHTML='🧱 Walls <span style="opacity:.6">(W)</span>';
   $("floorBtn").classList.remove("add");$("floorBtn").innerHTML='🟫 Floor <span style="opacity:.6">(F)</span>';$("floorPick").classList.remove("on");
-  $("editBtn").textContent=editMode?"DONE":"EDIT ROOM";$("editBtn").className="btn"+(editMode?"":" ghost");
+  $("editBtn").textContent=editMode?"DONE":"EDIT ROOM";{const rb=$("removeAreaBtn");if(rb)rb.style.display=(editMode&&ROOMS[room]&&ROOMS[room].custom)?"":"none";}$("editBtn").className="btn"+(editMode?"":" ghost");
   cv.classList.toggle("edit",editMode);document.querySelector(".screen").classList.toggle("editing",editMode);
   $("editTools").classList.toggle("on",editMode),(editMode||(editPan.x=editPan.y=0,editZoom=1));refreshTools();requestAnimationFrame(()=>{try{fitPass();}catch(e){}});});
 const WTX='🧱 Walls <span style="opacity:.6">(W)</span>',FTX='🟫 Floor <span style="opacity:.6">(F)</span>';
@@ -2148,7 +2161,7 @@ $("floorBtn").addEventListener("click",()=>{if(room==="outside"){$("selLabel").i
   $("floorPick").classList.toggle("on",floorMode);buildFloorPick();refreshTools();});
 function buildFloorPick(){const p=$("floorPick");p.innerHTML="";{const b=document.createElement("button");b.className="tbtn";b.style.cssText="margin-right:4px;white-space:nowrap;font-size:.6rem!important;padding:2px 6px!important;min-height:0!important;line-height:1.1!important;height:auto!important";b.textContent=FBRUSH+"\u00d7"+FBRUSH;   /* b103 L: smaller */b.title="Brush size - tap to change (1, 2, 4)";
   b.onclick=()=>{FBRUSH=FBRUSH===1?2:FBRUSH===2?4:1;try{localStorage.setItem("loadout:fbrush",FBRUSH);}catch(e){}buildFloorPick();};p.appendChild(b);}for(const k in floorImg){const s=document.createElement("div");s.className="fsw"+(k===curFloor?" on":"");s.style.backgroundImage="url("+A.floors[k]+")";s.title=k;s.onclick=()=>{curFloor=k;buildFloorPick();};p.appendChild(s);}}
-function refreshTools(){const on=!!selected;
+function refreshTools(){const on=!!selected;{const rb=$("removeAreaBtn");if(rb)rb.style.display=(editMode&&ROOMS[room]&&ROOMS[room].custom)?"":"none";}
   $("frontBtn").disabled=!(on&&selected.kind!=="door");$("backBtn").disabled=!(on&&selected.kind!=="door");$("delBtn").disabled=!(on&&(selected.kind==="d"||selected.kind==="p"||selected.kind==="fx"));
   $("rotBtn").disabled=!(on&&(selected.kind==="d"||selected.kind==="door"));
   $("mirBtn").disabled=!(on&&selected.kind==="d");
@@ -2184,6 +2197,27 @@ function edDouble(p){if(!editMode||isOpen()||transing)return false;const it=pick
   if(it.kind==="d"){const d=roomDecor[room][it.id];if(!d||(!d.store&&!d.storeArea))return false;editMode=false;if(d.storeArea)openArea(d.storeArea);else openPanelFor(d.storeLoc||("decor:"+room+":"+it.id));editMode=wasEdit;return true;}
   if(it.kind==="p"){editMode=false;openContainer(it.key);editMode=wasEdit;return true;}
   return false;}
+// ===== NEW AREA (2026-10-21) - a named room of your own, reached by a doorway dropped where you stand =====
+function roomSlug(nm){let s="r_"+nm.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"").slice(0,16);if(s==="r_")s="r_area";while(ROOMS[s]||XROOMS[s])s+="2";return s;}
+function newArea(){if(!editMode||transing)return;const nm=(prompt("Name the new area:","New Area")||"").trim().replace(/\s+/g," ").slice(0,30);if(!nm)return;
+  const id=roomSlug(nm),src=room,px=Math.round(player.x),py=Math.round(player.y);
+  const here={to:id,x:px-24,y:py-12,w:48,h:24,entry:[px,py+44]};                       // doorway at your feet; coming back lands just below it
+  const rec={name:nm,floor:"wood",custom:1,by:Date.now(),doors:[{to:src,x:232,y:480,w:48,h:24,entry:[256,120]}]};   // way back = bottom, like every room
+  const key=BASE_DOORS[src]?"xdoors":"doors",cur=((XROOMS[src]||{})[key]||[]).filter(Boolean).concat([here]);
+  const upd={};upd[id]=rec;upd[src+"/"+key]=cur;
+  XROOMS[id]=rec;XROOMS[src]=Object.assign(XROOMS[src]||{},{[key]:cur});applyXRooms();
+  update(ref(db,"public/games/loadout/rooms"),upd).catch(e=>console.warn(e));
+  go(here);setTimeout(()=>dayBanner("New area: "+nm+" - the way back is at the bottom"),400);}
+async function removeArea(force){const id=room,r=ROOMS[id];if(!editMode||!r||!r.custom||transing)return;
+  if(!force&&!await askDelete('area "'+r.name+'"',"Its furniture, walls, floor and every doorway into it go too."))return;
+  const back=(r.doors||[]).find(d=>d&&ROOMS[d.to])||{to:"yourroom",entry:[256,140]};
+  const upd={};upd[id]=null;
+  for(const rm in XROOMS){if(rm===id||!XROOMS[rm])continue;const k=BASE_DOORS[rm]?"xdoors":"doors";const lst=(XROOMS[rm][k]||[]).filter(Boolean);if(lst.some(d=>d.to===id))upd[rm+"/"+k]=lst.filter(d=>d.to!==id);}
+  go({to:back.to,entry:back.entry||[256,140]});
+  setTimeout(()=>{["decor","walls","ftiles","roomsize","names","doors"].forEach(n=>remove(ref(db,"public/games/loadout/"+n+"/"+id)).catch(()=>{}));
+    delete roomDecor[id];delete decorInDB[id];update(ref(db,"public/games/loadout/rooms"),upd).catch(e=>console.warn(e));},450);}
+$("newAreaBtn").addEventListener("click",()=>newArea());$("removeAreaBtn").addEventListener("click",()=>removeArea());
+window.__loArea={rooms:()=>Object.keys(ROOMS),x:()=>JSON.parse(JSON.stringify(XROOMS)),make:newArea,drop:f=>removeArea(f),room:()=>room,doors:rm=>(ROOMS[rm]||{doors:[]}).doors.map(d=>({to:d.to,x:d.x,y:d.y}))};   // test helpers (?test)
 window.__loEdDouble=edDouble;window.__loCe={sel:()=>ceSel,apply:ceApply,canvas:()=>charCanvas};   // test helper: the lookwindow.__loStreet=()=>({houses:STREET_HOUSES.map(h=>h.at.slice().concat([h.z||0])),doors:ROOMS.street.doors.map(d=>[d.x,d.y].concat(d.out||[])),shop:[SHOP_RECT.x,SHOP_RECT.y],cars:STREET_CARS.map(c=>[c.x,c.y])});window.__loView=()=>({VW,VH,roomOff:{x:roomOff.x,y:roomOff.y},z:editMode?editZoom:1});   // test helperswindow.__loDoors=()=>roomDoors(room).map(d=>Object.assign({to:d.to},doorHitRect(d)));   // test helper: every doorway in the room with its hit rect
 cv.addEventListener("dblclick",e=>{if(e.pointerType==="touch")return;edDouble(toLogical(e));});
 {let lt=null;cv.addEventListener("pointerdown",e=>{if(!editMode||e.pointerType==="mouse")return;const now=performance.now();
