@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.7">
+    <meta name="version" content="1.0.8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Toolbox - Site Map</title>
     <!-- SITE MAP (2026-10-21, L: "quickly parse a site's structure to see what they have available... something that shows the
@@ -103,6 +103,14 @@
         .sm-loading { position: relative; overflow: hidden; }
         .sm-loading b { font-variant-numeric: tabular-nums; }
         @keyframes smspin { to { transform: rotate(360deg); } }
+        /* LIVE FINDS (2026-10-21, L: "show data as you find it"): one line per page / link as the fetcher reports it */
+        .sm-live { list-style: none; margin: 6px 0 10px; padding: 0; font-size: 13px; max-height: 40vh; overflow: auto; border: 1px solid rgba(128,128,128,.35); border-radius: 8px; }
+        .sm-live:empty { display: none; }
+        .sm-live li { padding: 4px 10px; border-bottom: 1px dashed rgba(128,128,128,.3); overflow-wrap: anywhere; animation: smin .25s ease-out; }
+        .sm-live li:last-child { border-bottom: 0; }
+        .sm-live .st { font-weight: 700; margin-right: 6px; } .sm-live .ttl { margin-left: 4px; }
+        .sm-live li.hdr { opacity: .7; font-style: italic; }
+        @keyframes smin { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
         pre.sm-out { white-space: pre-wrap; word-break: break-word; font-size: 12px; max-height: 50vh; overflow: auto; }
         /* OVERFLOW (2026-10-21, L: "some overflow issues ... with the info that populates"): nothing populated may push the page sideways */
         main { overflow-x: hidden; }
@@ -175,6 +183,7 @@
             <button id="sm-go">Map it</button>
         </div>
         <div class="sm-loading" id="sm-loading" hidden><div class="spin"></div><div><span id="sm-loading-text">reading...</span> <b id="sm-loading-t">0s</b></div><div class="bar" id="sm-loading-bar"></div></div>
+        <ul class="sm-live" id="sm-live"></ul>
         <div id="sm-status" class="sm-note"></div>
         <div class="sm-views" id="sm-views" hidden>
             <button data-view="overview" class="on">Overview</button>
@@ -300,6 +309,28 @@
             loaders[id] = setInterval(() => { const s = Math.round((Date.now() - t0) / 1000); $("#" + id + "-t").textContent = s + "s"; $("#" + id + "-bar").style.width = Math.min(100, 100 * s / (budget || 25)) + "%"; if (s >= 20) $("#" + id + "-text").textContent = text + " (big site, the read stops at 25 s and shows what it got)"; }, 1000);
         }
 
+        // LIVE: open the fetcher's event stream and list every find as it lands (page or link). Resolves with the full result
+        // on "done"; rejects {fallback:true} when the stream never opened so the caller does the plain call instead.
+        function runStream(src, listId, loadId) {
+            return new Promise((resolve, reject) => {
+                if (!window.EventSource) return reject({ fallback: true });
+                const list = $("#" + listId); let got = 0, done = false;
+                const add = (html, cls) => { const li = document.createElement("li"); if (cls) li.className = cls; li.innerHTML = html; list.appendChild(li); list.scrollTop = list.scrollHeight; };
+                const es = new EventSource(src);
+                const stCls = s => s >= 200 && s < 300 ? "ut-ok" : s >= 300 && s < 400 ? "ut-warn" : "ut-bad";
+                es.addEventListener("status", e => { got++; const d = JSON.parse(e.data); add(esc(d.text), "hdr"); });
+                es.addEventListener("sitemap", e => { got++; const d = JSON.parse(e.data); add(`sitemap: ${d.count} url${d.count === 1 ? "" : "s"} listed`, "hdr"); });
+                es.addEventListener("page", e => { got++; const d = JSON.parse(e.data); const bits = [d.forms ? `forms ${d.forms}` : "", d.tables ? `tables ${d.tables}` : "", d.images ? `images ${d.images}` : "", d.media ? `media ${d.media}` : "", d.apis ? `apis ${d.apis}` : "", d.links ? `links ${d.links}` : "", d.bytes ? kb(d.bytes) : ""].filter(Boolean).join(" · ");
+                    add(`<span class="st ${stCls(d.status)}">${d.status}</span><code>${esc(d.path)}</code>${d.title ? `<span class="ttl">${esc(d.title.slice(0, 50))}</span>` : ""}${bits ? `<span class="meta" style="display:block;font-size:11px;opacity:.65">${esc(bits)}${d.t ? ` · ${d.t}s` : ""}</span>` : ""}`);
+                    const t = $("#" + loadId + "-text"); if (t) t.textContent = `${d.n} page${d.n === 1 ? "" : "s"} read so far` + (d.cached ? " (from the cache)" : ""); });
+                es.addEventListener("link", e => { got++; const d = JSON.parse(e.data); add(`<span class="st ${d.error || !d.status || d.status >= 400 ? "ut-bad" : d.moved ? "ut-warn" : "ut-ok"}">${d.error ? esc(d.error.slice(0, 24)) : d.status}</span><code>${esc(d.url)}</code>${d.moved ? ` <span class="ttl">moved</span>` : ""}${d.on && d.on.length ? `<span class="ttl">on ${esc(d.on.join(", "))}</span>` : ""}`);
+                    const t = $("#" + loadId + "-text"); if (t) t.textContent = `${d.i} of ${d.n} links checked`; });
+                es.addEventListener("error", e => { if (e.data) { done = true; es.close(); try { reject(new Error(JSON.parse(e.data).error || "error")); } catch (_) { reject(new Error("error")); } } });
+                es.addEventListener("done", e => { done = true; es.close(); try { resolve(JSON.parse(e.data)); } catch (_) { reject(new Error("bad result")); } });
+                es.onerror = () => { if (done) return; es.close(); if (!got) reject({ fallback: true }); else reject(new Error("the live feed dropped - try again")); };
+            });
+        }
+
         // TOOLBOX tabs + site-map views (plain show/hide; the data stays, so views switch instantly)
         function showTool(name) {
             document.querySelectorAll("#sm-tools button").forEach(b => b.classList.toggle("on", b.dataset.tool === name));
@@ -318,12 +349,16 @@
             const url = $("#sm-url").value.trim(); if (!url) { $("#sm-url").focus(); return; }
             $("#sm-go").disabled = true; $("#sm-status").className = "sm-note"; $("#sm-status").textContent = "";
             loading("sm-loading", `Reading ${url.replace(/^https?:\/\//, "")} - sitemap first, then up to ${$("#sm-max").value} pages, ${$("#sm-depth").value} deep`, 25);
-            $("#sm-summary").innerHTML = ""; $("#sm-images").innerHTML = ""; $("#sm-tree").innerHTML = ""; $("#sm-actions").hidden = true; $("#sm-views").hidden = true;
+            $("#sm-summary").innerHTML = ""; $("#sm-images").innerHTML = ""; $("#sm-tree").innerHTML = ""; $("#sm-actions").hidden = true; $("#sm-views").hidden = true; $("#sm-live").innerHTML = "";
             ["build", "images", "media", "data", "links"].forEach(v => $("#view-" + v).innerHTML = "");
             try {
-                const r = await fetch(`${API}?url=${encodeURIComponent(url)}&depth=${$("#sm-depth").value}&max=${$("#sm-max").value}`);
-                const j = await r.json();
-                if (!r.ok || j.error) throw new Error(j.error || ("HTTP " + r.status));
+                const qs = `url=${encodeURIComponent(url)}&depth=${$("#sm-depth").value}&max=${$("#sm-max").value}`;
+                let j;
+                try { j = await runStream(`${API}?${qs}&stream=1`, "sm-live", "sm-loading"); }
+                catch (e) {
+                    if (e && e.fallback) { const r = await fetch(`${API}?${qs}`); j = await r.json(); if (!r.ok || j.error) throw new Error(j.error || ("HTTP " + r.status)); }
+                    else throw e;
+                }
                 last = j; render(j); renderBuild(j); renderImages(j); renderMedia(j); renderData(j); renderLinksStart(j); $("#sm-views").hidden = false;
                 $("#sm-status").textContent = `${j.pages.length} pages read${j.sitemap_only ? ", +" + j.sitemap_only + " more from the sitemap" : ""} in ${j.seconds}s${j.partial ? " (capped - raise the limits for more)" : ""}${j.cached ? " (cached)" : ""}`;
                 $("#sm-actions").hidden = false;
@@ -695,9 +730,15 @@
         async function runLinks(j) {
             const st = $("#sm-links-st"); $("#sm-links-go").disabled = true; st.textContent = ""; $("#sm-links-out").innerHTML = "";
             loading("sm-links-loading", `Checking every link on ${j.host} - reading the pages again, then each link, 8 at a time`, 40);
+            $("#sm-links-out").innerHTML = `<ul class="sm-live" id="sm-links-live"></ul>`;
             try {
-                const r = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ links: true, url: j.root, depth: j.depth, max: j.max }) });
-                const x = await r.json(); if (!r.ok || x.error) throw new Error(x.error || ("HTTP " + r.status));
+                let x;
+                try { x = await runStream(`${API}?links=1&url=${encodeURIComponent(j.root)}&depth=${j.depth}&max=${j.max}&stream=1`, "sm-links-live", "sm-links-loading"); }
+                catch (e) {
+                    if (!(e && e.fallback)) throw e;
+                    const r = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ links: true, url: j.root, depth: j.depth, max: j.max }) });
+                    x = await r.json(); if (!r.ok || x.error) throw new Error(x.error || ("HTTP " + r.status));
+                }
                 lastLinks = x;
                 const row = (b, cls) => `<tr><td class="st ${cls}">${b.error ? esc(b.error.slice(0, 30)) : b.status}</td><td><code>${esc(b.url)}</code>${b.final && b.final.replace(/\/$/, "") !== b.url.replace(/\/$/, "") ? `<span class="meta">→ ${esc(b.final)}</span>` : ""}<span class="meta">on: ${b.on.map(esc).join(", ") || "-"}${b.internal ? "" : " · outside link"}</span></td><td><a href="${esc(b.url)}" target="_blank" rel="noopener noreferrer">open</a></td></tr>`;
                 const broken = x.broken.map(b => row(b, "bad")).join(""), moved = x.moved.map(b => row(b, "redir")).join("");
