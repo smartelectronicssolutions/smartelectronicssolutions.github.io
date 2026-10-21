@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.10"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.11"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -527,8 +527,6 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         .dc-now .dc-now-list span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .dc-now .dc-now-done { margin-left: auto; flex: none; background: transparent; border: 1px solid currentColor; color: inherit; border-radius: 6px; font-size: 0.7rem; line-height: 1.3; padding: 0 6px; cursor: pointer; }
         /* TAG ROW (L 2026-10-20 "4"): shows while a photo waits to send; its text becomes the message when you type nothing else */
-        .dc-tag { display: flex; gap: 8px; align-items: center; padding: 4px 10px; font-size: 0.85rem; }
-        .dc-tag input { flex: 1; min-width: 0; background: transparent; color: inherit; border: 1px solid currentColor; border-radius: 8px; padding: 6px 10px; font: inherit; opacity: 0.9; }
         .dc-bub .ts { font-size: calc(0.64rem * var(--dc-fs, 1)); opacity: 0.72; margin-top: 4px; }   /* readable on a phone (L, 2026-09-24: "I need a timestamp on the messages") */
         /* "what did enhance turn it into?" - collapsible under your bubble when enhance changed the text */
         .dc-bub details.enh { margin-top: 6px; font-size: calc(0.74rem * var(--dc-fs, 1)); }
@@ -2766,7 +2764,6 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         (function messengerKit() {
             const ta = $('#dc-chat-in'), bar = $('#dc-compose'), log = $('#dc-chat-log'); if (!ta || !bar || !log) return;
             const S = { reply: null, att: [], tag: '' };   // att: { name, type, url, path, state: up|ok|err, thumb }; tag = the photo's name ("speaker 8")
-            let tagRow = null, tagIn = null;      // built below; paint() shows the row while a photo is waiting
             const short = s => String(s || '').replace(/```[\s\S]*?```/g, ' ').replace(/[*_`#>|]/g, '').replace(/\s+/g, ' ').trim();
             const status = m => { const st = $('#dc-chat-status'); if (st) st.textContent = m; };
             function paint() {
@@ -2774,7 +2771,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 if (S.reply) parts.push(`<div class="row"><span class="lbl">↩ ${esc(S.reply.who)}</span><span class="tx">${esc(S.reply.text.slice(0, 90))}</span><button type="button" data-x="reply" title="cancel the reply">✕</button></div>`);
                 S.att.forEach((a, i) => parts.push(`<div class="row"><span class="lbl">${a.state === 'up' ? '⏳' : a.state === 'err' ? '⚠' : '📎'}</span>${a.thumb ? `<img src="${a.thumb}" alt="">` : ''}<span class="tx">${esc(a.name)}${a.state === 'err' ? ' - upload failed' : a.state === 'up' ? ' - uploading…' : ''}</span><button type="button" data-x="${i}" title="remove">✕</button></div>`));
                 bar.innerHTML = parts.join(''); bar.hidden = !parts.length;
-                if (tagRow) tagRow.hidden = true;   // 2026-10-21 (L: "can I just send a message with the image attached with context"): no tag row - the message IS the context
+                // 2026-10-21 (L: "can I just send a message with the image attached with context"): no tag row - the message IS the context
                 if (ta) { ta.dataset.ph = ta.dataset.ph || ta.placeholder; const has = S.att.length > 0;
                     ta.placeholder = has ? 'say what this is and where it goes…' : ta.dataset.ph;
                     if (has && !ta.value && matchMedia('(pointer: coarse)').matches) setTimeout(() => ta.focus(), 60); }   // phone: photo in -> write the context
@@ -2802,18 +2799,11 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (pick) { pick.addEventListener('pointerdown', e => e.preventDefault());
                 pick.onclick = () => { const inp = document.createElement('input'); inp.type = 'file'; inp.multiple = true; inp.onchange = () => { for (const f of inp.files || []) addFile(f); }; inp.click(); }; }
             // ATTACH FIRST on the phone (L 2026-10-20 picked "4"): a camera button that opens the phone camera straight away, and a
-            // tag row ("speaker 8") that becomes the message text when nothing else is typed - a photo never arrives without a
-            // name, and Google Photos is the backup path instead of the main one. The tag also rides the prompt as [photo tag: ...].
+            // photo waits on the box and the message you type is its context (the tag row was removed 2026-10-21 at L's ask).
             const cam = $('#dc-camera-btn');
             if (cam) { cam.hidden = !matchMedia('(pointer: coarse)').matches;
                 cam.addEventListener('pointerdown', e => e.preventDefault());
                 cam.onclick = () => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.capture = 'environment'; inp.onchange = () => { for (const f of inp.files || []) addFile(f); }; inp.click(); }; }
-            tagRow = document.createElement('div'); tagRow.className = 'dc-tag'; tagRow.hidden = true;
-            tagRow.innerHTML = '<span title="name the photo">🏷</span><input type="text" placeholder="tag it: speaker 8, receipt, rack…" autocomplete="off" data-1p-ignore>';
-            bar.parentElement.insertBefore(tagRow, bar.nextSibling);
-            tagIn = tagRow.querySelector('input');
-            tagIn.addEventListener('input', () => { S.tag = tagIn.value; });
-            tagIn.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); sendChat(); } });
             ta.addEventListener('paste', e => { const fs = [...((e.clipboardData && e.clipboardData.files) || [])]; if (!fs.length) return; e.preventDefault(); fs.forEach(addFile); });
             const chat = $('.dc-chat');
             if (chat) { chat.addEventListener('dragover', e => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) e.preventDefault(); });
@@ -2886,8 +2876,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 openFind: () => { findBox.hidden = false; fin.focus(); },
                 uploading: () => S.att.some(a => a.state === 'up'),
                 hasAtt: () => S.att.some(a => a.state === 'ok'),
-                attLabel: () => { const ok = S.att.filter(a => a.state === 'ok'), tag = (S.tag || '').trim();
-                    if (tag && ok.every(a => /^image\//.test(a.type))) return '📷 ' + tag + (ok.length > 1 ? ' (' + ok.length + ' photos)' : '');
+                attLabel: () => { const ok = S.att.filter(a => a.state === 'ok');
                     return ok.every(a => /^image\//.test(a.type)) ? (ok.length > 1 ? '📷 ' + ok.length + ' photos' : '📷 photo') : '📎 ' + ok.map(a => a.name).join(', '); },
                 // what the send path adds: fields on the turn + text around the prompt (Droplet sees the quote and the links)
                 take() {
@@ -2897,9 +2886,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     const ok = S.att.filter(a => a.state === 'ok');
                     if (ok.length) { out.turn.att = ok.map(a => ({ url: a.url, path: a.path, name: a.name, type: a.type }));
                         out.post = '\n' + ok.map(a => `[attached ${/^image\//.test(a.type) ? 'photo' : 'file'} "${a.name}": ${a.url}]`).join('\n'); }
-                    const tag = (S.tag || '').trim();
-                    if (ok.length && tag) { out.turn.tag = tag; out.pre = out.pre + `[photo tag: ${tag}]\n`; }
-                    S.reply = null; S.att.forEach(a => a.thumb && URL.revokeObjectURL(a.thumb)); S.att = []; S.tag = ''; if (tagIn) tagIn.value = ''; paint();
+                    S.reply = null; S.att.forEach(a => a.thumb && URL.revokeObjectURL(a.thumb)); S.att = []; paint();
                     return out;
                 },
             };
