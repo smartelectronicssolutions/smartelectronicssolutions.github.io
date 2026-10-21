@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.0">
+    <meta name="version" content="1.0.1">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Luis Solutions — My Websites</title>
@@ -11,6 +11,23 @@
     <link rel="icon" type="image/png" sizes="32x32" href="../assets/img/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="../assets/img/favicon-16x16.png">
     <script src="../assets/js/theme.js" defer></script>
+    <style>
+        /* SITE TOGGLES (owner only) */
+        .sw-bar { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin: 6px 0 16px; padding: 10px 14px; border: 1px solid #7a1f2b; border-radius: 10px; font-size: 14px; }
+        .sw-bar[hidden] { display: none; }
+        .sw-bar input[type=text] { flex: 1 1 260px; min-width: 0; padding: 8px 10px; font: inherit; font-size: 15px; border: 1px solid currentColor; border-radius: 8px; background: transparent; color: inherit; }
+        .sw { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+        .sw input { position: absolute; opacity: 0; width: 0; height: 0; }
+        .sw-k { width: 40px; height: 22px; border-radius: 11px; background: #8a8f98; position: relative; transition: background .2s; flex: none; }
+        .sw-k::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .2s; }
+        .sw input:checked + .sw-k { background: #7a1f2b; } .sw input:checked + .sw-k::after { left: 21px; }
+        .sw input:disabled + .sw-k { opacity: .4; }
+        .sw-st { font-size: 12px; opacity: .75; }
+        .thumbnail .sw.tile { position: absolute; left: 8px; top: 8px; z-index: 2; padding: 4px 8px; border-radius: 10px; background: rgba(0,0,0,.65); color: #fff; font-size: 12px; }
+        .thumbnail { position: relative; }
+        .thumbnail.off img { filter: grayscale(1) brightness(.6); }
+        .thumbnail.off::after { content: "OFF"; position: absolute; right: 8px; top: 8px; z-index: 2; background: #7a1f2b; color: #fff; font: 700 11px/1 system-ui, sans-serif; padding: 4px 7px; border-radius: 8px; }
+    </style>
     <style>
         body { margin: 0; }
 
@@ -125,6 +142,15 @@
     <main>
         <section>
             <h1>My Websites</h1>
+            <!-- SITE TOGGLES (2026-10-21, L: "if I'm logged in as me ... turn any of those sites listed off, or the entire thing ... like
+                 toggles"): owner only. Each toggle writes public/site/sites/<key> {on, message, at, by}; EVERYTHING writes
+                 public/site/maintenance. Every page's gate (assets/js/firebase-init.js) reads public/site once on load. -->
+            <div id="sw-bar" class="sw-bar" hidden>
+                <label class="sw"><input type="checkbox" id="sw-all"><span class="sw-k"></span><b>Everything</b> off for visitors</label>
+                <label class="sw"><input type="checkbox" id="sw-ses"><span class="sw-k"></span>Smart Solutions site (the root pages)</label>
+                <input id="sw-msg" type="text" placeholder="message visitors see (shared by all switches)" maxlength="240">
+                <span id="sw-st" class="sw-st"></span>
+            </div>
             <div class="thumbnail-container">
                 <div class="thumbnail">
                     <a href="../websites/lhr/index.html" target="_blank">
@@ -133,7 +159,7 @@
                     </a>
                 </div>
 
-                <div class="thumbnail">
+                <div class="thumbnail" data-site="kh">
                     <a href="../websites/kh/index.html" target="_blank">
                         <img src="../assets/img/kh-thumbnail.png" alt="Kame House">
                         <p>Kame House</p>
@@ -148,7 +174,7 @@
                     </a>
                 </div>
 
-                <div class="thumbnail">
+                <div class="thumbnail" data-site="eco">
                     <a href="../websites/eco/index.html" target="_blank">
                         <img src="../websites/eco/assets/img/thumbnail.png" alt="Eco — Personal Finance & Real Estate">
                         <p>Eco Finance</p>
@@ -169,7 +195,7 @@
                     </a>
                 </div>
 
-                <div class="thumbnail">
+                <div class="thumbnail" data-site="game">
                     <a href="../websites/game/index.html" target="_blank">
                         <img src="../assets/img/game-thumbnail.png" alt="Game">
                         <p>Gaming</p>
@@ -191,14 +217,14 @@
                     </a>
                 </div>
 
-                <div class="thumbnail">
+                <div class="thumbnail" data-site="jem">
                     <a href="../websites/jem/index.html" target="_blank">
                         <img src="../assets/img/jem-thumbnail.png" alt="JEM Mobile Detailing">
                         <p>JEM Mobile Detailing</p>
                     </a>
                 </div>
 
-                <div class="thumbnail">
+                <div class="thumbnail" data-site="loadout">
                     <a href="../websites/loadout/index.html" target="_blank">
                         <img src="../websites/loadout/assets/img/thumbnail.png" alt="Loadout">
                         <p>Loadout</p>
@@ -261,6 +287,46 @@
             <p class="copyright">&copy; 2026 Smart Electronics Solutions LLC. All rights reserved.</p>
         </div>
     </footer>
+<script type="module">
+// SITE TOGGLES: owner only (uid check), live from public/site. One toggle per gated site + Everything + the root site.
+import { auth, database, ref, onValue, set, onAuthStateChanged } from "../assets/js/firebase-init.js";
+const OWNER = "7cIh8rrhVNOjjj5CBDgb3IlqzEh2";
+const $ = s => document.querySelector(s);
+const NAMES = { kh: "Kame House", eco: "Eco", game: "Gaming", jem: "JEM", loadout: "Loadout", ses: "Smart Solutions site" };
+let cur = { maintenance: {}, sites: {} }, uid = null;
+function paint() {
+    const all = cur.maintenance || {}, sites = cur.sites || {};
+    $("#sw-all").checked = !!all.on; $("#sw-ses").checked = !!(sites.ses && sites.ses.on);
+    if (document.activeElement !== $("#sw-msg")) $("#sw-msg").value = all.message || "";
+    document.querySelectorAll(".thumbnail[data-site]").forEach(t => {
+        const k = t.dataset.site, on = !!(sites[k] && sites[k].on) || !!all.on;
+        t.classList.toggle("off", on);
+        let sw = t.querySelector(".sw.tile");
+        if (!sw) { sw = document.createElement("label"); sw.className = "sw tile"; sw.innerHTML = `<input type="checkbox"><span class="sw-k"></span>off`; sw.querySelector("input").addEventListener("change", e => write(k, e.target.checked)); sw.addEventListener("click", e => e.stopPropagation()); t.appendChild(sw); }
+        const cb = sw.querySelector("input"); cb.checked = !!(sites[k] && sites[k].on); cb.disabled = !!all.on;
+    });
+    const offs = Object.entries(sites).filter(([k, v]) => v && v.on).map(([k]) => NAMES[k] || k);
+    $("#sw-st").textContent = all.on ? "EVERYTHING is off for visitors" : offs.length ? "off: " + offs.join(", ") : "all sites live";
+}
+async function write(key, on) {
+    if (!uid) return;
+    const message = $("#sw-msg").value.trim(), at = Date.now();
+    try {
+        if (key === "all") await set(ref(database, "public/site/maintenance"), { on, message, at, by: uid });
+        else await set(ref(database, "public/site/sites/" + key), { on, message, at, by: uid });
+        $("#sw-st").textContent = (key === "all" ? "everything" : NAMES[key] || key) + (on ? " is OFF for visitors" : " is live");
+    } catch (e) { $("#sw-st").textContent = "failed: " + e.message; }
+}
+$("#sw-all").addEventListener("change", e => write("all", e.target.checked));
+$("#sw-ses").addEventListener("change", e => write("ses", e.target.checked));
+$("#sw-msg").addEventListener("change", () => { const all = cur.maintenance || {}; if (all.on) write("all", true); else Object.entries(cur.sites || {}).forEach(([k, v]) => { if (v && v.on) write(k, true); }); });
+onAuthStateChanged(auth, u => {
+    uid = u && u.uid === OWNER ? u.uid : null;
+    $("#sw-bar").hidden = !uid;
+    if (!uid) { document.querySelectorAll(".thumbnail .sw.tile").forEach(x => x.remove()); document.querySelectorAll(".thumbnail.off").forEach(t => t.classList.remove("off")); return; }
+    onValue(ref(database, "public/site"), snap => { cur = snap.val() || {}; paint(); });
+});
+</script>
 </body>
 
 </html>

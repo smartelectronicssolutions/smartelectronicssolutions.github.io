@@ -88,14 +88,18 @@ export const basePathFor = user => { if (user && BASE_OVERRIDE) return BASE_OVER
 (async () => {
   try {
     const here = location.pathname.toLowerCase();
-    if (here.endsWith("/hub.html") || here.endsWith("/console.html")) return;
+    if (here.endsWith("/hub.html") || here.endsWith("/console.html") || here.endsWith("/websites/index.html")) return;
     const test = new URLSearchParams(location.search).get("switchtest") === "1";
+    // PER-SITE TOGGLES (2026-10-21): key = the websites/<name>/ folder this page lives in, "ses" for the root pages
+    const km = here.match(/^\/websites\/([^\/]+)\//); const siteKey = km ? km[1] : "ses";
     let m = null;
     if (!test) {
-      const r = await fetch(`${firebaseConfig.databaseURL}/public/site/maintenance.json`, { cache: "no-store" });
-      m = await r.json();
-      if (!m || !m.on) return;
-    } else { m = { on: true, message: "Preview of the under-construction page (?switchtest=1)." }; }
+      const r = await fetch(`${firebaseConfig.databaseURL}/public/site.json`, { cache: "no-store" });
+      const site = (await r.json()) || {};
+      const all = site.maintenance || {}, mine = (site.sites || {})[siteKey] || {};
+      if (!all.on && !mine.on) return;
+      m = { on: true, message: (mine.on && mine.message) || all.message || "", at: mine.on ? mine.at : all.at, scope: all.on ? "everything" : siteKey };
+    } else { m = { on: true, message: "Preview of the under-construction page (?switchtest=1).", scope: "preview" }; }
     const owner = test ? false : await new Promise(res => {
       const t = setTimeout(() => res(false), 2500);
       onAuthStateChanged(auth, u => { clearTimeout(t); res(!!u && u.uid === "7cIh8rrhVNOjjj5CBDgb3IlqzEh2"); });
@@ -106,7 +110,7 @@ export const basePathFor = user => { if (user && BASE_OVERRIDE) return BASE_OVER
       whenBody(() => {
         const b = document.createElement("div");
         b.setAttribute("style", "position:fixed;top:0;left:0;right:0;z-index:2147483646;background:#7a1f2b;color:#fff;font:600 13px/1.4 system-ui,Segoe UI,Arial;padding:6px 12px;text-align:center");
-        b.innerHTML = `SITE IS OFF for visitors &middot; "${esc(m.message || "")}" &middot; <a href="/hub.html" style="color:#ffd6dc">hub &rarr; Site switch</a>`;
+        b.innerHTML = `${m.scope === "everything" ? "ALL SITES ARE" : "THIS SITE IS"} OFF for visitors &middot; "${esc(m.message || "")}" &middot; <a href="/websites/index.html" style="color:#ffd6dc">websites &rarr; toggles</a>`;
         document.body.prepend(b);
       });
       return;
