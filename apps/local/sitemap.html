@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.1">
+    <meta name="version" content="1.0.2">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Site Map</title>
     <!-- SITE MAP (2026-10-21, L: "quickly parse a site's structure to see what they have available... something that shows the
@@ -39,6 +39,13 @@
         .sm-page ul { border-left: 0; padding-left: 14px; list-style: disc; }
         .sm-page .types { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
         .sm-page .types span { border: 1px solid currentColor; border-radius: 10px; padding: 1px 7px; font-size: 12px; }
+        /* IMAGES (2026-10-21, L: "display images small ... the ones available most"): one strip, most-used first, swipes sideways on a phone */
+        .sm-imgs { display: flex; gap: 6px; overflow-x: auto; padding: 4px 0 6px; -webkit-overflow-scrolling: touch; }
+        .sm-imgs a { flex: 0 0 auto; position: relative; display: block; }
+        .sm-imgs img { width: 64px; height: 64px; object-fit: contain; border: 1px solid currentColor; border-radius: 6px; background: rgba(128,128,128,.12); display: block; }
+        .sm-imgs .n { position: absolute; right: 2px; bottom: 2px; font-size: 10px; line-height: 14px; background: rgba(0,0,0,.7); color: #fff; border-radius: 8px; padding: 0 5px; }
+        .sm-imgs.sm-small img { width: 40px; height: 40px; }
+        .sm-imgs-head { font-size: 13px; opacity: .75; margin: 6px 0 0; }
         .sm-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
         pre.sm-out { white-space: pre-wrap; word-break: break-word; font-size: 12px; max-height: 50vh; overflow: auto; }
     </style>
@@ -71,6 +78,7 @@
         </div>
         <div id="sm-status" class="sm-note"></div>
         <div id="sm-summary" class="sm-chips"></div>
+        <div id="sm-images"></div>
         <div class="sm-actions" id="sm-actions" hidden>
             <button id="sm-json">Copy JSON</button>
             <button id="sm-md">Copy Markdown</button>
@@ -89,7 +97,7 @@
         async function run() {
             const url = $("#sm-url").value.trim(); if (!url) { $("#sm-url").focus(); return; }
             $("#sm-go").disabled = true; $("#sm-status").className = "sm-note"; $("#sm-status").textContent = "reading " + url + " ...";
-            $("#sm-summary").innerHTML = ""; $("#sm-tree").innerHTML = ""; $("#sm-actions").hidden = true;
+            $("#sm-summary").innerHTML = ""; $("#sm-images").innerHTML = ""; $("#sm-tree").innerHTML = ""; $("#sm-actions").hidden = true;
             try {
                 const r = await fetch(`${API}?url=${encodeURIComponent(url)}&depth=${$("#sm-depth").value}&max=${$("#sm-max").value}`);
                 const j = await r.json();
@@ -104,6 +112,15 @@
         $("#sm-url").addEventListener("keydown", e => { if (e.key === "Enter") run(); });
 
         function chip(label, val) { return val ? `<span class="sm-chip"><b>${esc(val)}</b> ${esc(label)}</span>` : ""; }
+        // a thumb strip: the images load straight from the site (no proxy); one that refuses (hotlink block) just drops out
+        function thumbs(list, small) {
+            if (!list || !list.length) return "";
+            return `<div class="sm-imgs${small ? " sm-small" : ""}">` + list.map(im => {
+                const name = im.alt || decodeURIComponent((im.src.split("/").pop() || "").split("?")[0]) || im.src;
+                const tip = `${name}${im.n ? ` - on ${im.n} page${im.n === 1 ? "" : "s"}` : ""}${im.kind === "og" ? " (share image)" : im.kind === "icon" ? " (icon)" : ""}`;
+                return `<a href="${esc(im.src)}" target="_blank" rel="noopener noreferrer" title="${esc(tip)}"><img src="${esc(im.src)}" alt="${esc(im.alt || "")}" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentNode.remove()">${im.n > 1 ? `<span class="n">${im.n}</span>` : ""}</a>`;
+            }).join("") + "</div>";
+        }
         function render(j) {
             const t = j.types;
             const inputs = Object.entries(t.inputs).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} x${n}`).join(", ");
@@ -116,6 +133,8 @@
                 t.apis.length ? `<span class="sm-chip"><b>APIs:</b> ${esc(t.apis.length)} seen</span>` : "",
                 t.hints.length ? `<span class="sm-chip"><b>built with:</b> ${esc(t.hints.join(", "))}</span>` : ""
             ].join("");
+            const top = t.images_top || [];
+            $("#sm-images").innerHTML = top.length ? `<div class="sm-imgs-head">Images, most used first (${t.images_unique || top.length} different on the pages read; the number = pages using it; tap to open)</div>` + thumbs(top, false) : "";
             const byUrl = {}; j.pages.forEach(p => byUrl[p.url.replace(/\/$/, "")] = p);
             const home = j.pages.find(p => p.depth === 0);
             let html = "";
@@ -151,6 +170,7 @@
                 ${forms ? `<div class="k">Forms</div><ul>${forms}</ul>` : ""}
                 ${tables ? `<div class="k">Tables</div><ul>${tables}</ul>` : ""}
                 ${apis ? `<div class="k">APIs / data</div><ul>${apis}</ul>` : ""}
+                ${(p.images_list || []).length ? `<div class="k">Images on this page</div>${thumbs(p.images_list.slice(0, 12), true)}` : ""}
             </div>`;
         }
         function md(j) {
@@ -159,6 +179,7 @@
             lines.push(`Types: forms ${t.forms}, tables ${t.tables}, lists ${t.lists}, cards ${t.cards}, buttons ${t.buttons}, images ${t.images}, videos ${t.videos}`);
             const inputs = Object.entries(t.inputs).map(([k, n]) => `${k} x${n}`).join(", "); if (inputs) lines.push(`Inputs: ${inputs}`);
             if (t.hints.length) lines.push(`Built with: ${t.hints.join(", ")}`); if (t.apis.length) lines.push(`APIs: ${t.apis.join(", ")}`);
+            if ((t.images_top || []).length) { lines.push("", "Images, most used first:"); t.images_top.slice(0, 20).forEach(im => lines.push(`- ${im.src}${im.alt ? ` (${im.alt})` : ""} x${im.n}`)); }
             lines.push("");
             j.pages.sort((a, b) => a.path.localeCompare(b.path)).forEach(p => {
                 lines.push(`## ${p.path}  ${p.title}`);
