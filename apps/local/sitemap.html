@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.5">
+    <meta name="version" content="1.0.6">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Toolbox - Site Map</title>
     <!-- SITE MAP (2026-10-21, L: "quickly parse a site's structure to see what they have available... something that shows the
@@ -119,6 +119,18 @@
         .sm-gen input[type=text] { flex: 1; min-width: 160px; padding: 8px 10px; font: inherit; font-size: 16px; font-family: ui-monospace, Consolas, monospace; }
         .sm-gen input[type=number] { width: 70px; padding: 8px; font: inherit; font-size: 16px; }
         .sm-gen ol { margin: 6px 0 0; padding-left: 22px; font-size: 14px; } .sm-gen li { margin: 3px 0; word-break: break-all; }
+        /* URL TOOLS tab */
+        #tool-url .sm-row input[type=url] { flex: 1; min-width: 220px; padding: 10px; font: inherit; font-size: 16px; box-sizing: border-box; }
+        .ut-out { margin: 10px 0 16px; }
+        .ut-big { font-family: ui-monospace, Consolas, monospace; font-size: 14px; padding: 10px 12px; border: 1px solid currentColor; border-radius: 8px; overflow-wrap: anywhere; }
+        .ut-card { max-width: 420px; border: 1px solid rgba(128,128,128,.5); border-radius: 12px; overflow: hidden; margin: 8px 0; }
+        .ut-card img { width: 100%; max-height: 220px; object-fit: cover; display: block; background: rgba(128,128,128,.12); }
+        .ut-card .body { padding: 10px 12px; } .ut-card .dom { font-size: 12px; opacity: .65; text-transform: uppercase; } .ut-card .t { font-weight: 700; margin: 2px 0; } .ut-card .d { font-size: 13px; opacity: .85; }
+        .ut-hops { list-style: none; padding: 0; margin: 6px 0; } .ut-hops li { padding: 4px 0; border-bottom: 1px dashed rgba(128,128,128,.35); font-size: 13px; overflow-wrap: anywhere; }
+        .ut-hops .st { display: inline-block; min-width: 36px; font-weight: 700; }
+        .ut-grade { font-size: 28px; font-weight: 800; display: inline-block; margin-right: 10px; }
+        .ut-ok { color: #2e9e5b; } .ut-bad { color: #e05555; } .ut-warn { color: #c58a1b; }
+        .ut-kv { font-size: 13px; } .ut-kv div { padding: 2px 0; overflow-wrap: anywhere; } .ut-kv b { font-weight: 600; }
         .sm-group { margin: 14px 0 6px; padding-top: 8px; border-top: 1px solid rgba(128,128,128,.35); font-size: 14px; }
         .sm-group b { font-weight: 700; } .sm-group .ttl { display: block; font-size: 12px; }
     </style>
@@ -136,6 +148,7 @@
         <div class="sm-tools" id="sm-tools">
             <button data-tool="map" class="on">Site map</button>
             <button data-tool="probe">URL probe</button>
+            <button data-tool="url">URL tools</button>
             <button data-tool="zero">Zero writer</button>
         </div>
 
@@ -164,6 +177,7 @@
             <button data-view="images">Images</button>
             <button data-view="media">Media</button>
             <button data-view="data">Data</button>
+            <button data-view="links">Links</button>
         </div>
         <div class="sm-actions" id="sm-actions" hidden>
             <button id="sm-json">Copy JSON</button>
@@ -179,6 +193,7 @@
         <div class="sm-view" id="view-images" hidden></div>
         <div class="sm-view" id="view-media" hidden></div>
         <div class="sm-view" id="view-data" hidden></div>
+        <div class="sm-view" id="view-links" hidden></div>
         </section>
 
         <section class="sm-tool" id="tool-probe" hidden>
@@ -216,6 +231,21 @@
             <div class="sm-loading" id="sm-probe-loading" hidden><div class="spin"></div><div><span id="sm-probe-loading-text">probing...</span> <b id="sm-probe-loading-t">0s</b></div><div class="bar" id="sm-probe-loading-bar"></div></div>
             <div id="sm-probe-out"></div>
         </details>
+        </section>
+
+        <section class="sm-tool" id="tool-url" hidden>
+        <p class="sm-note">One URL, three looks: Clean strips tracking junk and takes it apart (nothing leaves your phone). Preview shows the card a link makes when shared. Headers walks the redirects and reads the server's headers, cookies, security and cache rules.</p>
+        <div class="sm-row"><input type="url" id="ut-url" placeholder="https://example.com/page?utm_source=..." autocomplete="url" inputmode="url"></div>
+        <div class="sm-row">
+            <button id="ut-clean">Clean</button>
+            <button id="ut-preview">Preview</button>
+            <button id="ut-headers">Headers</button>
+            <span id="ut-status" class="sm-note"></span>
+        </div>
+        <div class="sm-loading" id="ut-loading" hidden><div class="spin"></div><div><span id="ut-loading-text">reading...</span> <b id="ut-loading-t">0s</b></div><div class="bar" id="ut-loading-bar"></div></div>
+        <div class="ut-out" id="ut-clean-out"></div>
+        <div class="ut-out" id="ut-preview-out"></div>
+        <div class="ut-out" id="ut-headers-out"></div>
         </section>
 
         <section class="sm-tool" id="tool-zero" hidden>
@@ -268,7 +298,7 @@
             document.querySelectorAll("#sm-tools button").forEach(b => b.classList.toggle("on", b.dataset.tool === name));
             document.querySelectorAll(".sm-tool").forEach(s => s.hidden = s.id !== "tool-" + name);
             if (name === "probe" && !$("#sm-probe-base").value) $("#sm-probe-base").value = $("#sm-url").value;
-            try { history.replaceState(null, "", name === "map" ? location.pathname + (location.search.replace(/[?&](probe|zero)(=[^&]*)?/g, "").replace(/^&/, "?") || "") : location.pathname + "?" + name); } catch (_) {}
+            try { history.replaceState(null, "", name === "map" ? location.pathname + (location.search.replace(/[?&](probe|zero|tools)(=[^&]*)?/g, "").replace(/^&/, "?") || "") : location.pathname + "?" + (name === "url" ? "tools" : name)); } catch (_) {}
         }
         document.querySelectorAll("#sm-tools button").forEach(b => b.onclick = () => showTool(b.dataset.tool));
         function showView(name) {
@@ -282,12 +312,12 @@
             $("#sm-go").disabled = true; $("#sm-status").className = "sm-note"; $("#sm-status").textContent = "";
             loading("sm-loading", `Reading ${url.replace(/^https?:\/\//, "")} - sitemap first, then up to ${$("#sm-max").value} pages, ${$("#sm-depth").value} deep`, 25);
             $("#sm-summary").innerHTML = ""; $("#sm-images").innerHTML = ""; $("#sm-tree").innerHTML = ""; $("#sm-actions").hidden = true; $("#sm-views").hidden = true;
-            ["build", "images", "media", "data"].forEach(v => $("#view-" + v).innerHTML = "");
+            ["build", "images", "media", "data", "links"].forEach(v => $("#view-" + v).innerHTML = "");
             try {
                 const r = await fetch(`${API}?url=${encodeURIComponent(url)}&depth=${$("#sm-depth").value}&max=${$("#sm-max").value}`);
                 const j = await r.json();
                 if (!r.ok || j.error) throw new Error(j.error || ("HTTP " + r.status));
-                last = j; render(j); renderBuild(j); renderImages(j); renderMedia(j); renderData(j); $("#sm-views").hidden = false;
+                last = j; render(j); renderBuild(j); renderImages(j); renderMedia(j); renderData(j); renderLinksStart(j); $("#sm-views").hidden = false;
                 $("#sm-status").textContent = `${j.pages.length} pages read${j.sitemap_only ? ", +" + j.sitemap_only + " more from the sitemap" : ""} in ${j.seconds}s${j.partial ? " (capped - raise the limits for more)" : ""}${j.cached ? " (cached)" : ""}`;
                 $("#sm-actions").hidden = false;
             } catch (e) { $("#sm-status").className = "sm-note err"; $("#sm-status").textContent = "failed: " + (e.message || e); }
@@ -393,7 +423,7 @@
         }
         $("#sm-probe-go").onclick = runProbe;
         $("#sm-probe-copy").onclick = () => lastProbe && copy(lastProbe.results.map(x => `${x.error ? "ERR " + x.error : x.status}\t${x.url}${x.final && x.final !== x.url ? " -> " + x.final : ""}\t${x.type || ""}\t${x.title || ""}`).join("\n"), "probe results");
-        try { const sp = new URLSearchParams(location.search); if (sp.get("probe") !== null) showTool("probe"); else if (sp.get("zero") !== null) showTool("zero"); } catch (_) {}
+        try { const sp = new URLSearchParams(location.search); if (sp.get("probe") !== null) showTool("probe"); else if (sp.get("zero") !== null) showTool("zero"); else if (sp.get("tools") !== null) showTool("url"); } catch (_) {}
 
         function chip(label, val) { return val ? `<span class="sm-chip"><b>${esc(val)}</b> ${esc(label)}</span>` : ""; }
         // a thumb strip: the images load straight from the site (no proxy); one that refuses (hotlink block) just drops out
@@ -644,6 +674,93 @@
             zlog(`removed ${n} zerofill file(s)`); ZW.written = 0; ZW.files = []; ZW.target = 0; zwPaint();
         };
         window.__zwWrite = zwWrite;   // for a test with a fake folder handle
+
+        // ---- LINKS view (broken-link checker): a button after a map; POST {links, url, depth, max} -> broken / moved / ok
+        let lastLinks = null;
+        function renderLinksStart(j) {
+            lastLinks = null;
+            $("#view-links").innerHTML = `<div class="sm-note">Checks every link on the ${j.pages.length} pages read - internal and outside - and lists the broken and moved ones with the pages they sit on. Up to 200 links, about 40 s on a big site.</div>
+                <div class="sm-row"><button id="sm-links-go">Check the links</button><span class="sm-note" id="sm-links-st"></span></div>
+                <div class="sm-loading" id="sm-links-loading" hidden><div class="spin"></div><div><span id="sm-links-loading-text">checking...</span> <b id="sm-links-loading-t">0s</b></div><div class="bar" id="sm-links-loading-bar"></div></div>
+                <div id="sm-links-out"></div>`;
+            $("#sm-links-go").onclick = () => runLinks(j);
+        }
+        async function runLinks(j) {
+            const st = $("#sm-links-st"); $("#sm-links-go").disabled = true; st.textContent = ""; $("#sm-links-out").innerHTML = "";
+            loading("sm-links-loading", `Checking every link on ${j.host} - reading the pages again, then each link, 8 at a time`, 40);
+            try {
+                const r = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ links: true, url: j.root, depth: j.depth, max: j.max }) });
+                const x = await r.json(); if (!r.ok || x.error) throw new Error(x.error || ("HTTP " + r.status));
+                lastLinks = x;
+                const row = (b, cls) => `<tr><td class="st ${cls}">${b.error ? esc(b.error.slice(0, 30)) : b.status}</td><td><code>${esc(b.url)}</code>${b.final && b.final.replace(/\/$/, "") !== b.url.replace(/\/$/, "") ? `<span class="meta">→ ${esc(b.final)}</span>` : ""}<span class="meta">on: ${b.on.map(esc).join(", ") || "-"}${b.internal ? "" : " · outside link"}</span></td><td><a href="${esc(b.url)}" target="_blank" rel="noopener noreferrer">open</a></td></tr>`;
+                const broken = x.broken.map(b => row(b, "bad")).join(""), moved = x.moved.map(b => row(b, "redir")).join("");
+                $("#sm-links-out").innerHTML = `<div class="sm-chips">${chip("pages", x.pages)}${chip("links checked", x.checked)}<span class="sm-chip ${x.broken.length ? "ut-bad" : "ut-ok"}"><b>${x.broken.length}</b> broken</span>${chip("moved", x.moved.length)}${chip("ok", x.ok)}${x.skipped ? chip("not checked (over 200)", x.skipped) : ""}</div>
+                    ${broken ? `<div class="k">Broken</div><div class="sm-scroll sm-probe"><table><thead><tr><th>status</th><th>link</th><th></th></tr></thead><tbody>${broken}</tbody></table></div>` : `<div class="sm-note ut-ok">No broken links on the pages read.</div>`}
+                    ${moved ? `<div class="k">Moved (redirects - update the link)</div><div class="sm-scroll sm-probe"><table><thead><tr><th>status</th><th>link</th><th></th></tr></thead><tbody>${moved}</tbody></table></div>` : ""}
+                    <div class="sm-note">A link that needs a real browser (Cloudflare email protection, login walls, bot checks) can show as broken here and still work for people.</div>`;
+                st.textContent = `${x.checked} checked in ${x.seconds}s`;
+            } catch (e) { st.className = "sm-note err"; st.textContent = "failed: " + (e.message || e); }
+            loading("sm-links-loading", ""); $("#sm-links-go").disabled = false;
+        }
+
+        // ---- URL TOOLS tab
+        const TRACK = /^(utm_\w*|fbclid|gclid|gclsrc|dclid|gbraid|wbraid|msclkid|yclid|twclid|ttclid|igshid|igsh|mc_cid|mc_eid|mkt_tok|_hsenc|_hsmi|hsa_\w*|oly_\w*|vero_\w*|_ga|_gl|_ke|si|ref_src|ref_url|ref|spm|share_id|feature|source|cmpid|ncid|sr_share|trk|trkInfo|srsltid|rb_clickid|s_kwcid|ef_id|zanpid|ir[gc]wc|_openstat|wickedid)$/i;
+        const utUrl = () => { let u = $("#ut-url").value.trim(); if (!u) { $("#ut-url").focus(); return ""; } return /^https?:\/\//i.test(u) ? u : "https://" + u; };
+        const tryB64 = s => { if (!/^[A-Za-z0-9+/=_-]{8,}$/.test(s) || s.length % 4 === 1) return ""; try { const t = atob(s.replace(/-/g, "+").replace(/_/g, "/")); return /^[\x20-\x7e\s]+$/.test(t) ? t : ""; } catch (_) { return ""; } };
+        const kv = (k, v) => v ? `<div><b>${esc(k)}:</b> ${v}</div>` : "";
+        $("#ut-clean").onclick = () => {
+            const raw = utUrl(); if (!raw) return;
+            let u; try { u = new URL(raw); } catch (_) { $("#ut-clean-out").innerHTML = `<div class="sm-note err">that's not a URL I can read</div>`; return; }
+            const removed = [], kept = new URLSearchParams();
+            for (const [k, v] of u.searchParams) { if (TRACK.test(k)) removed.push(k + "=" + v); else kept.append(k, v); }
+            const clean = new URL(u); clean.search = kept.toString(); if (/^(amp|amp_js_v)$/i.test(clean.hash.slice(1))) clean.hash = "";
+            let decoded = ""; try { decoded = decodeURIComponent(clean.href); } catch (_) { decoded = clean.href; }
+            const rows = [...kept].map(([k, v]) => { const b = tryB64(v); return `<div><b>${esc(k)}</b> = ${esc(v)}${b ? ` <span class="ttl">(base64: ${esc(b.slice(0, 80))})</span>` : ""}</div>`; }).join("");
+            $("#ut-clean-out").innerHTML = `<div class="k">Clean</div><div class="ut-big" id="ut-clean-url">${esc(clean.href)}</div>
+                <div class="sm-row"><button id="ut-clean-copy">Copy clean URL</button><button id="ut-clean-open">Open</button>${removed.length ? `<span class="sm-note">${removed.length} tracking param${removed.length === 1 ? "" : "s"} removed</span>` : `<span class="sm-note">no tracking params found</span>`}</div>
+                ${removed.length ? `<div class="ut-kv"><div><b>removed:</b> ${removed.map(esc).join(", ")}</div></div>` : ""}
+                <div class="k" style="margin-top:8px">Parts</div><div class="ut-kv">${kv("scheme", esc(u.protocol.replace(":", "")))}${kv("host", esc(u.hostname))}${kv("port", esc(u.port))}${kv("path", esc(u.pathname))}${kv("hash", esc(u.hash))}${decoded !== clean.href ? kv("decoded", esc(decoded)) : ""}</div>
+                ${rows ? `<div class="k" style="margin-top:8px">Query</div><div class="ut-kv">${rows}</div>` : ""}`;
+            $("#ut-clean-copy").onclick = () => copy(clean.href, "clean URL"); $("#ut-clean-open").onclick = () => window.open(clean.href, "_blank", "noopener");
+        };
+        async function utFetch(mode, url) {
+            const r = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ [mode]: true, url }) });
+            const j = await r.json(); if (!r.ok || j.error) throw new Error(j.error || ("HTTP " + r.status)); return j;
+        }
+        $("#ut-preview").onclick = async () => {
+            const url = utUrl(); if (!url) return; const st = $("#ut-status"); st.className = "sm-note"; st.textContent = ""; $("#ut-preview-out").innerHTML = "";
+            loading("ut-loading", `Reading ${url.replace(/^https?:\/\//, "").slice(0, 60)} for its share tags`, 10);
+            try {
+                const p = await utFetch("preview", url);
+                let dom = ""; try { dom = new URL(p.final || url).hostname.replace(/^www\./, ""); } catch (_) {}
+                const tags = Object.entries(p.tags || {}).map(([k, v]) => `<div><b>${esc(k)}</b>: ${esc(v)}</div>`).join("");
+                $("#ut-preview-out").innerHTML = `<div class="k">Preview</div>${p.note ? `<div class="sm-note">${esc(p.note)}</div>` : ""}
+                    <div class="ut-card">${p.image ? `<img src="${esc(p.image)}" alt="${esc(p.image_alt || "")}" referrerpolicy="no-referrer" onerror="this.remove()">` : ""}<div class="body"><div class="dom">${esc(p.site_name || dom)}</div><div class="t">${esc(p.title || p.page_title || "(no title)")}</div><div class="d">${esc(p.description || "(no description - the share shows just the link)")}</div></div></div>
+                    <div class="ut-kv">${kv("card type", esc(p.card || "none set"))}${kv("og:type", esc(p.type))}${kv("canonical", esc(p.canonical))}${kv("icon", esc(p.icon))}${kv("image", p.image ? `<a href="${esc(p.image)}" target="_blank" rel="noopener noreferrer">${esc(p.image)}</a>` : "")}${!p.image ? `<div class="ut-warn">no og:image - the share gets no picture</div>` : ""}${!p.description ? `<div class="ut-warn">no description tag</div>` : ""}</div>
+                    ${tags ? `<details><summary>all ${Object.keys(p.tags).length} tags</summary><div class="ut-kv">${tags}</div></details>` : ""}`;
+            } catch (e) { st.className = "sm-note err"; st.textContent = "preview failed: " + (e.message || e); }
+            loading("ut-loading", "");
+        };
+        $("#ut-headers").onclick = async () => {
+            const url = utUrl(); if (!url) return; const st = $("#ut-status"); st.className = "sm-note"; st.textContent = ""; $("#ut-headers-out").innerHTML = "";
+            loading("ut-loading", `Walking ${url.replace(/^https?:\/\//, "").slice(0, 60)} hop by hop`, 10);
+            try {
+                const h = await utFetch("headers", url);
+                const hops = h.hops.map((x, i) => `<li><span class="st ${x.status >= 200 && x.status < 300 ? "ut-ok" : x.status >= 300 && x.status < 400 ? "ut-warn" : "ut-bad"}">${x.status || "err"}</span> ${esc(x.url)}${x.location ? ` <span class="ttl">→ ${esc(x.location)}</span>` : ""}${x.error ? ` <span class="ut-bad">${esc(x.error)}</span>` : ""} <span class="ttl">${x.ms != null ? x.ms + " ms" : ""}${x.server ? " · " + esc(x.server) : ""}</span></li>`).join("");
+                const sec = Object.entries(h.security).map(([k, v]) => `<div>${v ? `<span class="ut-ok">✓</span>` : `<span class="ut-bad">✗</span>`} <b>${esc(k)}</b>${v ? `: ${esc(v.slice(0, 90))}` : ""}</div>`).join("");
+                const cookies = h.cookies.map(c => `<div><b>${esc(c.name)}</b> ${c.flags.map(esc).join(" · ") || "<span class='ut-warn'>no flags</span>"}</div>`).join("");
+                const cache = Object.entries(h.cache).map(([k, v]) => `<div><b>${esc(k)}</b>: ${esc(v)}</div>`).join("");
+                const all = h.all.map(([k, v]) => `<div><b>${esc(k)}</b>: ${esc(v)}</div>`).join("");
+                $("#ut-headers-out").innerHTML = `<div class="k">Redirect chain (${h.hops.length} hop${h.hops.length === 1 ? "" : "s"})</div><ul class="ut-hops">${hops}</ul>
+                    <div class="k">Security headers</div><div><span class="ut-grade ${h.security_grade === "A" || h.security_grade === "B" ? "ut-ok" : h.security_grade === "C" ? "ut-warn" : "ut-bad"}">${esc(h.security_grade)}</span><span class="ttl">${h.security_present} of ${Object.keys(h.security).length} set</span></div><div class="ut-kv">${sec}</div>
+                    <div class="k" style="margin-top:8px">Cookies set</div><div class="ut-kv">${cookies || "<div class='ttl'>none on this page</div>"}</div>
+                    <div class="k" style="margin-top:8px">Cache rules</div><div class="ut-kv">${cache || "<div class='ttl'>none sent</div>"}</div>
+                    <details style="margin-top:8px"><summary>all ${h.all.length} headers</summary><div class="ut-kv">${all}</div></details>`;
+                st.textContent = `${h.seconds}s`;
+            } catch (e) { st.className = "sm-note err"; st.textContent = "headers failed: " + (e.message || e); }
+            loading("ut-loading", "");
+        };
+        $("#ut-url").addEventListener("keydown", e => { if (e.key === "Enter") $("#ut-clean").click(); });
 
         function md(j) {
             const lines = [`# ${j.host} - site map (${j.pages.length} pages, depth ${j.depth})`, ""];
