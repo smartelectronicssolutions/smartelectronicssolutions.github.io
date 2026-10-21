@@ -13,8 +13,8 @@ self.addEventListener("push", e => {
         body: d.body || "",
         tag: d.tag || undefined,            // same tag = the newer one replaces the older (no pile-ups)
         renotify: !!d.tag,
-        icon: d.icon || "/assets/img/android-chrome-192x192.png",
-        badge: "/assets/img/android-chrome-192x192.png",
+        icon: d.icon || "/assets/img/droplet-app-192.png",
+        badge: "/assets/img/droplet-app-192.png",
         data: { url: d.url || "/console.html" },
         timestamp: d.at || Date.now()
     };
