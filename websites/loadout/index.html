@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
-<meta name="version" content="1.0.3">
+<meta name="version" content="1.0.4">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0c0f13"><title>Loadout</title>
 <style>
@@ -1360,7 +1360,7 @@ $("hshapeBtn").addEventListener("click",e=>{e.stopPropagation();if(!editMode||!s
 function edSnap(){const rm=room;return JSON.stringify({d:roomDecor[rm]||{},dr:(ROOMS[rm].doors||[]).map(d=>({x:d.x,y:d.y,w:d.w,h:d.h,out:d.out?d.out.slice():null})),w:WALLS[rm]||{},f:FTILES[rm]||{},
   p:placesIn(rm).map(([k,q])=>[k,q.x,q.y,q.z||0]),fx:fixIn(rm).map(id=>[id,FIXTURES[id].x,FIXTURES[id].y]),sz:ROOMSIZE[rm]||null,
   // 2026-10-21 (L: "undo moved the door back but not the house"): the street's houses, the shop and the parked vehicles ride along
-  hs:rm==="street"?STREET_HOUSES.map(h=>[h.at[0],h.at[1]]):null,shop:rm==="street"?[SHOP_RECT.x,SHOP_RECT.y]:null,cars:rm==="street"?STREET_CARS.map(c=>[c.x,c.y]):null});}
+  hs:rm==="street"?STREET_HOUSES.map(h=>[h.at[0],h.at[1],h.z||0]):null,shop:rm==="street"?[SHOP_RECT.x,SHOP_RECT.y]:null,cars:rm==="street"?STREET_CARS.map(c=>[c.x,c.y]):null});}
 function undoBegin(){if(!editMode)return;undoPend={room,s:edSnap()};}
 function undoEnd(){const u=undoPend;undoPend=null;if(!u||u.room!==room)return;setTimeout(()=>{if(edSnap()!==u.s){UNDO.push(u);if(UNDO.length>40)UNDO.shift();}},60);}
 function undoLast(){let u;while(UNDO.length&&(u=UNDO.pop())&&u.room!==room)u=null;if(!u){dayBanner("Nothing to undo");return;}
@@ -1369,7 +1369,7 @@ function undoLast(){let u;while(UNDO.length&&(u=UNDO.pop())&&u.room!==room)u=nul
   (ROOMS[rm].doors||[]).forEach((d,i)=>{const o=S.dr[i];if(!o)return;const outDiff=JSON.stringify(d.out||null)!==JSON.stringify(o.out||null);
     if(d.x!==o.x||d.y!==o.y||d.w!==o.w||d.h!==o.h||outDiff){d.x=o.x;d.y=o.y;d.w=o.w;d.h=o.h;if(o.out)d.out=o.out.slice();else if(outDiff)delete d.out;saveDoor(rm,i);}});
   if(rm==="street"){   // houses (set directly - the proxy would shift the door a second time), the shop, the parked vehicles
-    if(S.hs)STREET_HOUSES.forEach((h,i)=>{const o=S.hs[i];if(o&&(h.at[0]!==o[0]||h.at[1]!==o[1])){h.at[0]=o[0];h.at[1]=o[1];saveHouse(i);}});
+    if(S.hs)STREET_HOUSES.forEach((h,i)=>{const o=S.hs[i];if(o&&(h.at[0]!==o[0]||h.at[1]!==o[1]||(h.z||0)!==(o[2]||0))){h.at[0]=o[0];h.at[1]=o[1];h.z=o[2]||0;saveHouse(i);}});
     if(S.shop&&(SHOP_RECT.x!==S.shop[0]||SHOP_RECT.y!==S.shop[1])){SHOP_RECT.x=S.shop[0];SHOP_RECT.y=S.shop[1];saveHouse(-1);}
     if(S.cars)STREET_CARS.forEach((c,i)=>{const o=S.cars[i];if(o&&(c.x!==o[0]||c.y!==o[1])){c.x=o[0];c.y=o[1];saveCar(i);}});}
   WALLS[rm]=S.w;set(ref(db,"public/games/loadout/walls/"+rm),S.w).catch(()=>{});
@@ -1853,13 +1853,14 @@ function render(){const R=ROOMS[room];
   const ents=[];
   for(const {id,d} of decorList(room))if(!isFlat(d.k)){const s=d.s||1,W0=CAT[d.k].w*s,H0=CAT[d.k].h*s,rh=(d.rot||0)%2?W0:H0;ents.push({t:"d",id,d,z:d.z||0,sy:d.y+(H0+rh)/2});}   // base line = the bottom you SEE (rotated pieces spin round their centre)
   for(const[k,p]of placesIn(room))ents.push({t:"p",k,p,z:p.z||0,sy:p.y+p.h});
+  if(room==="street")STREET_HOUSES.forEach((h,i)=>ents.push({t:"house",i,h,z:h.z||0,sy:h.at[1]+116}));   // 2026-10-21: houses sort with the props (base = bottom edge)
   ents.push({t:"pl",z:0,sy:player.y});
   for(const id of npcsIn(room))ents.push({t:"npc",id,z:0,sy:NPCS[id].y});
   for(const id of fixIn(room))ents.push({t:"fx",id,z:0,sy:fxCY(FIXTURES[id])});
   // OVER / UNDER (2026-10-18, L: "if I'm under it, show me on top; when I'm above it, it should be over me"): ▲Front / ▼Back
   // only stacks furniture against furniture - people are always placed by their FEET against each piece's base line.
   // Things are drawn in their stacking order, and each person steps in once everything whose base is above their feet is down.
-  const draw=e=>{if(e.t==="d")drawDecorItem(e.d);else if(e.t==="p")drawPlace(e.k,e.p);else if(e.t==="npc")drawNPC(e.id);else if(e.t==="fx")drawFixture(e.id);else drawPlayer();};
+  const draw=e=>{if(e.t==="d")drawDecorItem(e.d);else if(e.t==="p")drawPlace(e.k,e.p);else if(e.t==="npc")drawNPC(e.id);else if(e.t==="fx")drawFixture(e.id);else if(e.t==="house")drawHouseSprite(e.h.at[0],e.h.at[1],e.h.roof,slab(e.h.lab,e.h.def),e.h.style,e.h.wall);else drawPlayer();};
   const things=ents.filter(e=>e.t!=="pl"&&e.t!=="npc").sort((a,b)=>(a.z-b.z)||(a.sy-b.sy)),people=ents.filter(e=>e.t==="pl"||e.t==="npc").sort((a,b)=>a.sy-b.sy),done=new Set();
   for(const t of things)if(t.z<0){draw(t);done.add(t);}   // ▼ Back = always behind people (L 2026-10-18: "if I define something as back, let it be back")
   for(const pe of people){for(const t of things)if(!done.has(t)&&t.sy<=pe.sy){draw(t);done.add(t);}draw(pe);}
@@ -1988,7 +1989,7 @@ function drawStreet(){const W=worldW(),H=worldH();
   px(0,STREET_ROAD.y,W,STREET_ROAD.h,"#3b3e44");px(0,STREET_ROAD.y,W,3,"#9aa0a6");px(0,STREET_ROAD.y+STREET_ROAD.h-3,W,3,"#9aa0a6");   // the road
   for(let x=6;x<W;x+=34)px(x,STREET_ROAD.y+STREET_ROAD.h/2-1,18,3,"#e7c65a");                              // centre line
   for(const [x,y] of STREET_HOUSES.map(h=>h.at)){const sw=[160,550,914].find(s=>s>y+100)||y+124;px(x+59,y+114,32,sw-(y+114),"#c9c3b5");}   // front walks to the sidewalk
-  for(const h of STREET_HOUSES)drawHouseSprite(h.at[0],h.at[1],h.roof,slab(h.lab,h.def),h.style,h.wall);
+  // houses are drawn in the depth sort now (2026-10-21, L: "the house doesn't show in front of the fence") - see the ents list
   // parked vehicles (Luis's): the van opens its storage with E, like on the lot
   for(const v of STREET_CARS){const im=catImg[v.k];const c=CAT[v.k];
     ctx.fillStyle="rgba(0,0,0,.30)";ctx.beginPath();ctx.ellipse(v.x+78,v.y+92,70,8,0,0,7);ctx.fill();
@@ -2017,10 +2018,10 @@ function houseProxy(h){if(h._p)return h._p;const p={};
   Object.defineProperty(p,"y",{get:()=>h.at[1],set:v=>{const dy=v-h.at[1];h.at[1]=v;shift(0,dy);}});
   return h._p=p;}
 function saveHouse(idx){if(idx<0){update(ref(db,"public/games/loadout/houses"),{shop:{x:SHOP_RECT.x,y:SHOP_RECT.y}}).catch(()=>{});return;}
-  const h=STREET_HOUSES[idx];update(ref(db,"public/games/loadout/houses"),{[h.lab]:{x:h.at[0],y:h.at[1]}}).catch(()=>{});
+  const h=STREET_HOUSES[idx];update(ref(db,"public/games/loadout/houses"),{[h.lab]:{x:h.at[0],y:h.at[1],z:h.z||0}}).catch(()=>{});
   const di=houseDoor(h);if(di>=0){const d=ROOMS.street.doors[di];update(ref(db,"public/games/loadout/doors/street"),{[di]:{x:d.x,y:d.y,w:d.w,h:d.h,...(d.out?{ox:d.out[0],oy:d.out[1]}:{})}}).catch(()=>{});}}
 onValue(ref(db,"public/games/loadout/houses"),snap=>{const v=snap.val()||{};_houseLoading=true;
-  for(const h of STREET_HOUSES){const o=v[h.lab];if(o&&isFinite(o.x)&&isFinite(o.y)){h.at[0]=o.x;h.at[1]=o.y;}}
+  for(const h of STREET_HOUSES){const o=v[h.lab];if(o&&isFinite(o.x)&&isFinite(o.y)){h.at[0]=o.x;h.at[1]=o.y;}if(o&&isFinite(o.z))h.z=o.z;}
   if(v.shop&&isFinite(v.shop.x)&&isFinite(v.shop.y)){SHOP_RECT.x=v.shop.x;SHOP_RECT.y=v.shop.y;}
   _houseLoading=false;});
 // standalone pixel door/gate (frame + wood panel + arch + knob + sign)
@@ -2179,7 +2180,7 @@ function edDouble(p){if(!editMode||isOpen()||transing)return false;const it=pick
   if(it.kind==="d"){const d=roomDecor[room][it.id];if(!d||(!d.store&&!d.storeArea))return false;editMode=false;if(d.storeArea)openArea(d.storeArea);else openPanelFor(d.storeLoc||("decor:"+room+":"+it.id));editMode=wasEdit;return true;}
   if(it.kind==="p"){editMode=false;openContainer(it.key);editMode=wasEdit;return true;}
   return false;}
-window.__loEdDouble=edDouble;window.__loStreet=()=>({houses:STREET_HOUSES.map(h=>h.at.slice()),doors:ROOMS.street.doors.map(d=>[d.x,d.y].concat(d.out||[])),shop:[SHOP_RECT.x,SHOP_RECT.y],cars:STREET_CARS.map(c=>[c.x,c.y])});window.__loView=()=>({VW,VH,roomOff:{x:roomOff.x,y:roomOff.y},z:editMode?editZoom:1});   // test helperswindow.__loDoors=()=>roomDoors(room).map(d=>Object.assign({to:d.to},doorHitRect(d)));   // test helper: every doorway in the room with its hit rect
+window.__loEdDouble=edDouble;window.__loStreet=()=>({houses:STREET_HOUSES.map(h=>h.at.slice().concat([h.z||0])),doors:ROOMS.street.doors.map(d=>[d.x,d.y].concat(d.out||[])),shop:[SHOP_RECT.x,SHOP_RECT.y],cars:STREET_CARS.map(c=>[c.x,c.y])});window.__loView=()=>({VW,VH,roomOff:{x:roomOff.x,y:roomOff.y},z:editMode?editZoom:1});   // test helperswindow.__loDoors=()=>roomDoors(room).map(d=>Object.assign({to:d.to},doorHitRect(d)));   // test helper: every doorway in the room with its hit rect
 cv.addEventListener("dblclick",e=>{if(e.pointerType==="touch")return;edDouble(toLogical(e));});
 {let lt=null;cv.addEventListener("pointerdown",e=>{if(!editMode||e.pointerType==="mouse")return;const now=performance.now();
   if(lt&&now-lt.t<320&&Math.hypot(e.clientX-lt.x,e.clientY-lt.y)<24){lt=null;if(edDouble(toLogical(e))){e.stopImmediatePropagation();e.preventDefault();}return;}
@@ -2265,7 +2266,7 @@ function drawEditOverlay(){
   ctx.save();ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle="rgba(242,165,65,.94)";ctx.fillRect(0,VH-19,VW,19);ctx.fillStyle="#0c0f13";ctx.font="9px 'Pixelify Sans',monospace";ctx.textAlign="center";
   ctx.fillText(wallMode?"WALL MODE (W) — tap/drag grid to build/erase walls":floorMode?"FLOOR MODE (F) — pick a tile below, tap/drag to paint":"EDIT — tap select · drag move · green = doorway",VW/2,VH-6);ctx.restore();}
 // tools
-function selZList(){const arr=[];for(const {d} of decorList(room))arr.push(d.z||0);for(const[,p]of placesIn(room))arr.push(p.z||0);return arr;}
+function selZList(){const arr=[];for(const {d} of decorList(room))arr.push(d.z||0);for(const[,p]of placesIn(room))arr.push(p.z||0);if(room==="street")for(const h of STREET_HOUSES)arr.push(h.z||0);return arr;}
 $("frontBtn").addEventListener("click",()=>{if(!selected)return;const mx=Math.max(0,...selZList())+1;setZ(mx);});
 $("backBtn").addEventListener("click",()=>{if(!selected)return;const mn=Math.min(0,...selZList())-1;setZ(mn);});
 $("rotBtn").addEventListener("click",()=>{if(!selected)return;
@@ -2302,7 +2303,8 @@ $("doesBtn").addEventListener("click",e=>{e.stopPropagation();if(document.getEle
   document.body.appendChild(m);const r=$("doesBtn").getBoundingClientRect(),mh=m.offsetHeight,mw=m.offsetWidth;
   m.style.left=Math.max(6,Math.min(innerWidth-mw-6,r.left))+"px";m.style.top=Math.max(6,(r.top-mh-6>6?r.top-mh-6:r.bottom+6))+"px";});
 addEventListener("click",e=>{const m=document.getElementById("doesMenu");if(m&&!m.contains(e.target)&&e.target!==$("doesBtn"))closeDoes();});
-function setZ(z){if(selected.kind==="d"){roomDecor[room][selected.id].z=z;saveRoom(room);}else if(selected.kind==="p"){PLACES[selected.key].z=z;saveCrate(selected.key);}}
+function setZ(z){if(selected.kind==="d"){roomDecor[room][selected.id].z=z;saveRoom(room);}else if(selected.kind==="p"){PLACES[selected.key].z=z;saveCrate(selected.key);}
+  else if(selected.kind==="house"){const h=STREET_HOUSES[selected.idx];if(h){h.z=z;saveHouse(selected.idx);}}}
 // VERIFY EVERY DELETE (b131, L 2026-10-19: "add a verify on all deletes"): one game-styled yes/no box used by every 🗑 -
 // room pieces, empty containers, areas and inventory items. Enter / Y = delete, Esc / N / tap outside = keep.
 function askDelete(what,extra){return new Promise(res=>{const o=document.createElement("div");o.style.cssText="position:fixed;inset:0;z-index:6000;background:rgba(6,8,10,.6);display:flex;align-items:center;justify-content:center;padding:16px";
