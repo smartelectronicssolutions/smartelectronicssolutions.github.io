@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.6">
+    <meta name="version" content="1.0.7">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Toolbox - Site Map</title>
     <!-- SITE MAP (2026-10-21, L: "quickly parse a site's structure to see what they have available... something that shows the
@@ -126,6 +126,11 @@
         .ut-card { max-width: 420px; border: 1px solid rgba(128,128,128,.5); border-radius: 12px; overflow: hidden; margin: 8px 0; }
         .ut-card img { width: 100%; max-height: 220px; object-fit: cover; display: block; background: rgba(128,128,128,.12); }
         .ut-card .body { padding: 10px 12px; } .ut-card .dom { font-size: 12px; opacity: .65; text-transform: uppercase; } .ut-card .t { font-weight: 700; margin: 2px 0; } .ut-card .d { font-size: 13px; opacity: .85; }
+        .ut-play { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; margin: 8px 0; }
+        .ut-play figure { margin: 0; border: 1px solid rgba(128,128,128,.4); border-radius: 8px; padding: 6px; font-size: 12px; overflow: hidden; }
+        .ut-play video, .ut-play iframe { width: 100%; aspect-ratio: 16 / 9; background: #000; border: 0; border-radius: 4px; display: block; }
+        .ut-play audio { width: 100%; }
+        .ut-play figcaption { margin-top: 4px; overflow-wrap: anywhere; }
         .ut-hops { list-style: none; padding: 0; margin: 6px 0; } .ut-hops li { padding: 4px 0; border-bottom: 1px dashed rgba(128,128,128,.35); font-size: 13px; overflow-wrap: anywhere; }
         .ut-hops .st { display: inline-block; min-width: 36px; font-weight: 700; }
         .ut-grade { font-size: 28px; font-weight: 800; display: inline-block; margin-right: 10px; }
@@ -234,15 +239,17 @@
         </section>
 
         <section class="sm-tool" id="tool-url" hidden>
-        <p class="sm-note">One URL, three looks: Clean strips tracking junk and takes it apart (nothing leaves your phone). Preview shows the card a link makes when shared. Headers walks the redirects and reads the server's headers, cookies, security and cache rules.</p>
+        <p class="sm-note">One URL, four looks: Clean strips tracking junk and takes it apart (nothing leaves your phone). Preview shows the card a link makes when shared. Headers walks the redirects and reads the server's headers, cookies, security and cache rules. Play plays a video or audio link right here, a YouTube or Vimeo link as its embed, or every player found on a page.</p>
         <div class="sm-row"><input type="url" id="ut-url" placeholder="https://example.com/page?utm_source=..." autocomplete="url" inputmode="url"></div>
         <div class="sm-row">
             <button id="ut-clean">Clean</button>
             <button id="ut-preview">Preview</button>
             <button id="ut-headers">Headers</button>
+            <button id="ut-play">Play</button>
             <span id="ut-status" class="sm-note"></span>
         </div>
         <div class="sm-loading" id="ut-loading" hidden><div class="spin"></div><div><span id="ut-loading-text">reading...</span> <b id="ut-loading-t">0s</b></div><div class="bar" id="ut-loading-bar"></div></div>
+        <div class="ut-out" id="ut-play-out"></div>
         <div class="ut-out" id="ut-clean-out"></div>
         <div class="ut-out" id="ut-preview-out"></div>
         <div class="ut-out" id="ut-headers-out"></div>
@@ -758,6 +765,33 @@
                     <details style="margin-top:8px"><summary>all ${h.all.length} headers</summary><div class="ut-kv">${all}</div></details>`;
                 st.textContent = `${h.seconds}s`;
             } catch (e) { st.className = "sm-note err"; st.textContent = "headers failed: " + (e.message || e); }
+            loading("ut-loading", "");
+        };
+        // PLAY: a media URL -> player; YouTube / Vimeo -> embed; any page -> the fetcher reads it and every video / audio / embed plays here
+        const MEDIA_URL = /\.(mp4|webm|mov|m4v|ogv|mp3|wav|ogg|oga|m4a|flac|aac|m3u8)(\?.*)?$/i, AUDIO_EXT = /\.(mp3|wav|ogg|oga|m4a|flac|aac)(\?.*)?$/i;
+        const vimeoId = u => (u.match(/vimeo\.com\/(?:video\/)?(\d{6,})/) || [])[1];
+        const embedFor = u => { const y = ytId(u); if (y) return `https://www.youtube-nocookie.com/embed/${y}`; const v = vimeoId(u); if (v) return `https://player.vimeo.com/video/${v}`; if (/player\.vimeo\.com|youtube(-nocookie)?\.com\/embed\//.test(u)) return u; return ""; };
+        function playerHtml(m) {
+            const src = m.src, cap = `<figcaption><b>${esc(name(src).slice(0, 48))}</b> <span class="ttl">${esc(m.kind)}</span><div><a href="${esc(src)}" target="_blank" rel="noopener noreferrer">open</a></div></figcaption>`;
+            const emb = embedFor(src);
+            if (m.kind === "embed" || emb) return `<figure><iframe src="${esc(emb || src)}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>${cap}</figure>`;
+            if (m.kind === "audio" || AUDIO_EXT.test(src)) return `<figure><audio controls preload="metadata"><source src="${esc(src)}"></audio>${cap}</figure>`;
+            return `<figure><video controls playsinline preload="metadata" ${m.poster ? `poster="${esc(m.poster)}"` : ""}><source src="${esc(src)}" ${m.mime ? `type="${esc(m.mime)}"` : ""}></video>${cap}</figure>`;
+        }
+        $("#ut-play").onclick = async () => {
+            const url = utUrl(); if (!url) return; const st = $("#ut-status"); st.className = "sm-note"; st.textContent = ""; const out = $("#ut-play-out"); out.innerHTML = "";
+            if (MEDIA_URL.test(url) || embedFor(url)) {   // plays straight away, nothing fetched
+                out.innerHTML = `<div class="k">Play</div><div class="ut-play">${playerHtml({ src: url, kind: embedFor(url) ? "embed" : AUDIO_EXT.test(url) ? "audio" : "video" })}</div>${/\.m3u8/i.test(url) ? `<div class="sm-note">HLS (.m3u8) plays in Safari; Chrome needs the site's own player for it.</div>` : ""}`;
+                return;
+            }
+            loading("ut-loading", `Reading ${url.replace(/^https?:\/\//, "").slice(0, 60)} for video and audio`, 10);
+            try {
+                const p = await utFetch("preview", url);
+                const list = (p.media || []).slice(); if (p.og_video && !list.some(m => m.src === p.og_video)) list.unshift({ src: p.og_video, kind: embedFor(p.og_video) ? "embed" : "video" });
+                const playable = list.filter(m => m.kind === "video" || m.kind === "audio" || m.kind === "embed");
+                out.innerHTML = playable.length ? `<div class="k">Play (${playable.length} found on the page)</div><div class="ut-play">${playable.slice(0, 12).map(playerHtml).join("")}</div><div class="sm-note">Players load headers only until you press play. A site that blocks hotlinking or streams through its own player (HLS/DRM) won't play here; "open" takes you to it.</div>`
+                    : `<div class="k">Play</div><div class="sm-note">No video, audio or embeds in that page's HTML. Sites that load players with scripts (Netflix-style, TikTok, many news sites) don't show them to a reader; try the Media view after a Site map, or paste the video file's own link.</div>`;
+            } catch (e) { st.className = "sm-note err"; st.textContent = "play failed: " + (e.message || e); }
             loading("ut-loading", "");
         };
         $("#ut-url").addEventListener("keydown", e => { if (e.key === "Enter") $("#ut-clean").click(); });
