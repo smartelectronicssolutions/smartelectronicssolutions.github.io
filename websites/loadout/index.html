@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
-<meta name="version" content="1.0.1">
+<meta name="version" content="1.0.2">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0c0f13"><title>Loadout</title>
 <style>
@@ -1350,14 +1350,21 @@ document.addEventListener("click",e=>{const b=e.target.closest&&e.target.closest
 function hshapeLbl(){const b=$("hshapeBtn");if(!b)return;const d=selected&&selected.kind==="d"?(roomDecor[room]||{})[selected.id]:null,c=d&&CAT[d.k];const on=!!(c&&c.hshape);b.textContent=on?"\u25e9 Shape":"\u25a2 Box";b.classList.toggle("add",on);}
 $("hshapeBtn").addEventListener("click",e=>{e.stopPropagation();if(!editMode||!selected||selected.kind!=="d")return;const d=(roomDecor[room]||{})[selected.id];if(!d||!CAT[d.k])return;const c=CAT[d.k];
   c.hshape=!c.hshape;update(ref(db,"public/games/loadout/catalog/"+d.k),{hshape:c.hshape||null}).catch(()=>{});hshapeLbl();dayBanner("Stop zone "+(c.label||d.k)+": "+(c.hshape?"follows the drawing":"box"));});
-function edSnap(){const rm=room;return JSON.stringify({d:roomDecor[rm]||{},dr:(ROOMS[rm].doors||[]).map(d=>({x:d.x,y:d.y,w:d.w,h:d.h})),w:WALLS[rm]||{},f:FTILES[rm]||{},
-  p:placesIn(rm).map(([k,q])=>[k,q.x,q.y,q.z||0]),fx:fixIn(rm).map(id=>[id,FIXTURES[id].x,FIXTURES[id].y]),sz:ROOMSIZE[rm]||null});}
+function edSnap(){const rm=room;return JSON.stringify({d:roomDecor[rm]||{},dr:(ROOMS[rm].doors||[]).map(d=>({x:d.x,y:d.y,w:d.w,h:d.h,out:d.out?d.out.slice():null})),w:WALLS[rm]||{},f:FTILES[rm]||{},
+  p:placesIn(rm).map(([k,q])=>[k,q.x,q.y,q.z||0]),fx:fixIn(rm).map(id=>[id,FIXTURES[id].x,FIXTURES[id].y]),sz:ROOMSIZE[rm]||null,
+  // 2026-10-21 (L: "undo moved the door back but not the house"): the street's houses, the shop and the parked vehicles ride along
+  hs:rm==="street"?STREET_HOUSES.map(h=>[h.at[0],h.at[1]]):null,shop:rm==="street"?[SHOP_RECT.x,SHOP_RECT.y]:null,cars:rm==="street"?STREET_CARS.map(c=>[c.x,c.y]):null});}
 function undoBegin(){if(!editMode)return;undoPend={room,s:edSnap()};}
 function undoEnd(){const u=undoPend;undoPend=null;if(!u||u.room!==room)return;setTimeout(()=>{if(edSnap()!==u.s){UNDO.push(u);if(UNDO.length>40)UNDO.shift();}},60);}
 function undoLast(){let u;while(UNDO.length&&(u=UNDO.pop())&&u.room!==room)u=null;if(!u){dayBanner("Nothing to undo");return;}
   const S=JSON.parse(u.s),rm=room;
   roomDecor[rm]=S.d;saveRoom(rm);
-  (ROOMS[rm].doors||[]).forEach((d,i)=>{const o=S.dr[i];if(o&&(d.x!==o.x||d.y!==o.y||d.w!==o.w||d.h!==o.h)){Object.assign(d,o);saveDoor(rm,i);}});
+  (ROOMS[rm].doors||[]).forEach((d,i)=>{const o=S.dr[i];if(!o)return;const outDiff=JSON.stringify(d.out||null)!==JSON.stringify(o.out||null);
+    if(d.x!==o.x||d.y!==o.y||d.w!==o.w||d.h!==o.h||outDiff){d.x=o.x;d.y=o.y;d.w=o.w;d.h=o.h;if(o.out)d.out=o.out.slice();else if(outDiff)delete d.out;saveDoor(rm,i);}});
+  if(rm==="street"){   // houses (set directly - the proxy would shift the door a second time), the shop, the parked vehicles
+    if(S.hs)STREET_HOUSES.forEach((h,i)=>{const o=S.hs[i];if(o&&(h.at[0]!==o[0]||h.at[1]!==o[1])){h.at[0]=o[0];h.at[1]=o[1];saveHouse(i);}});
+    if(S.shop&&(SHOP_RECT.x!==S.shop[0]||SHOP_RECT.y!==S.shop[1])){SHOP_RECT.x=S.shop[0];SHOP_RECT.y=S.shop[1];saveHouse(-1);}
+    if(S.cars)STREET_CARS.forEach((c,i)=>{const o=S.cars[i];if(o&&(c.x!==o[0]||c.y!==o[1])){c.x=o[0];c.y=o[1];saveCar(i);}});}
   WALLS[rm]=S.w;set(ref(db,"public/games/loadout/walls/"+rm),S.w).catch(()=>{});
   FTILES[rm]=S.f;set(ref(db,"public/games/loadout/ftiles/"+rm),S.f).catch(()=>{});
   for(const [k,x,y,z] of S.p)if(PLACES[k]){PLACES[k].x=x;PLACES[k].y=y;PLACES[k].z=z;saveCrate(k);}
@@ -2165,7 +2172,7 @@ function edDouble(p){if(!editMode||isOpen()||transing)return false;const it=pick
   if(it.kind==="d"){const d=roomDecor[room][it.id];if(!d||(!d.store&&!d.storeArea))return false;editMode=false;if(d.storeArea)openArea(d.storeArea);else openPanelFor(d.storeLoc||("decor:"+room+":"+it.id));editMode=wasEdit;return true;}
   if(it.kind==="p"){editMode=false;openContainer(it.key);editMode=wasEdit;return true;}
   return false;}
-window.__loEdDouble=edDouble;window.__loDoors=()=>roomDoors(room).map(d=>Object.assign({to:d.to},doorHitRect(d)));   // test helper: every doorway in the room with its hit rect
+window.__loEdDouble=edDouble;window.__loStreet=()=>({houses:STREET_HOUSES.map(h=>h.at.slice()),doors:ROOMS.street.doors.map(d=>[d.x,d.y].concat(d.out||[])),shop:[SHOP_RECT.x,SHOP_RECT.y],cars:STREET_CARS.map(c=>[c.x,c.y])});window.__loView=()=>({VW,VH,roomOff:{x:roomOff.x,y:roomOff.y},z:editMode?editZoom:1});   // test helperswindow.__loDoors=()=>roomDoors(room).map(d=>Object.assign({to:d.to},doorHitRect(d)));   // test helper: every doorway in the room with its hit rect
 cv.addEventListener("dblclick",e=>{if(e.pointerType==="touch")return;edDouble(toLogical(e));});
 {let lt=null;cv.addEventListener("pointerdown",e=>{if(!editMode||e.pointerType==="mouse")return;const now=performance.now();
   if(lt&&now-lt.t<320&&Math.hypot(e.clientX-lt.x,e.clientY-lt.y)<24){lt=null;if(edDouble(toLogical(e))){e.stopImmediatePropagation();e.preventDefault();}return;}
