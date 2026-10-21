@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
-<meta name="version" content="1.0.0">
+<meta name="version" content="1.0.1">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0c0f13"><title>Loadout</title>
 <style>
@@ -2155,10 +2155,21 @@ function refreshTools(){const on=!!selected;
 $("selLabel").addEventListener("dblclick",e=>{if(e.target.closest(".rn")&&!$("nameBtn").disabled)$("nameBtn").click();});
 function toLogical(e){const r=cv.getBoundingClientRect(),z=editMode?editZoom:1,sx=(e.clientX-r.left)*(VW/r.width),sy=(e.clientY-r.top)*(VH/r.height);return {x:(sx-VW/2)/z+VW/2-roomOff.x,y:(sy-VH/2)/z+VH/2-roomOff.y};}
 function pickAt(x,y){let best=null;for(const it of draggablesIn(room)){if(x>=it.o.x&&x<=it.o.x+it.w&&y>=it.o.y&&y<=it.o.y+it.h){const z=(it.kind==="door"&&it.o.to!=="van")||it.kind==="pdoor"?1e6:(it.o.z||0);   /* b112: a doorway always wins the click over the house/piece it sits on (L: "I can't move the doors on the houses") */if(!best||z>best._z||(z===best._z&&(it.o.y+it.h)>(best.o.y+best.h))){best=it;best._z=z;}}}return best;}
-// edit mode: double-click a storage piece to jump straight into it (no exit+walk+E)
-cv.addEventListener("dblclick",e=>{if(!editMode||isOpen()||transing)return;const p=toLogical(e);const it=pickAt(p.x,p.y);if(!it)return;const wasEdit=editMode;
-  if(it.kind==="d"){const d=roomDecor[room][it.id];if(!d||(!d.store&&!d.storeArea))return;editMode=false;if(d.storeArea)openArea(d.storeArea);else openPanelFor(d.storeLoc||("decor:"+room+":"+it.id));editMode=wasEdit;}
-  else if(it.kind==="p"){editMode=false;openContainer(it.key);editMode=wasEdit;}});
+// edit mode: double-click a storage piece to jump straight into it (no exit+walk+E); double-click a DOORWAY (built-in door
+// or a piece that DOES door) to go through it and land at the matching door on the other side, still editing (2026-10-21,
+// L: "when I double click a door can I have it switch me to the other end"). Touch: two taps within 320 ms do the same.
+function edDouble(p){if(!editMode||isOpen()||transing)return false;const it=pickAt(p.x,p.y);if(!it)return false;const wasEdit=editMode;
+  if(it.kind==="door"){if(it.o.to==="van"||!ROOMS[it.o.to])return false;go(it.o);return true;}
+  if(it.kind==="pdoor"||(it.kind==="d"&&roomDecor[room][it.id]&&roomDecor[room][it.id].does&&roomDecor[room][it.id].does.t==="door")){
+    const pd=pieceDoors(room).find(x=>x.piece===it.id);if(!pd)return false;go(pd);return true;}
+  if(it.kind==="d"){const d=roomDecor[room][it.id];if(!d||(!d.store&&!d.storeArea))return false;editMode=false;if(d.storeArea)openArea(d.storeArea);else openPanelFor(d.storeLoc||("decor:"+room+":"+it.id));editMode=wasEdit;return true;}
+  if(it.kind==="p"){editMode=false;openContainer(it.key);editMode=wasEdit;return true;}
+  return false;}
+window.__loEdDouble=edDouble;window.__loDoors=()=>roomDoors(room).map(d=>Object.assign({to:d.to},doorHitRect(d)));   // test helper: every doorway in the room with its hit rect
+cv.addEventListener("dblclick",e=>{if(e.pointerType==="touch")return;edDouble(toLogical(e));});
+{let lt=null;cv.addEventListener("pointerdown",e=>{if(!editMode||e.pointerType==="mouse")return;const now=performance.now();
+  if(lt&&now-lt.t<320&&Math.hypot(e.clientX-lt.x,e.clientY-lt.y)<24){lt=null;if(edDouble(toLogical(e))){e.stopImmediatePropagation();e.preventDefault();}return;}
+  lt={t:now,x:e.clientX,y:e.clientY};},{capture:true});}
 // structure name overrides (van / shop / neighborhood houses) — double-click in play mode to rename
 let SLABELS={};onValue(ref(db,"public/games/loadout/slabels"),s=>{SLABELS=s.val()||{};});
 let VSCALE={};onValue(ref(db,"public/games/loadout/vscale"),s=>{VSCALE=s.val()||{};});function vs(k){return VSCALE[k]||1;}
