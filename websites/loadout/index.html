@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
-<meta name="version" content="1.0.2">
+<meta name="version" content="1.0.3">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0c0f13"><title>Loadout</title>
 <style>
@@ -143,6 +143,13 @@
   #storage{align-items:stretch;justify-content:stretch;z-index:18;display:flex;opacity:0;visibility:hidden;pointer-events:none;transition:opacity .18s ease,visibility .18s ease;backdrop-filter:none}
   #storage.open{opacity:1;visibility:visible;pointer-events:auto}
   #storage .storwrap{max-width:none;width:100vw;height:100dvh;margin:0;border:0;border-radius:0;display:flex;flex-direction:column}
+  /* SPRITE STUDIO FULL SCREEN (2026-10-21, L: "the sprite editing tool needs to be full screen also") - same treatment as storage */
+  #studio .panel{max-width:none;width:100vw;height:100dvh;max-height:none;margin:0;border:0;border-radius:0;display:flex;flex-direction:column;transform:none}
+  #studio .phead,#studio .stfoot{flex:none}
+  #studio .stbody{flex:1;min-height:0;flex-wrap:nowrap;overflow:hidden}
+  #studio .stleft{overflow:auto;min-height:0}
+  #studio .stcvbox{min-width:0;overflow:auto}
+  @media (max-width:640px){#studio .stbody{flex-direction:column;gap:8px;padding:8px}#studio .stleft{width:auto;flex:none;flex-direction:row;flex-wrap:wrap;align-items:center;gap:6px;max-height:38dvh}#studio .stleft .sttools,#studio .stleft .stpal{display:contents}}
   .scenepad{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;overflow:auto;background:#0a0d10;padding:8px}
   #storage #storBg{max-width:96vw;max-height:58dvh;width:auto;height:auto} /* JS fit overrides to the real free space */
   #storage .scenepad{overflow:hidden}
@@ -2403,7 +2410,12 @@ function stImport(file){if(!file)return;const url=URL.createObjectURL(file),im=n
     stSetCells(c);URL.revokeObjectURL(url);};im.src=url;}
 function buildStPal(){const p=$("stPal");p.innerHTML="";PALS.forEach(c=>{const s=document.createElement("div");s.className="sw"+(c===ST.color?" on":"");s.style.background=c==="transparent"?"repeating-conic-gradient(#555 0 25%,#333 0 50%) 0/8px 8px":c;s.title=c;s.onclick=()=>{ST.color=c;if(c!=="transparent")$("stColor").value=c;buildStPal();};p.appendChild(s);});}
 $("stColor").addEventListener("input",e=>{ST.color=e.target.value;buildStPal();});
-function stFit(){ST.disp=Math.max(1,Math.round(Math.min(360/ST.w,440/ST.h)*(ST.zoom||1)));if(typeof stZoomLbl==="function")try{stZoomLbl();}catch(e){}const cv=$("stCanvas");cv.width=ST.w*ST.disp;cv.height=ST.h*ST.disp;}
+let _stRefit=false;
+function stFit(){const box=$("stCanvas").closest(".stcvbox");let aw=box?box.clientWidth-24:0,ah=box?box.clientHeight-24:0;   // fit the real box (full screen now), not a fixed 360x440
+  if(aw<60||ah<60){aw=360;ah=440;if(!_stRefit){_stRefit=true;requestAnimationFrame(()=>{_stRefit=false;if($("studio").classList.contains("open")){stFit();stDraw();}});}}
+  ST.disp=Math.max(1,Math.floor(Math.min(aw/ST.w,ah/ST.h)*(ST.zoom||1)));if(typeof stZoomLbl==="function")try{stZoomLbl();}catch(e){}const cv=$("stCanvas");cv.width=ST.w*ST.disp;cv.height=ST.h*ST.disp;}
+addEventListener("resize",()=>{if($("studio").classList.contains("open")){stFit();stDraw();}});
+window.__loStFit=()=>{stFit();stDraw();return ST.disp;};   // test helper
 function stDraw(){const cv=$("stCanvas"),c=cv.getContext("2d");c.imageSmoothingEnabled=false;const d=ST.disp;
   for(let y=0;y<ST.h;y++)for(let x=0;x<ST.w;x++){c.fillStyle=((x+y)%2===0)?"#171b21":"#12161b";c.fillRect(x*d,y*d,d,d);const v=ST.cells[y][x];if(v){c.fillStyle=v;c.fillRect(x*d,y*d,d,d);}}
   if(ST.shape){c.fillStyle=ST.color==="transparent"?"rgba(255,120,90,.6)":ST.color;for(const [x,y] of ST.shape)c.fillRect(x*d,y*d,d,d);}
