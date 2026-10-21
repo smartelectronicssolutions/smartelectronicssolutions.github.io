@@ -43,6 +43,15 @@ export function getArticleImage(article) {
 // FULL ARTICLE RENDER (used in onlinejournal.html)
 // =========================
 
+// linkify(escapedText): bare http(s) URLs in already-escaped text become links that open in a new tab
+// (L 2026-10-21). Trailing punctuation stays outside the link; the text is escaped BEFORE this runs.
+function linkify(s) {
+  return String(s).replace(/https?:\/\/[^\s<]+/g, (m) => {
+    const t = m.replace(/[.,;:!?)\]]+$/, ""), tail = m.slice(t.length);
+    return `<a href="${t}" target="_blank" rel="noopener noreferrer">${t}</a>${tail}`;
+  });
+}
+
 export function renderArticleContent(article) {
   let html = "";
 
@@ -70,13 +79,13 @@ export function renderArticleContent(article) {
     // paragraph so those articles don't crash the whole view.
     var content = section.content;
     if (typeof content === "string") {
-      if (content.trim()) html += `<p style="white-space:pre-wrap">${escapeHtml(content)}</p>`;
+      if (content.trim()) html += `<p style="white-space:pre-wrap">${linkify(escapeHtml(content))}</p>`;
       content = [];
     }
     (content || []).forEach((item) => {
       // Bare-string items (some tool-authored articles) render as a paragraph.
       if (typeof item === "string") {
-        if (item.trim()) html += `<p>${escapeHtml(item)}</p>`;
+        if (item.trim()) html += `<p>${linkify(escapeHtml(item))}</p>`;
         return;
       }
       // Some tool-authored items omit `type`; infer it from the keys present so
@@ -93,7 +102,7 @@ export function renderArticleContent(article) {
       // Accept legacy `text` key as well as the canonical `value`.
       var textVal = item.value != null ? item.value : item.text;
       if (item.type === "text" && textVal) {
-        html += `<p>${escapeHtml(textVal)}</p>`;
+        html += `<p>${linkify(escapeHtml(textVal))}</p>`;
       }
 
       if (item.type === "image" && item.src) {
@@ -115,7 +124,7 @@ export function renderArticleContent(article) {
           ? item.items
           : (typeof item.items === "string" ? [item.items] : []);
         if (items.length) {
-          html += `<ul>${items.map((i) => `<li>${escapeHtml(String(i))}</li>`).join("")}</ul>`;
+          html += `<ul>${items.map((i) => `<li>${linkify(escapeHtml(String(i)))}</li>`).join("")}</ul>`;
         }
       }
 
