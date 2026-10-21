@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.8">
+    <meta name="version" content="1.0.9">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Toolbox - Site Map</title>
     <!-- SITE MAP (2026-10-21, L: "quickly parse a site's structure to see what they have available... something that shows the
@@ -179,6 +179,8 @@
                 <option value="20">20 pages</option>
                 <option value="40" selected>40 pages</option>
                 <option value="80">80 pages</option>
+                <option value="150">150 pages</option>
+                <option value="300">300 pages</option>
             </select>
             <button id="sm-go">Map it</button>
         </div>
@@ -309,9 +311,50 @@
             loaders[id] = setInterval(() => { const s = Math.round((Date.now() - t0) / 1000); $("#" + id + "-t").textContent = s + "s"; $("#" + id + "-bar").style.width = Math.min(100, 100 * s / (budget || 25)) + "%"; if (s >= 20) $("#" + id + "-text").textContent = text + " (big site, the read stops at 25 s and shows what it got)"; }, 1000);
         }
 
+        // LIVE RESULTS (L: "the results, can they populate as they're found, mainly media and images"): while the crawl runs,
+        // each page event brings its images and media; they go straight into the overview strip, the Images view (a group
+        // per page) and the Media view. "done" then re-renders everything with the real sorting and counts.
+        const live = { seen: new Set(), pages: 0, players: 0 };
+        function liveReset() { live.seen.clear(); live.pages = 0; live.players = 0; $("#sm-views").hidden = true; }
+        function liveAddPage(d) {
+            const imgs = (d.images_list || []).filter(im => im && im.src), med = (d.media_list || []).filter(m => m && m.src);
+            if (!imgs.length && !med.length) return;
+            live.pages++;
+            if ($("#sm-views").hidden) { $("#sm-views").hidden = false; }
+            // overview strip: every new picture, as it comes
+            const fresh = imgs.filter(im => !live.seen.has(im.src)); fresh.forEach(im => live.seen.add(im.src));
+            if (fresh.length) {
+                let strip = $("#sm-live-strip");
+                if (!strip) { $("#sm-images").innerHTML = `<div class="sm-imgs-head" id="sm-live-head">Images found so far</div><div class="sm-imgs" id="sm-live-strip"></div>`; strip = $("#sm-live-strip"); }
+                if (strip.children.length < 80) strip.insertAdjacentHTML("beforeend", thumbs(fresh.slice(0, 80 - strip.children.length), false).replace(/^<div class="sm-imgs">|<\/div>$/g, ""));
+                $("#sm-live-head").textContent = `Images found so far: ${live.seen.size}`;
+            }
+            // Images view: a group per page, as it comes (largest first once sizes load)
+            if (imgs.length) {
+                const v = $("#view-images");
+                if (!v.querySelector("#sm-gallery")) v.innerHTML = `<div class="sm-note">Filling in as pages are read - the full gallery with sorting replaces this when the read finishes.</div><div id="sm-gallery"></div>`;
+                $("#sm-gallery").insertAdjacentHTML("beforeend", `<div class="sm-group"><b>${esc(d.path)}</b> <span class="ttl">${esc(d.title || "")} · ${imgs.length} image${imgs.length === 1 ? "" : "s"}</span></div><div class="sm-gallery" data-group="${esc(d.path)}">${imgs.slice(0, 20).map(im => figureHtml(Object.assign({ n: 1 }, im))).join("")}</div>`);
+                const g = $("#sm-gallery").lastElementChild;
+                g.querySelectorAll("img").forEach(img => { const fig = img.closest("figure"); const done = () => { if (!img.naturalWidth) return; dims[fig.dataset.src] = [img.naturalWidth, img.naturalHeight]; const dd = fig.querySelector(".dim"); if (dd) dd.textContent = img.naturalWidth + " x " + img.naturalHeight + " px"; }; if (img.complete) done(); else img.addEventListener("load", done); });
+            }
+            // Media view: players / thumbs / file links, as they come (players load headers only)
+            if (med.length) {
+                const v = $("#view-media");
+                if (!v.querySelector("#sm-media-live")) v.innerHTML = `<div class="sm-note">Filling in as pages are read - the full Media view replaces this when the read finishes.</div><div id="sm-media-live"></div>`;
+                const items = med.map(m => {
+                    const nm = esc(name(m.src).slice(0, 48)), open = `<div><a href="${esc(m.src)}" target="_blank" rel="noopener noreferrer">open</a></div>`;
+                    if (m.kind === "video" && live.players < 12) { live.players++; return `<figure><video preload="metadata" controls playsinline muted ${m.poster ? `poster="${esc(m.poster)}"` : ""}><source src="${esc(m.src)}" ${m.mime ? `type="${esc(m.mime)}"` : ""}></video><figcaption><b>${nm}</b>${open}</figcaption></figure>`; }
+                    if (m.kind === "audio" && live.players < 12) { live.players++; return `<figure><audio preload="metadata" controls><source src="${esc(m.src)}"></audio><figcaption><b>${nm}</b>${open}</figcaption></figure>`; }
+                    if (m.kind === "embed") { const id = ytId(m.src); return `<figure>${id ? `<img class="thumb" src="https://i.ytimg.com/vi/${esc(id)}/hqdefault.jpg" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}<figcaption><b>${esc(m.text || (id ? "YouTube" : "embed"))}</b>${open}</figcaption></figure>`; }
+                    return `<figure><figcaption><b>${nm}</b> <span class="ttl">${esc(m.kind)}${m.mime ? " · " + esc(m.mime) : ""}</span>${open}</figcaption></figure>`;
+                }).join("");
+                $("#sm-media-live").insertAdjacentHTML("beforeend", `<div class="sm-group"><b>${esc(d.path)}</b> <span class="ttl">${esc(d.title || "")} · ${med.length} item${med.length === 1 ? "" : "s"}</span></div><div class="sm-media">${items}</div>`);
+            }
+        }
+
         // LIVE: open the fetcher's event stream and list every find as it lands (page or link). Resolves with the full result
         // on "done"; rejects {fallback:true} when the stream never opened so the caller does the plain call instead.
-        function runStream(src, listId, loadId) {
+        function runStream(src, listId, loadId, onEvent) {
             return new Promise((resolve, reject) => {
                 if (!window.EventSource) return reject({ fallback: true });
                 const list = $("#" + listId); let got = 0, done = false;
@@ -322,7 +365,8 @@
                 es.addEventListener("sitemap", e => { got++; const d = JSON.parse(e.data); add(`sitemap: ${d.count} url${d.count === 1 ? "" : "s"} listed`, "hdr"); });
                 es.addEventListener("page", e => { got++; const d = JSON.parse(e.data); const bits = [d.forms ? `forms ${d.forms}` : "", d.tables ? `tables ${d.tables}` : "", d.images ? `images ${d.images}` : "", d.media ? `media ${d.media}` : "", d.apis ? `apis ${d.apis}` : "", d.links ? `links ${d.links}` : "", d.bytes ? kb(d.bytes) : ""].filter(Boolean).join(" · ");
                     add(`<span class="st ${stCls(d.status)}">${d.status}</span><code>${esc(d.path)}</code>${d.title ? `<span class="ttl">${esc(d.title.slice(0, 50))}</span>` : ""}${bits ? `<span class="meta" style="display:block;font-size:11px;opacity:.65">${esc(bits)}${d.t ? ` · ${d.t}s` : ""}</span>` : ""}`);
-                    const t = $("#" + loadId + "-text"); if (t) t.textContent = `${d.n} page${d.n === 1 ? "" : "s"} read so far` + (d.cached ? " (from the cache)" : ""); });
+                    const t = $("#" + loadId + "-text"); if (t) t.textContent = `${d.n} page${d.n === 1 ? "" : "s"} read so far` + (d.cached ? " (from the cache)" : "");
+                    if (onEvent) { try { onEvent("page", d); } catch (_) {} } });
                 es.addEventListener("link", e => { got++; const d = JSON.parse(e.data); add(`<span class="st ${d.error || !d.status || d.status >= 400 ? "ut-bad" : d.moved ? "ut-warn" : "ut-ok"}">${d.error ? esc(d.error.slice(0, 24)) : d.status}</span><code>${esc(d.url)}</code>${d.moved ? ` <span class="ttl">moved</span>` : ""}${d.on && d.on.length ? `<span class="ttl">on ${esc(d.on.join(", "))}</span>` : ""}`);
                     const t = $("#" + loadId + "-text"); if (t) t.textContent = `${d.i} of ${d.n} links checked`; });
                 es.addEventListener("error", e => { if (e.data) { done = true; es.close(); try { reject(new Error(JSON.parse(e.data).error || "error")); } catch (_) { reject(new Error("error")); } } });
@@ -348,19 +392,20 @@
         async function run() {
             const url = $("#sm-url").value.trim(); if (!url) { $("#sm-url").focus(); return; }
             $("#sm-go").disabled = true; $("#sm-status").className = "sm-note"; $("#sm-status").textContent = "";
-            loading("sm-loading", `Reading ${url.replace(/^https?:\/\//, "")} - sitemap first, then up to ${$("#sm-max").value} pages, ${$("#sm-depth").value} deep`, 25);
+            loading("sm-loading", `Reading ${url.replace(/^https?:\/\//, "")} - sitemap first, then up to ${$("#sm-max").value} pages, ${$("#sm-depth").value} deep`, parseInt($("#sm-max").value, 10) > 80 ? 90 : 25);
             $("#sm-summary").innerHTML = ""; $("#sm-images").innerHTML = ""; $("#sm-tree").innerHTML = ""; $("#sm-actions").hidden = true; $("#sm-views").hidden = true; $("#sm-live").innerHTML = "";
             ["build", "images", "media", "data", "links"].forEach(v => $("#view-" + v).innerHTML = "");
             try {
                 const qs = `url=${encodeURIComponent(url)}&depth=${$("#sm-depth").value}&max=${$("#sm-max").value}`;
                 let j;
-                try { j = await runStream(`${API}?${qs}&stream=1`, "sm-live", "sm-loading"); }
+                liveReset();
+                try { j = await runStream(`${API}?${qs}&stream=1`, "sm-live", "sm-loading", (type, d) => { if (type === "page") liveAddPage(d); }); }
                 catch (e) {
                     if (e && e.fallback) { const r = await fetch(`${API}?${qs}`); j = await r.json(); if (!r.ok || j.error) throw new Error(j.error || ("HTTP " + r.status)); }
                     else throw e;
                 }
                 last = j; render(j); renderBuild(j); renderImages(j); renderMedia(j); renderData(j); renderLinksStart(j); $("#sm-views").hidden = false;
-                $("#sm-status").textContent = `${j.pages.length} pages read${j.sitemap_only ? ", +" + j.sitemap_only + " more from the sitemap" : ""} in ${j.seconds}s${j.partial ? " (capped - raise the limits for more)" : ""}${j.cached ? " (cached)" : ""}`;
+                $("#sm-status").textContent = `${j.pages.length} pages read${j.sitemap_only ? ", +" + j.sitemap_only + " more from the sitemap" : ""} in ${j.seconds}s${j.partial ? " (hit the cap - pick more pages or less depth for the rest)" : ""}${j.cached ? " (cached)" : ""}`;
                 $("#sm-actions").hidden = false;
             } catch (e) { $("#sm-status").className = "sm-note err"; $("#sm-status").textContent = "failed: " + (e.message || e); }
             loading("sm-loading", ""); $("#sm-go").disabled = false;
