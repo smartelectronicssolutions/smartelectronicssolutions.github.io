@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.0">
+    <meta name="version" content="1.0.1">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Control Hub</title>
     <link rel="stylesheet" href="assets/css/master.css">
@@ -539,6 +539,42 @@
             <!-- CLEANUP (2026-10-13, L: "a cleanup card in the hub with different levels of cleanups that can be done on SE or any
                  system"): Preview = dry run, Run = apply. se/pi go straight to the daemon (kind:'cleanup' -> elevated task
                  ops-cleanup -> console/cleanup/<system>); the VMs and other PCs go to Droplet as a job (they need creds). -->
+            <section class="hub-section">
+                <div class="hcard" id="siteswitch-card">
+                    <h3>Site switch <span id="ss-state" style="float:right;font-size:0.65rem;font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted)">loading</span></h3>
+                    <div style="font-size:0.78rem;color:var(--muted);margin-bottom:8px">OFF = visitors to luissolutions.us see an under-construction page with this message. You still see the site, with a red strip on top.</div>
+                    <textarea id="ss-msg" rows="3" placeholder="Message visitors see, e.g. Back Monday - working on the shop." style="width:100%;box-sizing:border-box;background:transparent;color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px;font:inherit;font-size:0.85rem"></textarea>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px">
+                        <button class="hbtn" id="ss-off">Switch site OFF</button>
+                        <button class="hbtn primary" id="ss-on">Switch site ON</button>
+                        <a class="hbtn" href="/websites/index.html?switchtest=1" target="_blank" rel="noopener">Preview page</a>
+                        <span id="ss-msgline" style="font-size:0.75rem;color:var(--muted)"></span>
+                    </div>
+                </div>
+            </section>
+            <script type="module">
+                import { auth, database, ref, onValue, set, onAuthStateChanged } from './assets/js/firebase-init.js?v=20261011b';
+                const $ = s => document.querySelector(s);
+                const node = ref(database, 'public/site/maintenance');
+                let cur = null;
+                onValue(node, snap => {
+                    cur = snap.val() || { on: false, message: '' };
+                    $('#ss-state').textContent = cur.on ? 'OFF for visitors since ' + (cur.at ? new Date(cur.at).toLocaleString() : '?') : 'site is live';
+                    $('#ss-state').style.color = cur.on ? '#ff6b7a' : 'var(--muted)';
+                    if (document.activeElement !== $('#ss-msg')) $('#ss-msg').value = cur.message || '';
+                    $('#ss-off').disabled = !!cur.on; $('#ss-on').disabled = !cur.on;
+                });
+                const write = on => {
+                    const u = auth.currentUser; if (!u) { $('#ss-msgline').textContent = 'sign in first'; return; }
+                    set(node, { on, message: $('#ss-msg').value.trim(), at: Date.now(), by: u.uid })
+                        .then(() => { $('#ss-msgline').textContent = on ? 'visitors now see the under-construction page' : 'site is live again'; })
+                        .catch(e => { $('#ss-msgline').textContent = 'failed: ' + e.message; });
+                };
+                $('#ss-off').addEventListener('click', () => write(true));
+                $('#ss-on').addEventListener('click', () => write(false));
+                $('#ss-msg').addEventListener('change', () => { if (cur && cur.on) write(true); });   // edit the message while OFF = saved
+                onAuthStateChanged(auth, () => {});
+            </script>
             <section class="hub-section">
                 <div class="hcard" id="cleanup-card">
                     <h3>Cleanup <span id="cl-age" style="float:right;font-size:0.65rem;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0"></span></h3>
