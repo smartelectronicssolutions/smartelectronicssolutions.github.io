@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.4">
+    <meta name="version" content="1.0.5">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Toolbox - Site Map</title>
     <!-- SITE MAP (2026-10-21, L: "quickly parse a site's structure to see what they have available... something that shows the
@@ -114,6 +114,11 @@
         .sm-scroll { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
         .sm-scroll table { min-width: 420px; }
         .sm-imgs { max-width: 100%; }
+        .sm-gen { border: 1px solid rgba(128,128,128,.4); border-radius: 10px; padding: 8px 10px; margin: 8px 0; }
+        .sm-gen summary { cursor: pointer; font-size: 14px; }
+        .sm-gen input[type=text] { flex: 1; min-width: 160px; padding: 8px 10px; font: inherit; font-size: 16px; font-family: ui-monospace, Consolas, monospace; }
+        .sm-gen input[type=number] { width: 70px; padding: 8px; font: inherit; font-size: 16px; }
+        .sm-gen ol { margin: 6px 0 0; padding-left: 22px; font-size: 14px; } .sm-gen li { margin: 3px 0; word-break: break-all; }
         .sm-group { margin: 14px 0 6px; padding-top: 8px; border-top: 1px solid rgba(128,128,128,.35); font-size: 14px; }
         .sm-group b { font-weight: 700; } .sm-group .ttl { display: block; font-size: 12px; }
     </style>
@@ -180,6 +185,26 @@
         <details class="sm-probe" id="sm-probe" open>
             <summary>URL probe - try paths and see what answers</summary>
             <div class="sm-row"><input type="url" id="sm-probe-base" placeholder="https://example.com (site to probe)" autocomplete="url" inputmode="url"></div>
+            <details class="sm-gen" id="sm-gen">
+                <summary>Add to the end - make URLs from the base + an ending</summary>
+                <div class="sm-row">
+                    <input type="text" id="sm-gen-tpl" value="{rand}" placeholder="ending, e.g. ?id={rand} or /{rand}.html or /page{1-10}" spellcheck="false">
+                </div>
+                <div class="sm-row">
+                    <label>length <input type="number" id="sm-gen-len" value="5" min="1" max="64" inputmode="numeric"></label>
+                    <select id="sm-gen-set" title="characters {rand} picks from"><option value="az09">a-z 0-9</option><option value="az">a-z</option><option value="09">0-9</option><option value="hex">hex</option><option value="AZ09">A-Z 0-9</option><option value="aA09">a-Z 0-9</option></select>
+                    <select id="sm-gen-n" title="how many"><option value="1">x1</option><option value="5" selected>x5</option><option value="10">x10</option><option value="20">x20</option></select>
+                    <button id="sm-gen-go">Generate</button>
+                </div>
+                <div class="hint">The ending is glued straight onto the base, exactly as typed. {rand} = random characters per the settings; {1-10}, {01-10}, {a,b,c} work here too.</div>
+                <div class="sm-row" id="sm-gen-actions" hidden>
+                    <button id="sm-gen-open">Open all</button>
+                    <button id="sm-gen-probe">Probe these</button>
+                    <button id="sm-gen-copy">Copy</button>
+                    <span class="sm-note">open all = one tab each (the browser may hold the rest behind its popup note)</span>
+                </div>
+                <ol id="sm-gen-out"></ol>
+            </details>
             <textarea id="sm-probe-list" placeholder="one path per line, relative to the site above (or full URLs)&#10;admin/&#10;page{1-10}.html&#10;{wp-admin,login,api,sitemap.xml}&#10;files/{rand6}.pdf" spellcheck="false"></textarea>
             <div class="hint">{1-10} counts, {01-10} keeps the zeros, {a,b,c} picks each, {rand6} = 6 random letters/digits. Up to 40 URLs a go.</div>
             <div class="sm-row">
@@ -313,6 +338,27 @@
             }
             return [...new Set(urls)];
         }
+        // ADD TO THE END (the old urltester): base + ending, {rand} from a chosen set, x N, then open / probe / copy
+        const SETS = { az09: "abcdefghijklmnopqrstuvwxyz0123456789", az: "abcdefghijklmnopqrstuvwxyz", "09": "0123456789", hex: "0123456789abcdef", AZ09: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", aA09: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" };
+        const rndSet = (n, set) => Array.from({ length: n }, () => set[Math.floor(Math.random() * set.length)]).join("");
+        let genUrls = [];
+        function generate() {
+            let base = ($("#sm-probe-base").value.trim() || $("#sm-url").value.trim()); const tpl = $("#sm-gen-tpl").value;
+            const len = Math.max(1, Math.min(64, parseInt($("#sm-gen-len").value, 10) || 5)), set = SETS[$("#sm-gen-set").value] || SETS.az09, n = parseInt($("#sm-gen-n").value, 10) || 1;
+            if (!base) { $("#sm-gen-out").innerHTML = `<li class="sm-note err">put the site in the box above first</li>`; return; }
+            if (!/^https?:\/\//i.test(base)) base = "https://" + base;
+            const out = [];
+            for (const line of expand(tpl)) { const times = /\{rand\d*\}/i.test(line) ? n : 1; for (let i = 0; i < times && out.length < 200; i++) out.push(base + line.replace(/\{rand(\d*)\}/gi, (_, k) => rndSet(k ? parseInt(k, 10) : len, set))); }
+            genUrls = [...new Set(out)];
+            $("#sm-gen-out").innerHTML = genUrls.map(u => `<li><a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(u)}</a></li>`).join("");
+            $("#sm-gen-actions").hidden = !genUrls.length;
+        }
+        $("#sm-gen-go").onclick = generate;
+        $("#sm-gen-tpl").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); generate(); } });
+        $("#sm-gen-open").onclick = () => genUrls.slice(0, 20).forEach(u => window.open(u, "_blank", "noopener"));
+        $("#sm-gen-copy").onclick = () => copy(genUrls.join("\n"), "URLs");
+        $("#sm-gen-probe").onclick = () => { $("#sm-probe-list").value = genUrls.slice(0, 40).join("\n"); runProbe(); };
+
         let lastProbe = null;
         async function runProbe() {
             const urls = buildList();
