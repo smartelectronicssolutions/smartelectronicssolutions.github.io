@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="version" content="1.0.0">
+  <meta name="version" content="1.0.1">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Online Journal</title>
   <link rel="stylesheet" href="../assets/css/online.css" />
@@ -267,6 +267,10 @@
       margin-top: 8px;
     }
 
+    .article-find { display: flex; gap: 8px; align-items: center; margin: 8px 0 12px; }
+    .article-find input { flex: 1; min-width: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit; font-size: 16px; }
+    .article-find span { font-size: .8rem; color: var(--muted); white-space: nowrap; }
+    #articleSections mark { background: color-mix(in srgb, var(--accent, #7c6cf0) 35%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
     .article-table-wrap { overflow-x: auto; margin: 10px 0; -webkit-overflow-scrolling: touch; }
     .article-table { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
     .article-table th, .article-table td {
@@ -538,6 +542,7 @@
             <div class="article-meta" id="articleDate"></div>
             <p id="articleDescription"></p>
             <div class="article-tags" id="articleTags"></div>
+            <div class="article-find"><input id="articleFind" type="search" placeholder="🔍 find in this article…" autocomplete="off" /><span id="articleFindN"></span></div>   <!-- L 2026-10-21 "with a search in it?": filters this article's sections, highlights the hits -->
             <div id="articleSections"></div>
 
             <div class="article-actions" style="display:none;">
@@ -1042,7 +1047,8 @@
           if (!q) return true;
           return (a.title || '').toLowerCase().includes(q) ||
                  (a.description || '').toLowerCase().includes(q) ||
-                 (a.tags || []).some(function (t) { return t.toLowerCase().includes(q); });
+                 (a.tags || []).some(function (t) { return t.toLowerCase().includes(q); }) ||
+                 sectionText(a).includes(q);   // 2026-10-21: the body counts too ("secure channel" finds the troubleshooting page)
         })
         .sort(function (a, b) {
           function parseDateValue(value) {
@@ -1126,6 +1132,47 @@
     }
 
     /* ── view ── */
+    // FIND IN THIS ARTICLE (2026-10-21, L: "with a search in it?"). Sections render flat (h3, then its blocks) so a
+    // "section" here = an h3 and everything up to the next h3. Typing hides the sections without a hit and wraps the
+    // hits in <mark>; clearing restores the original HTML. Enter jumps to the first hit.
+    var _findCache = { text: {} };
+    function sectionText(a) {
+      var k = a.__key || a.id || a.title; if (_findCache.text[k] !== undefined) return _findCache.text[k];
+      var t = JSON.stringify(a.sections || []).toLowerCase(); _findCache.text[k] = t; return t;
+    }
+    var _articleHtml = "";
+    function articleFindReset() { _articleHtml = articleSections.innerHTML; var f = document.getElementById("articleFind"); if (f) { f.value = ""; } var n = document.getElementById("articleFindN"); if (n) n.textContent = ""; }
+    function articleFindApply() {
+      var f = document.getElementById("articleFind"), n = document.getElementById("articleFindN"); if (!f) return;
+      var q = f.value.trim().toLowerCase();
+      articleSections.innerHTML = _articleHtml;
+      if (!q) { n.textContent = ""; return; }
+      var kids = Array.prototype.slice.call(articleSections.children), groups = [], cur = null;
+      kids.forEach(function (el) { if (el.tagName === "H3" || !cur) { cur = []; groups.push(cur); } cur.push(el); });
+      var hits = 0, first = null;
+      groups.forEach(function (g) {
+        var text = g.map(function (el) { return el.textContent || ""; }).join(" ").toLowerCase();
+        if (text.indexOf(q) < 0) { g.forEach(function (el) { el.style.display = "none"; }); return; }
+        hits++;
+        g.forEach(function (el) {
+          var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null), nodes = [];
+          while (walker.nextNode()) nodes.push(walker.currentNode);
+          nodes.forEach(function (tn) {
+            var s = tn.nodeValue, i = s.toLowerCase().indexOf(q); if (i < 0) return;
+            var frag = document.createDocumentFragment(), rest = s;
+            while (i >= 0) { frag.appendChild(document.createTextNode(rest.slice(0, i))); var m = document.createElement("mark"); m.textContent = rest.slice(i, i + q.length); frag.appendChild(m); if (!first) first = m; rest = rest.slice(i + q.length); i = rest.toLowerCase().indexOf(q); }
+            frag.appendChild(document.createTextNode(rest)); tn.parentNode.replaceChild(frag, tn);
+          });
+        });
+      });
+      n.textContent = hits ? hits + " section" + (hits === 1 ? "" : "s") : "no match";
+      if (first) first.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+    (function () {
+      var f = document.getElementById("articleFind"); if (!f) return;
+      var t; f.addEventListener("input", function () { clearTimeout(t); t = setTimeout(articleFindApply, 120); });
+      f.addEventListener("keydown", function (e) { if (e.key === "Escape") { f.value = ""; articleFindApply(); } if (e.key === "Enter") { e.preventDefault(); articleFindApply(); } });
+    })();
     function renderArticle(id) {
       var a = allArticles[id];
       if (!a) return;
@@ -1153,6 +1200,7 @@
       });
       articleSections.innerHTML = "";
       articleSections.innerHTML = renderArticleContent(a);
+      articleFindReset();
       document.getElementById("shareStatus").textContent = "";
       if (currentUser && a.__scope !== "shared") {
         editArticleBtn.style.display = "inline-block";
