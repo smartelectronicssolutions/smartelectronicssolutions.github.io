@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.10">
+    <meta name="version" content="1.0.11">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Toolbox - Site Map</title>
     <!-- SITE MAP (2026-10-21, L: "quickly parse a site's structure to see what they have available... something that shows the
@@ -184,6 +184,7 @@
             </select>
             <button id="sm-go">Map it</button>
         </div>
+        <div class="sm-row"><label class="sm-note" style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="sm-render"> Rendered: se opens each page in a real browser first (catches script-built galleries, stylesheet backgrounds, lazy media; slower, 20 pages max)</label></div>
         <div class="sm-loading" id="sm-loading" hidden><div class="spin"></div><div><span id="sm-loading-text">reading...</span> <b id="sm-loading-t">0s</b></div><div class="bar" id="sm-loading-bar"></div></div>
         <ul class="sm-live" id="sm-live"></ul>
         <div id="sm-status" class="sm-note"></div>
@@ -392,11 +393,11 @@
         async function run() {
             const url = $("#sm-url").value.trim(); if (!url) { $("#sm-url").focus(); return; }
             $("#sm-go").disabled = true; $("#sm-status").className = "sm-note"; $("#sm-status").textContent = "";
-            loading("sm-loading", `Reading ${url.replace(/^https?:\/\//, "")} - sitemap first, then up to ${$("#sm-max").value} pages, ${$("#sm-depth").value} deep`, parseInt($("#sm-max").value, 10) > 80 ? 90 : 25);
+            loading("sm-loading", $("#sm-render").checked ? `Rendering ${url.replace(/^https?:\/\//, "")} page by page in a real browser - about 5 s each, up to 20 pages` : `Reading ${url.replace(/^https?:\/\//, "")} - sitemap first, then up to ${$("#sm-max").value} pages, ${$("#sm-depth").value} deep`, $("#sm-render").checked ? 90 : parseInt($("#sm-max").value, 10) > 80 ? 90 : 25);
             $("#sm-summary").innerHTML = ""; $("#sm-images").innerHTML = ""; $("#sm-tree").innerHTML = ""; $("#sm-actions").hidden = true; $("#sm-views").hidden = true; $("#sm-live").innerHTML = "";
             ["build", "images", "media", "data", "links"].forEach(v => $("#view-" + v).innerHTML = "");
             try {
-                const qs = `url=${encodeURIComponent(url)}&depth=${$("#sm-depth").value}&max=${$("#sm-max").value}`;
+                const qs = `url=${encodeURIComponent(url)}&depth=${$("#sm-depth").value}&max=${$("#sm-max").value}${$("#sm-render").checked ? "&render=1" : ""}`;
                 let j;
                 liveReset();
                 try { j = await runStream(`${API}?${qs}&stream=1`, "sm-live", "sm-loading", (type, d) => { if (type === "page") liveAddPage(d); }); }
@@ -405,7 +406,7 @@
                     else throw e;
                 }
                 last = j; render(j); renderBuild(j); renderImages(j); renderMedia(j); renderData(j); renderLinksStart(j); $("#sm-views").hidden = false;
-                $("#sm-status").textContent = `${j.pages.length} pages read${j.sitemap_only ? ", +" + j.sitemap_only + " more from the sitemap" : ""} in ${j.seconds}s${j.partial ? " (hit the cap - pick more pages or less depth for the rest)" : ""}${j.cached ? " (cached)" : ""}`;
+                $("#sm-status").textContent = `${j.pages.length} pages ${j.rendered ? "rendered" : "read"}${j.sitemap_only ? ", +" + j.sitemap_only + " more from the sitemap" : ""} in ${j.seconds}s${j.partial ? " (hit the cap - pick more pages or less depth for the rest)" : ""}${j.cached ? " (cached)" : ""}`;
                 $("#sm-actions").hidden = false;
             } catch (e) { $("#sm-status").className = "sm-note err"; $("#sm-status").textContent = "failed: " + (e.message || e); }
             loading("sm-loading", ""); $("#sm-go").disabled = false;
@@ -518,7 +519,7 @@
             if (!list || !list.length) return "";
             return `<div class="sm-imgs${small ? " sm-small" : ""}">` + list.map(im => {
                 const name = im.alt || decodeURIComponent((im.src.split("/").pop() || "").split("?")[0]) || im.src;
-                const tip = `${name}${im.n ? ` - on ${im.n} page${im.n === 1 ? "" : "s"}` : ""}${im.kind === "og" ? " (share image)" : im.kind === "icon" ? " (icon)" : ""}`;
+                const tip = `${name}${im.n ? ` - on ${im.n} page${im.n === 1 ? "" : "s"}` : ""}${im.kind === "og" ? " (share image)" : im.kind === "icon" ? " (icon)" : im.kind === "bg" ? " (CSS background)" : im.kind === "net" ? " (loaded by script)" : ""}`;
                 return `<a href="${esc(im.src)}" target="_blank" rel="noopener noreferrer" title="${esc(tip)}"><img src="${esc(im.src)}" alt="${esc(im.alt || "")}" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentNode.remove()">${im.n > 1 ? `<span class="n">${im.n}</span>` : ""}</a>`;
             }).join("") + "</div>";
         }
@@ -625,7 +626,7 @@
         }
         function figureHtml(im) {
             const d = dims[im.src];
-            return `<figure data-src="${esc(im.src)}"><a href="${esc(im.src)}" target="_blank" rel="noopener noreferrer"><img src="${esc(im.src)}" alt="${esc(im.alt || "")}" loading="lazy" referrerpolicy="no-referrer" onerror="this.closest('figure').style.opacity=.35;this.closest('figure').querySelector('.dim').textContent='blocked / missing'"></a><figcaption><b>${esc(name(im.src).slice(0, 40))}</b><span class="dim">${d ? d.join(" x ") + " px" : "..."}</span> · ${esc(fmtOf(im.src))}${im.n ? ` · ${im.n} page${im.n === 1 ? "" : "s"}` : ""}${im.kind === "og" ? " · share image" : im.kind === "icon" ? " · icon" : ""}${im.alt ? `<div class="ttl">${esc(im.alt.slice(0, 50))}</div>` : ""}</figcaption></figure>`;
+            return `<figure data-src="${esc(im.src)}"><a href="${esc(im.src)}" target="_blank" rel="noopener noreferrer"><img src="${esc(im.src)}" alt="${esc(im.alt || "")}" loading="lazy" referrerpolicy="no-referrer" onerror="this.closest('figure').style.opacity=.35;this.closest('figure').querySelector('.dim').textContent='blocked / missing'"></a><figcaption><b>${esc(name(im.src).slice(0, 40))}</b><span class="dim">${d ? d.join(" x ") + " px" : "..."}</span> · ${esc(fmtOf(im.src))}${im.n ? ` · ${im.n} page${im.n === 1 ? "" : "s"}` : ""}${im.kind === "og" ? " · share image" : im.kind === "icon" ? " · icon" : im.kind === "bg" ? " · CSS background" : im.kind === "net" ? " · loaded by script" : ""}${im.alt ? `<div class="ttl">${esc(im.alt.slice(0, 50))}</div>` : ""}</figcaption></figure>`;
         }
         function sortFigs(list, mode) {
             return list.slice().sort((a, c) => mode === "uses" ? (c.n || 0) - (a.n || 0) : mode === "name" ? name(a.src).localeCompare(name(c.src)) : (area(c.src) - area(a.src)) || (c.n || 0) - (a.n || 0));
