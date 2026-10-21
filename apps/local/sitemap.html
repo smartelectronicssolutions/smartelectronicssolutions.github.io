@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="version" content="1.0.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Site Map</title>
+    <!-- SITE MAP (2026-10-21, L: "quickly parse a site's structure to see what they have available... something that shows the
+         data type used... put it with the other local tools"). Same house style as the other apps/local pages. The browser cannot
+         read other sites (CORS), so the page asks the owner-gated fetcher on se (chat bridge /broadcast/crawl -> ops\crawl\crawl_ext.py)
+         and draws the tree here. Sign in as Luis; nothing is stored. -->
+    <link rel="stylesheet" href="../assets/css/online.css">
+    <link rel="icon" href="../../favicon.ico">
+    <script>
+        (function () { const t = localStorage.getItem("ss-theme"); if (t === "light") document.documentElement.classList.add("light"); })();
+    </script>
+    <style>
+        .sm-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 10px 0; }
+        .sm-row input[type=url] { flex: 1; min-width: 220px; padding: 10px; font: inherit; font-size: 16px; box-sizing: border-box; }
+        .sm-row select, .sm-row button { padding: 9px 12px; font: inherit; font-size: 15px; }
+        .sm-note { font-size: 14px; opacity: .75; }
+        .sm-note.err { color: #e05555; opacity: 1; font-weight: bold; }
+        .sm-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+        .sm-chip { border: 1px solid currentColor; border-radius: 14px; padding: 3px 10px; font-size: 13px; opacity: .9; }
+        .sm-chip b { font-weight: 700; }
+        .sm-tree { font-size: 14px; line-height: 1.5; }
+        .sm-tree ul { list-style: none; margin: 0; padding-left: 16px; border-left: 1px dashed currentColor; }
+        .sm-tree > ul { border-left: 0; padding-left: 0; }
+        .sm-tree li { margin: 2px 0; }
+        .sm-tree details > summary { cursor: pointer; }
+        .sm-tree .seg { font-weight: 600; }
+        .sm-tree .ttl { opacity: .75; }
+        .sm-tree .sm-only { opacity: .55; font-style: italic; }
+        .sm-page { margin: 4px 0 6px 10px; padding: 6px 10px; border: 1px solid currentColor; border-radius: 8px; font-size: 13px; opacity: .95; }
+        .sm-page .k { font-weight: 600; }
+        .sm-page code { font-size: 12px; }
+        .sm-page ul { border-left: 0; padding-left: 14px; list-style: disc; }
+        .sm-page .types { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
+        .sm-page .types span { border: 1px solid currentColor; border-radius: 10px; padding: 1px 7px; font-size: 12px; }
+        .sm-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+        pre.sm-out { white-space: pre-wrap; word-break: break-word; font-size: 12px; max-height: 50vh; overflow: auto; }
+    </style>
+</head>
+
+<body>
+    <header style="position:relative;">
+        <div class="logo-box"><a href="../../index.html" title="Home"><img src="../../assets/img/android-chrome-192x192.png" alt="Home" style="height:40px;vertical-align:middle;"></a></div>
+        <h1>Site Map</h1>
+        <button id="theme-toggle" title="Toggle theme">☀️</button>
+        <script src="../assets/js/theme-toggle.js"></script>
+    </header>
+
+    <main>
+        <p class="sm-note">Paste a site. It reads the sitemap, follows the navigation, and shows what each page is made of: headings, forms and their input types, tables and their columns, lists, cards, structured data, the APIs the scripts call. Same site only, capped, nothing stored.</p>
+        <div class="sm-row">
+            <input type="url" id="sm-url" placeholder="https://example.com" autocomplete="url" inputmode="url">
+            <select id="sm-depth" title="how many clicks deep from the home page">
+                <option value="0">home only</option>
+                <option value="1">1 deep</option>
+                <option value="2" selected>2 deep</option>
+                <option value="3">3 deep</option>
+            </select>
+            <select id="sm-max" title="page cap">
+                <option value="20">20 pages</option>
+                <option value="40" selected>40 pages</option>
+                <option value="80">80 pages</option>
+            </select>
+            <button id="sm-go">Map it</button>
+        </div>
+        <div id="sm-status" class="sm-note"></div>
+        <div id="sm-summary" class="sm-chips"></div>
+        <div class="sm-actions" id="sm-actions" hidden>
+            <button id="sm-json">Copy JSON</button>
+            <button id="sm-md">Copy Markdown</button>
+            <button id="sm-dl">Download JSON</button>
+        </div>
+        <div id="sm-tree" class="sm-tree"></div>
+    </main>
+
+    <script type="module">
+        import { auth, onAuthStateChanged } from "../assets/js/firebase-init.js";
+        const $ = s => document.querySelector(s);
+        const API = "https://compman.luissolutions.us/broadcast/crawl";
+        const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+        let user = null, last = null;
+        onAuthStateChanged(auth, u => { user = u; $("#sm-status").textContent = u ? "" : "sign in (any app page) - the fetcher is owner only"; });
+        try { const q = new URLSearchParams(location.search).get("url"); if (q) $("#sm-url").value = q; } catch (_) {}
+
+        async function run() {
+            const url = $("#sm-url").value.trim(); if (!url) { $("#sm-url").focus(); return; }
+            if (!user) { $("#sm-status").className = "sm-note err"; $("#sm-status").textContent = "sign in first"; return; }
+            $("#sm-go").disabled = true; $("#sm-status").className = "sm-note"; $("#sm-status").textContent = "reading " + url + " ...";
+            $("#sm-summary").innerHTML = ""; $("#sm-tree").innerHTML = ""; $("#sm-actions").hidden = true;
+            try {
+                const tok = await user.getIdToken();
+                const r = await fetch(`${API}?url=${encodeURIComponent(url)}&depth=${$("#sm-depth").value}&max=${$("#sm-max").value}`, { headers: { Authorization: "Bearer " + tok } });
+                const j = await r.json();
+                if (!r.ok || j.error) throw new Error(j.error || ("HTTP " + r.status));
+                last = j; render(j);
+                $("#sm-status").textContent = `${j.pages.length} pages read${j.sitemap_only ? ", +" + j.sitemap_only + " more from the sitemap" : ""} in ${j.seconds}s${j.partial ? " (capped - raise the limits for more)" : ""}${j.cached ? " (cached)" : ""}`;
+                $("#sm-actions").hidden = false;
+            } catch (e) { $("#sm-status").className = "sm-note err"; $("#sm-status").textContent = "failed: " + (e.message || e); }
+            $("#sm-go").disabled = false;
+        }
+        $("#sm-go").onclick = run;
+        $("#sm-url").addEventListener("keydown", e => { if (e.key === "Enter") run(); });
+
+        function chip(label, val) { return val ? `<span class="sm-chip"><b>${esc(val)}</b> ${esc(label)}</span>` : ""; }
+        function render(j) {
+            const t = j.types;
+            const inputs = Object.entries(t.inputs).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} x${n}`).join(", ");
+            const ld = Object.entries(t.jsonld).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} x${n}`).join(", ");
+            $("#sm-summary").innerHTML = [
+                chip("pages", j.pages.length), chip("sitemap urls", j.sitemap_count), chip("forms", t.forms), chip("tables", t.tables), chip("lists", t.lists),
+                chip("cards", t.cards), chip("buttons", t.buttons), chip("images", t.images), chip("videos", t.videos), chip("iframes", t.iframes),
+                inputs ? `<span class="sm-chip"><b>inputs:</b> ${esc(inputs)}</span>` : "",
+                ld ? `<span class="sm-chip"><b>structured data:</b> ${esc(ld)}</span>` : "",
+                t.apis.length ? `<span class="sm-chip"><b>APIs:</b> ${esc(t.apis.length)} seen</span>` : "",
+                t.hints.length ? `<span class="sm-chip"><b>built with:</b> ${esc(t.hints.join(", "))}</span>` : ""
+            ].join("");
+            const byUrl = {}; j.pages.forEach(p => byUrl[p.url.replace(/\/$/, "")] = p);
+            const home = j.pages.find(p => p.depth === 0);
+            let html = "";
+            if (home && home.nav.length) html += `<div class="sm-page"><span class="k">Navigation:</span> ${home.nav.map(n => esc(n.text || n.href.replace(/^https?:\/\/[^/]+/, ""))).filter(Boolean).join(" · ")}</div>`;
+            html += "<ul>" + node(j.tree, "", byUrl) + "</ul>";
+            $("#sm-tree").innerHTML = html;
+        }
+        function node(n, path, byUrl) {
+            const kids = Object.entries(n.children || {}).sort((a, b) => a[0].localeCompare(b[0]));
+            return kids.map(([seg, c]) => {
+                const p = c.url ? byUrl[c.url.replace(/\/$/, "")] : null;
+                const label = `<span class="seg">/${esc(seg)}</span>` + (c.title ? ` <span class="ttl">${esc(c.title)}</span>` : "") + (c.sitemap && !c.page ? ` <span class="sm-only">(sitemap only, not read)</span>` : "");
+                const inner = (c.children ? `<ul>${node(c, path + "/" + seg, byUrl)}</ul>` : "");
+                if (!p) return `<li>${label}${inner}</li>`;
+                return `<li><details><summary>${label}</summary>${pageBox(p)}</details>${inner}</li>`;
+            }).join("");
+        }
+        function pageBox(p) {
+            const types = [];
+            if (p.forms.length) types.push(`forms ${p.forms.length}`); if (p.tables.length) types.push(`tables ${p.tables.length}`);
+            if (p.lists) types.push(`lists ${p.lists}`); if (p.cards) types.push(`cards ${p.cards}`); if (p.buttons) types.push(`buttons ${p.buttons}`);
+            if (p.images) types.push(`images ${p.images}`); if (p.videos) types.push(`videos ${p.videos}`); if (p.iframes) types.push(`iframes ${p.iframes}`);
+            if (p.jsonld.length) types.push(`ld: ${p.jsonld.join(", ")}`); if (p.hints.length) types.push(p.hints.join(", "));
+            const forms = p.forms.map(f => `<li><code>${esc(f.method.toUpperCase())} ${esc(f.action.replace(/^https?:\/\/[^/]+/, "") || "/")}</code>: ${f.inputs.map(i => `${esc(i.name || "?")} <em>${esc(i.type)}</em>`).join(", ") || "no fields"}</li>`).join("");
+            const tables = p.tables.map(t => `<li>${t.rows} rows: ${esc(t.cols.filter(Boolean).join(" | ") || "(no header)")}</li>`).join("");
+            const heads = p.headings.slice(0, 12).map(([l, t]) => `<li>${"#".repeat(l)} ${esc(t)}</li>`).join("");
+            const apis = p.apis.map(a => `<li><code>${esc(a)}</code></li>`).join("");
+            return `<div class="sm-page">
+                <div><a href="${esc(p.url)}" target="_blank" rel="noopener noreferrer">${esc(p.url)}</a> <span class="ttl">${esc(p.status)}${p.truncated ? " · truncated" : ""}</span></div>
+                ${p.desc ? `<div class="ttl">${esc(p.desc)}</div>` : ""}
+                <div class="types">${types.map(x => `<span>${esc(x)}</span>`).join("")}</div>
+                ${heads ? `<div class="k">Headings</div><ul>${heads}</ul>` : ""}
+                ${forms ? `<div class="k">Forms</div><ul>${forms}</ul>` : ""}
+                ${tables ? `<div class="k">Tables</div><ul>${tables}</ul>` : ""}
+                ${apis ? `<div class="k">APIs / data</div><ul>${apis}</ul>` : ""}
+            </div>`;
+        }
+        function md(j) {
+            const lines = [`# ${j.host} - site map (${j.pages.length} pages, depth ${j.depth})`, ""];
+            const t = j.types;
+            lines.push(`Types: forms ${t.forms}, tables ${t.tables}, lists ${t.lists}, cards ${t.cards}, buttons ${t.buttons}, images ${t.images}, videos ${t.videos}`);
+            const inputs = Object.entries(t.inputs).map(([k, n]) => `${k} x${n}`).join(", "); if (inputs) lines.push(`Inputs: ${inputs}`);
+            if (t.hints.length) lines.push(`Built with: ${t.hints.join(", ")}`); if (t.apis.length) lines.push(`APIs: ${t.apis.join(", ")}`);
+            lines.push("");
+            j.pages.sort((a, b) => a.path.localeCompare(b.path)).forEach(p => {
+                lines.push(`## ${p.path}  ${p.title}`);
+                p.headings.slice(0, 10).forEach(([l, h]) => lines.push(`${"  ".repeat(l - 1)}- ${h}`));
+                p.forms.forEach(f => lines.push(`- form ${f.method.toUpperCase()} ${f.action}: ${f.inputs.map(i => `${i.name || "?"}(${i.type})`).join(", ")}`));
+                p.tables.forEach(tb => lines.push(`- table ${tb.rows} rows: ${tb.cols.filter(Boolean).join(" | ")}`));
+                if (p.apis.length) lines.push(`- apis: ${p.apis.join(", ")}`);
+                lines.push("");
+            });
+            return lines.join("\n");
+        }
+        const copy = async (txt, what) => { try { await navigator.clipboard.writeText(txt); $("#sm-status").textContent = what + " copied"; } catch (_) { $("#sm-status").textContent = "copy blocked - use Download"; } };
+        $("#sm-json").onclick = () => last && copy(JSON.stringify(last, null, 1), "JSON");
+        $("#sm-md").onclick = () => last && copy(md(last), "Markdown");
+        $("#sm-dl").onclick = () => { if (!last) return; const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify(last, null, 1)], { type: "application/json" })); a.download = `sitemap-${last.host}.json`; a.click(); };
+    </script>
+</body>
+
+</html>
