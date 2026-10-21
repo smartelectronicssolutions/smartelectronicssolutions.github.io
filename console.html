@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.6"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.7"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -926,6 +926,11 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     <label class="dc-bub me lk-pick" for="lk-me" title="tap to change your colour (also the tabs, send button, outlines)"><span class="who">You · now</span>And this is you. <span class="lk-tap">🎨 tap</span><input type="color" id="lk-me" class="lk-hid"></label>
                     <div class="lk-prev-foot">tap a bubble to change its colour <button type="button" class="lk-x" data-clear="both" title="back to the default colours">auto</button></div>
                     <div class="lk-ops" title="opacity, the colour's 4th number: fades the bubbles (both sides) - on the Terminal shape there are no bubbles, so it fades the text"><span class="lk-l">Opacity</span><input type="range" id="lk-op" min="10" max="100" step="5" aria-label="opacity"><small id="lk-opv">100%</small><small id="lk-opl" class="lk-opl">bubbles</small></div>
+                </div>
+                <!-- NOTIFICATIONS (2026-10-21): web push to this device. iPhone: only from the home-screen app; the tap itself must ask. -->
+                <div class="lk-row" id="dc-push-row" title="real notifications on this device: reminders, watchdog, mail, Droplet replied"><span class="lk-l">Pushes</span>
+                    <button type="button" class="lk-b" id="dc-push-btn">Turn on notifications</button>
+                    <span class="meta" id="dc-push-st" style="font-size:0.72rem"></span>
                 </div>
                 <div class="lk-row" title="a whole colour set (resets the bubble colours you tapped)"><span class="lk-l">Theme</span>
                     <button type="button" class="lk-b" data-color="">Default</button>
@@ -5283,4 +5288,44 @@ window.addEventListener('pageshow', () => openC());
 document.getElementById('pass-in')?.addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('do-login')?.click(); });
 </script>
 <script src="apps/assets/js/reveal.js" defer></script>
+<script type="module">
+// WEB PUSH (2026-10-21): subscribe this device to pushes from se (ops\notify\notify.py -> the browser's push service).
+import { auth, database, ref, set, remove, onAuthStateChanged } from './assets/js/firebase-init.js';
+const VAPID = "BJbzY1vpFDyl97i48XiYlr5HqXmCkxmWYOSal0b_h8dQA_29_tU9Bk8YZUjhdWn-MP37FoOnsWKyqxfQNNeKl7Y";
+const $ = s => document.querySelector(s);
+const btn = $('#dc-push-btn'), st = $('#dc-push-st');
+let uid = null, reg = null;
+const b64 = s => { const p = '='.repeat((4 - s.length % 4) % 4); const r = (s + p).replace(/-/g, '+').replace(/_/g, '/'); const d = atob(r); return Uint8Array.from(d, c => c.charCodeAt(0)); };
+const idOf = async ep => { const h = await crypto.subtle.digest('SHA-1', new TextEncoder().encode(ep)); return [...new Uint8Array(h)].slice(0, 8).map(b => b.toString(16).padStart(2, '0')).join(''); };
+const standalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const canPush = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+async function current() { if (!reg) reg = await navigator.serviceWorker.getRegistration('/') || null; return reg ? await reg.pushManager.getSubscription() : null; }
+async function save(sub) { const id = await idOf(sub.endpoint); const j = sub.toJSON(); await set(ref(database, `${uid}/console/push/${id}`), { endpoint: j.endpoint, keys: j.keys, ua: navigator.userAgent.slice(0, 120), standalone: standalone(), at: Date.now() }); return id; }
+async function paint() {
+    if (!btn) return;
+    if (!canPush()) { btn.disabled = true; btn.textContent = 'Not available here'; st.textContent = /iPhone|iPad/.test(navigator.userAgent) && !standalone() ? 'iPhone: open the console from the home screen icon, then turn this on' : 'this browser has no push'; return; }
+    const sub = await current().catch(() => null);
+    if (Notification.permission === 'denied') { btn.disabled = true; btn.textContent = 'Blocked'; st.textContent = 'notifications are blocked for this site in the phone settings'; return; }
+    btn.disabled = !uid; btn.textContent = sub ? 'On · turn off' : 'Turn on notifications'; st.textContent = sub ? 'this device gets pushes' : (uid ? '' : 'sign in first');
+}
+async function subscribe() {
+    st.textContent = 'asking...';
+    reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+    await navigator.serviceWorker.ready;
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') { st.textContent = 'not allowed'; return paint(); }
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64(VAPID) });
+    await save(sub); st.textContent = 'on - a test ping follows'; await paint();
+    try { await set(ref(database, `${uid}/console/pushtest`), { at: Date.now() }); } catch (_) {}   // the daemon answers with one push
+}
+async function unsubscribe() {
+    const sub = await current(); if (!sub) return paint();
+    const id = await idOf(sub.endpoint); await sub.unsubscribe().catch(() => {}); await remove(ref(database, `${uid}/console/push/${id}`)).catch(() => {}); await paint();
+}
+if (btn) btn.addEventListener('click', async () => { try { (await current()) ? await unsubscribe() : await subscribe(); } catch (e) { st.textContent = 'failed: ' + (e.message || e); } });
+onAuthStateChanged(auth, u => { uid = u ? u.uid : null; paint(); });
+if (canPush()) navigator.serviceWorker.register('/sw.js', { scope: '/' }).then(r => { reg = r; }).catch(() => {});
+navigator.serviceWorker && navigator.serviceWorker.addEventListener('message', async e => { if (e.data && e.data.type === 'resubscribe' && uid && reg) { try { const s = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64(VAPID) }); await save(s); } catch (_) {} } });
+window.__dcPush = { current, paint };
+</script>
 </body></html>
