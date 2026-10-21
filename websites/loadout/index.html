@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
-<meta name="version" content="1.0.4">
+<meta name="version" content="1.0.5">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0c0f13"><title>Loadout</title>
 <style>
@@ -1615,15 +1615,19 @@ function yukiBubble(who,text,cls){const box=$("yukiMsgs");if(!box)return null;co
 async function yukiModel(){try{let m=(await get(ref(db,BASE+"/chat/bot/model"))).val();if(!m)m=(await get(ref(db,"public/chat/bot/model"))).val();return m||"dolphin3";}catch(e){return "dolphin3";}}
 // ===== Character editor (LimeZu modular parts, composited live in-browser, Firebase-saved) =====
 const CE_CATS=[{k:"body",label:"Skin",none:false},{k:"hair",label:"Hair",none:true},{k:"eyes",label:"Eyes",none:false},{k:"outfit",label:"Outfit",none:true},{k:"acc",label:"Extra",none:true}];
-let CE_MAN=null,ceSel={body:3,eyes:1,hair:2,outfit:0,acc:1},ceTab="body",ceCache={};   // default look = L's saved character (2026-09-18); an account's own save still overrides
+let CE_MAN=null,ceSel={body:3,eyes:1,hair:2,outfit:0,acc:1,custom:""},ceTab="body",ceCache={};   // custom = a 768x64 walk strip path (2026-10-21) - wins over the parts when set   // default look = L's saved character (2026-09-18); an account's own save still overrides
 function ceLoadStrip(k,i){return new Promise(res=>{if(i<0)return res(null);const key=k+i;if(ceCache[key])return res(ceCache[key]);const im=new Image();im.onload=()=>{ceCache[key]=im;res(im);};im.onerror=()=>res(null);im.src="chars/"+k+"/"+k+i+".png";});}
-async function ceComposite(){const s=document.createElement("canvas");s.width=768;s.height=64;const c=s.getContext("2d");c.imageSmoothingEnabled=false;for(const cat of CE_CATS){const im=await ceLoadStrip(cat.k,ceSel[cat.k]);if(im)c.drawImage(im,0,0);}return s;}
+const _ceCustom={};
+function ceCustomImg(src){return _ceCustom[src]||(_ceCustom[src]=new Promise(res=>{const im=new Image();im.onload=()=>res(im);im.onerror=()=>res(null);im.src=src+(src.includes("?")?"&":"?")+"v="+Date.now();}));}
+async function ceComposite(){const s=document.createElement("canvas");s.width=768;s.height=64;const c=s.getContext("2d");c.imageSmoothingEnabled=false;
+  if(ceSel.custom){const im=await ceCustomImg(ceSel.custom);if(im){c.drawImage(im,0,0);return s;}}   // own sprite: the whole strip, no parts
+  for(const cat of CE_CATS){const im=await ceLoadStrip(cat.k,ceSel[cat.k]);if(im)c.drawImage(im,0,0);}return s;}
 async function ceApply(){const strip=await ceComposite();const sc=document.createElement("canvas");sc.width=768;sc.height=320;const g=sc.getContext("2d");g.imageSmoothingEnabled=false;g.drawImage(strip,0,128);charCanvas=sc;}
 async function cePreview(){const strip=await ceComposite();const p=$("cePrev");if(!p)return;const g=p.getContext("2d");g.imageSmoothingEnabled=false;g.clearRect(0,0,96,192);g.drawImage(strip,18*32,0,32,64,0,0,96,192);}
 function ceTabs(){const t=$("ceTabs");if(!t)return;t.innerHTML="";for(const cat of CE_CATS){const b=document.createElement("div");b.className="ceTab"+(cat.k===ceTab?" on":"");b.textContent=cat.label;b.onclick=()=>{ceTab=cat.k;ceTabs();ceGrid();};t.appendChild(b);}}
 async function ceThumb(cat,i){const cv=document.createElement("canvas");cv.width=32;cv.height=64;const cx=cv.getContext("2d");cx.imageSmoothingEnabled=false;if(cat!=="body"){const b=await ceLoadStrip("body",ceSel.body<0?0:ceSel.body);if(b)cx.drawImage(b,18*32,0,32,64,0,0,32,64);}const im=await ceLoadStrip(cat,i);if(im)cx.drawImage(im,18*32,0,32,64,0,0,32,64);return cv;}
 async function ceGrid(){const g=$("ceGrid");if(!g)return;g.innerHTML="";const cat=CE_CATS.find(c=>c.k===ceTab);const opts=(CE_MAN&&CE_MAN[ceTab])||[];
-  const addOpt=async(i)=>{const o=document.createElement("div");o.className="ceOpt"+(ceSel[ceTab]===i?" on":"")+(i<0?" none":"");if(i<0){o.textContent="None";}else{o.appendChild(await ceThumb(ceTab,i));}o.onclick=()=>{ceSel[ceTab]=i;ceGrid();cePreview();};g.appendChild(o);};
+  const addOpt=async(i)=>{const o=document.createElement("div");o.className="ceOpt"+(ceSel[ceTab]===i?" on":"")+(i<0?" none":"");if(i<0){o.textContent="None";}else{o.appendChild(await ceThumb(ceTab,i));}o.onclick=()=>{ceSel[ceTab]=i;ceSel.custom="";ceGrid();cePreview();};g.appendChild(o);};
   if(cat.none)await addOpt(-1);
   for(let i=0;i<opts.length;i++)await addOpt(i);}
 async function openCharEditor(){if(!CE_MAN){try{CE_MAN=await (await fetch("chars/manifest.json")).json();}catch(e){CE_MAN={};}}ceTab="body";ceTabs();await ceGrid();await cePreview();$("charEditor").classList.add("open");}
