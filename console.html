@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.25"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.26"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -447,6 +447,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         /* PICK STRIP (2026-10-21): the staged numbers become one answer - yes / no / do it / ask */
         .dc-pick-strip { display: block; padding: 0 0 4px; margin: 0; line-height: 1.1; font-size: calc(0.72rem * var(--dc-fs, 1)); }   /* stacked (L 2026-10-21: options fit UNDER the pick, not one long string across) */
         .dc-pick-strip[hidden] { display: none; }
+        .dc-insights .dc-in-x { cursor: pointer; } .dc-insights .dc-in-x:hover { filter: brightness(1.25); }   /* Conversation panel: tap for detail (2026-10-22) */
+        .dc-in-d { margin: 6px 0 10px; padding: 8px 10px; border: 1px solid var(--dc-purple); border-radius: var(--dc-r-md, 8px); font-size: .78rem; line-height: 1.4; }
+        .dc-in-d .dc-in-s { margin-top: 5px; } .dc-in-d .dc-in-s i { color: var(--muted); font-style: normal; margin-right: 4px; }
         .dc-pick-strip .hd { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
         .dc-pick-strip .lbl { color: var(--muted); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .dc-pick-strip .opts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }   /* one even row of four across the width (L 2026-10-22: "the yes/no buttons are very large - divide the screen better") */
@@ -948,7 +951,6 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 </div>
                 <div class="lk-row" title="a whole colour set (resets the bubble colours you tapped)"><span class="lk-l">Theme</span>
                     <button type="button" class="lk-b" data-color="">Default</button>
-                    <button type="button" class="lk-b" data-color="purple"><span class="sw" style="background:#c084fc"></span>Purple</button>
                     <button type="button" class="lk-b" data-color="pi"><span class="sw" style="background:#f2a541"></span>Pi</button></div>
                 <div class="lk-row"><span class="lk-l">Shape</span>
                     <button type="button" class="lk-b" data-shape="">Standard</button>
@@ -3054,24 +3056,74 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 const days = stamps.length > 1 ? Math.max(1, Math.round((stamps.at(-1) - stamps[0]) / 86400000)) : 1;
 
                 const esc2 = v => esc(String(v));
-                box.innerHTML =
+                // MORE (2026-10-22, L: "collect more info"): reply time, busiest weekday, per-day pace, voice notes + photos sent
+                const srt = all.filter(t => t.ts).sort((a, b) => a.ts - b.ts), waits = [];
+                for (let i = 0; i < srt.length; i++) if (srt[i].s !== 'D') { const nx = srt.slice(i + 1).find(t => t.s === 'D'); if (nx && nx.ts - srt[i].ts < 6 * 3600e3) waits.push(nx.ts - srt[i].ts); }
+                waits.sort((a, b) => a - b); const medWait = waits.length ? waits[Math.floor(waits.length / 2)] : 0;
+                const fmtW = ms => ms < 60e3 ? Math.round(ms / 1e3) + 's' : ms < 3600e3 ? Math.round(ms / 60e3) + ' min' : (ms / 3600e3).toFixed(1) + ' h';
+                const wd = new Array(7).fill(0); for (const t of mine) if (t.ts) wd[new Date(t.ts).getDay()]++;
+                const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], busy = wd.indexOf(Math.max(...wd));
+                const voice = mine.filter(t => /voice note|voice_\d/i.test(t.text)).length, photos = mine.filter(t => /attached photo|chat_photo|image\.jpe?g|\u{1F4F7}/iu.test(t.text)).length;
+                // TYPING SPEED (2026-10-22, L: "in the conversation area put wpm info"): from {base}/wpm, one row per sent message
+                let wpmHtml = '', wsAll = [];
+                try { const ws = wsAll = Object.values((await get(query(ref(database, `${DC.base}/wpm`), limitToLast(500)))).val() || {}).filter(x => x && x.w > 0 && x.w < 250);
+                    if (ws.length) { const mean = a => a.length ? Math.round(a.reduce((n, x) => n + x.w, 0) / a.length) : 0, now = Date.now(), d0 = new Date(); d0.setHours(0, 0, 0, 0);
+                        const today = ws.filter(x => x.t >= d0.getTime()), wk = ws.filter(x => now - x.t < 7 * 864e5), ph = ws.filter(x => x.m === 'phone'), dk = ws.filter(x => x.m !== 'phone');
+                        const best = ws.reduce((b, x) => x.w > b.w ? x : b, ws[0]);
+                        wpmHtml = `<h5>Typing speed</h5>` +
+                            `<div class="row dc-in-x" data-x="wpm"><span>Last message</span><b>${ws[ws.length - 1].w} wpm</b></div>` +
+                            `<div class="row"><span>Today / 7 days</span><b>${today.length ? mean(today) : '–'} / ${mean(wk) || '–'} wpm</b></div>` +
+                            `<div class="row"><span>Phone / desk</span><b>${mean(ph) || '–'} / ${mean(dk) || '–'} wpm</b></div>` +
+                            `<div class="row"><span>Best</span><b>${best.w} wpm · ${new Date(best.t).toLocaleDateString([], { month: 'short', day: 'numeric' })}</b></div>` +
+                            `<div class="row"><span>Measured</span><b>${ws.length} message${ws.length === 1 ? '' : 's'}</b></div>`; }
+                    else wpmHtml = `<h5>Typing speed</h5><div class="row"><span>Starts with your next message</span><b>–</b></div>`;
+                } catch (_) {}
+                box.innerHTML = wpmHtml +
                     `<div class="row"><span>Messages</span><b>${all.length}</b></div>` +
                     `<div class="row"><span>You / Droplet</span><b>${mine.length} / ${theirs.length}</b></div>` +
                     `<div class="row"><span>Average length</span><b>${avg(mine)} / ${avg(theirs)} chars</b></div>` +
                     `<div class="row"><span>You asked a question</span><b>${Math.round(100 * asked / Math.max(1, mine.length))}% of the time</b></div>` +
                     `<div class="row"><span>Over</span><b>${days} day${days === 1 ? '' : 's'} \u00b7 ${(chars / 1000).toFixed(0)}k chars</b></div>` +
+                    `<div class="row"><span>Per day</span><b>${Math.round(mine.length / days)} from you</b></div>` +
+                    `<div class="row dc-in-x" data-x="wait"><span>Droplet replies in (median)</span><b>${waits.length ? fmtW(medWait) : '\u2013'}</b></div>` +
+                    `<div class="row dc-in-x" data-x="days"><span>Busiest day</span><b>${mine.length ? DAYS[busy] : '\u2013'}</b></div>` +
+                    `<div class="row"><span>Voice notes / photos sent</span><b>${voice} / ${photos}</b></div>` +
                     `<h5>Topic tabs</h5>` +
                     topics.map(([name, n]) =>
-                        `<div class="bar"><i title="${esc2(name)}">${esc2(name)}</i>` +
+                        `<div class="bar dc-in-x" data-x="topic" data-v="${esc2(name)}"><i title="${esc2(name)}">${esc2(name)}</i>` +
                         `<u style="width:${Math.round(100 * n / topMax)}%"></u><s>${n}</s></div>`).join('') +
                     `<h5>When you write</h5>` +
                     `<div class="hours">` + hours.map((n, h) =>
-                        `<span class="${n === hMax ? 'peak' : ''}" style="height:${Math.round(100 * n / hMax)}%" title="${h}:00 \u2014 ${n}"></span>`).join('') + `</div>` +
+                        `<span class="dc-in-x ${n === hMax ? 'peak' : ''}" data-x="hour" data-v="${h}" style="height:${Math.round(100 * n / hMax)}%" title="${h}:00 \u2014 ${n}"></span>`).join('') + `</div>` +
                     `<div class="hscale"><span>12a</span><span>6a</span><span>12p</span><span>6p</span><span>11p</span></div>` +
                     `<h5>What you keep coming back to</h5>` +
                     `<div class="chips">` + (words.length
-                        ? words.map(([w, n]) => `<b>${esc2(w)}<em>${n}</em></b>`).join('')
+                        ? words.map(([w, n]) => `<b class="dc-in-x" data-x="word" data-v="${esc2(w)}">${esc2(w)}<em>${n}</em></b>`).join('')
                         : '<span class="meta">not enough yet</span>') + `</div>`;
+                // TAP FOR DETAIL (2026-10-22, L: "when I click on some of the things in conversation give me more details"): one card
+                // under whatever was tapped - a tab, an hour, a word, typing speed, reply time, busiest day. Tap it again = close.
+                box.onclick = e => {
+                    const el = e.target.closest && e.target.closest('.dc-in-x'); if (!el) return;
+                    const old = box.querySelector('.dc-in-d'), same = old && old._for === el; if (old) old.remove(); if (same) return;
+                    const x = el.dataset.x, v = el.dataset.v;
+                    const when = ts => new Date(ts).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+                    const snip = list => list.slice(-6).reverse().map(t => `<div class="dc-in-s"><i>${esc2(when(t.ts))}${t.topic ? ' \u00b7 #' + esc2(t.topic) : ''}</i> ${esc2(String(t.text).replace(/\s+/g, ' ').slice(0, 110))}</div>`).join('') || '<span class="meta">nothing yet</span>';
+                    let html = '';
+                    if (x === 'topic') { const L = all.filter(t => (t.topic || 'All') === v && t.ts).sort((a, b) => a.ts - b.ts); const m = L.filter(t => t.s !== 'D');
+                        html = `<b>#${esc2(v)}</b> \u00b7 ${L.length} messages (${m.length} yours) \u00b7 since ${L.length ? esc2(new Date(L[0].ts).toLocaleDateString()) : '\u2013'}` + snip(m); }
+                    else if (x === 'hour') { const L = mine.filter(t => t.ts && new Date(t.ts).getHours() === +v).sort((a, b) => a.ts - b.ts);
+                        html = `<b>${v}:00\u2013${v}:59</b> \u00b7 ${L.length} of your messages` + snip(L); }
+                    else if (x === 'word') { const lv = v.toLowerCase(); const L = mine.filter(t => t.ts && (String(t.text).toLowerCase().match(/[a-z']{3,}/g) || []).includes(lv)).sort((a, b) => a.ts - b.ts);
+                        html = `<b>\u201c${esc2(v)}\u201d</b> \u00b7 in ${L.length} of your messages` + snip(L); }
+                    else if (x === 'wpm') { const L = wsAll.slice().sort((a, b) => a.t - b.t).slice(-12).reverse();
+                        html = `<b>Last ${L.length} measured</b>` + L.map(r => `<div class="dc-in-s"><i>${esc2(when(r.t))} \u00b7 ${esc2(r.m || '')}</i> ${r.c} chars \u00b7 <b>${r.w} wpm</b></div>`).join(''); }
+                    else if (x === 'wait') { const pct = q => waits.length ? fmtW(waits[Math.min(waits.length - 1, Math.floor(waits.length * q))]) : '\u2013';
+                        html = `<b>Droplet reply time</b> over ${waits.length} exchanges<div class="dc-in-s">fastest ${waits.length ? fmtW(waits[0]) : '\u2013'} \u00b7 half within ${pct(.5)} \u00b7 90% within ${pct(.9)} \u00b7 slowest ${waits.length ? fmtW(waits[waits.length - 1]) : '\u2013'}</div>`; }
+                    else if (x === 'days') { const mx = Math.max(1, ...wd);
+                        html = `<b>Your messages by weekday</b>` + wd.map((n, i) => `<div class="bar"><i>${DAYS[i]}</i><u style="width:${Math.round(100 * n / mx)}%"></u><s>${n}</s></div>`).join(''); }
+                    const d = document.createElement('div'); d.className = 'dc-in-d'; d._for = el; d.innerHTML = html;
+                    (el.closest('.hours') || el.closest('.chips') || el).after(d);
+                };
             } catch (e) {
                 _insightsDone = false;                  // let the next open retry
                 box.innerHTML = `<span class="meta">could not read the thread: ${esc(String(e.message || e))}</span>`;
@@ -3183,7 +3235,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const con = document.getElementById('dc-console');
             if (con) {
                 con.classList.remove('c-purple', 'c-silver', 'c-fire', 'c-blue', 'c-pi', 's-sharp', 's-bulky', 's-slim', 's-term', 'f-mono', 'fs-sm', 'fs-xl', 'fs-xxl');
-                const color = themeGet('color'), shape = themeGet('shape') === 'bubbly' ? '' : themeGet('shape'), font = themeGet('font');   // Bubbly retired 2026-10-04 (L) - a stored pick falls back to Standard
+                const color = themeGet('color') === 'purple' ? '' : themeGet('color'), shape = themeGet('shape') === 'bubbly' ? '' : themeGet('shape'), font = themeGet('font');   // Bubbly retired 2026-10-04 (L) - a stored pick falls back to Standard
                 if (color) con.classList.add('c-' + color);
                 if (shape) con.classList.add('s-' + shape);
                 if (font) con.classList.add('f-' + font);
@@ -3556,6 +3608,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // first one has taken the text out of the box; by then the box is empty (or holds a NEW message), so nothing doubles.
         var sendChatBusy = null;   // var, not let: a call before this line runs must not hit the TDZ (module-eval scar)
         function sendChat() {
+            try { const r = window.__dcWpmTake && window.__dcWpmTake(); if (r && DC.base) push(ref(database, `${DC.base}/wpm`), { t: Date.now(), w: Math.round((r.c / 5) / (r.ms / 60000)), c: r.c, m: matchMedia('(pointer: coarse)').matches ? 'phone' : 'desk' }).catch(() => {}); } catch (_) {}   // WPM log (2026-10-22)
             if (sendChatBusy) { const st = $('#dc-chat-status'); if (st && !st.textContent) st.textContent = '\u2728 finishing\u2026'; return sendChatBusy; }
             sendChatBusy = sendChatOnce().finally(() => { sendChatBusy = null; });
             return sendChatBusy;
@@ -4507,12 +4560,16 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // --- 3. words per minute, live (L: "a number in the lower right of the box that logs the speed in real time") ---
             // characters typed in a sliding 10 s window, 5 characters = a word. Fades after 3 s of quiet.
             const wpmEl = hooks ? $('#dc-wpm') : null; const keys = []; let wpmTick = null;
+            // WPM LOG (2026-10-22, L: "in the conversation area put wpm info"): per message, typed chars + active typing time
+            // (a pause longer than 5 s counts as 5 s); sendChat() takes it and logs {t, w, c, m} to {base}/wpm.
+            let mChars = 0, mActive = 0, mLast = 0;
+            if (hooks) window.__dcWpmTake = () => { const r = mChars >= 15 && mActive >= 2000 ? { c: mChars, ms: mActive } : null; mChars = 0; mActive = 0; mLast = 0; return r; };
             // a 30 s window with a 5 s floor: the 10 s / 2 s first cut swung between "really low and really fast" (L)
             const paintWpm = () => { const now = Date.now(); while (keys.length && now - keys[0] > 30000) keys.shift();
                 if (!wpmEl) return; if (!keys.length) { wpmEl.hidden = true; clearInterval(wpmTick); wpmTick = null; return; }
                 const span = Math.max(5000, now - keys[0]); const wpm = Math.round((keys.length / 5) / (span / 60000));
                 wpmEl.hidden = false; wpmEl.textContent = wpm + ' wpm'; wpmEl.classList.toggle('idle', now - keys[keys.length - 1] > 3000); };
-            ta.addEventListener('input', e => { if (e.inputType && e.inputType.startsWith('insertText') && e.data) { for (let i = 0; i < e.data.length; i++) keys.push(Date.now()); if (!wpmTick) wpmTick = setInterval(paintWpm, 500); paintWpm(); } });
+            ta.addEventListener('input', e => { if (e.inputType && e.inputType.startsWith('insertText') && e.data) { { const n = Date.now(); if (mLast) mActive += Math.min(n - mLast, 5000); mLast = n; mChars += e.data.length; } for (let i = 0; i < e.data.length; i++) keys.push(Date.now()); if (!wpmTick) wpmTick = setInterval(paintWpm, 500); paintWpm(); } });
             ta.addEventListener('keydown', e => {
                 // Backspace is just Backspace (2026-09-25, L: "the backspace action isn't what I'm looking for, it's undoing
                 // some of the rewrites"). Undo lives on the chip only - tap it. His deleting a character must never revert a fix.
