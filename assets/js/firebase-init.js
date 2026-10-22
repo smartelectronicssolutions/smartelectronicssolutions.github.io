@@ -92,21 +92,47 @@ export const basePathFor = user => { if (user && BASE_OVERRIDE) return BASE_OVER
     const test = new URLSearchParams(location.search).get("switchtest") === "1";
     // PER-SITE TOGGLES (2026-10-21): key = the websites/<name>/ folder this page lives in, "ses" for the root pages
     const km = here.match(/^\/websites\/([^\/]+)\//); const siteKey = km ? km[1] : "ses";
+    // NO FLASH (2026-10-22, L: "when I turn off a site I get the page for a split second before the under construction
+    // screen"): the layer used to wait for the flag fetch AND up to 2.5 s for sign-in. Now (1) this device's last known
+    // state for the site shows the layer at once, before any fetch, (2) a fresh "off" shows it the moment the flag
+    // arrives, and (3) sign-in only runs afterwards - the owner's device (remembered) never sees the layer, and an owner
+    // who signs in has it swapped for the strip.
+    const esc = s => String(s || "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    const whenBody = fn => (document.body ? fn() : document.addEventListener("DOMContentLoaded", fn));
+    const LS = { get: k => { try { return localStorage.getItem(k); } catch (_) { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch (_) {} } };
+    const CK = "ss_state_" + siteKey, wasOwner = LS.get("ss_owner") === "1";
+    const showLayer = msg => whenBody(() => {
+      let o = document.getElementById("site-switch-layer");
+      if (!o) {
+        o = document.createElement("div"); o.id = "site-switch-layer";
+        o.setAttribute("style", "position:fixed;inset:0;z-index:2147483647;background:#0f1419;color:#e8e6e3;font:16px/1.6 system-ui,Segoe UI,Arial;display:grid;place-items:center;padding:24px;box-sizing:border-box;overflow:auto");
+        document.body.appendChild(o); document.documentElement.style.overflow = "hidden"; document.title = "Under construction";
+      }
+      o.innerHTML = `<div style="max-width:560px;text-align:center"><span style="display:inline-block;width:64px;height:6px;border-radius:3px;background:#7a1f2b;margin-bottom:20px"></span>
+<h1 style="font-size:1.6rem;margin:0 0 12px;color:#fff">Under construction</h1>
+<p style="margin:0 0 18px;white-space:pre-wrap">${esc(msg || "We're working on the site. Back soon.")}</p>
+<small style="color:#9aa0a6">luissolutions.us</small></div>`;
+    });
+    const hideLayer = () => { const o = document.getElementById("site-switch-layer"); if (o) { o.remove(); document.documentElement.style.overflow = ""; } };
+    let cached = null; try { cached = JSON.parse(LS.get(CK) || "null"); } catch (_) {}
+    if (!test && !wasOwner && cached && cached.on) showLayer(cached.message);   // instant, from this device's last look
     let m = null;
     if (!test) {
       const r = await fetch(`${firebaseConfig.databaseURL}/public/site.json`, { cache: "no-store" });
       const site = (await r.json()) || {};
       const all = site.maintenance || {}, mine = (site.sites || {})[siteKey] || {};
-      if (!all.on && !mine.on) return;
+      if (!all.on && !mine.on) { LS.set(CK, JSON.stringify({ on: 0 })); hideLayer(); return; }
       m = { on: true, message: (mine.on && mine.message) || all.message || "", at: mine.on ? mine.at : all.at, scope: all.on ? "everything" : siteKey };
     } else { m = { on: true, message: "Preview of the under-construction page (?switchtest=1).", scope: "preview" }; }
+    if (!test) LS.set(CK, JSON.stringify({ on: 1, message: m.message || "" }));
+    if (!wasOwner || test) showLayer(m.message);   // straight away - no waiting on sign-in
     const owner = test ? false : await new Promise(res => {
       const t = setTimeout(() => res(false), 2500);
       onAuthStateChanged(auth, u => { clearTimeout(t); res(!!u && u.uid === "7cIh8rrhVNOjjj5CBDgb3IlqzEh2"); });
     });
-    const esc = s => String(s || "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-    const whenBody = fn => (document.body ? fn() : document.addEventListener("DOMContentLoaded", fn));
+    if (!test) LS.set("ss_owner", owner ? "1" : "0");
     if (owner) {
+      hideLayer();
       whenBody(() => {
         const b = document.createElement("div");
         b.setAttribute("style", "position:fixed;top:0;left:0;right:0;z-index:2147483646;background:#7a1f2b;color:#fff;font:600 13px/1.4 system-ui,Segoe UI,Arial;padding:6px 12px;text-align:center");
@@ -115,17 +141,6 @@ export const basePathFor = user => { if (user && BASE_OVERRIDE) return BASE_OVER
       });
       return;
     }
-    whenBody(() => {
-      document.title = "Under construction";
-      const o = document.createElement("div");
-      o.id = "site-switch-layer";
-      o.setAttribute("style", "position:fixed;inset:0;z-index:2147483647;background:#0f1419;color:#e8e6e3;font:16px/1.6 system-ui,Segoe UI,Arial;display:grid;place-items:center;padding:24px;box-sizing:border-box;overflow:auto");
-      o.innerHTML = `<div style="max-width:560px;text-align:center"><span style="display:inline-block;width:64px;height:6px;border-radius:3px;background:#7a1f2b;margin-bottom:20px"></span>
-<h1 style="font-size:1.6rem;margin:0 0 12px;color:#fff">Under construction</h1>
-<p style="margin:0 0 18px;white-space:pre-wrap">${esc(m.message || "We're working on the site. Back soon.")}</p>
-<small style="color:#9aa0a6">luissolutions.us</small></div>`;
-      document.body.appendChild(o);
-      document.documentElement.style.overflow = "hidden";
-    });
+    showLayer(m.message);
   } catch (_) { /* never block a page over the switch */ }
 })();
