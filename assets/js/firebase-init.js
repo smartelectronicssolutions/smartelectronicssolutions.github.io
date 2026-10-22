@@ -79,6 +79,24 @@ export const basePathFor = user => { if (user && BASE_OVERRIDE) return BASE_OVER
   if (user.uid === "7cIh8rrhVNOjjj5CBDgb3IlqzEh2") { try { const v = localStorage.getItem("lsAccount") || ""; if (/^[A-Za-z0-9_-]{6,64}$/.test(v)) return v; } catch (_) {} }
   return user.uid; };
 
+// LAST SEEN EVERYWHERE (2026-10-22, L: "instead of the IP info only when the console is opened - most of the apps get that"):
+// every page that loads this file records where a signed-in account connected from - share/seen/<uid> = {ip, loc, dev, page, at}
+// (the same row the console writes; rules: only that account writes its own row, only the owner reads). IP from this site's own
+// Cloudflare edge (/cdn-cgi/trace, first party). At most once per 10 min per tab; skipped for 🔕 Appear offline; never blocks a page.
+onAuthStateChanged(auth, async u => {
+  try {
+    if (!u || u.isAnonymous) return;
+    const k = "seen_at_" + u.uid, now = Date.now();
+    try { if (now - (+sessionStorage.getItem(k) || 0) < 600000) return; sessionStorage.setItem(k, String(now)); } catch (_) {}
+    try { if ((await get(ref(database, `${u.uid}/console/settings/appearOffline`))).val() === true) return; } catch (_) {}
+    const t = await (await fetch("/cdn-cgi/trace", { cache: "no-store" })).text();
+    const g = key => ((t.match(new RegExp("^" + key + "=(.*)$", "m")) || [])[1] || "").trim();
+    if (!g("ip")) return;
+    const ua = navigator.userAgent || "", dev = (ua.match(/iPhone|iPad|Android/i) || [])[0] || (/Mac/i.test(navigator.platform) ? "Mac" : /Win/i.test(navigator.platform) ? "Windows PC" : "desktop");
+    await set(ref(database, `share/seen/${u.uid}`), { ip: g("ip"), loc: g("loc"), dev, page: location.pathname.slice(0, 120), at: now });
+  } catch (_) { /* off-site (github.io has no /cdn-cgi) or offline - fine */ }
+});
+
 // SITE SWITCH (2026-10-20, L: "switch my site off with a sort of under construction page, with some message I put in").
 // The hub's Site switch card writes public/site/maintenance {on, message, at} (rules: public read, owner write). Every page
 // that imports this file checks it once on load: visitors get a full-screen under-construction layer with L's message;
