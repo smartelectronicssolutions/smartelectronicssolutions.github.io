@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.36"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.37"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -4791,7 +4791,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     async function encText(secret, text) { if (!(window.crypto && crypto.subtle)) throw new Error(E2E_HTTPS_MSG); const iv = crypto.getRandomValues(new Uint8Array(12)); const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await keyFor(secret), new TextEncoder().encode(text)));
         const out = new Uint8Array(12 + ct.length); out.set(iv); out.set(ct, 12); return b64(out); }
     async function decText(secret, blob) { const raw = unb64(blob); return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: raw.slice(0, 12) }, await keyFor(secret), raw.slice(12))); }
-    const isE2EThread = tid => E2E.on && !!tid && !String(tid).startsWith('tab-');
+    const isE2EThread = tid => E2E.on && !!tid && !String(tid).startsWith('tab-') && !((P.groups || {})[tid] || {}).bots;   // bot groups (REaD mail) stay plain - the bot can't hold a chat word
     async function openMsg(k, m) { if (!m || !m.enc) return m; if (E2E.plain.has(k)) return { ...m, text: E2E.plain.get(k) };
         const sec = readSecret(m); let text;   // no word entered, or the wrong one = the blob itself, as it sits in Firebase
         if (sec == null) text = m.text; else { try { text = await decText(sec, m.text); } catch (_) { text = m.text; } }   // can't open = the scrambled blob, nothing else (L 2026-10-03)
@@ -5258,7 +5258,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         const S = window.__dcShared || {}, lk = S.linkify || (x => x), stamp = S.fmtStamp || (t => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
         const lastMine = [...asc].reverse().find(m => m.from === P.me);
         const K = window.__dcKit, byK = Object.fromEntries(asc0.map(x => [x.__k, x]));
-        const nameOf = u => u === P.me ? 'You' : u === 'droplet' ? '💧 Droplet' : (P.dir[u] || 'them');
+        const nameOf = u => u === P.me ? 'You' : u === 'droplet' ? '💧 Droplet' : (P.dir[u] || ((P.groups[P.open] || {}).bots || {})[u] || 'them');
         log.innerHTML = list.length ? list.map(m => { const me = m.from === P.me, tm = stamp(m.ts);
             const who = me ? 'You' : m.from === 'droplet' ? '💧 Droplet' : (m.name || P.dir[m.from] || 'them');
             const edit = (me || P.me === OWNER) && !m.snap ? '<button type="button" class="dc-edit" title="edit this message">✎</button>' : '';   // every own message, every message for the owner (L 2026-10-03 "edit every message in people's")
