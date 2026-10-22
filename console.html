@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.18"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.19"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -3309,12 +3309,17 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // belongs here on a job that asked for a ping, and labeled (L, 2026-09-25: "why does it say
             // @compman61_bot in the thinking bubble"). A bare handle read as if CompMan were answering.
             const pingVia = m.tgBot && m.tgBot.username ? 'ping → @' + m.tgBot.username : '';
+            // NO REPEATS (2026-10-21, L: "things show up twice ... it's being redundant"): the daemon's "working - 34s elapsed"
+            // restated the ⏳ timer, and every thinking bubble carried the same day totals - the elapsed part is cut from the
+            // progress text, and the totals/version ride only the NEWEST thinking bubble.
+            const lastEl = [...els].sort((x, y) => (((DC.chatTurns || {})[y.dataset.k] || {}).ts || 0) - (((DC.chatTurns || {})[x.dataset.k] || {}).ts || 0))[0];   // the newest thinking bubble
             els.forEach(el => {
                 const t = (DC.chatTurns || {})[el.dataset.k] || {}, j = DC.pendJob[el.dataset.k] || {};
                 const since = j.startedAt || t.ts || Date.now();
                 const mine = typeof j.tokens === 'number' ? '✍ ' + fmtTok(j.tokens) + ' tokens this reply' : '';
                 const heard = j.voice && j.voice.text ? '🎙 heard: "' + String(j.voice.text).slice(0, 140) + (String(j.voice.text).length > 140 ? '…' : '') + '"' : '';   // voice note transcript (daemon 0.46)
-                const parts = ['⏳ ' + fmtEl(Date.now() - since) + (j.startedAt ? '' : ' queued'), j.progress ? String(j.progress).slice(0, 90) : '', heard, mine, tok, fb, back, j.ping ? pingVia : ''].filter(Boolean);
+                const prog = j.progress ? String(j.progress).replace(/^working\s*[—-]\s*[\dhms ]+elapsed,?\s*/i, '').slice(0, 90) : '';
+                const parts = ['⏳ ' + fmtEl(Date.now() - since) + (j.startedAt ? '' : ' queued'), prog, heard, mine, ...(el === lastEl ? [tok, fb, back] : []), j.ping ? pingVia : ''].filter(Boolean);
                 el.textContent = parts.join(' · ');
             });
         }
@@ -3333,7 +3338,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (!run.length && !que.length && !wait.length) { el.hidden = true; el.classList.remove('open'); return; }
             const head = x => (x.t.topic ? x.t.topic + ': ' : '') + String(x.j.rough || x.j.enhanced || '').replace(/\s+/g, ' ').slice(0, 44);
             const line = [
-                run.length ? '⚙ ' + head(run[0]) + ' · ' + fmtEl(Date.now() - run[0].j.startedAt) + (run.length > 1 ? ' +' + (run.length - 1) : '') : '',
+                run.length ? '⚙ working ' + run.length : '',   // just the count: the message + timer are already in its thinking bubble (L 2026-10-21 "redundant"); tap the strip for the list
                 que.length ? '⏳ queued ' + que.length : '',
                 wait.length ? '🙋 waiting on you ' + wait.length : ''
             ].filter(Boolean).join('  ·  ');
@@ -5472,7 +5477,25 @@ async function unsubscribe() {
     const id = await idOf(sub.endpoint); await sub.unsubscribe().catch(() => {}); await remove(ref(database, `${uid}/console/push/${id}`)).catch(() => {}); await paint();
 }
 if (btn) btn.addEventListener('click', async () => { try { (await current()) ? await unsubscribe() : await subscribe(); } catch (e) { st.textContent = 'failed: ' + (e.message || e); } });
-onAuthStateChanged(auth, u => { uid = u ? u.uid : null; paint(); });
+onAuthStateChanged(auth, u => { uid = u ? u.uid : null; paint(); askOnOpen(); });
+// ASK ON OPEN (2026-10-21, L: "can the app prompt for notifications from the beginning"): the installed app, signed in, with
+// pushes not on and not refused, shows one card at the top: Turn on / Not now. iPhone only lets a TAP ask for permission,
+// so the card is the tap. "Not now" waits a week; a refusal in the phone's own dialog is never asked again.
+async function askOnOpen() {
+    try {
+        if (!uid || !canPush() || !standalone() || Notification.permission !== 'default') return;
+        if (await current().catch(() => null)) return;
+        let snooze = 0; try { snooze = +localStorage.getItem('dc-push-ask') || 0; } catch (_) {}
+        if (Date.now() < snooze || document.getElementById('dc-push-ask')) return;
+        const c = document.createElement('div'); c.id = 'dc-push-ask';
+        c.style.cssText = 'position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 10px);transform:translateX(-50%);z-index:99999;width:min(92vw,420px);box-sizing:border-box;padding:12px 14px;border-radius:12px;background:var(--panel,#16202a);color:var(--text,#e6edf3);border:1px solid var(--dc-purple,#9b2c4f);box-shadow:0 8px 28px rgba(0,0,0,.45);font-size:15px;display:flex;gap:10px;align-items:center';
+        c.innerHTML = '<span style="font-size:22px">🔔</span><span style="flex:1">Get a notification when Droplet replies or someone writes you?</span><button type="button" data-a="on" style="font:inherit;font-weight:700;padding:8px 12px;border-radius:8px;border:0;background:var(--dc-purple,#9b2c4f);color:#fff">Turn on</button><button type="button" data-a="later" style="font:inherit;padding:8px 10px;border-radius:8px;border:1px solid var(--border,#334);background:transparent;color:inherit">Not now</button>';
+        c.addEventListener('click', async e => { const a = e.target.closest('button') && e.target.closest('button').dataset.a; if (!a) return;
+            if (a === 'later') { try { localStorage.setItem('dc-push-ask', String(Date.now() + 7 * 864e5)); } catch (_) {} c.remove(); return; }
+            c.remove(); try { await subscribe(); } catch (er) { if (st) st.textContent = 'failed: ' + (er.message || er); } });
+        document.body.appendChild(c);
+    } catch (_) {}
+}
 if (canPush()) navigator.serviceWorker.register('/sw.js', { scope: '/' }).then(r => { reg = r; }).catch(() => {});
 navigator.serviceWorker && navigator.serviceWorker.addEventListener('message', async e => { if (e.data && e.data.type === 'resubscribe' && uid && reg) { try { const s = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64(VAPID) }); await save(s); } catch (_) {} } });
 window.__dcPush = { current, paint };
