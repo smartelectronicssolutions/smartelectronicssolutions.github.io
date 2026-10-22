@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.29"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.30"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -448,7 +448,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         .dc-pick-strip { display: block; padding: 0 0 4px; margin: 0; line-height: 1.1; font-size: calc(0.72rem * var(--dc-fs, 1)); }   /* stacked (L 2026-10-21: options fit UNDER the pick, not one long string across) */
         .dc-pick-strip[hidden] { display: none; }
         .dc-seen-card { position: fixed; z-index: 99998; max-width: min(92vw, 320px); padding: 9px 12px; border-radius: var(--dc-r-md, 8px); border: 1px solid var(--dc-purple); background: var(--dc-panel, #16202a); color: var(--text); font-size: .8rem; line-height: 1.5; box-shadow: 0 8px 24px rgba(0,0,0,.4); }   /* status-dot card (2026-10-22) */
-        .pres[data-pu] { cursor: pointer; }
+        .pres[data-pu], #dc-peer-pres { cursor: pointer; }
         .dc-insights .dc-in-x { cursor: pointer; } .dc-insights .dc-in-x:hover { filter: brightness(1.25); }   /* Conversation panel: tap for detail (2026-10-22) */
         .dc-in-d { margin: 6px 0 10px; padding: 8px 10px; border: 1px solid var(--dc-purple); border-radius: var(--dc-r-md, 8px); font-size: .78rem; line-height: 1.4; }
         .dc-in-d .dc-in-s { margin-top: 5px; } .dc-in-d .dc-in-s i { color: var(--muted); font-style: normal; margin-right: 4px; }
@@ -5442,10 +5442,11 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     const presText = uid => { const p = presOf(uid); if (p.s !== 'off') return p.s; if (!p.last) return 'offline'; const a = ago(p.last); return a === 'now' ? 'just left' : 'seen ' + a + ' ago'; };
     const presDot = uid => `<span class="pres ${presOf(uid).s}" data-pu="${esc(uid)}" title="${esc(presText(uid))}"></span>`;
     document.addEventListener('click', async e => {
-        const d = e.target.closest && e.target.closest('.pres[data-pu]'); if (!d || P.me !== OWNER) return;
+        const d = e.target.closest && e.target.closest('#dc-peer-pres, .pres[data-pu]'); if (!d || P.me !== OWNER) return;   // the header line under a name (dot + active/idle/offline) is the main target (L 2026-10-22)
         e.stopPropagation(); e.preventDefault();
         document.querySelectorAll('.dc-seen-card').forEach(x => x.remove());
-        const u = d.dataset.pu, p = presOf(u), last = +((PR.all[u] || {}).last) || 0;
+        const u = d.dataset.pu || (d.querySelector('.pres[data-pu]') || {}).dataset?.pu || P.other; if (!u || u === 'droplet') return;
+        const p = presOf(u), last = +((PR.all[u] || {}).last) || 0;
         let seen = null; try { seen = (await get(ref(database, `share/seen/${u}`))).val(); } catch (_) {}
         const fmt = ts => ts ? new Date(ts).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '\u2013';
         const c = document.createElement('div'); c.className = 'dc-seen-card';
