@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
-<meta name="version" content="1.0.14">
+<meta name="version" content="1.0.15">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0c0f13"><title>Loadout</title>
 <style>
@@ -3081,7 +3081,8 @@ function selectItem(it,mode,cell){selItem={it,mode};showDetail(it);
   else if(mode==="stash"){b.style.display="";b.innerHTML="⬅ Put in "+locMeta(openPlace).label;b.onclick=doMove;}
   else b.style.display="none";}
 function doMove(){if(!selItem)return;const s=selItem;selItem=null;$("dcard").classList.remove("show");moveItem(s.it,s.mode==="take"?"bag":openPlace);}
-function showDetail(it){const di=$("dImg");di.onerror=function(){di.style.display="none"};di.style.display="";di.src=it.img||"";$("dName").textContent=it.name;$("dMeta").textContent=it.cat+" · "+it.comp;$("dEdit").style.display=(BASE!=="public")?"":"none";$("dcard").classList.add("show");}
+let detailIt=null;   // the item on the detail card - what ✎ Edit opens (L 2026-10-22: "the edit button doesn't work in some areas" - the backpack dock and other views showed the card without setting selItem)
+function showDetail(it){detailIt=it;const di=$("dImg");di.onerror=function(){di.style.display="none"};di.style.display="";di.src=it.img||"";$("dName").textContent=it.name;$("dMeta").textContent=it.cat+" · "+it.comp;$("dEdit").style.display=(BASE!=="public")?"":"none";$("dcard").classList.add("show");}
 // ---- per-account item editor (double-click item image or the ✎ Edit button) ----
 let editItem=null,pendImgPath=null;
 function openItemEdit(it){if(BASE==="public"){alert("Log in to edit your items.");return;}editItem=it;pendImgPath=null;editItem._imgPath=it.imgPath||"";$("ie_name").value=it.name;$("ie_cat").value=it.cat;$("ie_comp").value=it.comp;$("ie_qty").value=it.qty||0;$("ie_price").value=it.price||"";$("ie_img").value=it.img||"";const _pv=$("ie_prev");if(it.img){_pv.src=it.img;_pv.style.display="";}else{_pv.style.display="none";}
@@ -3101,7 +3102,7 @@ $("ie_file").addEventListener("change",async function(){const f=this.files&&this
   lb.addEventListener("click",()=>lb.style.display="none");
   $("dImg").addEventListener("click",()=>{const src=$("dImg").src;if(!src||$("dImg").style.display==="none")return;im.src=src;lb.style.display="flex";});
 })();
-$("dEdit").addEventListener("click",()=>{if(selItem)openItemEdit(selItem.it);});
+$("dEdit").addEventListener("click",()=>{const it=detailIt||(selItem&&selItem.it);if(it)openItemEdit(it);});
 $("ie_cancel").addEventListener("click",closeItemEdit);
 $("itemEdit").addEventListener("click",e=>{if(e.target===$("itemEdit"))closeItemEdit();});
 $("ie_save").addEventListener("click",async()=>{if(!editItem)return;const it=editItem;const ncat=($("ie_cat").value||it.cat).trim(),ncomp=($("ie_comp").value||it.comp).trim(),nname=($("ie_name").value||it.name).trim();if(!ncat||!ncomp||!nname){$("ie_err").textContent="Name, Category and Container are required.";return;}const val=$("ie_room").value;const nimg=$("ie_img").value.trim();const fields={quantity:+$("ie_qty").value||0,price:$("ie_price").value.trim(),img:nimg,imgPath:(nimg?(pendImgPath||editItem._imgPath||null):null)};if(val){fields.location=val;fields.room=locMeta(val).label;}else if(it.loc==="bag"){fields.location="bag";}else{fields.location=null;fields.room=null;} /* "(auto)" must NOT eject a carried item from the backpack */$("ie_err").textContent="Saving…";try{const oldPath=it.cat+"/"+it.comp+"/"+it.name,newPath=ncat+"/"+ncomp+"/"+nname;if(newPath!==oldPath){const snap=await get(ref(db,BASE+"/money/inventory/"+oldPath));const data=Object.assign({},snap.val()||{},fields);await set(ref(db,BASE+"/money/inventory/"+newPath),data);await remove(ref(db,BASE+"/money/inventory/"+oldPath));}else{await update(ref(db,BASE+"/money/inventory/"+oldPath),fields);}closeItemEdit();}catch(e){$("ie_err").textContent="Save failed: "+((e&&e.message)||e);}});
