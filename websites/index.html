@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.1">
+    <meta name="version" content="1.0.2">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Luis Solutions — My Websites</title>
@@ -23,6 +23,8 @@
         .sw input:checked + .sw-k { background: #7a1f2b; } .sw input:checked + .sw-k::after { left: 21px; }
         .sw input:disabled + .sw-k { opacity: .4; }
         .sw-st { font-size: 12px; opacity: .75; }
+.sw-on { font-weight: 700; color: #2e9e5b; } .sw-on.is-off { color: #c0392b; }
+.sw.tile .sw-on { color: #6fe39a; } .sw.tile .sw-on.is-off { color: #ff8a8a; }
         .thumbnail .sw.tile { position: absolute; left: 8px; top: 8px; z-index: 2; padding: 4px 8px; border-radius: 10px; background: rgba(0,0,0,.65); color: #fff; font-size: 12px; }
         .thumbnail { position: relative; }
         .thumbnail.off img { filter: grayscale(1) brightness(.6); }
@@ -146,8 +148,8 @@
                  toggles"): owner only. Each toggle writes public/site/sites/<key> {on, message, at, by}; EVERYTHING writes
                  public/site/maintenance. Every page's gate (assets/js/firebase-init.js) reads public/site once on load. -->
             <div id="sw-bar" class="sw-bar" hidden>
-                <label class="sw"><input type="checkbox" id="sw-all"><span class="sw-k"></span><b>Everything</b> off for visitors</label>
-                <label class="sw"><input type="checkbox" id="sw-ses"><span class="sw-k"></span>Smart Solutions site (the root pages)</label>
+                <label class="sw"><input type="checkbox" id="sw-all"><span class="sw-k"></span><b>All sites</b> <span class="sw-on" data-for="all">ON</span></label>
+                <label class="sw"><input type="checkbox" id="sw-ses"><span class="sw-k"></span>Smart Solutions site <span class="sw-on" data-for="ses">ON</span></label>
                 <input id="sw-msg" type="text" placeholder="message visitors see (shared by all switches)" maxlength="240">
                 <span id="sw-st" class="sw-st"></span>
             </div>
@@ -296,14 +298,18 @@ const NAMES = { kh: "Kame House", eco: "Eco", game: "Gaming", jem: "JEM", loadou
 let cur = { maintenance: {}, sites: {} }, uid = null;
 function paint() {
     const all = cur.maintenance || {}, sites = cur.sites || {};
-    $("#sw-all").checked = !!all.on; $("#sw-ses").checked = !!(sites.ses && sites.ses.on);
+    // ticked = LIVE (2026-10-22): the stored flag is still "on = OFF for visitors", so every switch shows its inverse
+    $("#sw-all").checked = !all.on; $("#sw-ses").checked = !(sites.ses && sites.ses.on); $("#sw-ses").disabled = !!all.on;
+    const lbl = (k, live) => { const e = document.querySelector(`.sw-on[data-for="${k}"]`); if (e) { e.textContent = live ? "ON" : "OFF"; e.classList.toggle("is-off", !live); } };
+    lbl("all", !all.on); lbl("ses", !all.on && !(sites.ses && sites.ses.on));
     if (document.activeElement !== $("#sw-msg")) $("#sw-msg").value = all.message || "";
     document.querySelectorAll(".thumbnail[data-site]").forEach(t => {
         const k = t.dataset.site, on = !!(sites[k] && sites[k].on) || !!all.on;
         t.classList.toggle("off", on);
         let sw = t.querySelector(".sw.tile");
-        if (!sw) { sw = document.createElement("label"); sw.className = "sw tile"; sw.innerHTML = `<input type="checkbox"><span class="sw-k"></span>off`; sw.querySelector("input").addEventListener("change", e => write(k, e.target.checked)); sw.addEventListener("click", e => e.stopPropagation()); t.appendChild(sw); }
-        const cb = sw.querySelector("input"); cb.checked = !!(sites[k] && sites[k].on); cb.disabled = !!all.on;
+        if (!sw) { sw = document.createElement("label"); sw.className = "sw tile"; sw.innerHTML = `<input type="checkbox"><span class="sw-k"></span><span class="sw-on">ON</span>`; sw.querySelector("input").addEventListener("change", e => write(k, !e.target.checked)); sw.addEventListener("click", e => e.stopPropagation()); t.appendChild(sw); }
+        const cb = sw.querySelector("input"); cb.checked = !on; cb.disabled = !!all.on;
+        { const w = sw.querySelector(".sw-on"); if (w) { w.textContent = on ? "OFF" : "ON"; w.classList.toggle("is-off", on); } }
     });
     const offs = Object.entries(sites).filter(([k, v]) => v && v.on).map(([k]) => NAMES[k] || k);
     $("#sw-st").textContent = all.on ? "EVERYTHING is off for visitors" : offs.length ? "off: " + offs.join(", ") : "all sites live";
@@ -317,8 +323,8 @@ async function write(key, on) {
         $("#sw-st").textContent = (key === "all" ? "everything" : NAMES[key] || key) + (on ? " is OFF for visitors" : " is live");
     } catch (e) { $("#sw-st").textContent = "failed: " + e.message; }
 }
-$("#sw-all").addEventListener("change", e => write("all", e.target.checked));
-$("#sw-ses").addEventListener("change", e => write("ses", e.target.checked));
+$("#sw-all").addEventListener("change", e => write("all", !e.target.checked));
+$("#sw-ses").addEventListener("change", e => write("ses", !e.target.checked));
 $("#sw-msg").addEventListener("change", () => { const all = cur.maintenance || {}; if (all.on) write("all", true); else Object.entries(cur.sites || {}).forEach(([k, v]) => { if (v && v.on) write(k, true); }); });
 onAuthStateChanged(auth, u => {
     uid = u && u.uid === OWNER ? u.uid : null;
