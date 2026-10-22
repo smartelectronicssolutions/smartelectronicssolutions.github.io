@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.27"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.28"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -447,6 +447,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         /* PICK STRIP (2026-10-21): the staged numbers become one answer - yes / no / do it / ask */
         .dc-pick-strip { display: block; padding: 0 0 4px; margin: 0; line-height: 1.1; font-size: calc(0.72rem * var(--dc-fs, 1)); }   /* stacked (L 2026-10-21: options fit UNDER the pick, not one long string across) */
         .dc-pick-strip[hidden] { display: none; }
+        .dc-seen-card { position: fixed; z-index: 99998; max-width: min(92vw, 320px); padding: 9px 12px; border-radius: var(--dc-r-md, 8px); border: 1px solid var(--dc-purple); background: var(--dc-panel, #16202a); color: var(--text); font-size: .8rem; line-height: 1.5; box-shadow: 0 8px 24px rgba(0,0,0,.4); }   /* status-dot card (2026-10-22) */
+        .pres[data-pu] { cursor: pointer; }
         .dc-insights .dc-in-x { cursor: pointer; } .dc-insights .dc-in-x:hover { filter: brightness(1.25); }   /* Conversation panel: tap for detail (2026-10-22) */
         .dc-in-d { margin: 6px 0 10px; padding: 8px 10px; border: 1px solid var(--dc-purple); border-radius: var(--dc-r-md, 8px); font-size: .78rem; line-height: 1.4; }
         .dc-in-d .dc-in-s { margin-top: 5px; } .dc-in-d .dc-in-s i { color: var(--muted); font-style: normal; margin-right: 4px; }
@@ -5429,6 +5431,21 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         return idle ? { s: 'idle' } : { s: 'off', last: +x.last || 0 }; };
     const presText = uid => { const p = presOf(uid); if (p.s !== 'off') return p.s; if (!p.last) return 'offline'; const a = ago(p.last); return a === 'now' ? 'just left' : 'seen ' + a + ' ago'; };
     const presDot = uid => `<span class="pres ${presOf(uid).s}" data-pu="${esc(uid)}" title="${esc(presText(uid))}"></span>`;
+    document.addEventListener('click', async e => {
+        const d = e.target.closest && e.target.closest('.pres[data-pu]'); if (!d || P.me !== OWNER) return;
+        e.stopPropagation(); e.preventDefault();
+        document.querySelectorAll('.dc-seen-card').forEach(x => x.remove());
+        const u = d.dataset.pu, p = presOf(u), last = +((PR.all[u] || {}).last) || 0;
+        let seen = null; try { seen = (await get(ref(database, `share/seen/${u}`))).val(); } catch (_) {}
+        const fmt = ts => ts ? new Date(ts).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '\u2013';
+        const c = document.createElement('div'); c.className = 'dc-seen-card';
+        c.innerHTML = `<b>${esc(P.dir[u] || (u === P.me ? 'You' : 'member'))}</b> \u00b7 ${esc(p.s === 'off' ? 'offline' : p.s)}`
+            + `<div>Last seen: ${p.s === 'active' ? 'now' : esc(fmt(last))}</div>`
+            + (seen ? `<div>IP: <code>${esc(seen.ip || '\u2013')}</code>${seen.loc ? ' \u00b7 ' + esc(seen.loc) : ''}</div><div>${esc(seen.dev || '')} \u00b7 connected ${esc(fmt(seen.at))}</div>` : '<div class="meta">no IP yet - it is recorded the next time they open the console</div>');
+        document.body.appendChild(c);
+        const r = d.getBoundingClientRect(); c.style.left = Math.max(8, Math.min(window.innerWidth - c.offsetWidth - 8, r.left)) + 'px'; c.style.top = (r.bottom + 6) + 'px';
+        setTimeout(() => document.addEventListener('click', function off(ev) { if (!c.contains(ev.target)) { c.remove(); document.removeEventListener('click', off, true); } }, true), 0);
+    }, true);
     function presPaint() {   // patch the dots in place - a full renderHome would steal focus from the profile form
         document.querySelectorAll('.pres[data-pu]').forEach(d => { const u = d.dataset.pu; d.className = 'pres ' + presOf(u).s; d.title = presText(u); });
         presHead(); }
@@ -5462,7 +5479,18 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         if (!PR.conn) return;
         onDisconnect(PR.conn).remove().catch(() => {});
         if (P.hideMe) onDisconnect(lastRef()).cancel().catch(() => {}); else onDisconnect(lastRef()).set(serverTimestamp()).catch(() => {});
-        PR.state = undefined; presPush(); }
+        PR.state = undefined; presPush(); presSeen(); }
+    // LAST SEEN + IP (2026-10-22, L: "when I press the green circle can it tell me the last seen time and IP"): on connect this
+    // console asks its OWN site's Cloudflare edge (/cdn-cgi/trace - first party, no third-party lookup) for its public IP and
+    // writes share/seen/<uid> = {ip, loc, dev, at}. Rules: only that account writes its own row, only the owner can read any.
+    function presSeen() {
+        if (!P.me || P.hideMe) return;
+        fetch('/cdn-cgi/trace', { cache: 'no-store' }).then(r => r.text()).then(t => {
+            const g = k => ((t.match(new RegExp('^' + k + '=(.*)$', 'm')) || [])[1] || '').trim();
+            const dev = /iPhone|iPad|Android/i.test(navigator.userAgent) ? (navigator.userAgent.match(/iPhone|iPad|Android/i) || ['phone'])[0] : (/Mac/i.test(navigator.platform) ? 'Mac' : /Win/i.test(navigator.platform) ? 'Windows PC' : 'desktop');
+            return set(ref(database, `share/seen/${P.me}`), { ip: g('ip'), loc: g('loc'), dev, at: Date.now() });
+        }).catch(() => {});
+    }
     PR.sys = null;
     async function presIdleDetect(ask) {   // ask = from a tap (the permission prompt needs one); otherwise only if already allowed
         if (!('IdleDetector' in window) || PR.det) return !!PR.det;
