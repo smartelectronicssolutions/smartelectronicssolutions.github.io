@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.35"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.36"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -447,6 +447,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         /* PICK STRIP (2026-10-21): the staged numbers become one answer - yes / no / do it / ask */
         .dc-pick-strip { display: block; padding: 0 0 4px; margin: 0; line-height: 1.1; font-size: calc(0.72rem * var(--dc-fs, 1)); }   /* stacked (L 2026-10-21: options fit UNDER the pick, not one long string across) */
         .dc-pick-strip[hidden] { display: none; }
+        .pgrp { display: flex; flex-direction: column; gap: 8px; } .pgrp label:first-child { display: flex; flex-direction: column; gap: 4px; font-size: .78rem; color: var(--muted); }   /* group form (2026-10-22) */
+        .pgrp input[data-g] { font-size: 16px; padding: 7px 10px; border-radius: var(--dc-r-md, 8px); border: 1px solid var(--border); background: transparent; color: var(--text); }
+        .pgrp-foot { display: flex; gap: 6px; align-items: center; margin-top: 4px; } .pgrp-st { color: var(--muted); }
         .dc-seen-card { position: fixed; z-index: 99998; max-width: min(92vw, 320px); padding: 9px 12px; border-radius: var(--dc-r-md, 8px); border: 1px solid var(--dc-purple); background: var(--dc-panel, #16202a); color: var(--text); font-size: .8rem; line-height: 1.5; box-shadow: 0 8px 24px rgba(0,0,0,.4); }   /* status-dot card (2026-10-22) */
         .pres[data-pu], #dc-peer-pres { cursor: pointer; }
         .dc-insights .dc-in-x { cursor: pointer; } .dc-insights .dc-in-x:hover { filter: brightness(1.25); }   /* Conversation panel: tap for detail (2026-10-22) */
@@ -2153,7 +2156,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     if (b.dataset.v === 'clear') { ta.value = rest; document.querySelectorAll('.dc-bub .dc-num.on').forEach(x => x.classList.remove('on')); ta.dispatchEvent(new Event('input', { bubbles: true })); s.hidden = true; return; }
                     const verb = { yes: 'yes', no: 'no', do: 'do', ask: 'tell me more about' }[b.dataset.v];
                     const nums = picks.map(p => '#' + p.n).join(', ');
-                    const labels = picks.map(p => p.label.length > 28 ? p.label.slice(0, 28) + '…' : p.label).join('; ');
+                    const labels = picks.map(p => p.label.length > 40 ? p.label.slice(0, 40).replace(/\s+\S*$/, '') + '…' : p.label).join('; ');   // cut on a WORD boundary: "proper gr…" got auto-corrected to "proper grammar" (L 2026-10-22)
                     ta.value = `${verb} ${nums}` + (labels ? ` - ${labels}` : '') + (rest ? '\n' + rest : '');
                     document.querySelectorAll('.dc-bub .dc-num.on').forEach(x => x.classList.remove('on'));
                     ta.dispatchEvent(new Event('input', { bubbles: true })); s.hidden = true;
@@ -5027,6 +5030,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (convs.length || siteRow) {
                 html += H('Conversations', 'convs') + siteRow;
                 html += convs.map(([t, x]) => { const tab = t.startsWith('tab-');
+                    if (x.kind === 'group' || isGroup(t)) return `<div class="pswipe" data-conv="${esc(t)}"><button type="button" class="pclr" title="clear this conversation for you">🗑 Clear</button><button type="button" class="dc-peer-row" data-grp="${esc(t)}">👥 ${esc(x.name || 'group')}${unread(t) ? '<span class="dot"></span>' : ''}<span class="pago">${ago(x.ts)}</span><small>${esc(x.from === P.me ? 'you: ' : '')}${esc(x.last || '')}</small></button></div>`;
                     return `<div class="pswipe" data-conv="${esc(t)}"><button type="button" class="pclr" title="clear this conversation for you (they keep theirs)">🗑 Clear</button><button type="button" class="dc-peer-row" ${tab ? `data-open="${esc(t)}" data-title="📺 ${esc(x.name)}"` : `data-u="${esc(x.with)}"`}>${tab ? '📺 ' : '💬 '}${esc(tab ? (x.name || '?') : (P.dir[x.with] || x.name || '?'))}${!tab && x.with && x.with !== 'droplet' ? presDot(x.with) : ''}${unread(t) ? '<span class="dot"></span>' : ''}<span class="pago">${ago(x.ts)}</span><small>${esc(x.from === P.me ? 'you: ' : x.from === 'droplet' ? 'Droplet: ' : '')}${esc(x.last || '')}</small></button></div>`; }).join('');
             }
             // 2. "This tab" section REMOVED 2026-10-22 (L: "get rid of this tab section from the list - only done via the user once
@@ -5039,6 +5043,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             }
             // 4. members: start a chat
             html += H('Members', 'members');
+            if (owner) html += `<button type="button" class="dc-peer-row" data-newgrp="1">＋ New group<small>a chat with several members at once</small></button>`;
             html += others.length ? others.map(([u, n]) => `<button type="button" class="dc-peer-row" data-u="${esc(u)}">💬 ${esc(n)}${presDot(u)}<small>${esc(presText(u))}</small></button>`).join('')
                 : '<div class="pnote">No members in the list yet.</div>';
             // 4b. profile (L 2026-10-03/04): what the others see + the account's own info - the shared form (also System > Profile)
@@ -5058,6 +5063,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         wireCollapse(home);
         home.querySelectorAll('[data-u]').forEach(b => b.onclick = () => openPeer(b.dataset.u));
         home.querySelectorAll('[data-site]').forEach(b => b.onclick = () => openSite());
+        home.querySelectorAll('[data-grp]').forEach(b => b.onclick = () => openGroup(b.dataset.grp));
+        home.querySelectorAll('[data-newgrp]').forEach(b => b.onclick = () => groupForm(null));
         home.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => showHome('pick'));
         home.querySelectorAll('[data-home]').forEach(b => b.onclick = () => showHome());
         home.querySelectorAll('[data-share]').forEach(b => b.onclick = () => shareTab(b.dataset.share));
@@ -5131,6 +5138,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     // tab already shared with them. Inside a shared-tab view: back to the DM with them + stop sharing. Owner (L) only.
     function renderBar() {
         const bar = $('#dc-peer-bar'); if (!bar) return;
+        if (P.open && isGroup(P.open)) {   // a group: the owner gets ✎ Edit (name / members / delete); nobody shares a tab into a group
+            bar.innerHTML = P.me === OWNER ? '<button type="button" class="pbar-b" data-gedit="1" title="rename, add or remove members, delete">✎ Edit group</button>' : '';
+            bar.hidden = !bar.innerHTML; const ge = bar.querySelector('[data-gedit]'); if (ge) ge.onclick = () => groupForm(P.open); return; }
         if (!P.open || !P.other || P.other === 'droplet') { bar.hidden = true; bar.innerHTML = ''; return; }
         const other = P.other, oname = P.dir[other] || 'them', topic = curTopic();
         const mine = Object.entries(P.shares || {}).filter(([, s]) => s && s.with === other);
@@ -5354,8 +5364,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const rt = P.reply ? { replyTo: { k: P.reply.k, from: P.reply.from } } : {}; setPeerReply(null);
             await push(ref(database, `share/chat/${tid}/messages`), { from: P.me, name: P.myName, text: stored, ...(e2e ? { enc: encMode() } : {}), ...rt, ts });
             const tab = tid.startsWith('tab-'), prevMine = P.index[tid] || {};
+            if (isGroup(tid)) await fanIndex(tid, preview, ts); else {
             await update(ref(database, `share/chatIndex/${P.me}/${tid}`), { with: other, name: tab ? (prevMine.name || P.dir[other] || '') : (P.dir[other] || ''), last: preview, ts, from: P.me, ...(tab ? { kind: 'tab' } : {}) });
-            await update(ref(database, `share/chatIndex/${other}/${tid}`), { with: P.me, name: tab && P.me === OWNER ? `${P.myName} · shared tab` : P.myName, last: preview, ts, from: P.me, ...(tab ? { kind: 'tab' } : {}) });
+            await update(ref(database, `share/chatIndex/${other}/${tid}`), { with: P.me, name: tab && P.me === OWNER ? `${P.myName} · shared tab` : P.myName, last: preview, ts, from: P.me, ...(tab ? { kind: 'tab' } : {}) }); }
         } catch (e) { box.value = text; alert('Not sent: ' + (e.code || e.message)); }
     }
 
@@ -5372,6 +5383,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const text = cap || '📷 photo', ts = Date.now(), e2e = isE2EThread(tid);
             await push(ref(database, `share/chat/${tid}/messages`), { from: P.me, name: P.myName, text: e2e ? await encText(sendSecret(), text) : text, ...(e2e ? { enc: encMode() } : {}), img: up.url, imgPath: up.path, ts });
             const tab = tid.startsWith('tab-'), prevMine = P.index[tid] || {};
+            if (isGroup(tid)) { await fanIndex(tid, '📷 ' + (cap || 'photo').slice(0, 80), ts); box.value = ''; return; }
             await update(ref(database, `share/chatIndex/${P.me}/${tid}`), { with: other, name: tab ? (prevMine.name || P.dir[other] || '') : (P.dir[other] || ''), last: e2e ? '📷 photo' : '📷 ' + (cap || 'photo').slice(0, 80), ts, from: P.me, ...(tab ? { kind: 'tab' } : {}) });
             await update(ref(database, `share/chatIndex/${other}/${tid}`), { with: P.me, name: tab && P.me === OWNER ? `${P.myName} · shared tab` : P.myName, last: e2e ? '📷 photo' : '📷 ' + (cap || 'photo').slice(0, 80), ts, from: P.me, ...(tab ? { kind: 'tab' } : {}) });
             box.value = '';
@@ -5397,11 +5409,61 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const text = '📎 ' + (file.name || 'file'), ts = Date.now(), e2e = isE2EThread(tid);
             await push(ref(database, `share/chat/${tid}/messages`), { from: P.me, name: P.myName, text: e2e ? await encText(sendSecret(), text) : text, ...(e2e ? { enc: encMode() } : {}), file: { url }, ts });
             const tab = tid.startsWith('tab-'), prevMine = P.index[tid] || {}, last = e2e ? '📎 file' : text.slice(0, 90);
+            if (isGroup(tid)) { await fanIndex(tid, last, ts); return; }
             await update(ref(database, `share/chatIndex/${P.me}/${tid}`), { with: other, name: tab ? (prevMine.name || P.dir[other] || '') : (P.dir[other] || ''), last, ts, from: P.me, ...(tab ? { kind: 'tab' } : {}) });
             await update(ref(database, `share/chatIndex/${other}/${tid}`), { with: P.me, name: tab && P.me === OWNER ? `${P.myName} · shared tab` : P.myName, last, ts, from: P.me, ...(tab ? { kind: 'tab' } : {}) });
         } catch (e) { alert('File not sent: ' + (e.code || e.message)); }
         finally { box.disabled = false; box.placeholder = ph; }
     }
+
+    // GROUPS (2026-10-22, L: "build up a proper grouping system in the member chat"): share/chat/grp-<id> = {kind:'group', name,
+    // members{uid:true}, names{uid:name}, owner, createdAt}. The OWNER creates, edits and deletes groups (the rules already let him
+    // write any thread - no rules change); members post, react and mark seen exactly as in a 1-on-1 (those rules key on members).
+    // Every member's inbox line is share/chatIndex/<uid>/<tid> {kind:'group', name, last "<who>: <text>", ts, from}.
+    P.groups = {};
+    const isGroup = tid => String(tid || '').startsWith('grp-');
+    async function groupOf(tid, fresh) { if (!fresh && P.groups[tid]) return P.groups[tid];
+        try { const g = (await get(ref(database, `share/chat/${tid}`))).val(); if (g) { delete g.messages; delete g.reacts; delete g.seen; P.groups[tid] = g; } } catch (_) {}
+        return P.groups[tid] || null; }
+    async function fanIndex(tid, last, ts) {
+        const g = await groupOf(tid); if (!g) return;
+        await Promise.all(Object.keys(g.members || {}).map(u => update(ref(database, `share/chatIndex/${u}/${tid}`),
+            { with: 'group', kind: 'group', name: g.name || 'group', last: (u === P.me ? last : `${P.myName}: ${last}`).slice(0, 120), ts, from: P.me }).catch(() => {})));
+    }
+    async function openGroup(tid) { const g = await groupOf(tid, true); if (!g) { alert('That group is gone.'); return; }
+        openThread(tid, '👥 ' + (g.name || 'group'), 'group'); }
+    function groupForm(tid) {
+        if (P.me !== OWNER) return;
+        const g = tid ? (P.groups[tid] || {}) : { name: '', members: {} };
+        const others = Object.entries(P.dir).filter(([u]) => u !== P.me).sort((a, b) => a[1].localeCompare(b[1]));
+        const home = $('#dc-peer-home'); if (P.unsub) { P.unsub(); P.unsub = null; } P.open = '__gform'; P.other = null;   // a non-null open keeps the inbox listener from redrawing over the form
+        $('#dc-peer-home').hidden = false; $('#dc-peer-log').hidden = true; $('#dc-peer-form').hidden = true; $('#dc-peer-back').hidden = false;
+        $('#dc-peer-name').textContent = tid ? '✎ Edit group' : '＋ New group'; presHead();
+        home.innerHTML = `<div class="pgrp"><label>Name<input data-g="name" value="${esc(g.name || '')}" maxlength="40" placeholder="e.g. Family, Work crew" autocomplete="off"></label>
+            <div class="ph">Members</div>` + (others.length ? others.map(([u, n]) => `<label class="dc-peer-row" style="cursor:pointer"><input type="checkbox" data-gm="${esc(u)}" ${(g.members || {})[u] ? 'checked' : ''}> ${esc(n)}</label>`).join('') : '<div class="pnote">No members yet.</div>')
+            + `<div class="pgrp-foot">${tid ? '<button type="button" class="pbar-b pgrp-del">🗑 Delete group</button>' : ''}<span style="flex:1"></span><button type="button" class="pbar-b pgrp-no">Cancel</button><button type="button" class="pbar-b pgrp-ok">${tid ? 'Save' : 'Create'}</button></div><small class="pgrp-st"></small></div>`;
+        const q = x => home.querySelector(x);
+        q('.pgrp-no').onclick = () => tid ? openGroup(tid) : showHome();
+        q('.pgrp-ok').onclick = async () => { const name = q('[data-g="name"]').value.trim(), uids = [...home.querySelectorAll('[data-gm]:checked')].map(x => x.dataset.gm);
+            if (!name) { q('.pgrp-st').textContent = 'give it a name'; return; } if (!uids.length) { q('.pgrp-st').textContent = 'pick at least one member'; return; }
+            q('.pgrp-st').textContent = 'saving…';
+            try { const id = await saveGroup(tid, name, uids); openGroup(id); } catch (e) { q('.pgrp-st').textContent = 'not saved: ' + (e.code || e.message); } };
+        if (q('.pgrp-del')) q('.pgrp-del').onclick = async () => { if (!confirm(`Delete "${g.name}" for everyone? Its messages go too.`)) return; try { await deleteGroup(tid); showHome(); } catch (e) { alert('Not deleted: ' + (e.code || e.message)); } };
+    }
+    async function saveGroup(tid, name, uids) {
+        const now = Date.now(), isNew = !tid; if (isNew) tid = 'grp-' + push(ref(database, 'share/chat')).key;
+        const old = isNew ? {} : ((await groupOf(tid, true)) || {});
+        const members = { [P.me]: true }, names = { [P.me]: P.myName }; uids.forEach(u => { members[u] = true; names[u] = P.dir[u] || u.slice(0, 6); });
+        await update(ref(database, `share/chat/${tid}`), { kind: 'group', name, members, names, owner: P.me, ...(isNew ? { createdAt: now } : {}) });
+        P.groups[tid] = { ...old, kind: 'group', name, members, names, owner: P.me };
+        await Promise.all(Object.keys(old.members || {}).filter(u => !members[u]).map(u => set(ref(database, `share/chatIndex/${u}/${tid}`), null).catch(() => {})));
+        const line = isNew ? `${P.myName} made the group` : (old.name && old.name !== name ? `renamed to ${name}` : 'members updated');
+        await Promise.all(Object.keys(members).map(u => update(ref(database, `share/chatIndex/${u}/${tid}`), { with: 'group', kind: 'group', name, last: line, ts: now, from: P.me }).catch(() => {})));
+        return tid;
+    }
+    async function deleteGroup(tid) { const g = (await groupOf(tid, true)) || {};
+        await Promise.all(Object.keys(g.members || {}).map(u => set(ref(database, `share/chatIndex/${u}/${tid}`), null).catch(() => {})));
+        await set(ref(database, `share/chat/${tid}`), null); delete P.groups[tid]; }
 
     function peerSplit() { if (window.__dcSysPane && window.__dcSysPane.is()) window.__dcSysPane.close(); $('#dc-console .dc-body').classList.add('dc-split'); }
     window.__dcClosePeer = () => closePeer();
@@ -5468,6 +5530,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     function presHead() {   // the conversation header: dot + "active" / "idle" / "seen 2h ago"
         const nm = $('#dc-peer-name'); if (!nm) return;
         let el = $('#dc-peer-pres'); if (!el) { el = document.createElement('span'); el.id = 'dc-peer-pres'; nm.after(el); }
+        if (isGroup(P.open)) { const g = P.groups[P.open] || {}; const ms = Object.keys(g.members || {});   // a group: who's in it, each with a status dot
+            el.innerHTML = ms.map(u => presDot(u) + esc(u === P.me ? 'you' : (P.dir[u] || (g.names || {})[u] || 'member'))).join(' &nbsp;'); return; }
         const u = P.open && !P.open.startsWith('tab-') ? P.other : null;
         el.innerHTML = u && u !== 'droplet' ? presDot(u) + esc(presText(u)) : ''; }
     const lastRef = () => ref(database, `share/presence/${P.me}/last`);
