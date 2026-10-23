@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.67"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.68"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -5067,6 +5067,11 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     // MUTE PER CHAT (2026-10-23): {me}/console/settings/mute/<chat_tid | dc_tab> = true. Read here + by ops/notify before any push.
     const muteKey = t => 'chat_' + String(t).replace(/[.#$\[\]\/]/g, '_');
     const mdot = t => P.mute && P.mute[muteKey(t)] ? ' <span title="muted">🔕</span>' : '';
+    // SWIPE A ROW: PIN / MUTE (2026-10-23, Telegram review #4, no archive): {me}/console/settings/pin/<chat_tid> = ts; pinned rows sort first.
+    const isPinned = t => P.pin && P.pin[muteKey(t)] ? 1 : 0;
+    const pdot = t => isPinned(t) ? ' <span title="pinned">📌</span>' : '';
+    const swipeActs = t => `<button type="button" class="ppin" title="pin to the top">${isPinned(t) ? 'Unpin' : '📌 Pin'}</button><button type="button" class="pmute" title="notifications for this chat">${P.mute && P.mute[muteKey(t)] ? '🔔 Unmute' : '🔕 Mute'}</button>`;
+    function togglePin(t) { if (!P.me) return; const k = muteKey(t); set(ref(database, `${P.me}/console/settings/pin/${k}`), P.pin && P.pin[k] ? null : Date.now()).catch(e => alert('Could not save: ' + (e.code || e.message))); }
     function muteBtn() { const b = $('#dc-peer-mute'); if (!b) return; b.hidden = !P.open; if (!P.open) return;
         const on = !!(P.mute && P.mute[muteKey(P.open)]); b.textContent = on ? '🔕' : '🔔';
         b.title = on ? 'muted - tap to get notifications from this chat again' : 'mute notifications from this chat';
@@ -5170,13 +5175,13 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         } else {
             // 1. conversations, newest first
             const convs = Object.entries(P.index).filter(([t, x]) => x && x.ts && x.ts > (x.clearedAt || 0) && !t.startsWith('tab-'))   // shared tabs live in the tab bar (teal chip), not here (L 2026-09-27)
-                .sort((a, b) => b[1].ts - a[1].ts);   // cleared ones come back only with a newer message
+                .sort((a, b) => (isPinned(b[0]) - isPinned(a[0])) || b[1].ts - a[1].ts);   // 📌 pinned first (#4), then newest; cleared ones come back only with a newer message
             const siteRow = siteRowHTML() + bizRowHTML();   // 🌐 Site visitors (owner): the public site chat, a member-like conversation (L 2026-10-21) + 🤖 Biz bot (2026-10-22)
             if (convs.length || siteRow) {
                 html += H('Conversations', 'convs') + siteRow;
                 html += convs.map(([t, x]) => { const tab = t.startsWith('tab-');
-                    if (x.kind === 'group' || isGroup(t)) return `<div class="pswipe" data-conv="${esc(t)}"><button type="button" class="pclr" title="clear this conversation for you">🗑 Clear</button><button type="button" class="dc-peer-row" data-grp="${esc(t)}">👥 ${esc(x.name || 'group')}${udot(t)}${mdot(t)}<span class="pago">${ago(x.ts)}</span><small>${esc(x.from === P.me ? 'you: ' : '')}${esc(x.last || '')}</small></button></div>`;
-                    return `<div class="pswipe" data-conv="${esc(t)}"><button type="button" class="pclr" title="clear this conversation for you (they keep theirs)">🗑 Clear</button><button type="button" class="dc-peer-row" ${tab ? `data-open="${esc(t)}" data-title="📺 ${esc(x.name)}"` : `data-u="${esc(x.with)}"`}>${tab ? '📺 ' : '💬 '}${esc(tab ? (x.name || '?') : (P.dir[x.with] || x.name || '?'))}${!tab && x.with && x.with !== 'droplet' ? presDot(x.with) : ''}${udot(t)}${mdot(t)}<span class="pago">${ago(x.ts)}</span><small>${esc(x.from === P.me ? 'you: ' : x.from === 'droplet' ? 'Droplet: ' : '')}${esc(x.last || '')}</small></button></div>`; }).join('');
+                    if (x.kind === 'group' || isGroup(t)) return `<div class="pswipe" data-conv="${esc(t)}">${swipeActs(t)}<button type="button" class="pclr" title="clear this conversation for you">🗑 Clear</button><button type="button" class="dc-peer-row" data-grp="${esc(t)}">👥 ${esc(x.name || 'group')}${udot(t)}${mdot(t)}${pdot(t)}<span class="pago">${ago(x.ts)}</span><small>${esc(x.from === P.me ? 'you: ' : '')}${esc(x.last || '')}</small></button></div>`;
+                    return `<div class="pswipe" data-conv="${esc(t)}">${swipeActs(t)}<button type="button" class="pclr" title="clear this conversation for you (they keep theirs)">🗑 Clear</button><button type="button" class="dc-peer-row" ${tab ? `data-open="${esc(t)}" data-title="📺 ${esc(x.name)}"` : `data-u="${esc(x.with)}"`}>${tab ? '📺 ' : '💬 '}${esc(tab ? (x.name || '?') : (P.dir[x.with] || x.name || '?'))}${!tab && x.with && x.with !== 'droplet' ? presDot(x.with) : ''}${udot(t)}${mdot(t)}${pdot(t)}<span class="pago">${ago(x.ts)}</span><small>${esc(x.from === P.me ? 'you: ' : x.from === 'droplet' ? 'Droplet: ' : '')}${esc(x.last || '')}</small></button></div>`; }).join('');
             }
             // 2. "This tab" section REMOVED 2026-10-22 (L: "get rid of this tab section from the list - only done via the user once
             // clicked into"): sharing a tab lives in the conversation's bar (📺 Share # tab / ⏹ Unshare), nowhere else.
@@ -5242,11 +5247,15 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         let x0 = null, dx = 0, open = false, moved = false;
         const set = v => { row.style.transform = v ? `translateX(${v}px)` : ''; wrap.classList.toggle('sw', !!v); };
         row.addEventListener('pointerdown', e => { x0 = e.clientX; dx = 0; moved = false; wrap.classList.add('dragging'); });
-        row.addEventListener('pointermove', e => { if (x0 === null) return; dx = Math.min(0, e.clientX - x0 + (open ? -84 : 0)); if (Math.abs(e.clientX - x0) > 6) moved = true; if (moved) set(Math.max(dx, -110)); });
-        const end = () => { if (x0 === null) return; x0 = null; wrap.classList.remove('dragging'); if (!moved) return; open = dx < -45; set(open ? -84 : 0); };
+        const W = wrap.querySelector('.ppin') ? 192 : 84;   // #4: Pin + Mute + Clear = three 64 px buttons
+        row.addEventListener('pointermove', e => { if (x0 === null) return; dx = Math.min(0, e.clientX - x0 + (open ? -W : 0)); if (Math.abs(e.clientX - x0) > 6) moved = true; if (moved) set(Math.max(dx, -W - 26)); });
+        const end = () => { if (x0 === null) return; x0 = null; wrap.classList.remove('dragging'); if (!moved) return; open = dx < -55; set(open ? -W : 0); };
         row.addEventListener('pointerup', end); row.addEventListener('pointercancel', end); row.addEventListener('pointerleave', end);
         row.addEventListener('click', e => { if (moved || open) { e.stopImmediatePropagation(); e.preventDefault(); if (open && !moved) { open = false; set(0); } moved = false; } }, true);   // a swipe is not a tap
         btn.onclick = () => clearConv(wrap.dataset.conv);
+        const pb = wrap.querySelector('.ppin'), mb = wrap.querySelector('.pmute');
+        if (pb) pb.onclick = () => { open = false; set(0); togglePin(wrap.dataset.conv); };
+        if (mb) mb.onclick = () => { open = false; set(0); window.__dcMute && window.__dcMute.toggle(muteKey(wrap.dataset.conv)); };
     }
 
     // ONE SHARE (2026-09-27, L: "share = bring Kev into my tab chat, unshare takes him out"): {me}/console/guests/<topic>/<uid> lets
@@ -5714,7 +5723,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         build(); wireDrawer();
         onValue(ref(database, `share/chatIndex/${P.me}`), s => { P.index = s.val() || {}; popNew(P.index); dots(); publishRemoteTabs(); if (!P.open || drawerOpen()) renderHome();
             if (P.linkTid) { const t = P.linkTid; P.linkTid = null; openByTid(t); } }, () => {});
-        onValue(ref(database, `${P.me}/console/settings/mute`), s => { P.mute = s.val() || {}; muteBtn(); if (!P.open) renderHome();
+        onValue(ref(database, `${P.me}/console/settings/pin`), s => { P.pin = s.val() || {}; if (!P.open || drawerOpen()) renderHome(); }, () => {});
+        onValue(ref(database, `${P.me}/console/settings/mute`), s => { P.mute = s.val() || {}; muteBtn(); if (!P.open || drawerOpen()) renderHome();
             window.__dcRenderTopics && window.__dcRenderTopics(); }, () => {});
         get(ref(database, `${P.me}/console/settings/peerPings`)).then(s => { P.pingOn = s.val() !== false; }).catch(() => {});
         {   // member-chat retention: the number the nightly prune reads
@@ -5782,6 +5792,11 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
 #dc-drawer #dc-peer-home{flex:1 1 auto;overflow:auto;padding:0 6px 8px}
 #dc-drawer .df{border-top:1px solid var(--border,#333);padding:6px}
 #dc-drawer .dc-peer-row.on{box-shadow:inset 3px 0 0 #40e0d0}
+.pswipe>.pclr{width:64px;font-size:.72rem}
+.pswipe>.ppin,.pswipe>.pmute{position:absolute;top:0;bottom:0;width:64px;border:0;color:#fff;font:inherit;font-size:.72rem;font-weight:600;cursor:pointer}
+.pswipe>.pmute{right:64px;background:#5b6472}
+.pswipe>.ppin{right:128px;background:#2f6fd6}
+.pswipe:not(.sw)>.ppin,.pswipe:not(.sw)>.pmute{visibility:hidden}
 @media (min-width:761px){.dc-body.dc-split:not(.sysopen)>#dc-peer{order:-2;border-left:0;border-right:1px solid var(--border);padding-left:0;padding-right:12px}.dc-body.dc-split:not(.sysopen)>#dc-peer-split{order:-1}}
 @media (max-width:760px){.dc-body.dc-split.dc-nb:not(.sysopen)>#dc-peer{order:-2;border-top:0;border-bottom:1px solid var(--border);padding:0 0 8px}.dc-body.dc-split.dc-nb:not(.sysopen)>#dc-peer-split{order:-1}}`;
         document.head.appendChild(css);
