@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.68"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.69"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -4317,6 +4317,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             else { const peer = body.classList.contains('dc-split') && !body.classList.contains('sysopen'); body.classList.remove('sysopen'); if (!peer) body.classList.remove('dc-split'); } };
         const closeSysPane = () => { const st = $('#dc-sys-tab'); if (st) st.classList.remove('active'); SYS_PANELS.forEach(id => $(id) && $(id).classList.remove('active')); setSysPane(false); };
         window.__dcSysPane = { is: () => !!$('#dc-console .dc-body.sysopen'), close: closeSysPane };
+        window.__dcSysOpened = () => { renderInsights(); renderBotPanel(); };   // Settings opened in the aside (2 panes): same refresh the 🖥 Advanced tab did
         $('#dc-sys-close') && ($('#dc-sys-close').onclick = () => { if (window.__dcSysPane.is()) closeSysPane(); else { const ct = $('.dc-tab[data-tab="ch"]'); if (ct) ct.click(); } });   // wide: close the side pane · phone: back to the chat
         sysSide.addEventListener('change', e => { if (!e.matches && window.__dcSysPane.is()) { setSysPane(false); $('#dc-chat-panel').classList.remove('active'); const ct = $('.dc-tab[data-tab="ch"]'); if (ct) ct.classList.remove('active'); } });   // squeezed to a phone: System becomes the full view
         document.querySelectorAll('.dc-tab').forEach(t => t.onclick = () => {
@@ -5013,10 +5014,11 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
               $('#dc-peer-web').hidden = false; nm.textContent = '🌐 Browser'; presHead(); { const k = $('#dc-peer-word'); if (k) k.hidden = true; } { const bb = $('#dc-peer-bar'); if (bb) { bb.hidden = true; bb.innerHTML = ''; } }
               if (!$('#dc-web-frame').src) { let last = ''; try { last = localStorage.getItem('dc_web_url') || ''; } catch (_) {} go(last || 'https://luissolutions.us/hub.html'); } };
           window.__dcOpenWeb = () => { peerSplit(); openWeb(); };   // the drawer's 🌐 Browser row (#1)
+          window.__dcWebStart = () => { if (!$('#dc-web-frame').src) { let last = ''; try { last = localStorage.getItem('dc_web_url') || ''; } catch (_) {} go(last || 'https://luissolutions.us/hub.html'); } };   // the aside browser (2 panes)
           nm.style.cursor = 'pointer'; nm.style.touchAction = 'manipulation'; nm.style.userSelect = 'none';   // fast taps on a phone each count
           // from ANY People view now (2026-10-22, L: "triple click not working" - it only fired on the People list, not inside a chat)
           nm.addEventListener('click', () => { const now = Date.now(); tp.n = now - tp.t < 650 ? tp.n + 1 : 1; tp.t = now;
-              if (tp.n >= 3 && $('#dc-peer-web').hidden) { tp.n = 0; openWeb(); } });
+              if (tp.n >= 3 && $('#dc-peer-web').hidden) { tp.n = 0; if (window.__dcAside) window.__dcAside('web'); else openWeb(); } });
           $('#dc-web-bar').addEventListener('submit', e => { e.preventDefault(); go($('#dc-web-url').value); });
           $('#dc-web-out').onclick = () => { const u = $('#dc-web-url').value.trim(); if (u) window.open(/^https?:/i.test(u) ? u : 'https://' + u, '_blank', 'noopener'); };
           $('#dc-web-url').addEventListener('pointerdown', e => e.stopPropagation());
@@ -5024,7 +5026,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
           // chat, open it there"): while 🌐 Browser is showing, a web link tapped in the chat loads in the pane instead of a new tab.
           // Ctrl/Cmd/middle-click still opens a tab; mailto:/tel: and downloads are left alone.
           document.addEventListener('click', e => {
-              const a = e.target.closest && e.target.closest('#dc-chat-log a[href]'); if (!a) return;
+              const a = e.target.closest && e.target.closest('#dc-chat-log a[href], #dc-peer-log a[href]'); if (!a) return;   // + the chat in the main pane (2-pane layout)
               const web = $('#dc-peer-web'); if (!web || web.hidden || !web.getClientRects().length) return;
               if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1 || a.hasAttribute('download')) return;
               const href = a.href; if (!/^https?:/i.test(href)) return;
@@ -5703,12 +5705,13 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         await Promise.all(Object.keys(g.members || {}).map(u => set(ref(database, `share/chatIndex/${u}/${tid}`), null).catch(() => {})));
         await set(ref(database, `share/chat/${tid}`), null); delete P.groups[tid]; }
 
-    function peerSplit() { if (window.__dcSysPane && window.__dcSysPane.is()) window.__dcSysPane.close(); $('#dc-console .dc-body').classList.add('dc-split'); closeDrawer(); }
+    function peerSplit() { if (window.__dcSysPane && window.__dcSysPane.is()) window.__dcSysPane.close(); const bd = $('#dc-console .dc-body'); bd.classList.add('dc-split', 'dc-conv');
+        if (!asideDocked()) closeDrawer(); }
     window.__dcClosePeer = () => closePeer();
     function closePeer() {
         if (P.unsub) { P.unsub(); P.unsub = null; } if (P.unsubX) { P.unsubX.forEach(f => f()); P.unsubX = null; }
         P.open = null; P.other = null; muteBtn();
-        $('#dc-console .dc-body').classList.remove('dc-split', 'pfull');
+        $('#dc-console .dc-body').classList.remove('dc-split', 'pfull', 'dc-conv');
         dots();
     }
 
@@ -5745,35 +5748,81 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     // target; a chat opens in the secondary panel (the old 👥 pane, same split bar) - left of the chat on a wide screen, stacked on the
     // phone (below when newest is on top, above when newest is at the bottom). The 👥 button is retired.
     const BRAIN_ICON = { droplet: '💧', local: '🦙', compman: '🛠', command: '⌘' };
+    // TWO PANES (2026-10-23, L: "no 3rd pane just a main one with chats and info, the aside one basically settings and other things
+    // like lists or browser"): MAIN = the Droplet chat or the open conversation (one at a time, .dc-conv); ASIDE = #dc-drawer docked on
+    // the left (drag its edge, width remembered) with three views - list (brains + chats), ⚙ settings (#dc-sys-col moved in), 🌐 browser
+    // (#dc-peer-web moved in; triple-tap the header; chat links open there while it shows). Phone: the aside slides over full width.
+    const asideWide = matchMedia('(min-width: 761px)');
+    const asideDocked = () => asideWide.matches && !DC_isPhone();
+    function DC_isPhone() { try { return window.matchMedia('(max-width: 640px), (max-height: 480px)').matches; } catch (_) { return false; } }
     function drawerOpen() { const d = $('#dc-drawer'); return !!(d && d.classList.contains('open')); }
-    function closeDrawer() { const d = $('#dc-drawer'); if (!d) return; d.classList.remove('open'); $('#dc-drawer-scrim').classList.remove('open'); }
+    function closeDrawer() { const d = $('#dc-drawer'); if (!d) return; d.classList.remove('open'); $('#dc-drawer-scrim').classList.remove('open');
+        const bd = $('#dc-console .dc-body'); if (bd) bd.classList.remove('dc-aside'); asideView('list', true);
+        if (asideDocked()) try { localStorage.setItem('dc_aside_open', '0'); } catch (_) {} }
+    function asideView(v, quiet) { const d = $('#dc-drawer'); if (!d) return; const bd = $('#dc-console .dc-body');
+        const was = d.dataset.view || 'list'; d.dataset.view = v;
+        $('#dc-peer-home').hidden = v !== 'list'; $('#dc-brains').hidden = v !== 'list'; d.querySelectorAll('.drw-list').forEach(x => x.hidden = v !== 'list');
+        $('#dc-peer-web').hidden = v !== 'web';
+        bd.classList.toggle('dc-aside-sys', v === 'sys');
+        if (v === 'sys' && was !== 'sys') { ['#dc-syshead-panel', '#dc-rt-panel', '#dc-in-panel', '#dc-use-panel', '#dc-bot-panel', '#dc-look-panel', '#dc-prof-panel'].forEach(id => $(id) && $(id).classList.add('active'));
+            try { window.__dcSysOpened && window.__dcSysOpened(); } catch (_) {} }
+        if (v !== 'sys' && was === 'sys') ['#dc-syshead-panel', '#dc-rt-panel', '#dc-in-panel', '#dc-use-panel', '#dc-bot-panel', '#dc-look-panel', '#dc-prof-panel'].forEach(id => $(id) && $(id).classList.remove('active'));
+        if (v === 'web' && !quiet && window.__dcWebStart) window.__dcWebStart();
+        const t = d.querySelector('.dh b'); if (t) t.textContent = v === 'sys' ? '⚙ Settings' : v === 'web' ? '🌐 Browser' : 'Chats';
+        const bk = d.querySelector('.dback'); if (bk) bk.hidden = v === 'list'; }
+    window.__dcAside = v => { openDrawer(); asideView(v); };
     function drawerBrains() { const sel = $('#dc-chat-target'), b = $('#dc-brains'); if (!sel || !b) return;
         b.innerHTML = [...sel.options].filter(o => !o.hidden && !o.disabled).map(o => `<button type="button" class="dc-peer-row${o.value === sel.value ? ' on' : ''}" data-brain="${esc(o.value)}">${BRAIN_ICON[o.value] || '🤖'} ${esc(o.textContent.trim())}</button>`).join(''); }
-    function openDrawer(mode) { const d = $('#dc-drawer'), home = $('#dc-peer-home'), con = $('#dc-console'), bar = $('#dc-console .dc-bar'); if (!d || !home) return;
-        const top = bar ? Math.round(bar.getBoundingClientRect().bottom - con.getBoundingClientRect().top) : 0;
-        d.style.top = top + 'px'; $('#dc-drawer-scrim').style.top = top + 'px';
-        home.hidden = false; drawerBrains(); renderHome(mode); d.classList.add('open'); $('#dc-drawer-scrim').classList.add('open'); }
+    function openDrawer(mode) { const d = $('#dc-drawer'), home = $('#dc-peer-home'); if (!d || !home) return;
+        if (!d.dataset.view || d.dataset.view === 'list') { home.hidden = false; drawerBrains(); renderHome(mode); }
+        d.classList.add('open'); $('#dc-console .dc-body').classList.add('dc-aside'); if (!asideDocked()) $('#dc-drawer-scrim').classList.add('open');
+        if (asideDocked()) try { localStorage.setItem('dc_aside_open', '1'); } catch (_) {} }
     function wireDrawer() {
         const con = $('#dc-console'), sel = $('#dc-chat-target'), home = $('#dc-peer-home'); if (!con || !sel || !home || $('#dc-drawer')) return;
         const brand = document.createElement('button'); brand.type = 'button'; brand.id = 'dc-brand-btn'; brand.title = 'chats, brains, browser, settings';
         sel.style.display = 'none'; sel.after(brand);
         const paint = () => { const o = sel.selectedOptions[0]; brand.innerHTML = `${BRAIN_ICON[sel.value] || '🤖'} ${esc(o ? o.textContent.trim() : 'Droplet')}<span class="caret">▾</span><span class="dot" hidden></span>`; dots(); };
         sel.addEventListener('change', paint);
-        const dr = document.createElement('div'); dr.id = 'dc-drawer';
-        dr.innerHTML = '<div class="dh"><b>Chats</b><button type="button" class="dx" title="close">✕</button></div><div class="ph">Brains</div><div id="dc-brains"></div>';
+        const dr = document.createElement('div'); dr.id = 'dc-drawer'; dr.dataset.view = 'list';
+        dr.innerHTML = '<div class="dh"><button type="button" class="dback" title="back to the chat list" hidden>‹</button><b title="triple-tap: browser">Chats</b><span class="sp"></span><button type="button" class="dx" title="hide this pane">✕</button></div><div class="ph drw-list">Brains</div><div id="dc-brains"></div>';
         dr.appendChild(home);
-        const foot = document.createElement('div'); foot.className = 'df';
+        { const web = $('#dc-peer-web'); if (web) dr.appendChild(web); }      // the browser lives in the aside now
+        { const sc = $('#dc-sys-col'); if (sc) dr.appendChild(sc); }          // and so does Settings (the System panels)
+        const foot = document.createElement('div'); foot.className = 'df drw-list';
         foot.innerHTML = '<button type="button" class="dc-peer-row" data-dweb="1">🌐 Browser</button><button type="button" class="dc-peer-row" data-dsys="1">⚙ Settings</button>';
         dr.appendChild(foot);
         const scrim = document.createElement('div'); scrim.id = 'dc-drawer-scrim';
-        con.append(scrim, dr);
+        const body = $('#dc-console .dc-body'); body.classList.add('dc-2p');
+        const asp = document.createElement('div'); asp.id = 'dc-aside-split'; asp.title = 'drag to resize · double-tap to reset';
+        body.prepend(dr, asp); body.appendChild(scrim);
+        { let w = 0; try { w = Number(localStorage.getItem('dc_aside_w')); } catch (_) {} if (w > 0) body.style.setProperty('--dc-aside-w', w + 'px');
+          let sd = null; try { sd = localStorage.getItem('dc_aside_side'); } catch (_) {} body.classList.toggle('dc-aside-right', sd === 'right'); }
+        { let pid = null, x0 = 0, w0 = 0;
+          asp.addEventListener('pointerdown', e => { pid = e.pointerId; x0 = e.clientX; w0 = dr.getBoundingClientRect().width; try { asp.setPointerCapture(pid); } catch (_) {} asp.classList.add('on'); e.preventDefault(); });
+          // FLIP SIDES (L 2026-10-23: "if I drag the new panel all the way can I have it switch sides and vice versa"): drag the edge to
+          // within 60 px of the far edge of the console and the aside jumps to that side (remembered); drag it back across to return.
+          asp.addEventListener('pointermove', e => { if (pid === null) return; const R = body.getBoundingClientRect(), right = body.classList.contains('dc-aside-right');
+              if ((!right && e.clientX > R.right - 60) || (right && e.clientX < R.left + 60)) { body.classList.toggle('dc-aside-right', !right);
+                  try { localStorage.setItem('dc_aside_side', right ? 'left' : 'right'); } catch (_) {} pid = null; asp.classList.remove('on'); return; }
+              const w = Math.max(220, Math.min(R.width - 320, right ? w0 - (e.clientX - x0) : w0 + e.clientX - x0)); body.style.setProperty('--dc-aside-w', Math.round(w) + 'px'); });
+          const end = () => { if (pid === null) return; pid = null; asp.classList.remove('on'); const w = parseFloat(body.style.getPropertyValue('--dc-aside-w')); try { if (w > 0) localStorage.setItem('dc_aside_w', String(Math.round(w))); } catch (_) {} };
+          asp.addEventListener('pointerup', end); asp.addEventListener('pointercancel', end);
+          asp.addEventListener('dblclick', () => { body.style.removeProperty('--dc-aside-w'); try { localStorage.removeItem('dc_aside_w'); } catch (_) {} }); }
+        { const hb = dr.querySelector('.dh b'), tp = { n: 0, t: 0 }; hb.style.cursor = 'pointer'; hb.style.userSelect = 'none'; hb.style.touchAction = 'manipulation';
+          hb.addEventListener('click', () => { const now = Date.now(); tp.n = now - tp.t < 650 ? tp.n + 1 : 1; tp.t = now;
+              if (tp.n >= 3) { tp.n = 0; asideView(dr.dataset.view === 'web' ? 'list' : 'web'); if (dr.dataset.view === 'list') { drawerBrains(); renderHome(); } } }); }
         dr.addEventListener('click', e => { const t = e.target;
-            const bb = t.closest('[data-brain]'); if (bb) { sel.value = bb.dataset.brain; sel.dispatchEvent(new Event('change', { bubbles: true })); closeDrawer(); return; }
+            const bb = t.closest('[data-brain]'); if (bb) { sel.value = bb.dataset.brain; sel.dispatchEvent(new Event('change', { bubbles: true })); if (P.open) closePeer(); drawerBrains(); if (!asideDocked()) closeDrawer(); return; }   // a brain = the Droplet chat in the main pane
             if (t.closest('.dx')) { closeDrawer(); return; }
-            if (t.closest('[data-dweb]')) { window.__dcOpenWeb && window.__dcOpenWeb(); return; }
-            if (t.closest('[data-dsys]')) { closeDrawer(); const st = $('#dc-sys-tab'); if (st) st.click(); return; } });
+            if (t.closest('.dback')) { asideView('list'); drawerBrains(); renderHome(); return; }
+            if (t.closest('[data-dweb]')) { asideView('web'); return; }
+            if (t.closest('[data-dsys]')) { asideView('sys'); return; } });
         scrim.onclick = closeDrawer;
-        document.addEventListener('keydown', e => { if (e.key === 'Escape' && drawerOpen()) { e.stopPropagation(); closeDrawer(); } }, true);
+        document.addEventListener('keydown', e => { if (e.key === 'Escape' && drawerOpen() && !asideDocked()) { e.stopPropagation(); closeDrawer(); } }, true);
+        { const st = $('#dc-sys-tab'); if (st) st.addEventListener('click', e => { e.stopImmediatePropagation(); e.preventDefault(); const gp = $('#dc-gear-pop'); if (gp) { gp.hidden = true; $('#dc-gear') && $('#dc-gear').classList.remove('open'); } window.__dcAside('sys'); }, true); }
+        { const sx = $('#dc-sys-close'); if (sx) sx.addEventListener('click', e => { e.stopImmediatePropagation(); asideView('list'); drawerBrains(); renderHome(); }, true); }
+        // the "# tab" pill in the top bar = the Droplet chat in the main pane, even while a person/group is open there (L 2026-10-23)
+        { const ct = $('.dc-tab[data-tab="ch"]'); if (ct) ct.addEventListener('click', () => { if (P.open) closePeer(); }, true); }
         brand.onclick = e => { e.stopPropagation(); drawerOpen() ? closeDrawer() : openDrawer(); };
         { const pb = $('#dc-peer-btn'); if (pb) pb.style.display = 'none'; }
         const css = document.createElement('style');
@@ -5781,10 +5830,27 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
 #dc-brand-btn .caret{opacity:.6;font-size:.75em}
 #dc-brand-btn .dot{position:absolute;top:2px;right:0;width:8px;height:8px;border-radius:50%;background:#e74c3c}
 #dc-brand-btn .dot[hidden]{display:none}
-#dc-drawer{position:absolute;left:0;bottom:0;width:min(340px,88vw);z-index:40;background:var(--dc-panel,var(--bg,#0d1117));border-right:1px solid var(--border,#333);box-shadow:4px 0 18px rgba(0,0,0,.45);transform:translateX(-105%);transition:transform .2s ease;display:flex;flex-direction:column;overflow:hidden}
-#dc-drawer.open{transform:none}
-#dc-drawer-scrim{position:absolute;left:0;right:0;bottom:0;z-index:39;background:rgba(0,0,0,.35);display:none}
-#dc-drawer-scrim.open{display:block}
+.dc-body.dc-2p{flex-direction:row !important;position:relative}
+.dc-body.dc-2p>#dc-chat-panel{order:0;flex:1 1 0;min-width:0}
+.dc-body.dc-2p>#dc-peer-split{display:none !important}
+.dc-body.dc-2p>#dc-peer{display:none !important}
+.dc-body.dc-2p.dc-conv>#dc-chat-panel{display:none !important}
+.dc-body.dc-2p.dc-conv>#dc-peer{display:flex !important;order:0;flex:1 1 0 !important;border:0 !important;padding:0 !important;min-width:0}
+#dc-drawer{order:-3;display:none;flex:0 0 var(--dc-aside-w,300px);min-width:0;flex-direction:column;overflow:hidden;background:var(--dc-panel,var(--bg,#0d1117));border-right:1px solid var(--border,#333)}
+.dc-body.dc-2p.dc-aside>#dc-drawer{display:flex}
+#dc-aside-split{order:-2;display:none;flex:0 0 12px;cursor:ew-resize;touch-action:none;position:relative}
+#dc-aside-split::before{content:"";position:absolute;left:50%;top:50%;width:4px;height:46px;border-radius:2px;background:var(--border,#444);transform:translate(-50%,-50%)}
+#dc-aside-split.on::before,#dc-aside-split:hover::before{background:var(--dc-purple,#8b1e3f)}
+.dc-body.dc-2p.dc-aside>#dc-aside-split{display:block}
+#dc-drawer>#dc-sys-col{display:none !important}
+.dc-body.dc-aside-sys #dc-drawer>#dc-sys-col{display:block !important;flex:1 1 auto;overflow:auto;padding:0 10px 10px;min-height:0}
+#dc-drawer>#dc-peer-web:not([hidden]){display:flex;flex-direction:column;flex:1 1 auto;min-height:0;padding:0 8px 8px}
+#dc-drawer .dh .dback{background:none;border:0;color:inherit;font-size:1.2em;cursor:pointer;padding:0 6px 0 0}
+#dc-drawer .dh .sp{flex:1}
+#dc-drawer-scrim{display:none}
+.dc-body.dc-2p.dc-aside-right>#dc-drawer{order:3;border-right:0;border-left:1px solid var(--border,#333)}
+.dc-body.dc-2p.dc-aside-right>#dc-aside-split{order:2}
+@media (max-width:760px){#dc-drawer{position:absolute;left:0;top:0;bottom:0;width:100%;z-index:40;flex-basis:auto}.dc-body.dc-2p.dc-aside>#dc-aside-split{display:none}}
 #dc-drawer .dh{display:flex;align-items:center;justify-content:space-between;padding:10px 12px 2px}
 #dc-drawer .dx{background:none;border:0;color:inherit;font-size:1.1em;cursor:pointer}
 #dc-drawer > .ph{font-size:.66rem;text-transform:uppercase;letter-spacing:.12em;opacity:.55;margin:10px 12px 4px}
@@ -5797,10 +5863,18 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
 .pswipe>.pmute{right:64px;background:#5b6472}
 .pswipe>.ppin{right:128px;background:#2f6fd6}
 .pswipe:not(.sw)>.ppin,.pswipe:not(.sw)>.pmute{visibility:hidden}
-@media (min-width:761px){.dc-body.dc-split:not(.sysopen)>#dc-peer{order:-2;border-left:0;border-right:1px solid var(--border);padding-left:0;padding-right:12px}.dc-body.dc-split:not(.sysopen)>#dc-peer-split{order:-1}}
-@media (max-width:760px){.dc-body.dc-split.dc-nb:not(.sysopen)>#dc-peer{order:-2;border-top:0;border-bottom:1px solid var(--border);padding:0 0 8px}.dc-body.dc-split.dc-nb:not(.sysopen)>#dc-peer-split{order:-1}}`;
+`;
         document.head.appendChild(css);
-        paint(); }
+        paint();
+        // the old pane code hides #dc-peer-home whenever a chat opens (it shared one pane) - in the aside the list must stay (L 2026-10-23:
+        // "when I click a person the menu shrinks"): un-hide it while the aside is on its list view, then redraw it
+        new MutationObserver(() => { if (home.hidden && (dr.dataset.view || 'list') === 'list') { home.hidden = false; drawerBrains(); renderHome(); } }).observe(home, { attributes: true, attributeFilter: ['hidden'] });
+        // keep password-manager overlays off the aside's plain fields (profile name, chat word, browser address) - same as the 🔍 box
+        const no1p = () => dr.querySelectorAll('input:not([data-1p-ignore]):not([type=password])').forEach(i => { i.setAttribute('data-1p-ignore', ''); i.setAttribute('data-lpignore', 'true'); i.setAttribute('autocomplete', 'off'); });
+        no1p(); new MutationObserver(no1p).observe(dr, { childList: true, subtree: true });
+        { const pw = $('#dc-peer-word'); if (pw) { pw.setAttribute('data-1p-ignore', ''); pw.setAttribute('data-lpignore', 'true'); pw.setAttribute('autocomplete', 'off'); } }   // the 🔑 chat word is an E2E secret, not a site login
+        { let o = null; try { o = localStorage.getItem('dc_aside_open'); } catch (_) {} if (o === '1' && asideDocked()) openDrawer(); }   // wide screen: the aside comes back the way you left it
+    }
     // GLOBAL SEARCH data (#6): every People thread + group + the Biz bot, last 300 messages each, read once when "All chats" opens.
     window.__dcOpenTid = t => t === 'bizbot' ? openBiz() : openByTid(t);
     window.__dcPeerSearch = async () => { const out = [];
