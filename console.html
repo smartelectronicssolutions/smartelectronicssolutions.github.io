@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.40"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.46"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -747,6 +747,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         .pswipe { position: relative; overflow: hidden; border-radius: 8px; }
         .pswipe > .dc-peer-row { background: var(--dc-panel, var(--bg)); transition: transform .18s; touch-action: pan-y; padding-right: 24px; }
         .pswipe .dc-peer-row .dot { top: 50%; right: 9px; transform: translateY(-50%); }   /* the swipe wrapper clips overflow - the corner dot (top/right -3px) was cut off (L 2026-09-27) */
+        .dc-peer-row .dot.n { width: auto; height: 16px; min-width: 16px; padding: 0 5px; box-sizing: border-box; border-radius: 8px; color: #fff; font-size: .65rem; font-weight: 600; line-height: 16px; text-align: center; }   /* unread count (2026-10-22) */
         .pswipe.dragging > .dc-peer-row { transition: none; }
         .pswipe:not(.sw) > .pclr { visibility: hidden; }   /* glass rows (background image) let the red Clear show through at rest */
         .pswipe > .pclr { position: absolute; top: 0; right: 0; bottom: 0; width: 84px; border: 0; background: #d9485f; color: #fff; font: inherit; font-size: .8rem; font-weight: 600; cursor: pointer; }
@@ -1572,7 +1573,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 names.sort((a, b) => ((a in ord) ? ord[a] : 1e6 + pos.get(a)) - ((b in ord) ? ord[b] : 1e6 + pos.get(b))); }
             DC.topicOrder = ['', ...names, FAV_TAB];   // swipe order = chip order; ★ favorites is the last stop
             const phone = DC.isPhone();
-            const ct = document.querySelector('.dc-tab[data-tab="ch"]'); if (ct) { ct.textContent = (phone && DC.topic) ? (DC.topic === FAV_TAB ? FAV_TAB + ' Favorites' : '# ' + DC.topic) : 'Chat'; ct.title = phone ? 'swipe the chat left/right to change topic - tap here to pick or add one' : ''; }
+            const ct = document.querySelector('.dc-tab[data-tab="ch"]'); if (ct) { ct.textContent = !DC.topic ? 'All' : (DC.topic === FAV_TAB ? FAV_TAB + ' Favorites' : '# ' + DC.topic); ct.title = phone ? 'swipe the chat left/right to change topic - tap here to pick or add one' : ''; }
             const tin = $('#dc-chat-in'); if (tin) { if (!DC.basePlaceholder) DC.basePlaceholder = tin.placeholder; tin.placeholder = (DC.topic === FAV_TAB ? 'sends to All · ' : DC.topic ? '# ' + DC.topic + ' · ' : '') + (phone ? 'type here…' : DC.basePlaceholder); }
             bar.innerHTML = '';
             const chip = (label, name, n) => { const b = document.createElement('button'); b.type = 'button';
@@ -4870,6 +4871,21 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             head.addEventListener('pointercancel', () => { sy = null; });
         })();
         $('#dc-peer-back').onclick = () => showHome();
+        // SWIPE BACK / FORWARD (2026-10-22, L: "a left or right swipe should go back and forth in the respective panes ... like
+        // members back to the list"): swipe right inside a conversation (or the 🌐 browser) = ‹ back to People; swipe left on
+        // People = forward into the last conversation. A swipe that starts on a list row is that row's swipe-to-Clear, not this.
+        (function wirePeerSwipe() {
+            const pane = $('#dc-peer'); if (!pane) return;
+            let sx = 0, sy = 0, st = 0, ok = false;
+            pane.addEventListener('touchstart', e => { const t = e.target;
+                ok = e.touches.length === 1 && !(t.closest && t.closest('.pswipe, textarea, input, #dc-peer-head'));
+                if (ok) { sx = e.touches[0].clientX; sy = e.touches[0].clientY; st = Date.now(); } }, { passive: true });
+            pane.addEventListener('touchend', e => { if (!ok) return; ok = false; const t = e.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy;
+                if (Date.now() - st > 700 || Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+                if (dx > 0 && !$('#dc-peer-back').hidden) showHome();
+                else if (dx < 0 && !$('#dc-peer-home').hidden && P.lastOpen) openThread(...P.lastOpen); }, { passive: true });
+            pane.addEventListener('touchcancel', () => { ok = false; }, { passive: true });
+        })();
         // BROWSER IN THE PANE (2026-10-22, L: "when I triple click the People heading, turn that window into an iframe I can go
         // to other sites on"): triple-tap 👥 People -> an address bar + iframe in the same pane; ‹ goes back to People. The last
         // address is remembered on this device. Sites that forbid framing (most big ones) open with ↗ in a new tab instead.
@@ -4928,6 +4944,17 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     }
 
     function unread(tid) { const x = P.index[tid]; return !!(x && x.from !== P.me && x.ts > seen(tid) && tid !== P.open); }
+    // UNREAD COUNTS (2026-10-22, L: "show the number of messages ... each group or person"): the red dot carries a count. One read
+    // per new last-message ts, only for unread conversations, over the same last-100 window the open conversation loads.
+    P.unN = {};
+    function unreadN(tid) { const x = P.index[tid], c = P.unN[tid];
+        if (c && c.ts === x.ts) return c.n;
+        const since = seen(tid); P.unN[tid] = { ts: x.ts, n: 0 };
+        get(query(ref(database, `share/chat/${tid}/messages`), limitToLast(100))).then(s => {
+            const n = Object.values(s.val() || {}).filter(m => m && m.from !== P.me && +m.ts > since).length;
+            P.unN[tid] = { ts: x.ts, n }; if (n && !P.open) renderHome(); }).catch(() => {});
+        return 0; }
+    const udot = t => { if (!unread(t)) return ''; const n = unreadN(t); return `<span class="dot${n ? ' n' : ''}">${n ? (n > 99 ? '99+' : n) : ''}</span>`; };
     // FLASH (2026-09-27, L: "can I get flashing on the icon with new messages"): 👥 pulses while anything is unread, and the
     // browser tab title blinks "💬 New message" when the page is in the background.
     let titleTimer = null, baseTitle = document.title;
@@ -5030,8 +5057,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (convs.length || siteRow) {
                 html += H('Conversations', 'convs') + siteRow;
                 html += convs.map(([t, x]) => { const tab = t.startsWith('tab-');
-                    if (x.kind === 'group' || isGroup(t)) return `<div class="pswipe" data-conv="${esc(t)}"><button type="button" class="pclr" title="clear this conversation for you">🗑 Clear</button><button type="button" class="dc-peer-row" data-grp="${esc(t)}">👥 ${esc(x.name || 'group')}${unread(t) ? '<span class="dot"></span>' : ''}<span class="pago">${ago(x.ts)}</span><small>${esc(x.from === P.me ? 'you: ' : '')}${esc(x.last || '')}</small></button></div>`;
-                    return `<div class="pswipe" data-conv="${esc(t)}"><button type="button" class="pclr" title="clear this conversation for you (they keep theirs)">🗑 Clear</button><button type="button" class="dc-peer-row" ${tab ? `data-open="${esc(t)}" data-title="📺 ${esc(x.name)}"` : `data-u="${esc(x.with)}"`}>${tab ? '📺 ' : '💬 '}${esc(tab ? (x.name || '?') : (P.dir[x.with] || x.name || '?'))}${!tab && x.with && x.with !== 'droplet' ? presDot(x.with) : ''}${unread(t) ? '<span class="dot"></span>' : ''}<span class="pago">${ago(x.ts)}</span><small>${esc(x.from === P.me ? 'you: ' : x.from === 'droplet' ? 'Droplet: ' : '')}${esc(x.last || '')}</small></button></div>`; }).join('');
+                    if (x.kind === 'group' || isGroup(t)) return `<div class="pswipe" data-conv="${esc(t)}"><button type="button" class="pclr" title="clear this conversation for you">🗑 Clear</button><button type="button" class="dc-peer-row" data-grp="${esc(t)}">👥 ${esc(x.name || 'group')}${udot(t)}<span class="pago">${ago(x.ts)}</span><small>${esc(x.from === P.me ? 'you: ' : '')}${esc(x.last || '')}</small></button></div>`;
+                    return `<div class="pswipe" data-conv="${esc(t)}"><button type="button" class="pclr" title="clear this conversation for you (they keep theirs)">🗑 Clear</button><button type="button" class="dc-peer-row" ${tab ? `data-open="${esc(t)}" data-title="📺 ${esc(x.name)}"` : `data-u="${esc(x.with)}"`}>${tab ? '📺 ' : '💬 '}${esc(tab ? (x.name || '?') : (P.dir[x.with] || x.name || '?'))}${!tab && x.with && x.with !== 'droplet' ? presDot(x.with) : ''}${udot(t)}<span class="pago">${ago(x.ts)}</span><small>${esc(x.from === P.me ? 'you: ' : x.from === 'droplet' ? 'Droplet: ' : '')}${esc(x.last || '')}</small></button></div>`; }).join('');
             }
             // 2. "This tab" section REMOVED 2026-10-22 (L: "get rid of this tab section from the list - only done via the user once
             // clicked into"): sharing a tab lives in the conversation's bar (📺 Share # tab / ⏹ Unshare), nowhere else.
@@ -5216,7 +5243,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const mine = Object.values(P.shares).find(x => x.tid === tid);
             other = mine ? mine.with : ((P.index[tid] || {}).with || OWNER);
         }
-        P.open = tid; P.other = other;
+        P.open = tid; P.other = other; P.lastOpen = [tid, title, other];   // swipe-left on People reopens it
         { const pa = $('#dc-peer-attach'); if (pa) pa.hidden = false; }   // 🌐 Site visitors hides it
         $('#dc-peer-home').hidden = true; $('#dc-peer-log').hidden = false; $('#dc-peer-form').hidden = false; $('#dc-peer-back').hidden = false; { const w = $('#dc-peer-web'); if (w) w.hidden = true; } { const k = $('#dc-peer-word'); if (k) k.hidden = false; }
         $('#dc-peer-name').textContent = title;
@@ -5236,7 +5263,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
 
     // TOP / BOTTOM (2026-09-27, L: "top bottom work on messages to other users?"): the pane follows the same ⚙ setting as the
     // Droplet chat - Top = box above, newest first; Bottom = box below, newest last.
-    const newestFirst = () => { try { return localStorage.getItem('dc_newest_first') === '1'; } catch (_) { return false; } };
+    const newestFirst = () => { let v = null; try { v = localStorage.getItem('dc_newest_first'); } catch (_) {} return v === null ? true : v === '1'; };   // same default as the console (unset = Top) - it read unset as Bottom, so the pane disagreed until the toggle was flipped once (L 2026-10-22)
     let lastMsgs = {};
     const tap = { k: '', t: 0, n: 0 };
     function renderMsgs(msgs) {
