@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.59"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.60"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -4977,9 +4977,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // MESSENGER KIT in 👥 (2026-10-15, L: "Not in the member section?"): 📎 photo/file, paste a picture, :shortcodes:, reply bar
         window.__dcKit && window.__dcKit.shortcodes($('#dc-peer-in'));
         { const pa = $('#dc-peer-attach'); if (pa) { pa.addEventListener('pointerdown', e => e.preventDefault());
-            pa.onclick = () => { if (!P.open || P.open === 'site') return; const inp = document.createElement('input'); inp.type = 'file';
+            pa.onclick = () => { if (!P.open || P.open === 'site' || P.open === 'bizbot') return; const inp = document.createElement('input'); inp.type = 'file';
                 inp.onchange = () => { const f = inp.files && inp.files[0]; if (f) (/^image\//.test(f.type) ? sendPhoto(f) : sendFile(f)); }; inp.click(); }; } }
-        $('#dc-peer-in').addEventListener('paste', e => { const f = ((e.clipboardData && e.clipboardData.files) || [])[0]; if (!f || !P.open || P.open === 'site') return; e.preventDefault(); (/^image\//.test(f.type) ? sendPhoto(f) : sendFile(f)); });
+        $('#dc-peer-in').addEventListener('paste', e => { const f = ((e.clipboardData && e.clipboardData.files) || [])[0]; if (!f || !P.open || P.open === 'site' || P.open === 'bizbot') return; e.preventDefault(); (/^image\//.test(f.type) ? sendPhoto(f) : sendFile(f)); });
         { const cb = document.createElement('div'); cb.id = 'dc-peer-compose'; cb.className = 'dc-compose'; cb.hidden = true; const fm = $('#dc-peer-form'); fm.parentElement.insertBefore(cb, fm);
           cb.addEventListener('pointerdown', e => e.preventDefault()); cb.addEventListener('click', e => { if (e.target.closest('button')) setPeerReply(null); }); }
     }
@@ -5436,7 +5436,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         if (P.unsub) { P.unsub(); P.unsub = null; } if (P.unsubX) { P.unsubX.forEach(f => f()); P.unsubX = null; }
         if (P.editing) stopEdit();
         P.open = 'bizbot'; P.other = null; setPeerReply(null);
-        $('#dc-peer-home').hidden = true; $('#dc-peer-log').hidden = false; $('#dc-peer-form').hidden = true; $('#dc-peer-back').hidden = false; { const w = $('#dc-peer-web'); if (w) w.hidden = true; } { const k = $('#dc-peer-word'); if (k) k.hidden = true; } { const bb = $('#dc-peer-bar'); if (bb) { bb.hidden = true; bb.innerHTML = ''; } }
+        $('#dc-peer-home').hidden = true; $('#dc-peer-log').hidden = false; $('#dc-peer-form').hidden = false;   // commands from here (2026-10-23, L "Do #2"): /weekend /jobs /monday.. -> biz-svc answers in this chat
+        { const bi = $('#dc-peer-in'); if (bi) bi.placeholder = '/weekend · /jobs · /monday … /sunday · /help'; } $('#dc-peer-back').hidden = false; { const w = $('#dc-peer-web'); if (w) w.hidden = true; } { const k = $('#dc-peer-word'); if (k) k.hidden = true; } { const bb = $('#dc-peer-bar'); if (bb) { bb.hidden = true; bb.innerHTML = ''; } }
         $('#dc-peer-name').textContent = '🤖 Biz bot';
         peerSplit(); renderBiz(); dots();
     }
@@ -5447,6 +5448,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         const rows = bizRows(), list = nf ? rows.slice().reverse() : rows;
         log.innerHTML = list.length ? list.map(([k, m]) => { const tm = m.ts ? stamp(m.ts) : '';
             const img = m.img && /^https:\/\//.test(m.img) ? `<div class="dc-snaps"><img src="${esc(m.img)}" alt="photo" loading="lazy" onerror="this.parentNode.outerHTML='<div class=&quot;dc-att&quot;><a class=&quot;file&quot; href=&quot;'+this.src+'&quot; target=&quot;_blank&quot; rel=&quot;noopener noreferrer&quot;>📷 image</a></div>'"></div>` : '';   // a USPS link that isn't a picture falls back to the old link. The picture itself, like a member chat (L 2026-10-23: "the images just say image") - .dc-snaps = tap for the full-size viewer
+            if (m.from === 'me') return `<div class="dc-bub me" data-biz="${esc(k)}"><span class="who">You · ${tm}</span><span style="white-space:pre-wrap">${esc(m.text || '')}</span><div class="ts">${tm}</div></div>`;
             return `<div class="dc-bub drop" data-biz="${esc(k)}"><span class="who">Biz bot · ${tm}</span><span style="white-space:pre-wrap">${lk(esc(m.text || ''))}</span>${img}<div class="ts">${tm}</div></div>`; }).join('')
             : '<div style="opacity:.6;text-align:center;padding:10px">Nothing yet. New Field Nation leads (and anything else the biz bot sends you on Telegram) land here too.</div>';
         log.onclick = null;
@@ -5461,6 +5463,13 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         const box = $('#dc-peer-in'), S = window.__dcShared;
         let text = box.value.trim();
         if (!text || !P.open) return;
+        if (P.open === 'bizbot') {   // 🤖 a command for biz-svc: shown here as yours + queued at console/bizbot/cmds (biz-svc polls it, answers via console_mirror). No enhance/tidy - '/weekend.' would not parse
+            box.value = ''; const ts = Date.now();
+            try { await push(ref(database, `${P.me}/console/bizbot/msgs`), { from: 'me', text: text.slice(0, 500), ts });
+                await push(ref(database, `${P.me}/console/bizbot/cmds`), { text: text.slice(0, 500), ts }); }
+            catch (e) { box.value = text; alert('Not sent: ' + (e.code || e.message)); }
+            return;
+        }
         if (S && S.enhanceOn() && box.__liveFlush && !P.editing) { try { await box.__liveFlush(3500); } catch (_) {} text = box.value.trim(); if (!text) return; }   // the last proofread pass, like the console's Send
         if (S && S.enhanceOn()) text = S.tidy(text);   // ✨ on: the same tidy the console box gets (spaces, capital, final period)
         if (P.open === 'site') {   // 🌐 Site visitors: the reply goes on the public site as Smart Solutions Support
