@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.62"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.63"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1593,6 +1593,12 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 if (_sh) { c.classList.add('sharing'); c.insertAdjacentText('afterbegin', '📺 '); c.title = `shared with ${_sh.name} - they see it live (view only)`; }
                 if (DC.topic === nm) { const p = document.createElement('span'); p.className = 'x'; p.textContent = '✎'; p.title = 'rename this tab - its messages come with it';
                     p.onclick = e => { e.stopPropagation(); renameTopic(nm); }; c.appendChild(p); }
+                // MUTE PER CHAT (2026-10-23, Telegram review #2, on/off only): a muted tab still gets its messages + unread mark, no push
+                { const M = window.__dcMute, mk = 'dc_' + topicKey(nm), on = !!(M && M.is(mk));
+                    if (on) c.insertAdjacentText('afterbegin', '🔕 ');
+                    if (DC.topic === nm && M) { const m = document.createElement('span'); m.className = 'x'; m.textContent = on ? '🔕' : '🔔';
+                        m.title = on ? 'muted - tap to get notifications from this tab again' : 'mute notifications from this tab';
+                        m.onclick = e => { e.stopPropagation(); M.toggle(mk); }; c.appendChild(m); } }
                 // ✕ on ANY selected tab now, not just an empty one (L asked twice, 2026-09-23:
                 // "theres no x anymore just the pencil"). It was hidden on a tab with messages
                 // because removing the tab would have orphaned them; deleteTopic() untags them
@@ -4801,6 +4807,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (x.ts <= (popSeen[t] || 0)) continue;
             popSeen[t] = x.ts;
             if (x.from === P.me || !popOn() || !('Notification' in window) || Notification.permission !== 'granted') continue;
+            if (P.mute && P.mute[muteKey(t)]) continue;   // muted chat: no pop-up
             if (!document.hidden && P.open === t) continue;   // already looking at it
             try {
                 const n = new Notification('💬 ' + (x.name || P.dir[x.with] || 'New message'), { body: String(x.last || '').slice(0, 140), tag: t });
@@ -4852,7 +4859,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // and a conversation view with ‹ back to the home.
         btn.onclick = e => { e.stopPropagation(); const b = $('#dc-console .dc-body'), split = b.classList.contains('dc-split') && !b.classList.contains('sysopen'); if (split && !P.open) closePeer(); else showHome(); };
         const pane = document.createElement('div'); pane.id = 'dc-peer';
-        pane.innerHTML = `<div id="dc-peer-head"><button type="button" id="dc-peer-back" title="back to People" hidden>‹</button><span id="dc-peer-name"></span><div id="dc-peer-bar" hidden></div><span class="sp"></span><button type="button" id="dc-peer-x" title="close the pane">✕</button></div>
+        pane.innerHTML = `<div id="dc-peer-head"><button type="button" id="dc-peer-back" title="back to People" hidden>‹</button><span id="dc-peer-name"></span><div id="dc-peer-bar" hidden></div><span class="sp"></span><button type="button" id="dc-peer-mute" title="mute / unmute this chat" hidden>🔔</button><button type="button" id="dc-peer-x" title="close the pane">✕</button></div>
             <div id="dc-peer-home"></div>
             <div id="dc-peer-web" hidden><form id="dc-web-bar"><button type="button" id="dc-web-back" title="back" disabled>‹</button><input id="dc-web-url" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="site address…"><button type="submit" title="go">Go</button><button type="button" id="dc-web-out" title="open in a new tab (for sites that refuse to load in here)">↗</button></form><iframe id="dc-web-frame" title="browser" referrerpolicy="no-referrer"></iframe><div class="dc-web-note">Some sites (Google, banks, Amazon…) refuse to load inside another page - use ↗ for those.</div></div>
             <div id="dc-peer-log" class="dc-chat-log" hidden></div>
@@ -4998,6 +5005,13 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             P.unN[tid] = { ts: x.ts, n }; if (n && !P.open) renderHome(); }).catch(() => {});
         return 0; }
     const udot = t => { if (!unread(t)) return ''; const n = unreadN(t); return `<span class="dot${n ? ' n' : ''}">${n ? (n > 99 ? '99+' : n) : ''}</span>`; };
+    // MUTE PER CHAT (2026-10-23): {me}/console/settings/mute/<chat_tid | dc_tab> = true. Read here + by ops/notify before any push.
+    const muteKey = t => 'chat_' + String(t).replace(/[.#$\[\]\/]/g, '_');
+    const mdot = t => P.mute && P.mute[muteKey(t)] ? ' <span title="muted">🔕</span>' : '';
+    function muteBtn() { const b = $('#dc-peer-mute'); if (!b) return; b.hidden = !P.open; if (!P.open) return;
+        const on = !!(P.mute && P.mute[muteKey(P.open)]); b.textContent = on ? '🔕' : '🔔';
+        b.title = on ? 'muted - tap to get notifications from this chat again' : 'mute notifications from this chat';
+        b.onclick = () => window.__dcMute.toggle(muteKey(P.open)); }
     // FLASH (2026-09-27, L: "can I get flashing on the icon with new messages"): 👥 pulses while anything is unread, and the
     // browser tab title blinks "💬 New message" when the page is in the background.
     let titleTimer = null, baseTitle = document.title;
@@ -5100,8 +5114,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (convs.length || siteRow) {
                 html += H('Conversations', 'convs') + siteRow;
                 html += convs.map(([t, x]) => { const tab = t.startsWith('tab-');
-                    if (x.kind === 'group' || isGroup(t)) return `<div class="pswipe" data-conv="${esc(t)}"><button type="button" class="pclr" title="clear this conversation for you">🗑 Clear</button><button type="button" class="dc-peer-row" data-grp="${esc(t)}">👥 ${esc(x.name || 'group')}${udot(t)}<span class="pago">${ago(x.ts)}</span><small>${esc(x.from === P.me ? 'you: ' : '')}${esc(x.last || '')}</small></button></div>`;
-                    return `<div class="pswipe" data-conv="${esc(t)}"><button type="button" class="pclr" title="clear this conversation for you (they keep theirs)">🗑 Clear</button><button type="button" class="dc-peer-row" ${tab ? `data-open="${esc(t)}" data-title="📺 ${esc(x.name)}"` : `data-u="${esc(x.with)}"`}>${tab ? '📺 ' : '💬 '}${esc(tab ? (x.name || '?') : (P.dir[x.with] || x.name || '?'))}${!tab && x.with && x.with !== 'droplet' ? presDot(x.with) : ''}${udot(t)}<span class="pago">${ago(x.ts)}</span><small>${esc(x.from === P.me ? 'you: ' : x.from === 'droplet' ? 'Droplet: ' : '')}${esc(x.last || '')}</small></button></div>`; }).join('');
+                    if (x.kind === 'group' || isGroup(t)) return `<div class="pswipe" data-conv="${esc(t)}"><button type="button" class="pclr" title="clear this conversation for you">🗑 Clear</button><button type="button" class="dc-peer-row" data-grp="${esc(t)}">👥 ${esc(x.name || 'group')}${udot(t)}${mdot(t)}<span class="pago">${ago(x.ts)}</span><small>${esc(x.from === P.me ? 'you: ' : '')}${esc(x.last || '')}</small></button></div>`;
+                    return `<div class="pswipe" data-conv="${esc(t)}"><button type="button" class="pclr" title="clear this conversation for you (they keep theirs)">🗑 Clear</button><button type="button" class="dc-peer-row" ${tab ? `data-open="${esc(t)}" data-title="📺 ${esc(x.name)}"` : `data-u="${esc(x.with)}"`}>${tab ? '📺 ' : '💬 '}${esc(tab ? (x.name || '?') : (P.dir[x.with] || x.name || '?'))}${!tab && x.with && x.with !== 'droplet' ? presDot(x.with) : ''}${udot(t)}${mdot(t)}<span class="pago">${ago(x.ts)}</span><small>${esc(x.from === P.me ? 'you: ' : x.from === 'droplet' ? 'Droplet: ' : '')}${esc(x.last || '')}</small></button></div>`; }).join('');
             }
             // 2. "This tab" section REMOVED 2026-10-22 (L: "get rid of this tab section from the list - only done via the user once
             // clicked into"): sharing a tab lives in the conversation's bar (📺 Share # tab / ⏹ Unshare), nowhere else.
@@ -5599,7 +5613,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     window.__dcClosePeer = () => closePeer();
     function closePeer() {
         if (P.unsub) { P.unsub(); P.unsub = null; } if (P.unsubX) { P.unsubX.forEach(f => f()); P.unsubX = null; }
-        P.open = null; P.other = null;
+        P.open = null; P.other = null; muteBtn();
         $('#dc-console .dc-body').classList.remove('dc-split', 'pfull');
         dots();
     }
@@ -5615,6 +5629,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         build();
         onValue(ref(database, `share/chatIndex/${P.me}`), s => { P.index = s.val() || {}; popNew(P.index); dots(); publishRemoteTabs(); if (!P.open) renderHome();
             if (P.linkTid) { const t = P.linkTid; P.linkTid = null; openByTid(t); } }, () => {});
+        onValue(ref(database, `${P.me}/console/settings/mute`), s => { P.mute = s.val() || {}; muteBtn(); if (!P.open) renderHome();
+            window.__dcRenderTopics && window.__dcRenderTopics(); }, () => {});
         get(ref(database, `${P.me}/console/settings/peerPings`)).then(s => { P.pingOn = s.val() !== false; }).catch(() => {});
         {   // member-chat retention: the number the nightly prune reads
             const keep = $('#dc-chat-keep');
@@ -5627,6 +5643,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (P.open) renderBar(); else renderHome(); }, () => {});
     });
     window.__dcPeer = P;   // test hook
+    P.mute = {};
+    window.__dcMute = { is: k => !!(P.mute && P.mute[k]), toggle: k => { if (!P.me) return; set(ref(database, `${P.me}/console/settings/mute/${k}`), P.mute[k] ? null : true).catch(e => alert('Could not save: ' + (e.code || e.message))); } };
     // NOTIFICATION TAP -> THAT CHAT (2026-10-23, L picked Telegram-review #14): a push carries url /console.html?chat=<tid> (a People
     // thread) or ?dc=<tab> (a Droplet tab). A cold start reads the query; a console that is already open gets the service worker's
     // {type:'open', url} message instead (a focus alone would leave it wherever it was).
@@ -5669,6 +5687,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         document.querySelectorAll('.pres[data-pu]').forEach(d => { const u = d.dataset.pu; d.className = 'pres ' + presOf(u).s; d.title = presText(u); });
         presHead(); }
     function presHead() {   // the conversation header: dot + "active" / "idle" / "seen 2h ago"
+        muteBtn();
         const nm = $('#dc-peer-name'); if (!nm) return;
         let el = $('#dc-peer-pres'); if (!el) { el = document.createElement('span'); el.id = 'dc-peer-pres'; nm.after(el); }
         if (isGroup(P.open)) { const g = P.groups[P.open] || {}; const ms = Object.keys(g.members || {});   // a group: who's in it, each with a status dot
