@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.65"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.66"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -2969,17 +2969,50 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // 🔍 search: filters the loaded bubbles of the open tab as you type
             let findQ = '';
             const findBox = document.createElement('div'); findBox.className = 'dc-find'; findBox.hidden = true;
-            findBox.innerHTML = '<input type="search" placeholder="search this tab…" autocomplete="off" data-1p-ignore><span class="n"></span><button type="button" title="close search">✕</button>';
+            findBox.innerHTML = '<input type="search" placeholder="search this tab…" autocomplete="off" data-1p-ignore><span class="n"></span><button type="button" class="fall" title="search every chat - Droplet tabs, people, groups, Biz bot">All chats</button><button type="button" title="close search">✕</button>';
             log.parentElement.insertBefore(findBox, log);
             const fin = findBox.querySelector('input'), fn = findBox.querySelector('.n');
             function refilter() { const q = findQ.trim().toLowerCase(); let n = 0;
                 for (const el of log.children) { if (!el.dataset.k) continue; const hit = !q || el.textContent.toLowerCase().includes(q); el.classList.toggle('dc-miss', !hit); if (q && hit) n++; }
                 fn.textContent = q ? n + ' found' : ''; }
-            const closeFind = () => { findQ = ''; fin.value = ''; findBox.hidden = true; refilter(); };
-            fin.addEventListener('input', () => { findQ = fin.value; refilter(); });
+            // GLOBAL SEARCH (2026-10-23, Telegram review #6): "All chats" searches every Droplet tab + every People thread, group and the Biz
+            // bot (window.__dcPeerSearch, last 300 each, read once per open), with 📷 / 📎 / 🔗 / 🎙 filters. A result opens its chat and
+            // flashes the message. Live data only - older chats are archived to se (a daemon-side archive search can come later).
+            let gAll = false, gKind = '', gPeer = null;
+            const gBox = document.createElement('div'); gBox.className = 'dc-gfind'; gBox.hidden = true; log.parentElement.insertBefore(gBox, log);
+            gBox.innerHTML = '<div class="gk">' + [['', 'All'], ['photo', '📷 Photos'], ['file', '📎 Files'], ['link', '🔗 Links'], ['voice', '🎙 Voice']]
+                .map(([k, l]) => `<button type="button" data-gk="${k}"${k ? '' : ' class="on"'}>${l}</button>`).join('') + '</div><div class="gr"></div>';
+            { const st = document.createElement('style'); st.textContent = '.dc-gfind{max-height:55vh;overflow:auto;border-bottom:1px solid rgba(255,255,255,.12);padding:4px 8px}.dc-gfind .gk{display:flex;gap:6px;flex-wrap:wrap;padding:4px 0}.dc-gfind .gk button,.dc-find .fall{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.18);border-radius:14px;color:inherit;font:inherit;font-size:.85em;padding:3px 10px;cursor:pointer}.dc-gfind .gk button.on,.dc-find .fall.on{background:rgba(64,224,208,.25);border-color:#40e0d0}.dc-gfind .grow{display:block;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid rgba(255,255,255,.07);color:inherit;font:inherit;padding:7px 4px;cursor:pointer}.dc-gfind .grow small{opacity:.55;margin-left:6px}.dc-gfind .grow span{display:block;opacity:.8;font-size:.9em;margin-top:2px}.dc-gfind .gnone{opacity:.6;padding:10px 4px}'; document.head.appendChild(st); }
+            const gEsc = v => String(v ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+            const gKindOf = (t, m) => ({ photo: !!(m && m.img) || /\[attached photo|chat_photo/i.test(t), file: !!(m && m.file) || /\[attached file/i.test(t),
+                link: /https?:\/\//i.test(t), voice: /\[attached voice note/i.test(t) });
+            const gSnip = (t, q) => { t = String(t || '').replace(/\s+/g, ' '); const i = q ? t.toLowerCase().indexOf(q) : -1, a = Math.max(0, i - 40); return (a ? '…' : '') + t.slice(a, a + 150); };
+            async function gSearch() {
+                const q = findQ.trim().toLowerCase(), rows = [];
+                for (const [k, t] of Object.entries(DC.chatTurns || {})) rows.push({ where: 'dc', topic: t.topic || '', k, ts: t.ts || 0, text: String(t.text || ''), who: t.s === 'L' ? 'You' : (t.who || 'Droplet'), m: null });
+                if (!gPeer && window.__dcPeerSearch) { fn.textContent = 'searching…'; try { gPeer = await window.__dcPeerSearch(); } catch (_) { gPeer = []; } }
+                for (const r of gPeer || []) rows.push(r);
+                const hits = rows.filter(r => (!q || r.text.toLowerCase().includes(q)) && (!gKind || gKindOf(r.text, r.m)[gKind])).sort((a, b) => b.ts - a.ts).slice(0, 100);
+                if (!gAll) return;
+                fn.textContent = hits.length + ' found'; gBox._hits = hits;
+                gBox.querySelector('.gr').innerHTML = hits.map((r, i) => `<button type="button" class="grow" data-i="${i}"><b>${gEsc(r.where === 'dc' ? (r.topic ? '💧 # ' + r.topic : '💧 Droplet') : r.name)}</b><small>${new Date(r.ts).toLocaleDateString()}</small><span>${gEsc(r.who)}: ${gEsc(gSnip(r.text, q))}</span></button>`).join('')
+                    || '<div class="gnone">nothing found</div>'; }
+            const gFlash = (root, k, tries = 8) => { const el = root && root.querySelector(`[data-k="${CSS.escape(k)}"]`);
+                if (!el) { if (tries) setTimeout(() => gFlash(root || document.getElementById('dc-peer-log'), k, tries - 1), 300); return; }
+                el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.classList.add('dc-flash'); setTimeout(() => el.classList.remove('dc-flash'), 1400); };
+            gBox.addEventListener('click', e => {
+                const b = e.target.closest('[data-gk]'); if (b) { gKind = b.dataset.gk; gBox.querySelectorAll('[data-gk]').forEach(x => x.classList.toggle('on', x === b)); gSearch(); return; }
+                const r = e.target.closest('.grow'), h = r && (gBox._hits || [])[+r.dataset.i]; if (!h) return; closeFind();
+                if (h.where === 'dc') { if (window.__dcPeer && window.__dcPeer.open && window.__dcClosePeer) window.__dcClosePeer(); window.__dcSetTopic && window.__dcSetTopic(h.topic); setTimeout(() => gFlash(log, h.k), 300); }
+                else { window.__dcOpenTid && window.__dcOpenTid(h.tid); setTimeout(() => gFlash(document.getElementById('dc-peer-log'), h.k), 600); } });
+            findBox.querySelector('.fall').onclick = () => { gAll = !gAll; findBox.querySelector('.fall').classList.toggle('on', gAll); gBox.hidden = !gAll;
+                fin.placeholder = gAll ? 'search all chats…' : 'search this tab…'; if (gAll) { gPeer = null; refilter0(); gSearch(); } else { gBox.hidden = true; refilter(); } fin.focus(); };
+            const refilter0 = () => { for (const el of log.children) el.classList.remove('dc-miss'); };   // all-chats mode never hides bubbles
+            const closeFind = () => { findQ = ''; fin.value = ''; findBox.hidden = true; gAll = false; gBox.hidden = true; findBox.querySelector('.fall').classList.remove('on'); fin.placeholder = 'search this tab…'; refilter(); };
+            fin.addEventListener('input', () => { findQ = fin.value; if (gAll) gSearch(); else refilter(); });
             fin.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); closeFind(); } });
-            findBox.querySelector('button').onclick = closeFind;
-            new MutationObserver(() => { if (findQ) refilter(); }).observe(log, { childList: true, subtree: true });
+            findBox.querySelector('button[title="close search"]').onclick = closeFind;
+            new MutationObserver(() => { if (findQ && !gAll) refilter(); }).observe(log, { childList: true, subtree: true });
 
             // quote -> jump to the original; reaction chip -> remove it (capture phase: never counts toward the triple-tap)
             log.addEventListener('click', e => {
@@ -5690,6 +5723,18 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (P.open) renderBar(); else renderHome(); }, () => {});
     });
     window.__dcPeer = P;   // test hook
+    // GLOBAL SEARCH data (#6): every People thread + group + the Biz bot, last 300 messages each, read once when "All chats" opens.
+    window.__dcOpenTid = t => t === 'bizbot' ? openBiz() : openByTid(t);
+    window.__dcPeerSearch = async () => { const out = [];
+        const add = (tid, name, k, m) => { const text = m.enc ? (E2E.plain.get(k) ?? '') : String(m.text || '');
+            out.push({ where: 'peer', tid, name, k, ts: m.ts || 0, text, who: m.from === P.me || m.from === 'me' ? 'You' : (m.name || P.dir[m.from] || 'them'), m }); };
+        await Promise.all(Object.entries(P.index || {}).filter(([t, x]) => x && !t.startsWith('tab-')).map(async ([t, x]) => {
+            try { const v = (await get(query(ref(database, `share/chat/${t}/messages`), limitToLast(300)))).val() || {};
+                const nm = (x.kind === 'group' || isGroup(t) ? '👥 ' : '💬 ') + (x.name || P.dir[x.with] || 'chat');
+                for (const [k, m] of Object.entries(v)) if (m) add(t, nm, k, m); } catch (_) {} }));
+        try { const v = (await get(query(ref(database, `${P.me}/console/bizbot/msgs`), limitToLast(300)))).val() || {};
+            for (const [k, m] of Object.entries(v)) if (m) add('bizbot', '🤖 Biz bot', k, m); } catch (_) {}
+        return out; };
     P.mute = {};
     window.__dcMute = { is: k => !!(P.mute && P.mute[k]), toggle: k => { if (!P.me) return; set(ref(database, `${P.me}/console/settings/mute/${k}`), P.mute[k] ? null : true).catch(e => alert('Could not save: ' + (e.code || e.message))); } };
     // NOTIFICATION TAP -> THAT CHAT (2026-10-23, L picked Telegram-review #14): a push carries url /console.html?chat=<tid> (a People
