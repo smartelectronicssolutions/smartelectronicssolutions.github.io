@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.61"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.62"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -4804,7 +4804,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (!document.hidden && P.open === t) continue;   // already looking at it
             try {
                 const n = new Notification('💬 ' + (x.name || P.dir[x.with] || 'New message'), { body: String(x.last || '').slice(0, 140), tag: t });
-                n.onclick = () => { window.focus(); if (typeof window.openDropletConsole === 'function') window.openDropletConsole(); if (t.startsWith('tab-')) openTabRow(t); else if (x.kind === 'group' || isGroup(t)) openGroup(t); else if (x.with) openPeer(x.with); n.close(); };
+                n.onclick = () => { window.focus(); openByTid(t); n.close(); };
             } catch (_) {}
         }
     }
@@ -5613,7 +5613,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         { const dn = String(u.displayName || '').trim(); if (dn && dn !== (P.dir[P.me] || '')) { set(ref(database, `share/directory/${P.me}/name`), dn).catch(() => {}); P.dir[P.me] = dn; } }
         P.myName = P.dir[P.me] || (u.email || '').split('@')[0] || 'me';
         build();
-        onValue(ref(database, `share/chatIndex/${P.me}`), s => { P.index = s.val() || {}; popNew(P.index); dots(); publishRemoteTabs(); if (!P.open) renderHome(); }, () => {});
+        onValue(ref(database, `share/chatIndex/${P.me}`), s => { P.index = s.val() || {}; popNew(P.index); dots(); publishRemoteTabs(); if (!P.open) renderHome();
+            if (P.linkTid) { const t = P.linkTid; P.linkTid = null; openByTid(t); } }, () => {});
         get(ref(database, `${P.me}/console/settings/peerPings`)).then(s => { P.pingOn = s.val() !== false; }).catch(() => {});
         {   // member-chat retention: the number the nightly prune reads
             const keep = $('#dc-chat-keep');
@@ -5626,6 +5627,16 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (P.open) renderBar(); else renderHome(); }, () => {});
     });
     window.__dcPeer = P;   // test hook
+    // NOTIFICATION TAP -> THAT CHAT (2026-10-23, L picked Telegram-review #14): a push carries url /console.html?chat=<tid> (a People
+    // thread) or ?dc=<tab> (a Droplet tab). A cold start reads the query; a console that is already open gets the service worker's
+    // {type:'open', url} message instead (a focus alone would leave it wherever it was).
+    function openByTid(t) { const x = P.index[t] || {}; if (typeof window.openDropletConsole === 'function') window.openDropletConsole();
+        if (t.startsWith('tab-')) openTabRow(t); else if (x.kind === 'group' || isGroup(t)) openGroup(t); else if (x.with) openPeer(x.with); }
+    function openLink(url) { let q; try { q = new URL(url, location.href).searchParams; } catch (_) { return; }
+        if (q.get('chat')) { if (P.index && P.index[q.get('chat')]) openByTid(q.get('chat')); else P.linkTid = q.get('chat'); }
+        else if (q.has('dc')) { if (P.open) closePeer(); if (typeof window.openDropletConsole === 'function') window.openDropletConsole(); window.__dcSetTopic && window.__dcSetTopic(q.get('dc')); } }
+    try { const c0 = new URLSearchParams(location.search).get('chat'); if (c0) P.linkTid = c0; } catch (_) {}
+    navigator.serviceWorker && navigator.serviceWorker.addEventListener('message', e => { if (e.data && e.data.type === 'open' && e.data.url) openLink(e.data.url); });
 
     // PRESENCE (L 2026-10-12: "can the member chat area know if I'm active or idle"): share/presence/<uid>/<conn> = {s, at}, one
     // row per open console, removed by Firebase itself when that connection drops (tab closed, phone dead, signal gone);

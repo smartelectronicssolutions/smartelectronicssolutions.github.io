@@ -25,7 +25,8 @@ self.addEventListener("notificationclick", e => {
     e.notification.close();
     const url = new URL((e.notification.data && e.notification.data.url) || "/console.html", self.location.origin).href;
     e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(list => {
-        for (const c of list) { if (c.url.split("#")[0] === url.split("#")[0] && "focus" in c) return c.focus(); }
+        // an open console (any query) is told which chat to show, then focused - a bare focus left it where it was (2026-10-23)
+        for (const c of list) { if (new URL(c.url).pathname === new URL(url).pathname && "focus" in c) { c.postMessage({ type: "open", url }); return c.focus(); } }
         return self.clients.openWindow(url);
     }));
 });
