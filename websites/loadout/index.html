@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
-<meta name="version" content="1.0.18">
+<meta name="version" content="1.0.19">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0c0f13"><title>Loadout</title>
 <style>
@@ -374,7 +374,7 @@
 .hitgrp{display:inline-flex;align-items:center;gap:4px;padding:2px 6px;border:2px solid #e24a3a;border-radius:7px;background:rgba(226,74,58,.12)}.hitgrp .hitl{font-weight:700;color:#8a2a22;font-size:.75rem;margin-right:2px}.hitgrp .tbtn{min-width:2.4em;padding:4px 6px}
 #roomB.switch{cursor:pointer;pointer-events:auto;z-index:5}#roomB.switch::before{content:"💡 ";filter:grayscale(1) brightness(.7)}#roomB.switch.lit::before{filter:none}#roomB.lit{box-shadow:inset 0 2px 0 #d98a4a,0 0 10px 2px rgba(255,214,120,.65)!important}
 #selLabel .rn{cursor:text;border-bottom:1px dashed currentColor}
-.invsearch{padding:6px 10px 2px}.invsearch input{width:100%;box-sizing:border-box;font:inherit;font-size:.85rem;padding:8px 10px;border:2px solid #7a3f1a;border-radius:7px;background:#fff8e8;color:#3a1c08}.invsearch input:focus{outline:none;border-color:#e07b1a}
+.invsearch{padding:6px 10px 2px;display:flex;gap:6px;align-items:center}#invSort{flex:0 0 auto;white-space:nowrap;font-size:.75rem;padding:7px 9px}.invsearch input{width:100%;min-width:0;flex:1 1 auto;box-sizing:border-box;font:inherit;font-size:.85rem;padding:8px 10px;border:2px solid #7a3f1a;border-radius:7px;background:#fff8e8;color:#3a1c08}.invsearch input:focus{outline:none;border-color:#e07b1a}
 #storAreas .xclose{background:#c8402e!important;color:#fff!important;border-color:#7a1f1a!important;min-width:2.2em;text-align:center}
 #invGrid .it.drop{outline:3px dashed #e07b1a!important;outline-offset:-2px;box-shadow:inset 4px 0 0 #e07b1a}[data-drop].drop{outline:3px dashed #e07b1a!important;outline-offset:-2px;background-color:rgba(242,165,65,.22)!important}
 .it img{-webkit-user-drag:none;user-select:none;-webkit-touch-callout:none}
@@ -512,7 +512,7 @@
 <div class="overlay" id="overlay"><div class="storwrap invwin">
   <div class="storhead"><div class="ic" id="pIc">🎒</div><h2 id="pName">Inventory</h2><button class="closeb" id="pBag" title="Quick switch: backpack ⇄ this container" style="width:auto;padding:0 10px">🎒 Backpack</button><div class="pill"><b id="invN">0</b> ITEMS</div><button class="closeb" id="pDel" title="Delete empty container" style="display:none">🗑</button><button class="closeb" id="closeb">✕</button></div>
   <div class="storbar" id="invAreas"></div>
-  <div class="invsearch"><input id="invQ" type="search" placeholder="🔍 Search all your items…" autocomplete="off" spellcheck="false"></div>
+  <div class="invsearch"><input id="invQ" type="search" placeholder="🔍 Search all your items…" autocomplete="off" spellcheck="false"><button class="tbtn" id="invSort" type="button" title="Sort the items (tap to change)">↕ My order</button></div>
   <div class="invbody"><div class="allgrid" id="invGrid"></div></div>
   <div class="bagdock" id="bagDock" style="display:none"><div class="bdh">🎒 Backpack <b id="bagDockN">0</b><span class="bdhint">drag items up or down to move them</span></div><div class="allgrid" id="bagGrid"></div></div>
   <div class="invfoot" id="invFoot">
@@ -2950,6 +2950,18 @@ let invContOpen=false;try{invContOpen=localStorage.getItem("loadout:contOpen")==
 // SEARCH (2026-10-18, L: "I want to be able to search through all my items"): typing filters EVERY item you own (name, part #,
 // description, category, sub-category, container); results show where each one lives; clear the box to go back.
 var invQ="";
+/* SORT (2026-10-23, L: "Add a sort button to inventory"): tap cycles My order -> A-Z -> Price high -> Price low -> Qty -> Category.
+   "My order" keeps the drag-arranged order; the pick is remembered per device. */
+const INV_SORTS=[["order","↕ My order"],["az","🔤 A–Z"],["pdesc","💲 High–Low"],["pasc","💲 Low–High"],["qty","# Qty"],["cat","🗂 Category"]];
+let invSort="order";try{invSort=localStorage.getItem("loadout:invSort")||"order";}catch(e){}
+function invSorted(items){const nm=i=>String(i.name||"").toLowerCase();
+  if(invSort==="az")return items.slice().sort((a,b)=>nm(a).localeCompare(nm(b)));
+  if(invSort==="pdesc")return items.slice().sort((a,b)=>itemPrice(b)-itemPrice(a)||nm(a).localeCompare(nm(b)));
+  if(invSort==="pasc")return items.slice().sort((a,b)=>(itemPrice(a)||1e9)-(itemPrice(b)||1e9)||nm(a).localeCompare(nm(b)));
+  if(invSort==="qty")return items.slice().sort((a,b)=>(b.qty||0)-(a.qty||0)||nm(a).localeCompare(nm(b)));
+  if(invSort==="cat")return items.slice().sort((a,b)=>(String(a.cat)+"/"+String(a.comp)).localeCompare(String(b.cat)+"/"+String(b.comp))||nm(a).localeCompare(nm(b)));
+  return items;}
+function paintInvSort(){const b=$("invSort");if(b)b.textContent=(INV_SORTS.find(x=>x[0]===invSort)||INV_SORTS[0])[1];}
 function invMatch(i){if(!invQ)return true;const h=(i.name+" "+(i.part||"")+" "+(i.description||"")+" "+i.cat+" "+i.comp+" "+(i.loc==="bag"?"backpack":invLabel(i.loc))).toLowerCase();return invQ.split(/\s+/).every(w=>h.indexOf(w)>=0);}
 // QUICK SWITCH (2026-10-18, L: "in the container view show the backpack button up top to quick switch"): 🎒 jumps to the
 // backpack; from the backpack the same button jumps straight back to the container you came from.
@@ -2984,7 +2996,7 @@ function renderPanel(){if(!$("overlay").classList.contains("open"))return;try{pa
     const rt=document.createElement("div");rt.className="invrow sub";rt.appendChild(tg);bar.appendChild(rt);
     if(invContOpen){const r2=document.createElement("div");r2.className="invrow sub";cs.forEach(c=>r2.appendChild(invChip(c,c===k,()=>{if(c===k){invArea=PLACES_VIEW;openPlace=undefined;}else{invArea=c;openPlace=c;}selSet.clear();selItem=null;$("dcard").classList.remove("show");renderPanel();})));bar.appendChild(r2);}}}
   bar.style.display=bar.childNodes.length?"":"none";
-  const g=$("invGrid"),items=invQ?ITEMS.filter(i=>(i.qty||0)>=1&&invMatch(i)):k===ALL_LOC?ITEMS.filter(i=>(i.qty||0)>=1):PI?ITEMS.filter(i=>(i.qty||0)>=1&&placeOf(i.loc)===invPlace):sortByOrder((byLoc[k]||[]).slice(),k);g.innerHTML="";
+  const g=$("invGrid");let items=invQ?ITEMS.filter(i=>(i.qty||0)>=1&&invMatch(i)):k===ALL_LOC?ITEMS.filter(i=>(i.qty||0)>=1):PI?ITEMS.filter(i=>(i.qty||0)>=1&&placeOf(i.loc)===invPlace):sortByOrder((byLoc[k]||[]).slice(),k);items=invSorted(items);g.innerHTML="";
   if(!invQ&&k!==ALL_LOC&&!PI&&!(PV&&!PI))g.dataset.loc=k;else delete g.dataset.loc;
   {const ib=g.parentElement;if(ib){if(g.dataset.loc&&k!=="bag")ib.dataset.drop=k;else delete ib.dataset.drop;}}
   selSet.forEach(it=>{if(items.indexOf(it)<0)selSet.delete(it);});
@@ -3033,6 +3045,7 @@ let selItem=null,dragIt=null;
   addEventListener("pointerup",()=>{if(!hd)return;const m=hd.moved;hd=null;hb.style.cursor="";hb.style.scrollSnapType="";if(m){hb._noClick=true;setTimeout(()=>{hb._noClick=false;},0);}});
   hb.addEventListener("click",e=>{if(hb._noClick){e.stopImmediatePropagation();e.preventDefault();}},true);}}
 $("pBag").addEventListener("click",e=>{e.stopPropagation();bagSwitch();});
+$("invSort").addEventListener("click",()=>{const i=INV_SORTS.findIndex(x=>x[0]===invSort);invSort=INV_SORTS[(i+1)%INV_SORTS.length][0];try{localStorage.setItem("loadout:invSort",invSort);}catch(e){}paintInvSort();renderPanel();});paintInvSort();
 $("invQ").addEventListener("input",e=>{invQ=e.target.value.trim().toLowerCase();selSet.clear();selItem=null;renderPanel();});
 $("invQ").addEventListener("keydown",e=>{if(e.key==="Escape"&&e.target.value){e.stopPropagation();e.preventDefault();e.target.value="";invQ="";renderPanel();}});
 // ITEM DRAG (2026-10-18, L: "I need better drag implementation to move items around"). The old cells used native HTML5
