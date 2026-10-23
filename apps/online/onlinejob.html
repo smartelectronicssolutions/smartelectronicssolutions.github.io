@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="version" content="1.0.2">
+  <meta name="version" content="1.0.3">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>Jobs</title>
   <link rel="stylesheet" href="../assets/css/online.css" />
@@ -717,7 +717,7 @@
       const sel = document.getElementById("taskSelect");
       sel.innerHTML = '<option value="" disabled selected>Select Task</option>';
       tasks.forEach(t => sel.appendChild(new Option(`${t.customerName || "Unnamed"} - ${t.project || "No Project"}`, t.id)));
-      if (currentTaskId && tasks.some(t => t.id === currentTaskId)) sel.value = currentTaskId; // keep the open task showing (e.g. after a ?task= link) when the list rebuilds
+      if (currentTaskId && tasks.some(t => t.id === currentTaskId)) { sel.value = currentTaskId; document.getElementById("autoTaskNotice")?.remove(); } // keep the open task showing (e.g. after a ?task= link) when the list rebuilds
     }
 
     function loadTasks() {
@@ -733,7 +733,15 @@
         // Re-subscribe a few times so tasks appear without a manual page refresh.
         console.warn("[tasks] read error:", err?.message);
         if (DB !== "public" && taskReadRetries < 4) { taskReadRetries++; setTimeout(loadTasks, 700); }
+        else if (autoTaskId) autoTaskNotice(`Can't open job "${autoTaskId}": this sign-in has no access to that account. Sign in to the account that owns it.`);
       });
+    }
+
+    // A ?task= link that can't open says so, instead of leaving a blank form (2026-10-23).
+    function autoTaskNotice(msg) {
+      let n = document.getElementById("autoTaskNotice");
+      if (!n) { n = document.createElement("div"); n.id = "autoTaskNotice"; n.style.cssText = "padding:8px 10px;margin:0 0 8px;border:1px solid #c0392b;border-radius:6px;color:#e74c3c"; document.getElementById("sec-task-select")?.prepend(n); }
+      n.textContent = msg;
     }
 
     function handleTasksUpdate(tasks) {
@@ -755,6 +763,8 @@
         sel.value = autoTaskId;
         sel.dispatchEvent(new Event('change'));
         autoTaskSelected = true;
+      } else if (autoTaskId && !autoTaskSelected) {
+        autoTaskNotice(`Job "${autoTaskId}" isn't in this account (${DB.slice(0, 6)}…). Sign in to the account that owns it.`);
       }
       // Refresh the load buttons: remove stale ones, re-add if tasks remain hidden.
       document.getElementById("loadMoreBtn")?.remove();
