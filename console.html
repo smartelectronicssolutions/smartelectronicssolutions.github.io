@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.56"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.57"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1795,9 +1795,27 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             setEditMode('');            // same end state as Escape: edit dropped, original message untouched
         }, true);
         window.__dcSetEditMode = setEditMode;   // test hook
+        // UNDO (2026-10-23, L: "4 taps on iPad equal undo on background areas as bubbles have the 3 tap"): delete, retag and
+        // ★ snapshot the paths they are about to write; a 4-tap on empty chat space puts the last one back. Only text and tags
+        // come back - a job's status/cancel is never restored, so an undone delete can't re-run work. Per page, last 10.
+        DC.undo = [];
+        async function snapUndo(label, paths) {
+            const prev = await Promise.all(paths.map(p => get(ref(database, p)).then(x => x.val(), () => undefined)));
+            const pairs = paths.map((p, i) => [p, prev[i]]).filter(x => x[1] !== undefined);
+            if (pairs.length) { DC.undo.push({ label, pairs }); if (DC.undo.length > 10) DC.undo.shift(); }
+        }
+        async function undoLast() {
+            const st = $('#dc-chat-status'), u = DC.undo.pop();
+            if (!u) { if (st) st.textContent = 'nothing to undo'; return; }
+            try { for (const [p, v] of u.pairs) await set(ref(database, p), v); if (st) st.textContent = '↶ undone: ' + u.label; }
+            catch (e) { DC.undo.push(u); if (st) st.textContent = '⚠ could not undo: ' + (e.message || e); }
+        }
+        window.__dcUndo = undoLast;   // test hook
         // DELETE A MESSAGE: triple-tap any bubble, confirm. The turn is removed and the job's copy of the text is blanked.
         async function deleteTurn(k) {
             const t = (DC.topic === FAV_TAB ? (DC.favs || {}) : (DC.chatTurns || {}))[k]; if (!t || !DC.base) return;
+            await snapUndo(DC.topic === FAV_TAB ? 'favorite removed' : 'message deleted', [`${DC.base}/chat/favorites/${k}`].concat(DC.topic === FAV_TAB ? [] :
+                [`${DC.base}/chat/turns/${k}`].concat(t.jobId ? ['rough', 'enhanced', 'reply'].map(f => `${DC.base}/jobs/${t.jobId}/${f}`) : [])));
             const gone = '[deleted by L]';
             try {
                 if (DC.topic === FAV_TAB) { await set(ref(database, `${DC.base}/chat/favorites/${k}`), null); $('#dc-chat-status').textContent = 'removed from favorites'; return; }   // ★ view: drop the favorite only
@@ -2072,6 +2090,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if ((src.topic || '') === name) { $('#dc-chat-status').textContent = 'tag unchanged'; return; }
             // the exchange travels together: your message and the reply share a jobId
             const keys = [k]; if (src.jobId) for (const [kk, tt] of Object.entries(DC.chatTurns || {})) if (kk !== k && tt && tt.jobId === src.jobId) keys.push(kk);
+            await snapUndo('tag change', [].concat(...keys.map(kk => [].concat((DC.chatTurns || {})[kk] ? [`${DC.base}/chat/turns/${kk}/topic`] : [], (DC.favs || {})[kk] ? [`${DC.base}/chat/favorites/${kk}/topic`] : []))));
             try {
                 if (name && !Object.values(DC.topicList || {}).some(v => v && v.name === name)) await update(ref(database, `${DC.base}/chat/topics/${topicKey(name)}`), { name, createdAt: Date.now() });
                 for (const kk of keys) {
@@ -2093,6 +2112,15 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     else confirmDelete(el.dataset.k); }
             });
         })();
+        (function wireQuadTap() {   // 4 quick taps on EMPTY chat space (not a bubble, button or link) = undo
+            const log = document.getElementById('dc-chat-log'); if (!log) return; let lastT = 0, n = 0;
+            log.style.touchAction = 'manipulation';   // iPad: no double-tap zoom eating taps 2 and 4
+            log.addEventListener('click', e => {
+                if (DC.remote || (e.target.closest && e.target.closest('[data-k],button,a,input,textarea,select,summary,label'))) { n = 0; return; }
+                const now = Date.now(); n = now - lastT < 700 ? n + 1 : 1; lastT = now;
+                if (n >= 4) { n = 0; undoLast(); }
+            });
+        })();
         window.__dcConfirmDelete = confirmDelete;   // test hook
         window.__dcMsgSheet = (k, ext) => confirmDelete(k, ext);   // the 👥 pane's triple-tap
         document.getElementById('dc-chat-log') && document.getElementById('dc-chat-log').addEventListener('click', async e => {
@@ -2100,6 +2128,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const el = b.closest('[data-k]'); const k = el && el.dataset.k; if (!k || !DC.base) return;
             const src = (DC.topic === FAV_TAB ? (DC.favs || {}) : (DC.chatTurns || {}))[k]; if (!src) return;
             const on = !!(DC.favs || {})[k];
+            await snapUndo(on ? 'unstarred' : 'starred', [`${DC.base}/chat/favorites/${k}`]);
             try { await set(ref(database, `${DC.base}/chat/favorites/${k}`), on ? null : { s: 'D', who: src.who || 'Droplet', text: src.text || '', ts: src.ts || Date.now(), ...(src.topic ? { topic: src.topic } : {}), savedAt: Date.now() }); }
             catch (err) { $('#dc-chat-status').textContent = '⚠ could not save favorite: ' + (err.message || err); }
         }, true);   // capture: runs before the edit/triple-tap handlers
