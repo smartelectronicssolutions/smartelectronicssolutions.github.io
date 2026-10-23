@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.52"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.54"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -4968,7 +4968,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     // browser tab title blinks "💬 New message" when the page is in the background.
     let titleTimer = null, baseTitle = document.title;
     function dots() {
-        const any = Object.keys(P.index).some(t => !t.startsWith('tab-') && unread(t)) || siteUnreadN() > 0;   // + 🌐 Site visitors   // tab entries are not listed any more, so they must not keep 👥 flashing
+        const any = Object.keys(P.index).some(t => !t.startsWith('tab-') && unread(t)) || siteUnreadN() > 0 || bizUnreadN() > 0;   // + 🌐 Site visitors + 🤖 Biz bot   // tab entries are not listed any more, so they must not keep 👥 flashing
         const d = $('#dc-peer-btn .dot'); if (d) d.hidden = !any;
         const b = $('#dc-peer-btn'); if (b) b.classList.toggle('flash', any);
         if (any && document.hidden && !titleTimer) { let on = false; titleTimer = setInterval(() => { on = !on; document.title = on ? '💬 New message' : baseTitle; }, 1000); }
@@ -5062,7 +5062,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // 1. conversations, newest first
             const convs = Object.entries(P.index).filter(([t, x]) => x && x.ts && x.ts > (x.clearedAt || 0) && !t.startsWith('tab-'))   // shared tabs live in the tab bar (teal chip), not here (L 2026-09-27)
                 .sort((a, b) => b[1].ts - a[1].ts);   // cleared ones come back only with a newer message
-            const siteRow = siteRowHTML();   // 🌐 Site visitors (owner): the public site chat, a member-like conversation (L 2026-10-21)
+            const siteRow = siteRowHTML() + bizRowHTML();   // 🌐 Site visitors (owner): the public site chat, a member-like conversation (L 2026-10-21) + 🤖 Biz bot (2026-10-22)
             if (convs.length || siteRow) {
                 html += H('Conversations', 'convs') + siteRow;
                 html += convs.map(([t, x]) => { const tab = t.startsWith('tab-');
@@ -5099,6 +5099,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         wireCollapse(home);
         home.querySelectorAll('[data-u]').forEach(b => b.onclick = () => openPeer(b.dataset.u));
         home.querySelectorAll('[data-site]').forEach(b => b.onclick = () => openSite());
+        home.querySelectorAll('[data-bizbot]').forEach(b => b.onclick = () => openBiz());
         home.querySelectorAll('[data-grp]').forEach(b => b.onclick = () => openGroup(b.dataset.grp));
         home.querySelectorAll('[data-newgrp]').forEach(b => b.onclick = () => groupForm(null));
         home.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => showHome('pick'));
@@ -5372,6 +5373,55 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     }
     window.addEventListener('dc-site', () => { if (!document.getElementById('dc-peer')) return; if (P.open === 'site') renderSite(); else if (!P.open) renderHome(); dots(); });
     document.addEventListener('visibilitychange', () => { if (!document.hidden && P.open === 'site') renderSite(); });
+
+    // 🤖 BIZ BOT (2026-10-22, L: "move the Bizbot setup here" - "the one we get Field Nation jobs routed to via emails"): biz-svc
+    // on se mirrors every DM its Telegram bot (@compman61biz_bot) sends L into {uid}/console/bizbot/msgs (console_mirror in
+    // biz-svc/main.py); this shows them as a read-only conversation in 👥, owner only. Telegram keeps working alongside.
+    // Read state follows the account ({uid}/console/bizbot/seen, newest of cloud and local wins), like 🌐 Site visitors.
+    var BZ = BZ || { on: false, msgs: {}, seen: 0 };   // var + the guards below: renderHome/dots can run before this line at module eval (TDZ scar)
+    try { BZ.seen = Math.max(BZ.seen, +localStorage.getItem('dc-bizbot-seen') || 0); } catch (_) {}
+    function bizStart() {
+        if (!BZ) BZ = { on: false, msgs: {}, seen: 0 };
+        if (BZ.on || P.me !== OWNER) return; BZ.on = true;
+        onValue(query(ref(database, `${P.me}/console/bizbot/msgs`), limitToLast(60)), s => { BZ.msgs = s.val() || {}; bizPaint(); }, () => {});
+        onValue(ref(database, `${P.me}/console/bizbot/seen`), s => { const v = +s.val() || 0;
+            if (BZ.seen > v) set(ref(database, `${P.me}/console/bizbot/seen`), BZ.seen).catch(() => {});
+            if (v > BZ.seen) { BZ.seen = v; try { localStorage.setItem('dc-bizbot-seen', String(v)); } catch (_) {} bizPaint(); } }, () => {});
+    }
+    function bizRows() { return BZ ? bizRowsOf(BZ.msgs) : []; }
+    function bizRowsOf(o) { return Object.entries(o || {}).filter(([, m]) => m && (m.text || m.img)).sort((a, b) => (a[1].ts || 0) - (b[1].ts || 0)); }
+    function bizUnreadN() { return (!BZ || P.open === 'bizbot') ? 0 : bizRows().filter(([, m]) => (m.ts || 0) > BZ.seen).length; }   // declaration: dots() may run first (TDZ scar)
+    function bizMarkSeen() { const last = bizRows().reduce((t, [, m]) => Math.max(t, m.ts || 0), 0);
+        if (last > BZ.seen) { BZ.seen = last; try { localStorage.setItem('dc-bizbot-seen', String(last)); } catch (_) {} set(ref(database, `${P.me}/console/bizbot/seen`), last).catch(() => {}); } }
+    function bizPaint() { if (!document.getElementById('dc-peer')) return; if (P.open === 'bizbot') renderBiz(); else if (!P.open) renderHome(); dots(); }
+    function bizRowHTML() {
+        bizStart(); if (P.me !== OWNER) return '';
+        const rows = bizRows(), last = rows.length ? rows[rows.length - 1][1] : null, n = bizUnreadN();
+        const pre = last ? String(last.text || '📷 image').split('\n').slice(0, 2).join(' · ') : 'Field Nation leads from email land here';
+        return `<button type="button" class="dc-peer-row" data-bizbot="1">🤖 Biz bot${n ? `<span class="dot n">${n > 99 ? '99+' : n}</span>` : ''}<span class="pago">${last ? ago(last.ts) : ''}</span><small>${esc(pre.slice(0, 90))}</small></button>`;
+    }
+    function openBiz() {
+        if (P.unsub) { P.unsub(); P.unsub = null; } if (P.unsubX) { P.unsubX.forEach(f => f()); P.unsubX = null; }
+        if (P.editing) stopEdit();
+        P.open = 'bizbot'; P.other = null; setPeerReply(null);
+        $('#dc-peer-home').hidden = true; $('#dc-peer-log').hidden = false; $('#dc-peer-form').hidden = true; $('#dc-peer-back').hidden = false; { const w = $('#dc-peer-web'); if (w) w.hidden = true; } { const k = $('#dc-peer-word'); if (k) k.hidden = true; } { const bb = $('#dc-peer-bar'); if (bb) { bb.hidden = true; bb.innerHTML = ''; } }
+        $('#dc-peer-name').textContent = '🤖 Biz bot';
+        peerSplit(); renderBiz(); dots();
+    }
+    function renderBiz() {
+        const log = $('#dc-peer-log'); if (!log || P.open !== 'bizbot') return;
+        const nf = newestFirst(); $('#dc-peer') && $('#dc-peer').classList.toggle('nf', nf);
+        const L = window.__dcShared || {}, lk = L.linkify || (x => x), stamp = L.fmtStamp || (t => new Date(t).toLocaleString([], { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }));
+        const rows = bizRows(), list = nf ? rows.slice().reverse() : rows;
+        log.innerHTML = list.length ? list.map(([k, m]) => { const tm = m.ts ? stamp(m.ts) : '';
+            const img = m.img && /^https:\/\//.test(m.img) ? `<div class="dc-att"><a class="file" href="${esc(m.img)}" target="_blank" rel="noopener noreferrer">📷 image</a></div>` : '';
+            return `<div class="dc-bub drop" data-biz="${esc(k)}"><span class="who">Biz bot · ${tm}</span><span style="white-space:pre-wrap">${lk(esc(m.text || ''))}</span>${img}<div class="ts">${tm}</div></div>`; }).join('')
+            : '<div style="opacity:.6;text-align:center;padding:10px">Nothing yet. New Field Nation leads (and anything else the biz bot sends you on Telegram) land here too.</div>';
+        log.onclick = null;
+        log.scrollTop = nf ? 0 : log.scrollHeight;
+        if (document.visibilityState === 'visible') bizMarkSeen();
+    }
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && P.open === 'bizbot') renderBiz(); });
 
     function startEdit(k, text) { const box = $('#dc-peer-in'); P.editing = k; box.value = text; box.classList.add('editing'); box.placeholder = 'editing - Enter saves · Esc cancels'; box.focus(); }
     function stopEdit() { const box = $('#dc-peer-in'); P.editing = null; box.value = ''; box.classList.remove('editing'); box.placeholder = 'message…  (Enter sends)'; }
