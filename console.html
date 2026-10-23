@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.71"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.72"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1758,8 +1758,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 stepTopic(dx < 0 ? 1 : -1); }, { passive: true });
             log.addEventListener('touchcancel', () => { ok = false; }, { passive: true });
         })();
-        // BUBBLE GESTURES (2026-10-23, Telegram review #10): swipe a bubble LEFT = ↩ reply (it slides with the finger, ↩ shows past the
-        // line); press and hold = the message sheet (the same one triple-tap opens - triple-tap still works). Both chat logs, phone only.
+        // BUBBLE GESTURES (2026-10-23, Telegram review #10): press and hold = the message sheet (the same one triple-tap opens - triple-tap still works). Both chat logs, phone only.
         // A bubble swipe claims the gesture (window.__dcBubSwipe) so the log's tab swipe / the 👥 back swipe do not also fire.
         (function wireBubbleGestures() {
             let g = null;
@@ -1770,11 +1769,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 g.lp = setTimeout(() => { if (!g || g.moved) return; const el2 = g.el; g = null; if (navigator.vibrate) navigator.vibrate(12);
                     for (let i = 0; i < 3; i++) el2.dispatchEvent(new MouseEvent('click', { bubbles: true })); }, 500); }, { passive: true });
             document.addEventListener('touchmove', e => { if (!g) return; const t = e.touches[0], dx = t.clientX - g.x, dy = t.clientY - g.y;
-                if (Math.abs(dx) > 8 || Math.abs(dy) > 8) { g.moved = true; clearTimeout(g.lp); }
-                if (!g.swipe && dx < -12 && Math.abs(dx) > Math.abs(dy) * 1.5) { g.swipe = true; window.__dcBubSwipe = true; }
-                if (g.swipe) { g.dx = Math.max(-80, Math.min(0, dx)); g.el.style.transition = 'none'; g.el.style.transform = `translateX(${g.dx}px)`; g.el.classList.toggle('dc-swipe-ok', g.dx <= -60); } }, { passive: true });
-            document.addEventListener('touchend', () => { if (!g) return; const s0 = g; reset();
-                if (s0.swipe && s0.dx <= -60) { const k = s0.el.dataset.k; if (s0.el.closest('#dc-peer-log')) { const P = window.__dcPeer; P && P.swipeReply && P.swipeReply(k); } else window.__dcSetReply && window.__dcSetReply(k); } }, { passive: true });
+                if (Math.abs(dx) > 8 || Math.abs(dy) > 8) { g.moved = true; clearTimeout(g.lp); } }, { passive: true });
+            // SWIPE-TO-REPLY REMOVED (L 2026-10-23: "interferes with me moving through tabs, change it back to triple click"):
+            // a sideways swipe belongs to the tab swipe again; reply = triple-tap (or hold) -> ↩ Reply in the sheet.
+            document.addEventListener('touchend', reset, { passive: true });
             document.addEventListener('touchcancel', reset, { passive: true });
             const css = document.createElement('style');
             css.textContent = '#dc-chat-log [data-k], #dc-peer-log [data-k] { -webkit-touch-callout: none; } .dc-swipe-ok { position: relative; } .dc-swipe-ok::after { content: "↩"; position: absolute; right: -28px; top: 50%; transform: translateY(-50%); font-size: 18px; opacity: .8; }';
