@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.63"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.64"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1752,11 +1752,33 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             let sx = 0, sy = 0, st = 0, ok = false;
             log.addEventListener('touchstart', e => { if (e.touches.length !== 1) { ok = false; return; } const t = e.touches[0]; sx = t.clientX; sy = t.clientY; st = Date.now();
                 ok = !(e.target.closest && e.target.closest('details.enh, pre, code, a, button, input, textarea')) && !String(window.getSelection && window.getSelection() || ''); }, { passive: true });
-            log.addEventListener('touchend', e => { if (!ok) return; ok = false; const t = e.changedTouches[0]; const dx = t.clientX - sx, dy = t.clientY - sy;
+            log.addEventListener('touchend', e => { if (!ok) return; ok = false; if (window.__dcBubSwipe) return; const t = e.changedTouches[0]; const dx = t.clientX - sx, dy = t.clientY - sy;
                 if (Date.now() - st > 700 || Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 2) return;
                 const nb = document.querySelector('.dc-chat .dc-topic-new'); if (nb) { if (dx > 0) nb.remove(); return; }
                 stepTopic(dx < 0 ? 1 : -1); }, { passive: true });
             log.addEventListener('touchcancel', () => { ok = false; }, { passive: true });
+        })();
+        // BUBBLE GESTURES (2026-10-23, Telegram review #10): swipe a bubble LEFT = ↩ reply (it slides with the finger, ↩ shows past the
+        // line); press and hold = the message sheet (the same one triple-tap opens - triple-tap still works). Both chat logs, phone only.
+        // A bubble swipe claims the gesture (window.__dcBubSwipe) so the log's tab swipe / the 👥 back swipe do not also fire.
+        (function wireBubbleGestures() {
+            let g = null;
+            const bub = t => t && t.closest && !t.closest('a, button, input, textarea, details.enh, pre, code') && t.closest('#dc-chat-log [data-k], #dc-peer-log [data-k]');
+            const reset = () => { if (!g) return; clearTimeout(g.lp); const el = g.el; el.style.transition = 'transform .18s'; el.style.transform = ''; el.classList.remove('dc-swipe-ok'); g = null; };
+            document.addEventListener('touchstart', e => { window.__dcBubSwipe = false; const el = e.touches.length === 1 && bub(e.target); if (!el) { g = null; return; }
+                const t = e.touches[0]; g = { el, x: t.clientX, y: t.clientY, dx: 0, moved: false, swipe: false };
+                g.lp = setTimeout(() => { if (!g || g.moved) return; const el2 = g.el; g = null; if (navigator.vibrate) navigator.vibrate(12);
+                    for (let i = 0; i < 3; i++) el2.dispatchEvent(new MouseEvent('click', { bubbles: true })); }, 500); }, { passive: true });
+            document.addEventListener('touchmove', e => { if (!g) return; const t = e.touches[0], dx = t.clientX - g.x, dy = t.clientY - g.y;
+                if (Math.abs(dx) > 8 || Math.abs(dy) > 8) { g.moved = true; clearTimeout(g.lp); }
+                if (!g.swipe && dx < -12 && Math.abs(dx) > Math.abs(dy) * 1.5) { g.swipe = true; window.__dcBubSwipe = true; }
+                if (g.swipe) { g.dx = Math.max(-80, Math.min(0, dx)); g.el.style.transition = 'none'; g.el.style.transform = `translateX(${g.dx}px)`; g.el.classList.toggle('dc-swipe-ok', g.dx <= -60); } }, { passive: true });
+            document.addEventListener('touchend', () => { if (!g) return; const s0 = g; reset();
+                if (s0.swipe && s0.dx <= -60) { const k = s0.el.dataset.k; if (s0.el.closest('#dc-peer-log')) { const P = window.__dcPeer; P && P.swipeReply && P.swipeReply(k); } else window.__dcSetReply && window.__dcSetReply(k); } }, { passive: true });
+            document.addEventListener('touchcancel', reset, { passive: true });
+            const css = document.createElement('style');
+            css.textContent = '#dc-chat-log [data-k], #dc-peer-log [data-k] { -webkit-touch-callout: none; } .dc-swipe-ok { position: relative; } .dc-swipe-ok::after { content: "↩"; position: absolute; right: -28px; top: 50%; transform: translateY(-50%); font-size: 18px; opacity: .8; }';
+            document.head.appendChild(css);
         })();
         // SWIPE THE TAB PILL TOO (2026-09-29, L: "a sideways swipe on the currently showing tab in mobile to cycle through"):
         // the Chat pill in the bar shows "# topic" on a phone - swiping it left/right steps topics exactly like swiping the log.
@@ -2972,6 +2994,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
 
             function setReply(k, t) { const src = (DC.chatTurns || {})[k] || t || {};
                 S.reply = { k, who: src.s === 'L' ? 'You' : (src.who || 'Droplet'), text: short(src.text).slice(0, 300) }; paint(); ta.focus(); }
+            window.__dcSetReply = k => { if (!DC.remote) setReply(k); };   // the bubble swipe (#10)
             // the triple-tap sheet gets a reaction row + ↩ Reply (own chat only)
             function sheet(box, k, t, close, quiet, kit) {   // kit = the 👥 pane's { react(em), reply(), mine }
                 if (!kit && DC.remote) return;
@@ -4929,7 +4952,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             pane.addEventListener('touchstart', e => { const t = e.target;
                 ok = e.touches.length === 1 && !(t.closest && t.closest('.pswipe, textarea, input, #dc-peer-head'));
                 if (ok) { sx = e.touches[0].clientX; sy = e.touches[0].clientY; st = Date.now(); } }, { passive: true });
-            pane.addEventListener('touchend', e => { if (!ok) return; ok = false; const t = e.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy;
+            pane.addEventListener('touchend', e => { if (!ok) return; ok = false; if (window.__dcBubSwipe) return; const t = e.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy;
                 if (Date.now() - st > 700 || Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
                 if (dx > 0 && !$('#dc-peer-back').hidden) showHome();
                 else if (dx < 0 && !$('#dc-peer-home').hidden && P.lastOpen) openThread(...P.lastOpen); }, { passive: true });
@@ -5377,6 +5400,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     kit: { mine: ((P.reacts || {})[k] || {})[P.me], react: em => toggleReact(k, em), reply: () => setPeerReply({ k, from: m.from, text: m.text }) },
                     onDelete: (m.from === P.me || P.me === OWNER) ? async () => { try { await set(ref(database, `share/chat/${P.open}/messages/${k}`), null); } catch (er) { alert('Could not delete: ' + (er.code || er.message)); } } : null }); }
         };
+        P.swipeReply = k => { const m0 = msgs[k]; if (!m0) return; const m = m0.enc ? { ...m0, text: E2E.plain.get(k) ?? '' } : m0; setPeerReply({ k, from: m.from, text: m.text }); };   // bubble swipe (#10)
         if (asc.length) markSeen(P.open, asc[asc.length - 1].ts);
         dots();
     }
