@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.64"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.65"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -5497,6 +5497,29 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     }
     document.addEventListener('visibilitychange', () => { if (!document.hidden && P.open === 'bizbot') renderBiz(); });
 
+    // / COMMAND MENU (2026-10-23, Telegram review #8): typing "/" in a bot chat lists what that bot understands (the same lists the
+    // services answer: biz-svc handle_command, email-chat-notify console_cmd); tap one to fill it in. Delegated - the box is built late.
+    const SLASH = {
+        bizbot: [['/jobs', 'latest Field Nation leads'], ['/weekend', 'weekend jobs'], ['/mon', 'Monday jobs'], ['/tue', 'Tuesday jobs'], ['/wed', 'Wednesday jobs'],
+                 ['/thu', 'Thursday jobs'], ['/fri', 'Friday jobs'], ['/sat', 'Saturday jobs'], ['/sun', 'Sunday jobs'], ['/help', 'what I can do']],
+        'grp-read': [['/pull', 'check all mailboxes now'], ['/dm ', 'flag a sender  ·  /dm <sender>'], ['/group ', 'unflag a sender  ·  /group <sender>'],
+                     ['/rules', 'list flagged senders'], ['/help', 'what I can do']],
+    };
+    function slashMenu(box) { let menu = document.getElementById('dc-slash');
+        if (!menu) { menu = document.createElement('div'); menu.id = 'dc-slash'; menu.hidden = true;
+            const css = document.createElement('style'); css.textContent = '#dc-slash{position:fixed;z-index:9999;background:#11161d;border:1px solid #3a4655;border-radius:8px;max-height:260px;overflow:auto;box-shadow:0 6px 18px rgba(0,0,0,.5)}#dc-slash button{display:flex;gap:10px;width:100%;text-align:left;padding:9px 12px;background:none;border:0;color:#dfe7ef;font:inherit;cursor:pointer}#dc-slash button:hover{background:rgba(255,255,255,.08)}#dc-slash b{min-width:78px}#dc-slash span{opacity:.65}';
+            document.head.appendChild(css); document.body.appendChild(menu);
+            menu.addEventListener('mousedown', e => e.preventDefault());   // keep the focus (and the phone keyboard) in the box
+            menu.addEventListener('click', e => { const bt = e.target.closest('[data-c]'), bx = $('#dc-peer-in'); if (!bt || !bx) return;
+                bx.value = bt.dataset.c; menu.hidden = true; bx.focus(); bx.setSelectionRange(bx.value.length, bx.value.length); }); }
+        const list = SLASH[P.open], v = box.value;
+        if (!list || !v.startsWith('/') || /\s/.test(v)) { menu.hidden = true; return; }
+        const hits = list.filter(([c]) => c.trim().startsWith(v.toLowerCase())); if (!hits.length) { menu.hidden = true; return; }
+        menu.innerHTML = hits.map(([c, d]) => `<button type="button" data-c="${esc(c)}"><b>${esc(c.trim())}</b><span>${esc(d)}</span></button>`).join('');
+        const r = box.getBoundingClientRect(); menu.style.left = r.left + 'px'; menu.style.width = r.width + 'px'; menu.hidden = false;
+        menu.style.top = Math.max(8, r.top - menu.offsetHeight - 6) + 'px'; }
+    document.addEventListener('input', e => { if (e.target && e.target.id === 'dc-peer-in') slashMenu(e.target); });
+    document.addEventListener('focusout', e => { if (e.target && e.target.id === 'dc-peer-in') setTimeout(() => { const m = document.getElementById('dc-slash'); if (m) m.hidden = true; }, 150); });
     function startEdit(k, text) { const box = $('#dc-peer-in'); P.editing = k; box.value = text; box.classList.add('editing'); box.placeholder = 'editing - Enter saves · Esc cancels'; box.focus(); }
     function stopEdit() { const box = $('#dc-peer-in'); P.editing = null; box.value = ''; box.classList.remove('editing'); box.placeholder = 'message…  (Enter sends)'; }
     async function send() {
