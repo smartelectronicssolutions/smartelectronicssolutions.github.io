@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.66"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.67"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -2792,6 +2792,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (keys.length && obj[keys[keys.length - 1]]) obj[keys[keys.length - 1]].__tail = true;
             const nf = newestFirst();
             $('.dc-chat') && $('.dc-chat').classList.toggle('newest-first', nf);
+            { const bd = $('#dc-console .dc-body'); if (bd) bd.classList.toggle('dc-nb', !nf); }   // #1: phone panel above the chat when newest is at the bottom
             if (!keys.length && R) { log.innerHTML = '<div style="color:var(--muted);font-size:0.85rem;text-align:center;margin-top:20px">Nothing in ' + esc(R.name || '') + ' · # ' + esc(R.topic) + ' yet. What you send lands in their tab.</div>'; DC.bubbleSig = {}; return; }
             if (!keys.length) { log.innerHTML = '<div style="color:var(--muted);font-size:0.85rem;text-align:center;margin-top:20px">' + (favView ? 'No favorites yet. Tap the star on a reply to keep it here.' : DC.topic ? 'Nothing under # ' + esc(DC.topic) + ' yet. What you send now lands here and in All.' : (DC.guest && ($('#dc-chat-target') || {}).value === 'local') ? 'No turns yet. Say something - the Local assistant answers here.' : 'No turns yet. Say something to Droplet.') + '</div>'; DC.bubbleSig = {}; updateThreadSize(obj); reconcilePending(obj); return; }
             const clean = !!($('#dc-chat-enhance') && $('#dc-chat-enhance').checked);
@@ -4942,15 +4943,16 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const applySaved = () => { let v = 0; try { v = Number(localStorage.getItem(key())); } catch (_) {}
                 body.classList.toggle('psized', v > 0); if (v > 0) body.style.setProperty('--dc-peer-size', v + '%'); else body.style.removeProperty('--dc-peer-size'); };
             applySaved(); mq.addEventListener('change', applySaved);
-            let pid = null, p0 = 0, s0 = 0, main = 1;
+            let pid = null, p0 = 0, s0 = 0, main = 1, flip = false;
             sp.addEventListener('pointerdown', e => { const side = body.classList.contains('sysopen') ? (body.querySelector('#dc-sys-col') || pane) : pane, r = side.getBoundingClientRect(), b = body.getBoundingClientRect(), cs = getComputedStyle(body);
+                { const c = body.querySelector('#dc-chat-panel').getBoundingClientRect(); flip = narrow() ? r.top < c.top : r.left < c.left; }   // panel before the chat (#1 layout): dragging toward the chat grows it the other way
                 if (narrow()) { p0 = e.clientY; s0 = r.height; main = b.height - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom); }
                 else { p0 = e.clientX; s0 = r.width; main = b.width - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight); }
                 if (!(main > 300)) return;   // nothing to split yet
                 pid = e.pointerId; try { sp.setPointerCapture(pid); } catch (_) {}
                 sp.classList.add('on'); e.preventDefault(); });
             sp.addEventListener('pointermove', e => { if (pid === null) return; const d = (narrow() ? e.clientY : e.clientX) - p0;
-                const px = Math.max(140, Math.min(main - 160, s0 - d)), pct = Math.round(px / main * 1000) / 10;   // the pane grows toward the chat; both keep a usable minimum
+                const px = Math.max(140, Math.min(main - 160, flip ? s0 + d : s0 - d)), pct = Math.round(px / main * 1000) / 10;   // the pane grows toward the chat; both keep a usable minimum
                 body.classList.add('psized'); body.style.setProperty('--dc-peer-size', pct + '%'); });
             const end = () => { if (pid === null) return; pid = null; sp.classList.remove('on'); const v = parseFloat(body.style.getPropertyValue('--dc-peer-size')); try { if (v > 0) localStorage.setItem(key(), String(v)); } catch (_) {} };
             sp.addEventListener('pointerup', end); sp.addEventListener('pointercancel', end);
@@ -5010,6 +5012,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
               P.open = null; P.other = null; $('#dc-peer-home').hidden = true; $('#dc-peer-log').hidden = true; $('#dc-peer-form').hidden = true; $('#dc-peer-back').hidden = false;
               $('#dc-peer-web').hidden = false; nm.textContent = '🌐 Browser'; presHead(); { const k = $('#dc-peer-word'); if (k) k.hidden = true; } { const bb = $('#dc-peer-bar'); if (bb) { bb.hidden = true; bb.innerHTML = ''; } }
               if (!$('#dc-web-frame').src) { let last = ''; try { last = localStorage.getItem('dc_web_url') || ''; } catch (_) {} go(last || 'https://luissolutions.us/hub.html'); } };
+          window.__dcOpenWeb = () => { peerSplit(); openWeb(); };   // the drawer's 🌐 Browser row (#1)
           nm.style.cursor = 'pointer'; nm.style.touchAction = 'manipulation'; nm.style.userSelect = 'none';   // fast taps on a phone each count
           // from ANY People view now (2026-10-22, L: "triple click not working" - it only fired on the People list, not inside a chat)
           nm.addEventListener('click', () => { const now = Date.now(); tp.n = now - tp.t < 650 ? tp.n + 1 : 1; tp.t = now;
@@ -5074,6 +5077,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     function dots() {
         const any = Object.keys(P.index).some(t => !t.startsWith('tab-') && unread(t)) || siteUnreadN() > 0 || bizUnreadN() > 0;   // + 🌐 Site visitors + 🤖 Biz bot   // tab entries are not listed any more, so they must not keep 👥 flashing
         const d = $('#dc-peer-btn .dot'); if (d) d.hidden = !any;
+        { const bd = $('#dc-brand-btn .dot'); if (bd) bd.hidden = !any; }   // #1: the name top-left carries the unread dot now
         const b = $('#dc-peer-btn'); if (b) b.classList.toggle('flash', any);
         if (any && document.hidden && !titleTimer) { let on = false; titleTimer = setInterval(() => { on = !on; document.title = on ? '💬 New message' : baseTitle; }, 1000); }
         if ((!any || !document.hidden) && titleTimer) { clearInterval(titleTimer); titleTimer = null; document.title = baseTitle; }
@@ -5109,6 +5113,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     }
     const ago = ts => { if (!ts) return ''; const m = Math.round((Date.now() - ts) / 60000); return m < 1 ? 'now' : m < 60 ? m + 'm' : m < 1440 ? Math.round(m / 60) + 'h' : Math.round(m / 1440) + 'd'; };
     function showHome(mode) {
+        if ($('#dc-drawer')) { closePeer(); openDrawer(mode); return; }   // #1: the People list is the left drawer; ‹ / 👥 paths land there
         if (P.unsub) { P.unsub(); P.unsub = null; } if (P.unsubX) { P.unsubX.forEach(f => f()); P.unsubX = null; }
         P.open = null; P.other = null;
         peerSplit();   // one side pane at a time: a System pane closes first (2026-10-04)
@@ -5689,7 +5694,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         await Promise.all(Object.keys(g.members || {}).map(u => set(ref(database, `share/chatIndex/${u}/${tid}`), null).catch(() => {})));
         await set(ref(database, `share/chat/${tid}`), null); delete P.groups[tid]; }
 
-    function peerSplit() { if (window.__dcSysPane && window.__dcSysPane.is()) window.__dcSysPane.close(); $('#dc-console .dc-body').classList.add('dc-split'); }
+    function peerSplit() { if (window.__dcSysPane && window.__dcSysPane.is()) window.__dcSysPane.close(); $('#dc-console .dc-body').classList.add('dc-split'); closeDrawer(); }
     window.__dcClosePeer = () => closePeer();
     function closePeer() {
         if (P.unsub) { P.unsub(); P.unsub = null; } if (P.unsubX) { P.unsubX.forEach(f => f()); P.unsubX = null; }
@@ -5706,8 +5711,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // accounts' display names are not readable from a browser, so the directory is how they reach everyone else
         { const dn = String(u.displayName || '').trim(); if (dn && dn !== (P.dir[P.me] || '')) { set(ref(database, `share/directory/${P.me}/name`), dn).catch(() => {}); P.dir[P.me] = dn; } }
         P.myName = P.dir[P.me] || (u.email || '').split('@')[0] || 'me';
-        build();
-        onValue(ref(database, `share/chatIndex/${P.me}`), s => { P.index = s.val() || {}; popNew(P.index); dots(); publishRemoteTabs(); if (!P.open) renderHome();
+        build(); wireDrawer();
+        onValue(ref(database, `share/chatIndex/${P.me}`), s => { P.index = s.val() || {}; popNew(P.index); dots(); publishRemoteTabs(); if (!P.open || drawerOpen()) renderHome();
             if (P.linkTid) { const t = P.linkTid; P.linkTid = null; openByTid(t); } }, () => {});
         onValue(ref(database, `${P.me}/console/settings/mute`), s => { P.mute = s.val() || {}; muteBtn(); if (!P.open) renderHome();
             window.__dcRenderTopics && window.__dcRenderTopics(); }, () => {});
@@ -5723,6 +5728,64 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (P.open) renderBar(); else renderHome(); }, () => {});
     });
     window.__dcPeer = P;   // test hook
+    // ONE CHAT LIST (2026-10-23, Telegram review #1 in L's layout: "from the droplet in the upper left corner when you click that it opens
+    // this new pane on the left ... then you click and on the right [desktop: left] or ... the secondary panel is on bottom or top"):
+    // the name top-left (a button now; the target <select> stays hidden as the state) opens a LEFT DRAWER = Brains (the chat targets)
+    // + the People list itself (#dc-peer-home is MOVED in, so every row handler is unchanged) + 🌐 Browser / ⚙ Settings. A brain sets the
+    // target; a chat opens in the secondary panel (the old 👥 pane, same split bar) - left of the chat on a wide screen, stacked on the
+    // phone (below when newest is on top, above when newest is at the bottom). The 👥 button is retired.
+    const BRAIN_ICON = { droplet: '💧', local: '🦙', compman: '🛠', command: '⌘' };
+    function drawerOpen() { const d = $('#dc-drawer'); return !!(d && d.classList.contains('open')); }
+    function closeDrawer() { const d = $('#dc-drawer'); if (!d) return; d.classList.remove('open'); $('#dc-drawer-scrim').classList.remove('open'); }
+    function drawerBrains() { const sel = $('#dc-chat-target'), b = $('#dc-brains'); if (!sel || !b) return;
+        b.innerHTML = [...sel.options].filter(o => !o.hidden && !o.disabled).map(o => `<button type="button" class="dc-peer-row${o.value === sel.value ? ' on' : ''}" data-brain="${esc(o.value)}">${BRAIN_ICON[o.value] || '🤖'} ${esc(o.textContent.trim())}</button>`).join(''); }
+    function openDrawer(mode) { const d = $('#dc-drawer'), home = $('#dc-peer-home'), con = $('#dc-console'), bar = $('#dc-console .dc-bar'); if (!d || !home) return;
+        const top = bar ? Math.round(bar.getBoundingClientRect().bottom - con.getBoundingClientRect().top) : 0;
+        d.style.top = top + 'px'; $('#dc-drawer-scrim').style.top = top + 'px';
+        home.hidden = false; drawerBrains(); renderHome(mode); d.classList.add('open'); $('#dc-drawer-scrim').classList.add('open'); }
+    function wireDrawer() {
+        const con = $('#dc-console'), sel = $('#dc-chat-target'), home = $('#dc-peer-home'); if (!con || !sel || !home || $('#dc-drawer')) return;
+        const brand = document.createElement('button'); brand.type = 'button'; brand.id = 'dc-brand-btn'; brand.title = 'chats, brains, browser, settings';
+        sel.style.display = 'none'; sel.after(brand);
+        const paint = () => { const o = sel.selectedOptions[0]; brand.innerHTML = `${BRAIN_ICON[sel.value] || '🤖'} ${esc(o ? o.textContent.trim() : 'Droplet')}<span class="caret">▾</span><span class="dot" hidden></span>`; dots(); };
+        sel.addEventListener('change', paint);
+        const dr = document.createElement('div'); dr.id = 'dc-drawer';
+        dr.innerHTML = '<div class="dh"><b>Chats</b><button type="button" class="dx" title="close">✕</button></div><div class="ph">Brains</div><div id="dc-brains"></div>';
+        dr.appendChild(home);
+        const foot = document.createElement('div'); foot.className = 'df';
+        foot.innerHTML = '<button type="button" class="dc-peer-row" data-dweb="1">🌐 Browser</button><button type="button" class="dc-peer-row" data-dsys="1">⚙ Settings</button>';
+        dr.appendChild(foot);
+        const scrim = document.createElement('div'); scrim.id = 'dc-drawer-scrim';
+        con.append(scrim, dr);
+        dr.addEventListener('click', e => { const t = e.target;
+            const bb = t.closest('[data-brain]'); if (bb) { sel.value = bb.dataset.brain; sel.dispatchEvent(new Event('change', { bubbles: true })); closeDrawer(); return; }
+            if (t.closest('.dx')) { closeDrawer(); return; }
+            if (t.closest('[data-dweb]')) { window.__dcOpenWeb && window.__dcOpenWeb(); return; }
+            if (t.closest('[data-dsys]')) { closeDrawer(); const st = $('#dc-sys-tab'); if (st) st.click(); return; } });
+        scrim.onclick = closeDrawer;
+        document.addEventListener('keydown', e => { if (e.key === 'Escape' && drawerOpen()) { e.stopPropagation(); closeDrawer(); } }, true);
+        brand.onclick = e => { e.stopPropagation(); drawerOpen() ? closeDrawer() : openDrawer(); };
+        { const pb = $('#dc-peer-btn'); if (pb) pb.style.display = 'none'; }
+        const css = document.createElement('style');
+        css.textContent = `#dc-brand-btn{background:none;border:0;color:inherit;font:inherit;font-weight:700;font-size:1.05em;cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:4px 8px;position:relative;white-space:nowrap}
+#dc-brand-btn .caret{opacity:.6;font-size:.75em}
+#dc-brand-btn .dot{position:absolute;top:2px;right:0;width:8px;height:8px;border-radius:50%;background:#e74c3c}
+#dc-brand-btn .dot[hidden]{display:none}
+#dc-drawer{position:absolute;left:0;bottom:0;width:min(340px,88vw);z-index:40;background:var(--dc-panel,var(--bg,#0d1117));border-right:1px solid var(--border,#333);box-shadow:4px 0 18px rgba(0,0,0,.45);transform:translateX(-105%);transition:transform .2s ease;display:flex;flex-direction:column;overflow:hidden}
+#dc-drawer.open{transform:none}
+#dc-drawer-scrim{position:absolute;left:0;right:0;bottom:0;z-index:39;background:rgba(0,0,0,.35);display:none}
+#dc-drawer-scrim.open{display:block}
+#dc-drawer .dh{display:flex;align-items:center;justify-content:space-between;padding:10px 12px 2px}
+#dc-drawer .dx{background:none;border:0;color:inherit;font-size:1.1em;cursor:pointer}
+#dc-drawer > .ph{font-size:.66rem;text-transform:uppercase;letter-spacing:.12em;opacity:.55;margin:10px 12px 4px}
+#dc-drawer #dc-brains{padding:0 6px}
+#dc-drawer #dc-peer-home{flex:1 1 auto;overflow:auto;padding:0 6px 8px}
+#dc-drawer .df{border-top:1px solid var(--border,#333);padding:6px}
+#dc-drawer .dc-peer-row.on{box-shadow:inset 3px 0 0 #40e0d0}
+@media (min-width:761px){.dc-body.dc-split:not(.sysopen)>#dc-peer{order:-2;border-left:0;border-right:1px solid var(--border);padding-left:0;padding-right:12px}.dc-body.dc-split:not(.sysopen)>#dc-peer-split{order:-1}}
+@media (max-width:760px){.dc-body.dc-split.dc-nb:not(.sysopen)>#dc-peer{order:-2;border-top:0;border-bottom:1px solid var(--border);padding:0 0 8px}.dc-body.dc-split.dc-nb:not(.sysopen)>#dc-peer-split{order:-1}}`;
+        document.head.appendChild(css);
+        paint(); }
     // GLOBAL SEARCH data (#6): every People thread + group + the Biz bot, last 300 messages each, read once when "All chats" opens.
     window.__dcOpenTid = t => t === 'bizbot' ? openBiz() : openByTid(t);
     window.__dcPeerSearch = async () => { const out = [];
