@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
-<meta name="version" content="1.0.19">
+<meta name="version" content="1.0.20">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0c0f13"><title>Loadout</title>
 <style>
@@ -662,10 +662,15 @@ const A = {"charSheet": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAwAAAAFAC
 let CAT = {...A.decor};               // furniture catalog {key:{du,w,h,cat,label}} — embedded fallback + DB
 // db + auth imported from the shared firebase-init above
 let BASE = localStorage.getItem("loadout:acct") || "public";  // per-account life data (public = shared demo)
-const catImg={};
-function loadCatImages(){for(const k in CAT){const src=CAT[k].du||CAT[k].url;if(src&&(!catImg[k]||catImg[k]._src!==src)){const im=new Image();im._src=src;im.src=src;catImg[k]=im;}}}
-loadCatImages();
-onValue(ref(db,"public/games/loadout/catalog"),snap=>{const v=snap.val();if(v){CAT={...A.decor,...v};loadCatImages();if(paletteOpen)buildPalette();}});
+// Images load on first use (2026-10-23): with ~5,400 LimeZu pieces in the catalog, loading every image at boot would stall the game.
+const _catImg={};
+const catImg=new Proxy(_catImg,{get(t,k){if(typeof k!=="string"||k in t)return t[k];const c=CAT[k],src=c&&(c.du||c.url);if(!src)return undefined;const im=new Image();im._src=src;im.src=src;return t[k]=im;}});
+function loadCatImages(){for(const k in _catImg){const c=CAT[k],src=c&&(c.du||c.url);if(src&&_catImg[k]._src!==src){const im=new Image();im._src=src;im.src=src;_catImg[k]=im;}}}
+// LimeZu Modern Interiors singles (ops/loadout/build_limezu.py -> assets/limezu, git-ignored: licence = no redistribution).
+// Merged UNDER the Firebase catalog so a DB entry with the same key always wins; never written to Firebase.
+let LZ={},LZT={},lzTheme="living_room",lzQ="";
+fetch("assets/limezu/manifest.json").then(r=>r.ok?r.json():null).then(m=>{if(!m)return;LZ=m.items||{};LZT=m.themes||{};CAT={...A.decor,...LZ,...CAT};if(paletteOpen)buildPalette();}).catch(()=>{});
+onValue(ref(db,"public/games/loadout/catalog"),snap=>{const v=snap.val();if(v){CAT={...A.decor,...LZ,...v};loadCatImages();if(paletteOpen)buildPalette();}});
 const $=id=>document.getElementById(id);
 // broken/dead image URL -> collapse to the item's name text instead of a broken-image icon
 // image-failure telemetry (2026-09-18): which pictures fail on which device -> {BASE}/loadout/imgfail
@@ -2387,15 +2392,32 @@ function buildPalette(){const body=$("palBody");body.innerHTML="";
   if(paletteMode==="assign"){const g0=document.createElement("div");g0.className="palgrid";
     const none=document.createElement("div");none.className="pit";none.innerHTML='<div class="box" style="display:grid;place-items:center;color:var(--muted);font-size:1.4rem">▢</div><span>Plain box</span>';
     none.onclick=()=>{PLACES[assignKey].sprite=null;saveCrate(assignKey);closePalette();};g0.appendChild(none);body.appendChild(g0);}
-  const cats={};for(const k in CAT){if(CAT[k].legacy||k==="fridge"||k==="counter")continue;(cats[CAT[k].cat]=cats[CAT[k].cat]||[]).push(k);}   // legacy = old LimeZu/office pieces: still drawn where placed, not offered (L 2026-10-18 "lean up the list")
+  const cats={};for(const k in CAT){if(CAT[k].legacy||CAT[k].lz||k==="fridge"||k==="counter")continue;(cats[CAT[k].cat]=cats[CAT[k].cat]||[]).push(k);}   // legacy = old LimeZu/office pieces: still drawn where placed, not offered (L 2026-10-18 "lean up the list")
   for(const cat of Object.keys(cats)){const h=document.createElement("div");h.className="palcat";h.textContent=cat;body.appendChild(h);
     const g=document.createElement("div");g.className="palgrid";
     for(const k of cats[cat]){const d=document.createElement("div");d.className="pit";
-      d.innerHTML=`<div class="box"><img src="${CAT[k].du}"></div><span>${CAT[k].label}</span>`;
-      d.addEventListener("click",()=>paletteMode==="assign"?assignImage(k):(paletteMode==="container"?(makeContainerFrom(k),closePalette()):addPiece(k)));g.appendChild(d);}
-    body.appendChild(g);}}
+      d.innerHTML=`<div class="box"><img src="${CAT[k].du||CAT[k].url}"></div><span>${CAT[k].label}</span>`;
+      d.addEventListener("click",()=>pickPal(k));g.appendChild(d);}
+    body.appendChild(g);}
+  buildLzPalette(body);}
+function pickPal(k){paletteMode==="assign"?assignImage(k):(paletteMode==="container"?(makeContainerFrom(k),closePalette()):addPiece(k));}
+// LimeZu section: one theme at a time (or a search across all), images lazy, capped at 240 tiles per view.
+function buildLzPalette(body){if(!Object.keys(LZT).length)return;
+  const h=document.createElement("div");h.className="palcat";h.textContent="LimeZu Modern Interiors";body.appendChild(h);
+  const bar=document.createElement("div");bar.style.cssText="display:flex;gap:8px;padding:4px 16px;flex-wrap:wrap";
+  const sel=document.createElement("select");for(const s in LZT){const o=new Option(LZT[s].label+" ("+LZT[s].count+")",s);if(s===lzTheme)o.selected=true;sel.appendChild(o);}
+  const q=document.createElement("input");q.type="search";q.placeholder="Search all LimeZu (e.g. kitchen, 12)";q.value=lzQ;q.style.flex="1";
+  bar.append(sel,q);body.appendChild(bar);const g=document.createElement("div");g.className="palgrid";body.appendChild(g);
+  let cap=240;const fill=()=>{g.innerHTML="";const t=lzQ.trim().toLowerCase();
+    let keys=Object.keys(LZ).filter(k=>t?((CAT[k]||{}).label||"").toLowerCase().includes(t):k.startsWith("lz_"+lzTheme+"_"));
+    const more=keys.length>cap;keys=keys.slice(0,cap);
+    for(const k of keys){const c=CAT[k];if(!c)continue;const sc=Math.min(1,96/c.h,104/c.w),d=document.createElement("div");d.className="pit";
+      d.innerHTML=`<div class="box"><img loading="lazy" style="width:${Math.round(c.w*sc)}px;height:${Math.round(c.h*sc)}px;image-rendering:pixelated" src="${c.url}"></div><span>${c.label}</span>`;
+      d.addEventListener("click",()=>pickPal(k));g.appendChild(d);}
+    if(more){const n=document.createElement("button");n.className="tbtn";n.textContent="Show more";n.style.gridColumn="1/-1";n.onclick=()=>{cap+=240;fill();};g.appendChild(n);}};
+  sel.onchange=()=>{lzTheme=sel.value;lzQ="";q.value="";cap=240;fill();};q.oninput=()=>{lzQ=q.value;cap=240;fill();};fill();}
 function addPiece(k){const id=newId();roomDecor[room]=roomDecor[room]||{};
-  roomDecor[room][id]={k,x:Math.round(W/2-CAT[k].w/2),y:Math.round(H/2-CAT[k].h/2)};
+  roomDecor[room][id]={k,x:Math.round(VW/2-roomOff.x-CAT[k].w/2),y:Math.round(VH/2-roomOff.y-CAT[k].h/2)};   // the middle of what you are looking at (big rooms scroll; W/2,H/2 could be off-screen)
   saveRoom(room);selected={kind:"d",id};refreshTools();closePalette();}
 
 /* ── SAVE / RESUME player position across sessions (public/loadout/playerState) ── */
@@ -2518,7 +2540,7 @@ $("stWrap").addEventListener("wheel",e=>{if(e.ctrlKey||e.metaKey){e.preventDefau
   W.style.touchAction="none";}
 $("stFile").addEventListener("change",e=>{stImport(e.target.files&&e.target.files[0]);e.target.value="";});
 $("stClear").addEventListener("click",()=>{stSnap();ST.cells=stBlank(ST.w,ST.h);stDraw();});
-$("stLoad").addEventListener("click",()=>{const keys=Object.keys(CAT).sort();const k=prompt("Load which piece to edit?\n\n"+keys.join(", "));if(k&&CAT[k])stLoadPiece(k.trim());});
+$("stLoad").addEventListener("click",()=>{const keys=Object.keys(CAT).filter(k=>!CAT[k].lz).sort();const k=prompt("Load which piece to edit?\n\n"+keys.join(", "));if(k&&CAT[k])stLoadPiece(k.trim());});
 function stLoadPiece(k){const c=CAT[k];const im=new Image();im.onload=()=>{const w=Math.min(200,+c.w||24),h=Math.min(200,+c.h||32);const oc=document.createElement("canvas");oc.width=w;oc.height=h;const o=oc.getContext("2d");o.imageSmoothingEnabled=false;o.drawImage(im,0,0,w,h);const dt=o.getImageData(0,0,w,h).data;ST.w=w;ST.h=h;ST.cells=stBlank(w,h);
   for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=(y*w+x)*4;if(dt[i+3]>40)ST.cells[y][x]="#"+[dt[i],dt[i+1],dt[i+2]].map(n=>n.toString(16).padStart(2,"0")).join("");}
   $("stW").value=w;$("stH").value=h;ST.hist=[];ST.redo=[];ST.loadKey=k;$("stTitle").textContent="Editing: "+(c.label||k);$("stName").value=c.label||k;$("stBase").value=(c.base!=null?c.base:"");stFit();stDraw();};im.src=c.du||c.url;}
@@ -2719,7 +2741,7 @@ function placeContainer(loc,area,x,y){
 let railN=-1;
 function buildRail(){const el=$("storRail");if(!el)return;const n=Object.keys(CAT).length;if(n===railN)return;railN=n;
   el.innerHTML='<div class="rl">CATALOG — drag to the tray</div>';
-  const cats={};for(const k in CAT){if(CAT[k].legacy||k==="fridge"||k==="counter")continue;(cats[CAT[k].cat]=cats[CAT[k].cat]||[]).push(k);}   // legacy = old LimeZu/office pieces: still drawn where placed, not offered (L 2026-10-18 "lean up the list")
+  const cats={};for(const k in CAT){if(CAT[k].legacy||CAT[k].lz||k==="fridge"||k==="counter")continue;(cats[CAT[k].cat]=cats[CAT[k].cat]||[]).push(k);}   // legacy = old LimeZu/office pieces: still drawn where placed, not offered (L 2026-10-18 "lean up the list")
   for(const cat of Object.keys(cats)){const h=document.createElement("div");h.className="rc";h.textContent=cat;el.appendChild(h);
     for(const k of cats[cat]){const d=document.createElement("div");d.className="ri";
       const im=document.createElement("img");im.src=(CAT[k]||{}).du||"";im.alt="";d.appendChild(im);
