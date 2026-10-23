@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.48"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.50"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -2186,9 +2186,16 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         const paintSite = () => window.dispatchEvent(new Event('dc-site'));
         function siteMarkSeen() {
             const last = siteRows().reduce((t, [, m]) => Math.max(t, m.timestamp || 0), 0);
-            if (last > siteSeen) { siteSeen = last; try { localStorage.setItem('dc-site-seen', String(last)); } catch (_) {} paintSite(); }
+            if (last > siteSeen) { siteSeen = last; try { localStorage.setItem('dc-site-seen', String(last)); } catch (_) {} paintSite();
+                if (DC.base) set(ref(database, `${DC.base}/siteSeen`), last).catch(() => {}); }
         }
+        // READ STATE IN THE CLOUD (2026-10-22, L: "every time I open console it shows new message in the people section, on every
+        // new browser"): the site's seen mark was localStorage only, so each new browser counted every visitor line as unread.
+        // {uid}/console/siteSeen now carries it; the newest of cloud and local wins (same rule as the member conversations).
         function siteChatStart() {
+            onValue(ref(database, `${DC.base}/siteSeen`), s => { const v = +s.val() || 0;
+                if (siteSeen > v) set(ref(database, `${DC.base}/siteSeen`), siteSeen).catch(() => {});   // this browser saw further - lift the cloud mark
+                if (v > siteSeen) { siteSeen = v; try { localStorage.setItem('dc-site-seen', String(v)); } catch (_) {} paintSite(); } }, () => {});
             window.__dcSite = { rows: siteRows, unread: siteUnread, self: u => SITE_SELF.has(u || ''), replyAs: SITE_REPLY_AS, markSeen: siteMarkSeen,
                 send: text => push(ref(database, 'public/messages'), { username: SITE_REPLY_AS, text, timestamp: Date.now() }).then(siteMarkSeen) };
             onValue(query(ref(database, 'public/messages'), limitToLast(80)), s => { siteMsgs = s.val() || {}; paintSite(); });
