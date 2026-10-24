@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
-<meta name="version" content="1.0.23">
+<meta name="version" content="1.0.25">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0c0f13"><title>Loadout</title>
 <style>
@@ -407,8 +407,8 @@
 </head><body>
 <div class="app"><div class="wrap">
   <header>
-    <h1>LOADOUT</h1>
-    <div class="hudR"><div class="pill"><span id="clockIco">☀</span> <b id="clock">—</b></div><div class="pill" title="energy - sleep in a bed to refill">⚡ <b id="energy">—</b></div><div class="pill">💰 <b id="money">—</b></div><div class="pill" id="fuelPill">⛽ <b id="fuel">—</b></div><div class="pill" hidden>CARRY <b id="bagN">0</b></div><button class="btn ghost" id="editBtn">EDIT ROOM</button><button class="btn ghost" id="yukiBtn">🧚 Yuki</button><button class="btn ghost" id="musBtn" title="music on / off (M)">♪ Off</button><button class="btn ghost" id="acctBtn">👤 Log in</button><button class="btn" id="bagBtn" hidden>BACKPACK</button></div>
+    <h1 id="musTitle" title="music on / off (M)">LOADOUT</h1>
+    <div class="hudR"><div class="pill"><span id="clockIco">☀</span> <b id="clock">—</b></div><div class="pill" title="energy - sleep in a bed to refill">⚡ <b id="energy">—</b></div><div class="pill">💰 <b id="money">—</b></div><div class="pill" id="fuelPill">⛽ <b id="fuel">—</b></div><div class="pill" hidden>CARRY <b id="bagN">0</b></div><button class="btn ghost" id="editBtn">EDIT ROOM</button><button class="btn ghost" id="yukiBtn">🧚 Yuki</button><button class="btn ghost" id="acctBtn">👤 Log in</button><button class="btn" id="bagBtn" hidden>BACKPACK</button></div>
   </header>
   <div class="screen">
     <canvas id="game" width="512" height="512"></canvas>
@@ -1708,7 +1708,7 @@ const YUKI_GUIDE="HOW TO PLAY LOADOUT (use this when asked):\n"+
  "- Energy: sleep in a bed to refill it.\n"+
  "- The story: start with 'The Van at Dawn' \u2014 load the van, check the gas, take a ticket. A hint line at the top right says what's next.\n"+
  "- Build your room: EDIT ROOM (or I) \u2014 add furniture, drag it, rotate, resize, paint floors (F) and walls (W), draw your own sprites; Does sets what a piece does (door, storage, shop...).\n"+
- "- Lights: L. Music: M. Talk to me any time with the Yuki button.";
+ "- Lights: L. Music: M or tap the LOADOUT title. Talk to me any time with the Yuki button.";
 async function yukiSend(){const inp=$("yukiInput");if(!inp)return;const t=inp.value.trim();if(!t||yukiBusy)return;inp.value="";if(!yukiLoaded)await loadYukiIdentity();yukiBubble("You",t,"you");yukiHist.push({role:"user",content:t});yukiBusy=true;const pend=yukiBubble(yukiName,"\u2026","yuki");try{let reply=null;if(BASE===LUIS_UID&&typeof auth!=="undefined"&&auth&&auth.currentUser){try{const idTok=await auth.currentUser.getIdToken();const res=await fetch(COMPMAN_URL,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+idTok},body:JSON.stringify({messages:[{role:"system",content:loadoutEditContext()}].concat(yukiHist.slice(-12))})});if(res.ok){reply=((await res.json()).reply||"").trim();}}catch(ce){reply=null;}}if(reply==null||reply===""){const model=await yukiModel();const area=(typeof ROOMS!=="undefined"&&ROOMS[room])?ROOMS[room].name:room;const mem=await yukiMemoryText();const _isLuis=BASE===LUIS_UID;   /* b114 (L: another player asked Yuki how to play and got nothing useful): she now knows HOW TO PLAY, and talks to a guest as a guest */
 const sys="You are "+yukiName+", a warm, playful, slightly shy fairy companion inside the game \u2018Loadout\u2019"+(_isLuis?", Luis\u2019s life-inventory game. The game mirrors his REAL inventory, profit and jobs \u2014 a factual reflection of his life. You are talking to Luis.":", a cozy pixel RPG about a field-service technician. You are talking to a PLAYER who is visiting \u2014 not Luis; don\u2019t talk about Luis\u2019s private life or money.")+" Keep replies short (1-3 sentences), friendly and encouraging. If they ask how to play, answer from the guide below in plain steps. Current area: "+area+". "+(yukiPersona?("Personality: "+yukiPersona+" "):"")+"To remember a fact, append [MEMORY:key=value]. To update how you feel, append [TRAIT:key=value]."+mem+"\n\n"+YUKI_GUIDE+(_isLuis?"\n\n"+loadoutEditContext():"");const res=await fetch(YUKI_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:model,stream:false,messages:[{role:"system",content:sys},...yukiHist.slice(-10)]})});if(!res.ok)throw new Error("HTTP "+res.status);const data=await res.json();reply=((data.message&&data.message.content)||"");let mw=0;for(const m of reply.matchAll(/\[MEMORY:([^=\]]+)=([^\]]+)\]/gi)){if(mw++>=8)break;saveYukiMem(m[1].trim(),m[2].trim());}let tw=0;for(const m of reply.matchAll(/\[TRAIT:([^=\]]+)=([^\]]+)\]/gi)){if(tw++>=8)break;saveYukiTrait(m[1].trim(),m[2].trim());}}reply=(reply||"").replace(/\[MOOD:\w+\]/gi,"").replace(/\[MEMORY:[^\]]+\]/gi,"").replace(/\[TRAIT:[^\]]+\]/gi,"").trim();var _ed=applyLoadoutEdits(reply);reply=_ed.text;if(_ed.done.length)reply=(reply?reply+" ":"")+"\u2728 "+_ed.done.join("; ");reply=reply||"U-um\u2026";if(pend)pend.innerHTML="<b>"+yukiName+":</b> "+reply.replace(/</g,"&lt;");yukiHist.push({role:"assistant",content:reply});const box=$("yukiMsgs");if(box)box.scrollTop=box.scrollHeight;}catch(e){if(pend)pend.innerHTML="<b>"+yukiName+":</b> A-ah\u2026 I can\u2019t reach my thoughts right now.";}finally{yukiBusy=false;}}
 (function(){var b=$("yukiBtn");if(b)b.onclick=function(){yukiOpen(true);};var cl=$("yukiClose");if(cl)cl.onclick=function(){yukiOpen(false);};var sb=$("yukiSendBtn");if(sb)sb.onclick=yukiSend;var inp=$("yukiInput");if(inp)inp.addEventListener("keydown",function(e){if(e.key==="Enter"){e.preventDefault();yukiSend();}});addEventListener("keydown",function(e){if(e.key==="Escape"){var yc=$("yukiChat");if(yc&&yc.style.display==="flex"){e.stopImmediatePropagation();yukiOpen(false);return;}}if((e.key==="c"||e.key==="C")&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&!isTypingEl()){   /* b130: Ctrl/Cmd+C is copy, not Yuki (L) */var c=$("yukiChat");yukiOpen(!(c&&c.style.display==="flex"));}});if(typeof cv!=="undefined")cv.addEventListener("pointerdown",function(e){var r=cv.getBoundingClientRect();var cx=(e.clientX-r.left)*(cv.width/r.width),cy=(e.clientY-r.top)*(cv.height/r.height);if(Math.hypot(cx-fairy.x,cy-fairy.y)<20&&matchMedia("(pointer:coarse)").matches){e.stopPropagation();e.preventDefault();yukiOpen(true);}},true);})();
@@ -1769,7 +1769,7 @@ applyTxs();
 // KEYGEN MUSIC (2026-10-18, L: "background music, keygen music, small files, 3 tracks, on/off button"). Three ORIGINAL
 // keygen-style chiptunes played by WebAudio - no files at all, nothing to license. Each song = a chord loop + a lead motif
 // written in chord-tone steps (so it fits every chord), a fast 32nd-note arpeggio, a bass, noise drums and the classic
-// echo on the lead. ♪ button or M toggles; remembered in this browser; songs rotate every 16 bars.
+// echo on the lead. the LOADOUT title or M toggles; remembered in this browser; songs rotate every 16 bars.
 const SONGS=[
   {name:"Van Keys",bpm:140,base:57,ch:[[0,"m"],[-4,"M"],[3,"M"],[-2,"M"]],
    lead:[2,-1,1,-1,2,3,-1,2,1,-1,0,-1,1,2,-1,-1,2,-1,3,-1,4,-1,3,2,1,-1,2,-1,0,-1,-1,-1]},
@@ -1816,11 +1816,12 @@ function musTick(){const ac=MUS.ac;if(!ac)return;
     if(i%2===0)musTone(t,hz(S.base-12+c[0]+(i%4===2?12:0)),s16*1.8,"triangle",.16,false);                                       // bass on 8ths, octave bounce
     if(i%8===0)musHit(t,"k");if(i%8===4)musHit(t,"s");if(i%2===1)musHit(t,"h");
     MUS.t+=s16;MUS.step++;if(MUS.step>=16*S.ch.length*4){MUS.step=0;MUS.song=(MUS.song+1+Math.floor(Math.random()*(SONGS.length-1)))%SONGS.length;MUS.echo.delayTime.setValueAtTime(60/SONGS[MUS.song].bpm*.75,MUS.t);}}}
-function musPaint(){const b=$("musBtn");if(b)b.textContent=MUS.on?"♪ On":"♪ Off";}
+/* the LOADOUT title IS the music switch (2026-10-24, L: "instead of a music button make the loadout when I click it turns music on and off"); a lit note after the title shows it is playing */
+function musPaint(){const b=$("musTitle");if(b)b.classList.toggle("mus-on",MUS.on);}
 function musSet(on){MUS.on=on;musPaint();
   if(on){musInit();MUS.ac.resume();MUS.t=MUS.ac.currentTime+.05;MUS.echo.delayTime.value=60/SONGS[MUS.song].bpm*.75;if(!MUS.timer)MUS.timer=setInterval(musTick,25);dayBanner("♪ "+SONGS[MUS.song].name);}
   else{if(MUS.timer){clearInterval(MUS.timer);MUS.timer=null;}if(MUS.ac)MUS.ac.suspend();}}
-$("musBtn").addEventListener("click",e=>{musSet(!MUS.on);e.currentTarget.blur();});
+$("musTitle").addEventListener("click",()=>musSet(!MUS.on));
 musPaint();
 // ROOM NAME = LIGHT SWITCH (2026-10-18, L: "where it says your room / the room name, that will be the light switch when clicked")
 $("roomB").addEventListener("click",e=>{e.stopPropagation();toggleLights();});
@@ -3356,7 +3357,8 @@ footer{font-size:.55rem;line-height:1.2;white-space:nowrap;overflow:hidden;text-
   header{flex-direction:row!important;align-items:center!important;flex-wrap:nowrap!important;gap:10px!important}
   header h1{flex:0 0 auto;margin:0;line-height:1}
   .hudR{flex:1 1 auto;min-width:0;width:auto!important}}
-@media (pointer:coarse) and (orientation:landscape){header h1{display:none}}
+@media (pointer:coarse) and (orientation:landscape){header h1{font-size:.85rem;margin:0}}
+#musTitle{cursor:pointer;user-select:none;-webkit-user-select:none}#musTitle::after{content:" ♪";opacity:.25;font-size:.7em}#musTitle.mus-on::after{opacity:1;color:#ffd166}
 
 /* READABLE TEXT (2026-10-18, L: "the text is white in some things and hard to read") - a contrast audit of every window
    flagged: amber numbers/titles on parchment, the journal reader's light-grey body + titles, storage rail labels, Yuki hint */
