@@ -2,7 +2,7 @@
 <html lang="en" class="theme-kamehouse">
 <head>
   <meta charset="UTF-8">
-  <meta name="version" content="1.0.0">
+  <meta name="version" content="1.0.1">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Kame House — Tasks</title>
   <link rel="stylesheet" href="./assets/css/master.css">
@@ -67,8 +67,13 @@
           <select id="t-type">
             <option value="habit">Habit (chain)</option>
             <option value="recurring">Recurring</option>
+            <option value="rotation">Rotation (cycles options)</option>
             <option value="oneshot">One-shot goal</option>
           </select>
+        </div>
+        <div class="span-full" id="options-wrap" style="display:none;">
+          <label for="t-options">Options, in order (comma-separated)</label>
+          <input type="text" id="t-options" maxlength="300" placeholder="Eggs, Oatmeal">
         </div>
         <div class="freq-wrap" id="freq-wrap">
           <label for="t-freq">Frequency</label>
@@ -81,13 +86,26 @@
             <option value="custom">Custom (every N days)</option>
           </select>
         </div>
+        <div class="freq-wrap" id="weekday-wrap" style="display:none;">
+          <label for="t-weekday">On (weekly)</label>
+          <select id="t-weekday">
+            <option value="">any day</option>
+            <option value="0">Sunday</option><option value="1">Monday</option><option value="2">Tuesday</option>
+            <option value="3">Wednesday</option><option value="4">Thursday</option><option value="5">Friday</option>
+            <option value="6">Saturday</option>
+          </select>
+        </div>
         <div class="freq-wrap" id="custom-days-wrap" style="display:none;">
           <label for="t-custom-days">Every N days</label>
           <input type="number" id="t-custom-days" min="1" max="365" value="14">
         </div>
-        <div class="freq-wrap" id="assignee-wrap" style="display:none;">
+        <div>
           <label for="t-assignee">Assignee (opt)</label>
-          <input type="text" id="t-assignee" maxlength="40" placeholder="Who?">
+          <input type="text" id="t-assignee" maxlength="40" placeholder="Who? (blank = you)">
+        </div>
+        <div>
+          <label for="t-link">Link (opt)</label>
+          <input type="url" id="t-link" maxlength="400" placeholder="Where the details live">
         </div>
         <div class="due-wrap" id="due-wrap">
           <label for="t-due">Due date</label>
@@ -116,6 +134,13 @@
       <button data-view="due-today">Due today</button>
       <button data-view="habits">Habits only</button>
       <button data-view="open">Open one-shots</button>
+      <button data-view="stale">Stale</button>
+      <button data-view="archived">Archived</button>
+      <select id="who-pick" class="year-pick" title="Whose items" style="width:auto;flex:0 0 auto;">
+        <option value="mine">Mine</option>
+        <option value="droplet">Droplet</option>
+        <option value="all">All</option>
+      </select>
       <span class="spacer"></span>
       <label style="font-size:.78rem;color:var(--muted);">Grid year: <select id="year-pick" class="year-pick"></select></label>
     </div>
@@ -219,6 +244,7 @@
     let allTodos = {};
     let unsubscribe = null;
     let currentView = 'all';
+    let currentWho = 'mine';
     let currentYear = new Date().getFullYear();
 
     // Telegram reminder settings (the console daemon reads {uid}/console/khReminders {enabled, agenda, agendaTime})
@@ -419,17 +445,19 @@
     const freqSel = document.getElementById('t-freq');
     const freqWrap = document.getElementById('freq-wrap');
     const customDaysWrap = document.getElementById('custom-days-wrap');
-    const assigneeWrap = document.getElementById('assignee-wrap');
     const dueWrap = document.getElementById('due-wrap');
     function updateAddFormFields() {
       const t = typeSel.value;
-      const isHabitOrRecurring = t === 'habit' || t === 'recurring';
+      const isHabitOrRecurring = t === 'habit' || t === 'recurring' || t === 'rotation';
       freqWrap.classList.toggle('show', isHabitOrRecurring);
-      assigneeWrap.style.display = isHabitOrRecurring ? 'block' : 'none';
+      document.getElementById('options-wrap').style.display = t === 'rotation' ? 'block' : 'none';
       customDaysWrap.style.display = (isHabitOrRecurring && freqSel.value === 'custom') ? 'block' : 'none';
+      const weekly = t === 'recurring' && freqSel.value === 'weekly';
+      document.getElementById('weekday-wrap').style.display = weekly ? 'block' : 'none';
       dueWrap.classList.toggle('show', t === 'oneshot');
-      document.getElementById('time-wrap').classList.toggle('show', t === 'oneshot');
-      document.getElementById('remind-wrap').classList.toggle('show', t === 'oneshot');
+      // a time (+ ping) works on one-shots and on weekly-on-a-day recurring items (Trash, Sunday 20:00)
+      document.getElementById('time-wrap').classList.toggle('show', t === 'oneshot' || weekly);
+      document.getElementById('remind-wrap').classList.toggle('show', t === 'oneshot' || weekly);
     }
     typeSel.addEventListener('change', updateAddFormFields);
     freqSel.addEventListener('change', updateAddFormFields);
@@ -443,19 +471,38 @@
       const anchor = document.getElementById('t-anchor').value;
       const type = typeSel.value;
       const payload = { text, anchor, type, createdAt: Date.now(), archived: false };
-      if (type === 'habit' || type === 'recurring') {
+      const assignee = document.getElementById('t-assignee').value.trim();
+      if (assignee) payload.assignee = assignee;
+      const link = document.getElementById('t-link').value.trim();
+      if (link) payload.link = link;
+      if (type === 'habit' || type === 'recurring' || type === 'rotation') {
         const freq = freqSel.value;
         payload.frequency = freq;
         if (freq === 'custom') {
           payload.customDays = Math.max(1, parseInt(document.getElementById('t-custom-days').value, 10) || 14);
         }
-        const assignee = document.getElementById('t-assignee').value.trim();
-        if (assignee) payload.assignee = assignee;
       }
       if (type === 'habit') {
         payload.history = {};
       } else if (type === 'recurring') {
         payload.lastDone = 0;
+        const wd = document.getElementById('t-weekday').value;
+        if (payload.frequency === 'weekly' && wd !== '') {
+          payload.weekday = +wd;
+          const time = document.getElementById('t-time').value;
+          const remind = document.getElementById('t-remind').value;
+          if (time) {
+            payload.time = time;
+            if (remind !== 'none') payload.remindMin = parseInt(remind, 10) || 0;
+          }
+        }
+      } else if (type === 'rotation') {
+        const opts = document.getElementById('t-options').value.split(',').map(s => s.trim()).filter(Boolean);
+        if (opts.length < 2) { alert('A rotation needs at least 2 options, comma-separated.'); return; }
+        payload.options = opts;
+        payload.idx = 0;
+        payload.lastDone = 0;
+        payload.history = {};
       } else if (type === 'oneshot') {
         payload.done = false;
         const due = document.getElementById('t-due').value;
@@ -484,10 +531,31 @@
       });
     });
 
+    document.getElementById('who-pick').addEventListener('change', e => { currentWho = e.target.value; render(); });
+
     // ---- Date helpers ----
-    function isoDate(d) { return d.toISOString().slice(0, 10); }
+    // LOCAL calendar date (2026-10-24: was toISOString = UTC, so after 8 PM Eastern "today" was tomorrow)
+    function isoDate(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
     function todayISO() { return isoDate(new Date()); }
     function dayMs() { return 86400000; }
+
+    // CompMan's add_todo used to write undated items as type 'task' with no anchor - show them as one-shots
+    function kind(t) { return (!t.type || t.type === 'task') ? 'oneshot' : t.type; }
+    const STALE_DAYS = 14;
+    function isStale(t) {
+      if (kind(t) !== 'oneshot' || t.done || t.archived) return false;
+      if (Date.now() - (t.createdAt || Date.now()) < STALE_DAYS * dayMs()) return false;
+      return !t.dueDate || t.dueDate < todayISO();
+    }
+    function whoMatches(t) {
+      const droplet = (t.assignee || '').toLowerCase() === 'droplet';
+      return currentWho === 'all' || (currentWho === 'droplet' ? droplet : !droplet);
+    }
+    // rotation: options[idx] is today's pick; ticking advances it. A skipped day holds its place.
+    function rotationPick(t) {
+      const o = Array.isArray(t.options) ? t.options : [];
+      return o.length ? o[(+t.idx || 0) % o.length] : '';
+    }
 
     function frequencyDays(t) {
       const intervals = { daily: 1, weekly: 7, biweekly: 14, monthly: 30, bimonthly: 60 };
@@ -498,6 +566,7 @@
       const m = { daily: 'daily', weekly: 'weekly', biweekly: 'every 2 weeks',
                   monthly: 'monthly', bimonthly: 'every 2 months' };
       if (t.frequency === 'custom') return `every ${frequencyDays(t)}d`;
+      if (t.frequency === 'weekly' && Number.isInteger(t.weekday)) return `${DAY_NAMES[t.weekday]}s`;
       return m[t.frequency] || t.frequency || '';
     }
 
@@ -506,19 +575,40 @@
       if (t.type === 'habit') {
         return !(t.history && t.history[today]);
       }
+      if (t.type === 'recurring' && Number.isInteger(t.weekday)) {
+        return (t.lastDone || 0) < lastWeekdayStart(t.weekday);
+      }
       if (t.type === 'recurring') {
         const interval = frequencyDays(t) * dayMs();
         return Date.now() > (t.lastDone || 0) + interval;
       }
-      if (t.type === 'oneshot') {
+      if (t.type === 'rotation') {
+        if (t.history && t.history[today]) return false;
+        if (!t.lastDone) return true;
+        const d = new Date(t.lastDone); d.setHours(0, 0, 0, 0);       // calendar days, not 24 h blocks
+        return Date.now() >= d.getTime() + frequencyDays(t) * dayMs();
+      }
+      if (kind(t) === 'oneshot') {
         if (t.done) return false;
         return !!(t.dueDate && t.dueDate <= today);
       }
       return false;
     }
 
+    // start (local midnight) of the most recent `weekday` (0=Sun), today included
+    const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    function lastWeekdayStart(wd) {
+      const d = new Date(); d.setHours(0, 0, 0, 0);
+      d.setDate(d.getDate() - ((d.getDay() - wd + 7) % 7));
+      return d.getTime();
+    }
+
     function recurringStatus(t) {
       if (t.type !== 'recurring') return null;
+      if (Number.isInteger(t.weekday)) {
+        if (isTaskDueToday(t)) return { cls: 'overdue', label: new Date().getDay() === t.weekday ? 'today' : 'missed' };
+        return { cls: '', label: `next ${DAY_NAMES[t.weekday]}${t.time ? ' ' + t.time : ''}` };
+      }
       const interval = frequencyDays(t) * dayMs();
       const due = (t.lastDone || 0) + interval;
       const now = Date.now();
@@ -671,6 +761,16 @@
       set(ref(database, `${basePath}/todos/${t.id}/lastDone`), Date.now());
     }
 
+    function tickRotation(t) {
+      const n = Array.isArray(t.options) ? t.options.length : 0;
+      if (!n) return;
+      update(ref(database, `${basePath}/todos/${t.id}`), {
+        idx: ((+t.idx || 0) + 1) % n,
+        lastDone: Date.now(),
+        [`history/${todayISO()}`]: rotationPick(t),
+      });
+    }
+
     function toggleOneshot(t) {
       set(ref(database, `${basePath}/todos/${t.id}/done`), !t.done);
     }
@@ -692,9 +792,9 @@
       set(ref(database, `${basePath}/todos/${t.id}/subtasks`), subs);
     }
 
-    function deleteTodo(t) {
-      if (!confirm(`Delete "${t.text}"? This wipes its history too.`)) return;
-      remove(ref(database, `${basePath}/todos/${t.id}`));
+    // 2026-10-24: delete = archive (L: nothing silently disappears). Restore from the Archived view.
+    function archiveTodo(t, on = true) {
+      update(ref(database, `${basePath}/todos/${t.id}`), { archived: on, archivedAt: on ? Date.now() : null });
     }
 
     function downloadTaskIcs(t) {
@@ -751,12 +851,17 @@
       Object.entries(allTodos).forEach(([id, t]) => {
         if (!t || t.archived) return;
         const entry = { id, ...t };
+        if ((entry.assignee || '').toLowerCase() === 'droplet') return;   // Today = L's plate
         if (!isTaskDueToday(entry)) return;
-        if (entry.type === 'oneshot') {
+        if (kind(entry) === 'oneshot') {
           items.push({ entry, sort: entry.time ? '1' + entry.time : (entry.dueDate < today ? '0' : '2'),
                        badge: entry.time || (entry.dueDate < today ? 'overdue' : 'due'), act: () => toggleOneshot(entry) });
+        } else if (entry.type === 'rotation') {
+          items.push({ entry, sort: '25', badge: 'rotation', label: `${entry.text}: ${rotationPick(entry)}`, act: () => tickRotation(entry) });
         } else if (entry.type === 'recurring') {
-          items.push({ entry, sort: '3', badge: frequencyLabel(entry), act: () => tickRecurring(entry) });
+          const todayTimed = entry.time && new Date().getDay() === entry.weekday;
+          items.push({ entry, sort: todayTimed ? '1' + entry.time : '3', badge: todayTimed ? entry.time : frequencyLabel(entry),
+                       act: () => tickRecurring(entry) });
         } else if (entry.type === 'habit') {
           items.push({ entry, sort: '4', badge: 'habit', act: () => toggleHabitDay(entry, today) });
         }
@@ -778,7 +883,7 @@
         pill.textContent = (it.entry.anchor || 'wildcard').slice(0, 4);
         const txt = document.createElement('span');
         txt.style.flex = '1';
-        txt.textContent = it.entry.text;
+        txt.textContent = it.label || it.entry.text;
         const done = document.createElement('button');
         done.textContent = '✓';
         done.title = 'Mark done';
@@ -796,11 +901,13 @@
       ANCHORS.forEach(a => byAnchor[a.key] = []);
 
       Object.entries(allTodos).forEach(([id, t]) => {
-        if (!t || t.archived) return;
+        if (!t || (currentView === 'archived') !== !!t.archived) return;
         const entry = { id, ...t };
+        if (!whoMatches(entry)) return;
         if (currentView === 'due-today' && !isTaskDueToday(entry)) return;
         if (currentView === 'habits' && entry.type !== 'habit') return;
-        if (currentView === 'open' && (entry.type !== 'oneshot' || entry.done)) return;
+        if (currentView === 'open' && (kind(entry) !== 'oneshot' || entry.done)) return;
+        if (currentView === 'stale' && !isStale(entry)) return;
         const key = (entry.anchor || 'wildcard').toLowerCase();
         if (!byAnchor[key]) byAnchor[key] = [];
         byAnchor[key].push(entry);
@@ -839,7 +946,7 @@
           const ul = document.createElement('ul');
           ul.className = 'task-list';
           tasks.sort((x, y) => {
-            const order = (t) => t.type === 'oneshot' && !t.done ? 0 : t.type === 'habit' ? 1 : t.type === 'recurring' ? 2 : 3;
+            const order = (t) => kind(t) === 'oneshot' && !t.done ? 0 : t.type === 'habit' ? 1 : t.type === 'recurring' || t.type === 'rotation' ? 2 : 3;
             return order(x) - order(y) || (x.createdAt || 0) - (y.createdAt || 0);
           });
           tasks.forEach(t => ul.appendChild(renderTask(t)));
@@ -880,12 +987,23 @@
     function renderTask(t) {
       const li = document.createElement('li');
       li.className = 'task';
-      if (t.type === 'oneshot' && t.done) li.classList.add('done');
+      const k = kind(t);
+      if (k === 'oneshot' && t.done) li.classList.add('done');
 
       const row = document.createElement('div');
       row.className = 'task-row';
 
-      if (t.type === 'oneshot') {
+      if (t.type === 'rotation') {
+        const due = isTaskDueToday(t);
+        const btn = document.createElement('button');
+        btn.className = 'del';
+        btn.style.cssText = `background:${due ? 'var(--success,#1f8a3a)' : 'var(--surface2)'};color:${due ? '#fff' : 'var(--muted)'};border:0;border-radius:4px;padding:3px 9px;font-size:.78rem;`;
+        btn.textContent = due ? '✓ Tick' : '✓ done';
+        btn.title = 'Done - moves to the next option';
+        btn.disabled = !due;
+        btn.addEventListener('click', () => tickRotation(t));
+        row.appendChild(btn);
+      } else if (k === 'oneshot') {
         const cb = document.createElement('input');
         cb.type = 'checkbox';
         cb.checked = !!t.done;
@@ -911,7 +1029,9 @@
 
       const text = document.createElement('span');
       text.className = 'text';
-      text.textContent = t.text || '';
+      text.textContent = t.type === 'rotation'
+        ? `${t.text || ''}: ${rotationPick(t)}  (${(t.options || []).join(' → ')})`
+        : (t.text || '');
       row.appendChild(text);
 
       if (t.link) {
@@ -927,9 +1047,10 @@
       }
 
       const typeTag = document.createElement('span');
-      typeTag.className = `type-tag ${t.type}`;
+      typeTag.className = `type-tag ${k}`;
       typeTag.textContent = t.type === 'habit' ? `habit · ${frequencyLabel(t)}` :
                             t.type === 'recurring' ? `recurring · ${frequencyLabel(t)}` :
+                            t.type === 'rotation' ? `rotation · ${frequencyLabel(t)}` :
                             'one-shot';
       row.appendChild(typeTag);
 
@@ -945,9 +1066,10 @@
       if (t.type === 'recurring') {
         const s = recurringStatus(t);
         if (s) meta = `<span class="meta ${s.cls}">${escHtml(s.label)}</span>`;
-      } else if (t.type === 'oneshot') {
+      } else if (k === 'oneshot') {
         const s = oneshotMeta(t);
         meta = `<span class="meta ${s.cls}">${escHtml(s.label)}</span>`;
+        if (isStale(t)) meta += ` <span class="meta overdue" title="Open ${STALE_DAYS}+ days">stale · still wanted?</span>`;
       }
       if (meta) {
         const span = document.createElement('span');
@@ -965,9 +1087,9 @@
 
       const del = document.createElement('button');
       del.className = 'del';
-      del.title = 'Delete';
-      del.textContent = '✕';
-      del.addEventListener('click', () => deleteTodo(t));
+      del.title = t.archived ? 'Restore' : 'Archive (find it under Archived)';
+      del.textContent = t.archived ? '↩' : '✕';
+      del.addEventListener('click', () => archiveTodo(t, !t.archived));
       row.appendChild(del);
 
       li.appendChild(row);
@@ -976,7 +1098,7 @@
         li.appendChild(buildYearGrid(t, currentYear));
       }
 
-      if (t.type === 'oneshot') {
+      if (k === 'oneshot') {
         const sub = document.createElement('ul');
         sub.className = 'subtasks';
         const subs = Array.isArray(t.subtasks) ? t.subtasks : [];
