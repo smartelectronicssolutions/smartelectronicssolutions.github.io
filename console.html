@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.92"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.93"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -2804,9 +2804,14 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 const a = { name: f.name || (img ? 'photo.jpg' : 'file'), type: img ? 'image/jpeg' : (f.type || 'application/octet-stream'), state: 'up', thumb: img ? URL.createObjectURL(f) : '' };
                 S.att.push(a); paint();
                 try {
+                    let up = null;
                     if (img) { const { uploadImage } = await import('./apps/assets/js/imgupload.js');   // resized JPEG, same helper as the 👥 pane
-                        const up = await uploadImage({ file: f, basePath: `${DC.uid}/console/attach`, name: 'chat-photo', lockKey: 'kit-' + Date.now() + Math.random() }); a.url = up.url; a.path = up.path; }
-                    else { const m = await import('./assets/js/firebase-init.js?v=20261011b');
+                        // PHOTO FALLBACK (2026-10-25, L: "sometimes I take a picture on my phone and it doesn't load in"): a big iPhone
+                        // photo can fail the in-browser resize (decode/memory) - send the original file instead of dropping it.
+                        try { up = await uploadImage({ file: f, basePath: `${DC.uid}/console/attach`, name: 'chat-photo', lockKey: 'kit-' + Date.now() + Math.random() }); }
+                        catch (e) { console.warn('photo resize failed, sending the original', e); a.type = f.type || 'image/jpeg'; }
+                        if (up) { a.url = up.url; a.path = up.path; } }
+                    if (!up) { const m = await import('./assets/js/firebase-init.js?v=20261011b');
                         const path = `${DC.uid}/console/attach/${new Date().getFullYear()}/${Date.now()}_${a.name.replace(/[^\w.\-]+/g, '_').slice(-80)}`;
                         const r = m.storageRef(m.storage, path); await m.uploadBytes(r, f, { contentType: a.type }); a.url = await m.getDownloadURL(r); a.path = path; }
                     a.state = 'ok';
@@ -2815,7 +2820,11 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             }
             const pick = $('#dc-attach-btn');
             if (pick) { pick.addEventListener('pointerdown', e => e.preventDefault());
-                pick.onclick = () => { const inp = document.createElement('input'); inp.type = 'file'; inp.multiple = true; inp.onchange = () => { for (const f of inp.files || []) addFile(f); }; inp.click(); }; }
+                // ONE INPUT KEPT IN THE PAGE (2026-10-25): a fresh detached <input> per tap can be garbage-collected by iOS Safari
+                // while the camera / photo picker is open, so its change event never fires and the photo silently never arrives.
+                const inp = document.createElement('input'); inp.type = 'file'; inp.multiple = true; inp.hidden = true; document.body.appendChild(inp);
+                inp.onchange = () => { for (const f of inp.files || []) addFile(f); inp.value = ''; };
+                pick.onclick = () => { inp.value = ''; inp.click(); }; }
             // VOICE DROP BOX (2026-10-21, console build-up step 2 - L: "Next"): tap 🎙 = record, tap again = stop; the clip becomes an
             // attachment (audio/mp4 on iOS, audio/webm elsewhere) and rides the message as "[attached voice note ...]" - the daemon
             // runs whisper on se (ops\stt\transcribe.py, zero Claude tokens) and hands Droplet the words + the audio link. Hold-to-talk
