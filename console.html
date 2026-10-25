@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.88"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.90"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -5939,6 +5939,27 @@ const dcEl = document.getElementById('dc-console');
 if (dcEl) new MutationObserver(() => { if (!dcEl.classList.contains('open')) leave(); })
   .observe(dcEl, { attributes: true, attributeFilter: ['class'] });
 window.addEventListener('pageshow', () => openC());
+// STALE-COPY GUARD (2026-10-24, L: "when console starts for the first time it seems to start up in the old style"): the server copy is
+// never cached (no-cache), but a home-screen app / suspended tab RESUMES the page it already had in memory - an older build - instead of
+// loading again. On every return to the page (and every 30 min) ask the server for its version; if it differs from the running one,
+// reload - but only when nothing is typed in either input, so a half-written message is never lost (the next check catches it).
+(() => {
+  const RUN = document.querySelector('meta[name="version"]')?.content || '';
+  let busy = false;
+  const check = async () => {
+    if (busy || document.hidden || !RUN) return; busy = true;
+    try {
+      const html = await (await fetch(location.pathname + '?vcheck=' + Date.now(), { cache: 'no-store' })).text();
+      const live = (html.match(/<meta name="version" content="([^"]+)"/) || [])[1];
+      const typing = ['dc-chat-in', 'dc-peer-in'].some(id => (document.getElementById(id)?.value || '').trim());
+      if (live && live !== RUN && !typing) location.reload();
+    } catch (_) {} finally { busy = false; }
+  };
+  document.addEventListener('visibilitychange', check);
+  window.addEventListener('pageshow', e => { if (e.persisted) check(); });
+  setInterval(check, 30 * 60 * 1000);
+  setTimeout(check, 3000);
+})();
 document.getElementById('pass-in')?.addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('do-login')?.click(); });
 </script>
 <script src="apps/assets/js/reveal.js" defer></script>
