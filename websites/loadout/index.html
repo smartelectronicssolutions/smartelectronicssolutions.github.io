@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
-<meta name="version" content="1.0.25">
+<meta name="version" content="1.0.26">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0c0f13"><title>Loadout</title>
 <style>
@@ -69,6 +69,7 @@
   footer{margin-top:8px;color:var(--dim);font-size:.6rem;line-height:1.35;text-align:center;border-top:1px solid var(--edge);padding-top:6px}
   footer b{color:var(--muted)}
   @media (max-height:640px){footer div:first-child{display:none}}
+  #palette.over{z-index:21}
   .overlay{position:fixed;inset:0;z-index:20;display:none;align-items:flex-end;justify-content:center;background:rgba(6,8,10,.74);backdrop-filter:blur(3px)}
   .overlay.open{display:flex}
   .panel{width:100%;max-width:880px;background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--edgehi);border-bottom:0;border-radius:16px 16px 0 0;box-shadow:0 -30px 80px -30px #000;transform:translateY(18px);transition:transform .24s;max-height:88vh;display:flex;flex-direction:column}
@@ -2395,7 +2396,7 @@ $("nameBtn").addEventListener("click",()=>{if(selected&&selected.kind==="door"&&
 $("palClose").addEventListener("click",closePalette);
 $("palette").addEventListener("click",e=>{if(e.target===$("palette"))closePalette();});
 function openPalette(){paletteMode="add";$("palTitle").textContent="Add furniture to this room";paletteOpen=true;buildPalette();$("palette").classList.add("open");}
-function closePalette(){paletteOpen=false;paletteMode="add";$("palette").classList.remove("open");}
+function closePalette(){paletteOpen=false;paletteMode="add";$("palette").classList.remove("open","over");}
 function assignImage(k){if(assignKey){PLACES[assignKey].sprite=k;saveCrate(assignKey);loadCatImages();}closePalette();}
 function buildPalette(){const body=$("palBody");body.innerHTML="";
   if(paletteMode==="assign"){const g0=document.createElement("div");g0.className="palgrid";
@@ -2409,7 +2410,7 @@ function buildPalette(){const body=$("palBody");body.innerHTML="";
       d.addEventListener("click",()=>pickPal(k));g.appendChild(d);}
     body.appendChild(g);}
   buildOldPalette(body);
-  buildLzPalette(body);}
+  if(paletteMode!=="studio")buildLzPalette(body);}
 // ORIGINAL SET (L 2026-10-24 "I did still want the ones you made like the bed and furniture that was being used, just also the other
 // ones"): the pieces the 10-18 lean-up marked legacy are offered again in their own section - the ones placed in a room right now first.
 function buildOldPalette(body){
@@ -2423,7 +2424,7 @@ function buildOldPalette(body){
     d.innerHTML=`<div class="box"><img loading="lazy" src="${CAT[k].du||CAT[k].url}"></div><span>${inUse.has(k)?"✓ ":""}${CAT[k].label||k}</span>`;
     d.addEventListener("click",()=>pickPal(k));g.appendChild(d);}
   body.appendChild(g);}
-function pickPal(k){paletteMode==="assign"?assignImage(k):(paletteMode==="container"?(makeContainerFrom(k),closePalette()):addPiece(k));}
+function pickPal(k){if(paletteMode==="studio"){closePalette();stLoadPiece(k);return;}paletteMode==="assign"?assignImage(k):(paletteMode==="container"?(makeContainerFrom(k),closePalette()):addPiece(k));}
 // LimeZu section: one theme at a time (or a search across all), images lazy, capped at 240 tiles per view.
 function buildLzPalette(body){if(!Object.keys(LZT).length)return;
   const h=document.createElement("div");h.className="palcat";h.textContent="LimeZu Modern Interiors";body.appendChild(h);
@@ -2563,7 +2564,8 @@ $("stWrap").addEventListener("wheel",e=>{if(e.ctrlKey||e.metaKey){e.preventDefau
   W.style.touchAction="none";}
 $("stFile").addEventListener("change",e=>{stImport(e.target.files&&e.target.files[0]);e.target.value="";});
 $("stClear").addEventListener("click",()=>{stSnap();ST.cells=stBlank(ST.w,ST.h);stDraw();});
-$("stLoad").addEventListener("click",()=>{const keys=Object.keys(CAT).filter(k=>!CAT[k].lz).sort();const k=prompt("Load which piece to edit?\n\n"+keys.join(", "));if(k&&CAT[k])stLoadPiece(k.trim());});
+// L 2026-10-24 "show me the pieces to load in": the picture picker (furniture palette, studio mode) instead of a prompt of key names.
+$("stLoad").addEventListener("click",()=>{paletteMode="studio";$("palTitle").textContent="Pick a piece to load into the studio";paletteOpen=true;buildPalette();$("palette").classList.add("open","over");});
 function stLoadPiece(k){const c=CAT[k];const im=new Image();im.onload=()=>{const w=Math.min(200,+c.w||24),h=Math.min(200,+c.h||32);const oc=document.createElement("canvas");oc.width=w;oc.height=h;const o=oc.getContext("2d");o.imageSmoothingEnabled=false;o.drawImage(im,0,0,w,h);const dt=o.getImageData(0,0,w,h).data;ST.w=w;ST.h=h;ST.cells=stBlank(w,h);
   for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=(y*w+x)*4;if(dt[i+3]>40)ST.cells[y][x]="#"+[dt[i],dt[i+1],dt[i+2]].map(n=>n.toString(16).padStart(2,"0")).join("");}
   $("stW").value=w;$("stH").value=h;ST.hist=[];ST.redo=[];ST.loadKey=k;$("stTitle").textContent="Editing: "+(c.label||k);$("stName").value=c.label||k;$("stBase").value=(c.base!=null?c.base:"");stFit();stDraw();};im.src=c.du||c.url;}
