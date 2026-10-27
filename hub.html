@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.3">
+    <meta name="version" content="1.0.4">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Control Hub</title>
     <link rel="stylesheet" href="assets/css/master.css">
@@ -489,8 +489,8 @@
                     <div id="ai-services-body">
                         <script>
                         document.currentScript.insertAdjacentHTML('afterend',
-                            [["a1111","A1111 (Stable Diffusion)",7860],
-                             ["comfy","ComfyUI",8188],
+                            [["a1111","A1111 (Stable Diffusion)",7861],
+                             ["comfy","ComfyUI",8189],
                              ["personal","Personal Svc (email)",3050],
                              ["bridge","CompMan Bridge",3060],
                              ["learn","Learn Bridge (tutor)",3070],
@@ -815,7 +815,7 @@
         // card order / size (hold-drag, triple-click), owner-only cards and the sign-in shortcut - unchanged, just standalone.
         // ?v= (2026-10-11): a browser that cached the short-lived switch version of firebase-init (top-level await) froze the
         // hub on iPad Safari; a fresh URL guarantees the plain one. Same Firebase app/auth either way (getApps() reuse).
-        import { auth, database, ref, onValue, set, onAuthStateChanged } from './assets/js/firebase-init.js?v=20261011b';
+        import { auth, database, ref, onValue, set, get, onAuthStateChanged } from './assets/js/firebase-init.js?v=20261011b';
         const $ = s => document.querySelector(s);
         const DC = { uid: null, base: null };
         const HUB_OWNER_UID = '7cIh8rrhVNOjjj5CBDgb3IlqzEh2';
@@ -1057,6 +1057,8 @@
             onValue(ref(database, `${DC.base}/usage`), s => renderUsage(s.val() || {}));
             onValue(ref(database, `${DC.base}/data`), s => renderData(s.val() || null));
             onValue(ref(database, `${DC.base}/drives`), s => { window.__drivesScan = s.val() || {}; window.__paintDrives && window.__paintDrives(); });
+            // Map view tree (data_map_scan.py, nightly): ONE read when a drive's panel opens - never a listener (poll-cost rule)
+            window.__dvMapGet = L => get(ref(database, `${DC.base}/datamap/${L}`)).then(s => s.val());
         });
     </script>
 
@@ -2000,6 +2002,18 @@
         .dv-panel h4 { margin: 0 0 6px; font-size: 0.78rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
         .dv-panel .dv-col { flex: 1 1 200px; min-width: 0; }
         .dv-meta { font-size: 0.76rem; color: var(--muted); margin-top: 6px; }
+        /* Map view (2026-10-25, L: "put this into the server drives card"): folder treemap, box = space, colour = main file type */
+        .dvm { margin-top: 10px; }
+        .dvm h4 { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+        .dvm-crumbs button { background: none; border: 0; padding: 0 2px; color: #7dd3fc; font: inherit; text-transform: none; letter-spacing: 0; cursor: pointer; }
+        .dvm-crumbs button[disabled] { color: var(--text); cursor: default; }
+        .dvm-map { position: relative; height: clamp(260px, 46vh, 420px); border-radius: 8px; overflow: hidden; background: #0b1626; }
+        .dvm-map .t { position: absolute; box-sizing: border-box; border: 1px solid rgba(0,0,0,.35); overflow: hidden; padding: 4px 5px; cursor: pointer; color: #0b1220; }
+        .dvm-map .t.leaf { cursor: default; }
+        .dvm-map .t b { display: block; font-size: .74rem; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .dvm-map .t em { display: block; font-style: normal; font-size: .68rem; opacity: .85; white-space: nowrap; }
+        .dvm-map .t.sm b, .dvm-map .t.sm em { display: none; }
+        .dvm-map .t:hover { outline: 2px solid #e2e8f0; outline-offset: -2px; z-index: 1; }
     </style>
     <script>
     (function () {
@@ -2058,7 +2072,61 @@
                 <div class="dv-col"><h4>By type</h4>${legend(r)}</div>
                 <div class="dv-col"><h4>Biggest folders</h4><ul class="dv-legend">${top}</ul></div>
               </div><div class="dv-meta">${r.scanning ? 'Scanning now - fills in every 20 s' : 'Scanned ' + (r.scannedAt ? ago(r.scannedAt) + ' (' + r.secs + 's)' : '-')} · used/free live ${r.liveAt ? ago(r.liveAt) : ''}${r.note ? ' · ' + esc(r.note) : ''}${r.__scaled ? ' · file sizes add up to more than the disk holds (cloud-only files, sparse VM disks), so types are shown in proportion' : ''}</div></td>`;
+            d.firstElementChild.insertAdjacentHTML('beforeend', `<div class="dvm"><h4>Map <span class="dvm-crumbs"></span></h4><div class="dvm-map"></div><div class="dv-meta dvm-meta"></div></div>`);
             tr.after(d); tr.classList.add('dv-open');
+            drawMap(r.letter, d.querySelector('.dvm'));
+        }
+
+        // ---- Map view: squarified treemap of the folder tree from data_map_scan.py ({uid}/console/datamap/<L>).
+        // Tree nodes {n name, s bytes, f files, t {type: bytes}, c children}. Tap a box = open it, tap the path = go back up.
+        // Fetched once per drive per page load (cached); the live drives listener re-opens this panel, path survives it.
+        const MAP = {}, MAPPATH = {};
+        function squarify(items, W, H) {
+            const out = []; let rest = items.slice(), x = 0, y = 0, w = W, h = H, tot = rest.reduce((a, i) => a + i.v, 0);
+            while (rest.length && tot > 0) {
+                const short = Math.min(w, h), k = (w * h) / tot; let row = [], best = Infinity;
+                for (const it of rest) {
+                    const r = row.concat(it), s = r.reduce((a, q) => a + q.v, 0) * k, mx = Math.max(...r.map(q => q.v * k)), mn = Math.min(...r.map(q => q.v * k));
+                    const worst = Math.max(short * short * mx / (s * s), (s * s) / (short * short * mn));
+                    if (worst > best) break; best = worst; row = r;
+                }
+                const rs = row.reduce((a, q) => a + q.v, 0), th = rs * k / short; let off = 0;
+                for (const it of row) { const len = it.v * k / th; out.push(w >= h ? { it, x, y: y + off, w: th, h: len } : { it, x: x + off, y, w: len, h: th }); off += len; }
+                if (w >= h) { x += th; w -= th; } else { y += th; h -= th; }
+                tot -= rs; rest = rest.slice(row.length);
+            }
+            return out;
+        }
+        const mainType = t => (Object.entries(t || {}).sort((a, b) => b[1] - a[1])[0] || ['Other'])[0];
+        function drawMap(L, box) {
+            const mapEl = box.querySelector('.dvm-map'), crumbs = box.querySelector('.dvm-crumbs'), meta = box.querySelector('.dvm-meta');
+            if (!MAP[L]) {
+                mapEl.innerHTML = '<div class="dv-meta" style="padding:10px">Loading map…</div>';
+                if (!window.__dvMapGet) return;
+                window.__dvMapGet(L).then(tree => { MAP[L] = tree || { none: true }; drawMap(L, box); }).catch(() => { mapEl.innerHTML = '<div class="dv-meta" style="padding:10px">Map could not load.</div>'; });
+                return;
+            }
+            if (MAP[L].none) { mapEl.innerHTML = '<div class="dv-meta" style="padding:10px">No map for this drive yet - it is built by the nightly scan.</div>'; return; }
+            const path = MAPPATH[L] = MAPPATH[L] || [];
+            let n = MAP[L], trail = [n];
+            for (const i of path) { n = (n.c || [])[i]; if (!n) { path.length = 0; return drawMap(L, box); } trail.push(n); }
+            crumbs.innerHTML = trail.map((x, k) => `<button data-d="${k}" ${k === trail.length - 1 ? 'disabled' : ''}>${esc(k ? x.n : L + ':')}</button>`).join('›');
+            const W = mapEl.clientWidth, H = mapEl.clientHeight;
+            const kids = (n.c || []).map((c, i) => ({ v: c.s, c, i })).filter(q => q.v > 0);
+            const tiles = kids.length ? squarify(kids, W, H) : [{ it: { v: n.s, c: n, i: -1 }, x: 0, y: 0, w: W, h: H }];
+            mapEl.innerHTML = tiles.map(({ it, x, y, w, h }) => {
+                const c = it.c, t = mainType(c.t), pct = n.s ? 100 * c.s / n.s : 100, open = it.i >= 0 && c.c;
+                return `<div class="t${open ? '' : ' leaf'}${w < 64 || h < 30 ? ' sm' : ''}" data-i="${it.i}" title="${esc(c.n)} - ${gb(c.s)} (${pct.toFixed(1)}%) - mostly ${esc(t)}"
+                    style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;background:${COLORS[t] || '#64748b'};filter:brightness(${[1, .9, 1.08, .95, 1.04][Math.max(0, it.i) % 5]})"><b>${esc(c.n)}</b><em>${gb(c.s)} · ${pct.toFixed(pct < 10 ? 1 : 0)}%</em></div>`;
+            }).join('');
+            const types = Object.entries(n.t || {}).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => `${esc(k)} ${gb(v)}`).join(' · ');
+            meta.textContent = '';
+            meta.innerHTML = `${gb(n.s)} · ${(n.f || 0).toLocaleString()} files · ${types}${MAP[L].scannedAt ? ' · map built ' + ago(MAP[L].scannedAt) : ''} · box = space, colour = main file type`;
+            if (!box.__wired) {
+                box.__wired = true;
+                mapEl.addEventListener('click', e => { const el = e.target.closest('.t'); if (!el || el.classList.contains('leaf')) return; MAPPATH[L].push(+el.dataset.i); drawMap(L, box); });
+                crumbs.addEventListener('click', e => { const b = e.target.closest('button'); if (!b || b.disabled) return; MAPPATH[L].length = +b.dataset.d; drawMap(L, box); });
+            }
         }
 
         window.__paintDrives = function () {
