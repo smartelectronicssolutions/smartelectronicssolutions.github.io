@@ -622,7 +622,14 @@ export function mountRadarMap(root, opts = {}) {
       if (!OWNER || RO()) return; const f = {}, dp = curDevPlan();
       if (PLAN && dp) f.map = { plan: dp, x: +((x - PLAN.x0) * PLAN.k / PLAN.w).toFixed(5), y: +((PLAN.y0 - y) * PLAN.k / PLAN.h).toFixed(5) };
       if (PLAN && !PLAN.synthetic) f.ft = { x: +x.toFixed(2), y: +y.toFixed(2) };
-      try { await devWrite({ listId, rowId }, f); } catch (e) { alert("Couldn't save the spot: " + (e.code || e.message || e)); }
+      try { await devWrite({ listId, rowId }, f); return f; } catch (e) { alert("Couldn't save the spot: " + (e.code || e.message || e)); return null; }
+    }
+    // UNDO for devices (L 2026-10-27 "so I can move an item then if I press that button it puts it back?"): a move / place keeps the
+    // row's map + ft from before, so the same undo / redo arrows as the sensors put it back (kind "dev", id "<list>/<row>").
+    const devSnap = (listId, rowId) => { const r = (LISTS[listId] || {})[rowId] || {}; return { kind: "dev", id: listId + "/" + rowId, prev: { map: r.map ?? null, ft: r.ft ?? null } }; };
+    async function moveDev(listId, rowId, x, y, snap) {
+      snap = snap || devSnap(listId, rowId); const f = await saveDevAt(listId, rowId, x, y); if (!f) return;
+      pushUndo(snap, { map: "map" in f ? f.map : snap.prev.map, ft: "ft" in f ? f.ft : snap.prev.ft });
     }
     function devHint(t) { const h = $("devhint"); if (h) h.textContent = t || ""; }
     function renderDevBar() {
@@ -715,7 +722,7 @@ export function mountRadarMap(root, opts = {}) {
       if (!placing && !scaling) return; const dn = pdown; pdown = null;
       if (!dn || Math.hypot(e.clientX - dn.x, e.clientY - dn.y) > 10 || e.timeStamp - dn.t > 450) return;   // a pan, not a tap
       const f = screenFeet(e); if (!f) return;
-      if (placing) { const p = placing; placing = null; devHint(""); await saveDevAt(p.listId, p.rowId, f[0], f[1]);
+      if (placing) { const p = placing; placing = null; devHint(""); await moveDev(p.listId, p.rowId, f[0], f[1]);
         selDev = { listId: p.listId, rowId: p.rowId }; return; }
       if (scaling) { scaling.pts.push(f);
         if (scaling.pts.length === 1) { devHint("Scale: now tap the SECOND point"); return; }
@@ -1035,7 +1042,7 @@ export function mountRadarMap(root, opts = {}) {
       const snap = dragSnap; dragSnap = null;
       if (!m || !OWNER) return;
       try {
-        if (m.kind === "dev") { await saveDevAt(m.d.listId, m.d.rowId, m.d.x, m.d.y); draw(); return; }
+        if (m.kind === "dev") { await moveDev(m.d.listId, m.d.rowId, m.d.x, m.d.y, snap && snap.kind === "dev" ? snap : null); draw(); return; }
         if (m.kind === "sensor") { const s = S[m.i]; s.pos = { x: Math.round(s.x * 100) / 100, y: Math.round(s.y * 100) / 100 }; s.x = s.pos.x; s.y = s.pos.y;
           s.pos = null; s.plan = [s.x, s.y];   // the new spot IS the measurement (L 2026-10-04 "just enter what it is")
           const fields = { m1: "X " + ftIn(s.x), m2: "Y " + ftIn(s.y), pos: null, posAt: null, updatedAt: Date.now() };
@@ -1053,23 +1060,26 @@ export function mountRadarMap(root, opts = {}) {
     function rawOf(meta) { const o = {}; for (const [k, v] of Object.entries(meta || {})) if (v && typeof v === "object") o[Number(k)] = v; return o; }
     function snapOf(t) {
       if (!t) return null;
+      if (t.kind === "dev") return devSnap(t.d.listId, t.d.rowId);
       if (t.kind === "sensor") { const s = S[t.i]; if (!s) return null; const r = RAW[s.m] || {}, prev = {};
         for (const k of MOVE_KEYS) prev[k] = r[k] === undefined ? null : r[k]; return { kind: "sensor", id: s.m, prev }; }
       const xy = hubXY(t.h); return xy ? { kind: "hub", id: t.h, prev: [xy[0], xy[1]] } : null;
     }
-    const undoName = u => u.kind === "hub" ? hubLabel(u.id) : `device ${u.id}`;
-    const sameMove = (u, after) => u.kind === "assign" ? !ASSIGN_CMP.some(k => String(u.prev[k] ?? "") !== String(after[k] ?? "")) : u.kind === "sensor"
+    const undoName = u => u.kind === "hub" ? hubLabel(u.id) : u.kind === "dev" ? (() => { const [l, rw] = String(u.id).split("/"); const r = (LISTS[l] || {})[rw]; return `${(LISTS[l] || {})._name || l} ${r ? devId(r) : rw}`; })() : `device ${u.id}`;
+    const devSame = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+    const sameMove = (u, after) => u.kind === "dev" ? devSame(u.prev.map, after.map) && devSame(u.prev.ft, after.ft) : u.kind === "assign" ? !ASSIGN_CMP.some(k => String(u.prev[k] ?? "") !== String(after[k] ?? "")) : u.kind === "sensor"
       ? (u.prev.m1 ?? "") === after.m1 && (u.prev.m2 ?? "") === after.m2 && u.prev.pos == null && u.prev.posAt == null
       : u.prev[0] === after[0] && u.prev[1] === after[1];
     // REDO (L 2026-10-07 "And a redo"): an entry is {kind, id, owner, task, prev, after}; Undo writes prev and puts the
     // values it replaced on REDO as {prev: what undo wrote, after: what it replaced}; Redo writes that after and puts the
     // values IT replaced back on UNDO. A new move clears REDO (a new branch). Both stacks: last 5 per job on this device.
     function curOf(kind, id) {   // the spot right now, in an entry's shape (sensor: every MOVE_KEYS field, null = absent)
+      if (kind === "dev") { const [l, rw] = String(id).split("/"); return devSnap(l, rw).prev; }
       if (kind === "sensor") { const r = RAW[id] || {}, o = {}; for (const k of MOVE_KEYS) o[k] = r[k] === undefined ? null : r[k]; return o; }
       if (kind === "assign") return asgSnap(id);
       const xy = hubXY(id); return xy ? [xy[0], xy[1]] : null;
     }
-    const differs = (kind, cur, exp) => kind === "assign" ? ASSIGN_CMP.some(k => String((cur || {})[k] ?? "") !== String(exp[k] ?? "")) : kind === "sensor"
+    const differs = (kind, cur, exp) => kind === "dev" ? !(devSame((cur || {}).map, exp.map) && devSame((cur || {}).ft, exp.ft)) : kind === "assign" ? ASSIGN_CMP.some(k => String((cur || {})[k] ?? "") !== String(exp[k] ?? "")) : kind === "sensor"
       ? (cur && cur.m1 != null ? cur.m1 : "") !== (exp.m1 ?? "") || (cur && cur.m2 != null ? cur.m2 : "") !== (exp.m2 ?? "")
       : !cur || cur[0] !== exp[0] || cur[1] !== exp[1];
     function pushUndo(snap, after) {
@@ -1083,7 +1093,7 @@ export function mountRadarMap(root, opts = {}) {
       localStorage.setItem(histKey("redo"), JSON.stringify(REDO.slice(-UNDO_KEEP))); } catch (_) {} }
     function loadUndo() {
       const rd = w => { let a = []; try { a = JSON.parse(localStorage.getItem(histKey(w))) || []; } catch (_) {}
-        return Array.isArray(a) ? a.filter(u => u && u.owner === OWNER && u.task === TASK && (u.kind === "sensor" || u.kind === "hub" || u.kind === "assign") && u.prev && u.after) : []; };
+        return Array.isArray(a) ? a.filter(u => u && u.owner === OWNER && u.task === TASK && (u.kind === "sensor" || u.kind === "hub" || u.kind === "assign" || u.kind === "dev") && u.prev && u.after) : []; };
       UNDO = rd("undo"); REDO = rd("redo"); renderUndo();
     }
     function renderUndo() {   // icon-only buttons; the words live in title + aria-label; hidden when there is nothing to step
@@ -1095,6 +1105,7 @@ export function mountRadarMap(root, opts = {}) {
     }
     function undoToast(t) { const el = $("undoState"); if (!el) return; el.textContent = t; clearTimeout(toastT); toastT = setTimeout(() => { el.textContent = ""; }, 5000); }
     async function writeSpot(kind, id, v) {   // the SAME two save calls a move uses, then the local copy to match
+      if (kind === "dev") { const [l, rw] = String(id).split("/"); await devWrite({ listId: l, rowId: rw }, { map: v.map ?? null, ft: v.ft ?? null }); return; }
       if (kind === "assign") {   // a selector change: the row's idf / zone / sw / port (+ updatedAt), then re-plan everyone
         const f = {}; for (const k of ASSIGN_KEYS) f[k] = v[k] === undefined ? null : v[k];
         await patchSensor(OWNER, TASK, id, f);
