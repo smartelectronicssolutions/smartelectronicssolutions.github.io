@@ -7,9 +7,10 @@
 // Shape, for orientation: {owner}/tasks/<task>/sensorMeta/<mark> = {serial, m1/m2/m3,
 // labeledAt, runDoneAt} + Storage {owner}/tasks/images/<project>/sensors (<prefix>_<mark>-<serial>[_n].jpg) and
 // /MDF, /IDF1..IDF6 (site photos). History: floor map, photos/add/run complete, wiring view, IDF photos (all 2026-10-02).
-import { onAuthStateChanged } from "../../../assets/js/firebase-init.js";
+import { onAuthStateChanged, database, ref, onValue, update, set } from "../../../assets/js/firebase-init.js";
 import { auth, HUBS, hubLabel, esc, fmtFt, feet, clean, loadJob, sensorRows, patchSensor, listSites, listPhotos, photoUrl,
-  sensorMarkOf, photoPrefix, uploadSensorPhoto, uploadHubPhoto, deletePhoto, watchJob, tablesFor, zoneOf, idfOf, loadFloorPlan, saveFloorPlan, loadExtraPlans, loadExtraPlanImg, resizeImage, saveHubPos, gridRef, saveSiteTables, saveSiteOptions, saveSiteSwitches } from "./telaid-data.js?v=20261013a";
+  sensorMarkOf, photoPrefix, uploadSensorPhoto, uploadHubPhoto, deletePhoto, watchJob, tablesFor, zoneOf, idfOf, loadFloorPlan, saveFloorPlan, loadExtraPlans, loadExtraPlanImg, resizeImage, saveHubPos, gridRef, saveSiteTables, saveSiteOptions, saveSiteSwitches,
+  isSensorsList, uploadPhoto, imagesDir, storage, storageRef, uploadBytes, getDownloadURL } from "./telaid-data.js?v=20261013a";
 import { openPhotoViewer } from "../../../assets/js/photoviewer.js?v=20261003a";
 import { mountCanvasView } from "../../../assets/js/canvasview.js?v=20261003b";
 
@@ -39,7 +40,8 @@ padding: 6px 12px; border-radius: 999px; border: 1px solid var(--borderColor); b
 .rmap #rm-views button { width: auto !important; margin: 0 !important; box-shadow: none !important; display: inline-block; font-size: .9rem; line-height: 1.2;
 padding: 6px 12px; border-radius: 8px; border: 1px solid var(--borderColor); background: transparent; color: var(--textColor); cursor: pointer; }
 .rmap #rm-views button.on { background: var(--primaryColor); border-color: var(--primaryColor); color: #fff; }
-.rmap #rm-views button[hidden] { display: none !important; }   /* the display rule above beat the hidden attribute: "Plan" showed on jobs with no plan */
+.rmap #rm-views button[hidden], .rmap #rm-views select[hidden] { display: none !important; }
+.rmap #rm-views select { width: auto !important; margin: 0 !important; font-size: 16px; padding: 6px 8px; border-radius: 8px; max-width: 70vw; }   /* the display rule above beat the hidden attribute: "Plan" showed on jobs with no plan */
 /* UNDO / REDO MOVE (L 2026-10-07 "an undo for the last move..." + "And a redo, no text needed on buttons"): icon-only, a 44px phone hit */
 .rmap #rm-views #rm-undo, .rmap #rm-views #rm-redo { min-width: 44px; min-height: 44px; padding: 4px 10px; font-size: 1.3rem; line-height: 1; font-weight: 600; text-align: center; }
 .rmap #rm-views #rm-undo:disabled, .rmap #rm-views #rm-redo:disabled { opacity: .5; cursor: default; }
@@ -117,7 +119,22 @@ body.rm-embed-page header.top-actions { display: none !important; }
   border: 1px solid var(--borderColor); background: transparent; color: var(--textColor); box-shadow: none !important; cursor: pointer; }
 .rmap #rm-info .rm-asg .ok { background: var(--primaryColor); border-color: var(--primaryColor); color: #fff; }
 .rmap #rm-info .rm-asg [hidden] { display: none !important; }
-.rmap #rm-info .rm-asg .rm-asgMsg { font-size: .85rem; color: var(--mutedText); }`;
+.rmap #rm-info .rm-asg .rm-asgMsg { font-size: .85rem; color: var(--mutedText); }
+/* DEVICES (L 2026-10-27 "one map app ... jobs with multiple maps ... the camera one would put the cams in"): any job's device
+   lists (cameras, speakers, alarm points) on the same map as the radar sensors - each device sits on the map it was placed on */
+.rmap #rm-devbar { order: -7; }
+.rmap #rm-devbar[hidden] { display: none !important; }
+.rmap #rm-devbar .chip, .rmap #rm-devbar button, .rmap #rm-devbar label.btn { width: auto !important; margin: 0 !important; box-shadow: none !important; display: inline-flex; align-items: center; gap: 6px;
+  font-size: .9rem; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--borderColor); background: transparent; color: var(--textColor); cursor: pointer; }
+.rmap #rm-devbar .chip.off { opacity: .45; }
+.rmap #rm-devbar .chip i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.rmap #rm-devbar .chip small { color: var(--mutedText); }
+.rmap #rm-devhint { font-size: .9rem; color: #facc15; font-weight: 600; }
+.rmap #rm-info textarea { width: 100%; min-height: 54px; box-sizing: border-box; margin-top: 8px; font-size: 16px; }
+.rmap #rm-dd .row { display: flex; align-items: center; gap: 8px; padding: 8px 4px; border-bottom: 1px solid var(--borderColor); cursor: pointer; }
+.rmap #rm-dd .row i { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+.rmap #rm-dd .row small { color: var(--mutedText); margin-left: auto; }
+.rmap #rm-dd input, .rmap #rm-dd select { width: auto !important; margin: 0 !important; font-size: 16px; }`;
 function injectCss() {
   if (document.getElementById("rmap-css")) return;
   const st = document.createElement("style"); st.id = "rmap-css"; st.textContent = CSS; document.head.appendChild(st);
@@ -127,11 +144,13 @@ const TEMPLATE = `<div class="app-shell">
       <div class="muted" id="rm-source">Sign in to load the site.</div>
       <div class="card stats" id="rm-stats"></div>
       <div class="rm-row" id="rm-hubs"></div>
+      <div class="rm-row" id="rm-devbar" hidden></div>
+      <div class="rm-sp" id="rm-dd" hidden><div class="box" id="rm-ddbox"></div></div>
       <div class="rm-row" id="rm-views"><span class="muted">View:</span>
         <button data-v="floor" class="on">Floor</button><button data-v="wiring">Wiring</button>
         <button type="button" id="rm-rot" title="Rotate the floor map 90&deg;">&#8635; Rotate</button>
         <button type="button" id="rm-plan" title="Floor plan under the dots" hidden>&#128506; Plan: dim</button>
-        <button type="button" id="rm-planpick" title="Which plan is under the dots (key map / heat map)" hidden>Key map</button>
+        <select id="rm-planpick" title="Which map is showing (key map, heat map, camera / CX / alarm sheets)" aria-label="Map" hidden></select>
         <button type="button" id="rm-setplan" title="Use a site image (or a file) as the floor plan under the dots">&#128444; Set plan</button>
         <button type="button" id="rm-undo" title="Undo the last move" aria-label="Undo the last move" hidden>&#8630;</button>
         <button type="button" id="rm-redo" title="Redo the last move" aria-label="Redo the last move" hidden>&#8631;</button>
@@ -153,6 +172,7 @@ const TEMPLATE = `<div class="app-shell">
       </div></div>
       <div class="rm-row modes" id="rm-modes">
         <span class="muted">Color by:</span>
+        <button data-m="status">Status</button>
         <button data-m="idf" class="on">IDF</button>
         <button data-m="photos">Photos</button>
         <button data-m="labeled">Labeled</button>
@@ -168,7 +188,7 @@ const TEMPLATE = `<div class="app-shell">
         <input type="range" id="rm-sly" class="rm-sl rm-sly" min="0" max="1000" value="0" aria-label="Move the map up or down" hidden /></div>
       <div class="legend" id="rm-legend"></div>
       <div class="muted hint">Pinch, or Shift + scroll, to zoom · one finger scrolls the page; to move the map: hold half a second on empty floor then drag, two fingers, the edge sliders, or a mouse drag · tap a sensor or cabinet for its photos · hold one ~half a second, then drag, to move it · double-tap to reset the view, triple-tap to rotate · &#8630; (or Ctrl+Z on the map) puts the last moved sensor or cabinet (or its IDF / zone / switch pick) back, &#8631; (Ctrl+Shift+Z / Ctrl+Y) moves it again.</div>
-      <div class="card" id="rm-info"><span class="muted">Tap a sensor to see its details.</span></div>
+      <div class="card" id="rm-info"><span class="muted">Tap a sensor or device to see its details.</span></div>
     </div>`;
 
 // ---- ASSIGN HELPERS (pure) ---- the sensor card's IDF / zone / switch / port selectors (L 2026-10-07). A sensor's own
@@ -218,6 +238,13 @@ export function mountRadarMap(root, opts = {}) {
     const $ = id => root.querySelector("#rm-" + id);
 
     let S = [];            // {m, serial, x, y, z, idf, zone, photos, items, labeledAt, runDoneAt, sw, port, wx, wy}
+    // DEVICES: every non-Sensors device list on the job (cameras, CX speakers, burg points ...). A device's spot comes from its
+    // data: row.map {plan, x, y} (0..1 on the device plan it was placed on) or row.ft {x, y} / m1 m2 in feet on a scaled plan.
+    // Device plans live at tasks/<id>/devicePlans/<key> {name, url, path, w, h, cal?}; an unscaled one gets a stand-in scale
+    // (the sheet = 200 units wide) so the map engine can draw it - sensors hide on those (their feet don't apply).
+    let LISTS = {}, DPLANS = {}, DEV = [], selDev = null, placing = null, scaling = null, stopDev = null;
+    const hideLists = new Set();
+    const LIST_RESERVED = new Set(["_name", "createdAt", "meta", "items"]);
     let mode = "idf", sel = -1, layout = "floor";
     let OWNER = null, TASKREC = {};      // set by load(); used by the card's actions
     const RO = () => OWNER === "share";   // a shared copy (share/tasks/<id>): look, don't touch
@@ -262,11 +289,13 @@ export function mountRadarMap(root, opts = {}) {
       PLAN = null; planImg = null; planDark = null; planFast = null; $("plan").hidden = true; PLANS = []; $("planpick").hidden = true;
       $("source").textContent = "Loading...";
       const { owner, task, meta } = await loadJob(user, TASK);
+      LISTS = (task && task.lists) || {}; DPLANS = (task && task.devicePlans) || {}; selDev = null; placing = null; scaling = null; devHint("");
+      const hasDev = devListIds().length > 0 || Object.keys(DPLANS).length > 0;
       // nothing to show for this job (or this account can't see it): CLEAR the map - it used to keep the last job's drawing
       // and dots, which read as "the map didn't change" (L 2026-10-05)
-      if (!meta) { $("source").textContent = "No sensor data found for this job" + (task ? "." : " in this account - pick the account that has it (Account, in the sign-in section).");
+      if (!meta && !hasDev) { DEV = []; OWNER = owner; TASKREC = task || {}; renderDevBar(); $("source").textContent = "No sensor data found for this job" + (task ? "." : " in this account - pick the account that has it (Account, in the sign-in section).");
         $("stats").innerHTML = ""; renderHubs(); draw(); return; }
-      RAW = rawOf(meta);
+      RAW = rawOf(meta || {});
       TABLES = tablesFor(task, TASK); SWITCHES = TABLES ? TABLES.switches : {};
       if (!TABLES && layout === "wiring") { layout = "floor"; root.querySelectorAll("#rm-views button").forEach(x => x.classList.toggle("on", x.dataset.v === "floor")); }
       S = sensorRows(meta).map(s => ({ ...s, plan: [s.x, s.y], idf: null, zone: null, photos: 0, items: [] }))
@@ -278,13 +307,21 @@ export function mountRadarMap(root, opts = {}) {
       // positions the dots are offsets, not a true floor layout; say so instead of pretending (L 2026-10-05)
       // ...unless the sensors have been placed on the drawing (pos on most of them) - then the layout is real
       const placed = S.filter(s => s.pos).length, refs = placed * 2 >= S.length ? [] : [...new Set(Object.values(meta || {}).flatMap(v => [gridRef(v?.m1), gridRef(v?.m2)]).filter(Boolean))].sort();
-      const line = `${task.customerName || "Job " + TASK} \u00b7 ${S.length} sensors${S.length && placed * 2 >= S.length ? " · placed on the drawing" : ""}${refs.length ? ` \u00b7 measured off grid lines ${refs.join(", ")} - positions are offsets, approximate` : ""} \u00b7 loaded ${new Date().toLocaleTimeString()}${TABLES ? ` \u00b7 site plan: ${TABLES.from}` : ""}${RO() ? ` \u00b7 shared copy by ${task.sharedByName || "?"} (read-only)` : ""}`;
+      if (!S.length && hasDev && mode === "idf") { mode = "status"; root.querySelectorAll("#rm-modes button").forEach(x => x.classList.toggle("on", x.dataset.m === "status")); legend(); }
+      buildDev();
+      const line = `${task.customerName || "Job " + TASK} \u00b7 ${S.length ? S.length + " sensors" : ""}${S.length && DEV.length ? " \u00b7 " : ""}${DEV.length ? DEV.length + " devices" : ""}${S.length && placed * 2 >= S.length ? " · placed on the drawing" : ""}${refs.length ? ` \u00b7 measured off grid lines ${refs.join(", ")} - positions are offsets, approximate` : ""} \u00b7 loaded ${new Date().toLocaleTimeString()}${TABLES ? ` \u00b7 site plan: ${TABLES.from}` : ""}${RO() ? ` \u00b7 shared copy by ${task.sharedByName || "?"} (read-only)` : ""}`;
       $("source").textContent = line + " \u00b7 photos loading\u2026";
-      renderHubs(); renderStats(); fit(false);
+      renderHubs(); renderDevBar(); renderStats(); fit(false);
       // PHOTOS IN THE BACKGROUND (L 2026-10-03, "did you freeze?": on a network that could not resolve
       // firebasestorage.googleapis.com, listAll retried for ~2 min before failing and the whole map waited on it).
       // The map draws first; photo counts/rings fill in when Storage answers, or the source line says it couldn't.
       const gen = ++loadGen; PHOTOS = "loading";
+      // LIVE device lists + device plans (push, not polling): a place / status / photo from any device shows here
+      if (stopDev) stopDev();
+      { const u1 = onValue(ref(database, `${owner}/tasks/${TASK}/lists`), sn => { if (gen !== loadGen) return; LISTS = sn.val() || {}; devChanged(); });
+        const u2 = onValue(ref(database, `${owner}/tasks/${TASK}/devicePlans`), sn => { if (gen !== loadGen) return; DPLANS = sn.val() || {};
+          PLANS = PLANS.filter(e => !e.dev).concat(devPlanEntries(owner)); if (PLANS.length) usePlan(planPick); renderDevBar(); });
+        stopDev = () => { u1(); u2(); }; }
       // LIVE (L 2026-10-03 "I have to refresh the page to get any new pictures"): every upload - from this map, another
       // device or the checklist - stamps tasks/<id>/photosAt; sensorMeta edits (run complete, labeled, serial, moves) arrive
       // the same way. Re-list only the folder that changed and merge the meta in place, so the view never jumps.
@@ -294,6 +331,7 @@ export function mountRadarMap(root, opts = {}) {
       Promise.all([loadFloorPlan(owner, TASK).catch(() => null), loadExtraPlans(owner, TASK).catch(() => ({}))]).then(([p, ex]) => { if (gen !== loadGen) return;
         if (p) PLANS.push({ key: "main", label: "Key map", meta: p, src: p.img, owner });
         for (const [key, m] of Object.entries(ex)) if (m && m.k) PLANS.push({ key, label: m.label || key, meta: m, owner });
+        PLANS = PLANS.filter(e => !e.dev).concat(devPlanEntries(owner));
         if (PLANS.length) usePlan(planPick); });
       const sensorsP = listPhotos(owner, task, "sensors").then(items => { if (gen !== loadGen) return;
         for (const it of items) { const s = S.find(x => x.m === sensorMarkOf(it.name, task)); if (s) { s.photos++; s.items.push(it); } } });
@@ -331,14 +369,19 @@ export function mountRadarMap(root, opts = {}) {
       // L 2026-10-02 "0 with both photos - this isn't true": never print a photo count we have not actually fetched
       const photoBits = PHOTOS === "ok" ? `<span><b>${ph2}</b> with all 4 photos</span><span><b>${ph0}</b> with no photos</span>`
         : PHOTOS === "loading" ? `<span class="muted">photos loading\u2026</span>` : `<span class="muted">photos: can't reach Storage on this network</span>`;
-      $("stats").innerHTML = `<span><b>${S.length}</b> sensors</span><span><b>${runs}</b> runs complete</span><span><b>${lab}</b> labeled</span>${photoBits}`;
+      const D = DEV, dc = k => D.filter(d => d.r.punch === k).length;
+      const devBits = D.length ? `<span><b>${D.length}</b> devices</span><span>&#9989; <b>${dc("ok")}</b></span><span>&#9888; <b>${dc("punch")}</b></span><span>&#10060; <b>${dc("missing")}</b></span><span><b>${D.filter(d => d.r.labeledAt).length}</b> labeled</span>` : "";
+      $("stats").innerHTML = (S.length ? `<span><b>${S.length}</b> sensors</span><span><b>${runs}</b> runs complete</span><span><b>${lab}</b> labeled</span>${photoBits}` : "") + devBits;
     }
 
     // ---------- drawing ----------
     const cv = $("map"), cx = cv.getContext("2d");
     const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
     const IDF_COL = { 1: "#e8742c", 2: "#3b82f6", 3: "#22c55e", 4: "#eab308", 5: "#a855f7", 6: "#ec4899" }, MDF_COL = "#475569";
+    const ST_COL = { ok: "#2b8a3e", punch: "#f08c00", missing: "#e03131" };
+    const statusCol = r => ST_COL[r.punch] || (r.labeledAt && r.runDoneAt ? "#74c0fc" : "#94a3b8");
     function colorOf(s) {
+      if (mode === "status") return statusCol(RAW[s.m] || s);
       if (mode === "idf") return IDF_COL[s.idf] || (s.idf === "MDF" ? MDF_COL : "#94a3b8");
       if (mode === "photos") return s.photos >= 4 ? "#22c55e" : s.photos ? "#f59e0b" : "#ef4444";
       if (mode === "labeled") return s.labeledAt ? "#22c55e" : "#ef4444";
@@ -355,6 +398,7 @@ export function mountRadarMap(root, opts = {}) {
         height: [["hsl(220,75%,55%)", "7 ft"], ["hsl(120,75%,55%)", "12 ft"], ["hsl(20,75%,55%)", "17 ft"]],
         switch: [["#ef4444", "needs the 3rd switch (IDF 2 / 5)"], ["#94a3b8", "each color = one switch #"]],
         runs: [["#22c55e", "run complete"], ["#ef4444", "not yet"]],
+        status: [["#2b8a3e", "OK"], ["#f08c00", "punch"], ["#e03131", "missing"], ["#74c0fc", "labeled + run complete"], ["#94a3b8", "not checked"]],
       }[mode];
       $("legend").innerHTML = L.map(([c, t]) => `<span><i style="background:${c}"></i>${esc(t)}</span>`).join("")
         + '<span><i style="background:transparent;border:2px solid #fff;width:9px;height:9px"></i>white ring = has photos</span>';
@@ -404,22 +448,28 @@ export function mountRadarMap(root, opts = {}) {
     // one draw per frame, labels + the full-res plan wait until the fingers lift (cvw.moving).
     let B = null;
     const cvw = mountCanvasView(cv, {
-      world: () => { if (!S.length) return (B = null); const xs = S.map(X), ys = S.map(Y);
-        if (layout === "wiring" && HUB.mdf) { xs.push(HUB.mdf[0] - 20, HUB.mdf[0] + 20); ys.push(HUB.mdf[1] - 20, HUB.mdf[1] + 20); }   // the MDF has no sensors - keep it in frame
+      world: () => { const xs = [], ys = [];
+        if (SV()) for (const s of S) { xs.push(X(s)); ys.push(Y(s)); }
+        if (layout === "floor") for (const d of devShown()) { const [a, b] = rotXY(d.x, d.y); xs.push(a); ys.push(b); }
+        if (layout === "wiring" && HUB.mdf && xs.length) { xs.push(HUB.mdf[0] - 20, HUB.mdf[0] + 20); ys.push(HUB.mdf[1] - 20, HUB.mdf[1] + 20); }   // the MDF has no sensors - keep it in frame
+        if (!xs.length && layout === "floor" && PLAN) for (const [u, v] of [[0, 0], [PLAN.w, 0], [0, PLAN.h], [PLAN.w, PLAN.h]]) { const [a, b] = rotXY(PLAN.x0 + u / PLAN.k, PLAN.y0 - v / PLAN.k); xs.push(a); ys.push(b); }   // an empty plan still shows
+        if (!xs.length) return (B = null);
         return (B = { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) }); },
       flipY: true, pad: 24, minZoom: 0.7, maxZoom: 30, sliders: { x: $("slx"), y: $("sly") }, slVar: "--rm-slh", slExtent: slExt,
       draw: () => draw(),
       hit: (mx, my) => { const hh = hubAt(mx, my); if (hh) return { kind: "hub", h: hh };
-        let best = -1, bd = (22 * view.dpr) ** 2; S.forEach((s, i) => { const [x, y] = P(s), d = (x - mx) ** 2 + (y - my) ** 2; if (d < bd) { bd = d; best = i; } });
-        return best >= 0 ? { kind: "sensor", i: best } : null; },
+        let best = -1, bd = (22 * view.dpr) ** 2, bestDev = null;
+        if (SV()) S.forEach((s, i) => { const [x, y] = P(s), d = (x - mx) ** 2 + (y - my) ** 2; if (d < bd) { bd = d; best = i; } });
+        if (layout === "floor") for (const dv of devShown()) { const [x, y] = PP(rotXY(dv.x, dv.y)), d = (x - mx) ** 2 + (y - my) ** 2; if (d < bd) { bd = d; bestDev = dv; } }
+        return bestDev ? { kind: "dev", d: bestDev } : best >= 0 ? { kind: "sensor", i: best } : null; },
       // HOLD-TO-MOVE (L 2026-10-02 "hold 'em and move each object around"): hold a sensor / cabinet ~0.5 s = drag it (floor
       // view only; the new spot is saved as sensorMeta/<mark>/pos or siteTables/hubs); hold empty floor = pan the map.
       hold: (t, e) => e.button !== 0 ? null : !t ? "pan" : layout === "floor" && !RO() ? "drag" : null,
       onDrag: (t, fx, fy) => { const [ux, uy] = unrot(fx, fy);   // screen delta -> plan feet, through the inverse of the rotate
         if (!dragSnap) dragSnap = snapOf(t);   // first step of this drag: remember what the move will overwrite (undo)
-        if (t.kind === "sensor") { S[t.i].x += ux; S[t.i].y += uy; } else { TABLES.hubs[t.h][0] += ux; TABLES.hubs[t.h][1] += uy; } },
+        if (t.kind === "sensor") { S[t.i].x += ux; S[t.i].y += uy; } else if (t.kind === "dev") { t.d.x += ux; t.d.y += uy; } else { TABLES.hubs[t.h][0] += ux; TABLES.hubs[t.h][1] += uy; } },
       onDragEnd: t => endMove(t),
-      onTap: t => { if (!t) return; if (t.kind === "hub") showHub(t.h); else show(t.i); } });   // no page jump on tap
+      onTap: t => { if (!t || placing || scaling) return; if (t.kind === "hub") showHub(t.h); else if (t.kind === "dev") showDev(t.d); else show(t.i); } });   // no page jump on tap
     const view = cvw.view, base = cvw.base, requestDraw = cvw.requestDraw, fit = cvw.fit;
     let planFast = null;   // {light, c}
     // plan Y grows upward; the screen grows downward, so flip it
@@ -438,7 +488,7 @@ export function mountRadarMap(root, opts = {}) {
     }
     function draw() {
       cx.fillStyle = css("--secondaryBackgroundColor") || "#0f172a"; cx.fillRect(0, 0, cv.width, cv.height);
-      if (!S.length || !B) return;
+      if (!B) return;
       const dpr = view.dpr, zoom = view.s / base.s, r = Math.min(9, 3.2 * Math.sqrt(zoom)) * dpr;
       if (layout === "floor" && planImg && planMode !== "off") drawPlan();
       if (layout === "floor") drawHubsFloor(dpr);
@@ -450,9 +500,10 @@ export function mountRadarMap(root, opts = {}) {
       for (let gx = Math.ceil(B.x0 / step) * step; gx <= B.x1; gx += step) { const X = view.ox + (gx - B.x0) * view.s; cx.moveTo(X, 0); cx.lineTo(X, cv.height); }
       for (let gy = Math.ceil(B.y0 / step) * step; gy <= B.y1; gy += step) { const Y = view.oy + (B.y1 - gy) * view.s; cx.moveTo(0, Y); cx.lineTo(cv.width, Y); }
       cx.stroke();
-      for (const s of S) { const [x, y] = P(s); if (x < -20 || y < -20 || x > cv.width + 20 || y > cv.height + 20) continue;
+      if (SV()) for (const s of S) { const [x, y] = P(s); if (x < -20 || y < -20 || x > cv.width + 20 || y > cv.height + 20) continue;
         cx.fillStyle = colorOf(s); cx.beginPath(); cx.arc(x, y, r, 0, 6.283); cx.fill();
         if (s.photos) { cx.strokeStyle = "#ffffff"; cx.lineWidth = 1.6 * dpr; cx.beginPath(); cx.arc(x, y, r + 2.5 * dpr, 0, 6.283); cx.stroke(); } }
+      if (layout === "floor") drawDevices(dpr, r);
       if (!cvw.moving) {   // number labels wait until the move ends (fillText x241 is what the iPad trips on)
         // clear of the rings (photo ring r+2.5, highlight r+4, selection beyond) and outlined in the background colour, so a
         // number never sits on a white ring (L 2026-10-05 "the numbers are sometimes hard to see next to the white circle").
@@ -461,9 +512,13 @@ export function mountRadarMap(root, opts = {}) {
         const fs = Math.max(9, Math.min(11, 9 + (zoom - 1) * 1.6)) * dpr, gap = (zoom < 2.2 ? 4 : 8) * dpr;
         cx.font = `700 ${fs}px system-ui, sans-serif`; cx.fillStyle = css("--textColor") || "#e5e7eb";
         cx.strokeStyle = css("--secondaryBackgroundColor") || "#0f172a"; cx.lineWidth = 3 * dpr; cx.lineJoin = "round";
-        const boxes = [], order = sel >= 0 ? [S[sel], ...S.filter((_, i) => i !== sel)] : S;   // the picked sensor's number always wins
+        const boxes = [], order = !SV() ? [] : sel >= 0 ? [S[sel], ...S.filter((_, i) => i !== sel)] : S;   // the picked sensor's number always wins
         for (const s of order) { const [x, y] = P(s); if (!(x > 0 && y > 0 && x < cv.width && y < cv.height)) continue;
           const t = String(s.m), tx = x + r + gap, ty = y + fs * 0.35, w = cx.measureText(t).width, bx = [tx - 2 * dpr, ty - fs, tx + w + 2 * dpr, ty + 2 * dpr];
+          if (boxes.some(o => bx[0] < o[2] && o[0] < bx[2] && bx[1] < o[3] && o[1] < bx[3])) continue;
+          boxes.push(bx); cx.strokeText(t, tx, ty); cx.fillText(t, tx, ty); }
+        if (layout === "floor") for (const d of devShown()) { const [x, y] = PP(rotXY(d.x, d.y)); if (!(x > 0 && y > 0 && x < cv.width && y < cv.height)) continue;
+          const t = devId(d.r), tx = x + r + gap, ty = y + fs * 0.35, w = cx.measureText(t).width, bx = [tx - 2 * dpr, ty - fs, tx + w + 2 * dpr, ty + 2 * dpr];
           if (boxes.some(o => bx[0] < o[2] && o[0] < bx[2] && bx[1] < o[3] && o[1] < bx[3])) continue;
           boxes.push(bx); cx.strokeText(t, tx, ty); cx.fillText(t, tx, ty); }
       }
@@ -473,7 +528,7 @@ export function mountRadarMap(root, opts = {}) {
         cx.beginPath(); cx.arc(x, y, r + 5 * dpr, 0, 6.283); cx.stroke(); }
       placePulse(dpr);
       cvw.syncSliders();
-      if (layout === "wiring") return;
+      if (layout === "wiring" || (PLAN && PLAN.synthetic)) return;   // an unscaled sheet has no feet to show
       // scale bar
       const ft = zoom > 3 ? 10 : 50, w = ft * view.s;
       cx.fillStyle = css("--mutedText") || "#94a3b8"; cx.fillRect(14 * dpr, cv.height - 18 * dpr, w, 3 * dpr);
@@ -506,12 +561,224 @@ export function mountRadarMap(root, opts = {}) {
     function usePlan(key) {
       const e = PLANS.find(p => p.key === key) || PLANS[0], g = loadGen; if (!e) return;
       planPick = e.key; try { localStorage.setItem("rm-plan-pick", planPick); } catch (_) {}
-      $("planpick").innerHTML = "&#128506; " + esc(e.label); $("planpick").hidden = PLANS.length < 2;
-      const show = im => { if (g !== loadGen || planPick !== e.key) return; PLAN = e.meta; planImg = im; planDark = null; planFast = null; $("plan").hidden = false; planLabel(); draw(); };
+      $("planpick").innerHTML = PLANS.map(q => `<option value="${esc(q.key)}"${q.key === e.key ? " selected" : ""}>${esc(q.label)}</option>`).join(""); $("planpick").hidden = PLANS.length < 2;
+      const show = im => { if (g !== loadGen || planPick !== e.key) return; PLAN = e.meta; planImg = im; planDark = null; planFast = null; $("plan").hidden = false; planLabel();
+        const hadB = !!B; buildDev(); renderDevBar(); renderStats(); if (!hadB || e.dev) fit(false); else draw(); if (selDev) { const d = DEV.find(x => x.listId === selDev.listId && x.rowId === selDev.rowId); if (d) showDev(d); } };
       if (e.im) return show(e.im);
       (e.src ? Promise.resolve(e.src) : loadExtraPlanImg(e.owner, TASK, e.key, e.meta)).then(src => { if (!src) return;
-        const im = new Image(); im.onload = () => { e.im = im; show(im); }; im.src = src; }).catch(() => {});
+        const im = new Image(); if (e.dev) im.crossOrigin = "anonymous"; im.onload = () => { e.im = im; show(im); }; im.src = src; }).catch(() => {});
     }
+    // ---------- DEVICES on the map ----------
+    const SV = () => !(layout === "floor" && PLAN && PLAN.synthetic);   // sensors' feet mean nothing on an unscaled device sheet
+    const DCOL = ["#2f81f7", "#d9480f", "#2b8a3e", "#ae3ec9", "#e8590c", "#0c8599", "#c2255c", "#5c940d", "#364fc7", "#a61e4d"];
+    const devListIds = () => Object.keys(LISTS).filter(id => LISTS[id] && typeof LISTS[id] === "object" && !isSensorsList(LISTS[id]))
+      .sort((a, b) => String(LISTS[a]._name || a).localeCompare(String(LISTS[b]._name || b)));
+    const listCol = id => DCOL[Math.max(0, devListIds().indexOf(id)) % DCOL.length];
+    const devId = r => String(r.id ?? r.mark ?? r.label ?? "?");
+    const devShown = () => DEV.filter(d => d.x != null && d.y != null && !hideLists.has(d.listId));
+    const curDevPlan = () => { const e = PLANS.find(q => q.key === planPick); return e && e.dev ? e.dev : null; };
+    function devFeet(r) {   // where this device sits on the map that is showing (feet), or null = not on this map
+      const dp = curDevPlan();
+      if (r.map && dp && r.map.plan === dp && PLAN) return [PLAN.x0 + Number(r.map.x) * PLAN.w / PLAN.k, PLAN.y0 - Number(r.map.y) * PLAN.h / PLAN.k];
+      if (PLAN && PLAN.synthetic) return null;
+      if (r.map && r.map.plan && r.map.plan !== dp && !r.ft) return null;   // placed on another sheet only
+      if (r.ft && Number.isFinite(+r.ft.x) && Number.isFinite(+r.ft.y)) return [+r.ft.x, +r.ft.y];
+      const fx = feet(r.m1), fy = feet(r.m2); return fx != null && fy != null ? [fx, fy] : null;
+    }
+    function buildDev() {
+      DEV = [];
+      for (const id of devListIds()) { const l = LISTS[id];
+        for (const [rowId, r] of Object.entries(l)) { if (LIST_RESERVED.has(rowId) || !r || typeof r !== "object") continue;
+          const f = devFeet(r); DEV.push({ listId: id, rowId, r, list: String(l._name || id), x: f ? f[0] : null, y: f ? f[1] : null }); } }
+      DEV.sort((a, b) => a.list.localeCompare(b.list) || devId(a.r).localeCompare(devId(b.r), undefined, { numeric: true }));
+    }
+    function devChanged() {
+      buildDev(); renderDevBar(); renderStats();
+      if (!B && devShown().length) fit(false); else draw();
+      if (selDev) { const d = DEV.find(x => x.listId === selDev.listId && x.rowId === selDev.rowId);
+        if (d && !(document.activeElement && document.activeElement.id === "rm-dnote")) showDev(d); }
+      if (!$("dd").hidden && $("dd").dataset.view === "list") renderDrawer();
+    }
+    function devPlanEntries(owner) {
+      return Object.entries(DPLANS).filter(([, v]) => v && v.url).sort((a, b) => (a[1].addedAt || 0) - (b[1].addedAt || 0)).map(([k, v]) => {
+        const w = Number(v.w) || 3000, h = Number(v.h) || 2000, c = v.cal && v.cal.k ? v.cal : null;
+        const meta = c ? { w, h, k: c.k, x0: c.x0, y0: c.y0 } : { w, h, k: w / 200, x0: 0, y0: 200 * h / w, synthetic: true };
+        return { key: "d:" + k, dev: k, label: v.name || k, meta: { ...meta, label: v.name || k }, src: v.url, owner }; });
+    }
+    function drawDevices(dpr, r) {
+      const h = r * 1.05;
+      for (const d of devShown()) { const [x, y] = PP(rotXY(d.x, d.y)); if (x < -20 || y < -20 || x > cv.width + 20 || y > cv.height + 20) continue;
+        cx.fillStyle = mode === "status" || d.r.punch ? statusCol(d.r) : listCol(d.listId); cx.fillRect(x - h, y - h, 2 * h, 2 * h);
+        cx.lineWidth = 2 * dpr; cx.strokeStyle = listCol(d.listId); cx.strokeRect(x - h, y - h, 2 * h, 2 * h);
+        if ((d.r.images || []).length) { cx.strokeStyle = "#ffffff"; cx.lineWidth = 1.6 * dpr; cx.beginPath(); cx.arc(x, y, h * 1.6 + 2 * dpr, 0, 6.283); cx.stroke(); }
+        if (selDev && selDev.listId === d.listId && selDev.rowId === d.rowId) { cx.strokeStyle = css("--textColor") || "#fff"; cx.lineWidth = 2.5 * dpr; cx.beginPath(); cx.arc(x, y, h * 1.6 + 5 * dpr, 0, 6.283); cx.stroke(); } }
+    }
+    const devPath = (listId, rowId) => `${OWNER}/tasks/${TASK}/lists/${listId}/${rowId}`;
+    const devWrite = (d, f) => update(ref(database, devPath(d.listId, d.rowId)), { ...f, updatedAt: Date.now() });
+    async function saveDevAt(listId, rowId, x, y) {   // a placed / dragged device: its spot on the sheet showing (+ feet when the sheet has a real scale)
+      if (!OWNER || RO()) return; const f = {}, dp = curDevPlan();
+      if (PLAN && dp) f.map = { plan: dp, x: +((x - PLAN.x0) * PLAN.k / PLAN.w).toFixed(5), y: +((PLAN.y0 - y) * PLAN.k / PLAN.h).toFixed(5) };
+      if (PLAN && !PLAN.synthetic) f.ft = { x: +x.toFixed(2), y: +y.toFixed(2) };
+      try { await devWrite({ listId, rowId }, f); } catch (e) { alert("Couldn't save the spot: " + (e.code || e.message || e)); }
+    }
+    function devHint(t) { const h = $("devhint"); if (h) h.textContent = t || ""; }
+    function renderDevBar() {
+      const bar = $("devbar"); if (!bar) return; const ids = devListIds();
+      bar.hidden = !OWNER || EMBED && !ids.length;
+      const plain = (id, txt) => `<button type="button" id="rm-${id}">${txt}</button>`;
+      bar.innerHTML = '<span class="muted">Devices:</span>' + ids.map(id => { const all = DEV.filter(d => d.listId === id), on = all.filter(d => d.x != null).length;
+          return `<span class="chip${hideLists.has(id) ? " off" : ""}" data-layer="${esc(id)}" title="show / hide on the map"><i style="background:${listCol(id)}"></i>${esc(LISTS[id]._name || id)} <small>${on}/${all.length}</small></span>`; }).join("")
+        + (RO() ? "" : plain("dplace", "&#128205; Place / add") + `<label class="btn" title="add a map image (camera / CX / alarm sheet, heat map ...)">&#43; Map<input type="file" id="rm-dplanfile" accept="image/*" class="file-input" /></label>`
+          + plain("dscale", "&#128207; Scale"))
+        + '<span id="rm-devhint"></span>';
+      const pf = $("dplanfile"); if (pf) pf.onchange = e => { const f = e.target.files[0]; e.target.value = ""; addDevPlan(f); };
+    }
+    async function addDevPlan(file) {
+      if (!file || !OWNER || RO()) return; devHint("Uploading map\u2026");
+      try {
+        const blob = await resizeImage(file, 3000), name = (file.name || "map").replace(/\.[^.]+$/, ""), key = "p" + Date.now();
+        const path = `${imagesDir(OWNER, TASKREC, "plans")}/${clean(name) || key}_${key}.jpg`;
+        await uploadBytes(storageRef(storage, path), blob, { contentType: "image/jpeg" });
+        const url = await getDownloadURL(storageRef(storage, path));
+        const dim = await new Promise(ok => { const i = new Image(); i.onload = () => ok([i.naturalWidth, i.naturalHeight]); i.onerror = () => ok([0, 0]); i.src = url; });
+        planPick = "d:" + key;
+        await set(ref(database, `${OWNER}/tasks/${TASK}/devicePlans/${key}`), { name, url, path, w: dim[0], h: dim[1], addedAt: Date.now() });
+        devHint("Map added - pick devices with \u{1F4CD} Place / add");
+      } catch (e) { devHint("Map upload failed: " + (e.code || e.message || e)); }
+    }
+    // the device card: status, labeled / run complete, punch note, photos on the row (same array the Jobs app shows)
+    function showDev(d) {
+      selDev = { listId: d.listId, rowId: d.rowId }; sel = -1; selHub = null; const r = d.r, ro = RO();
+      const info = ["type", "model", "location", "ip", "mac", "serial", "status"].filter(k => r[k]).map(k => `<b>${esc(k)}</b><span>${esc(r[k])}</span>`).join("");
+      const when = t => t ? new Date(t).toLocaleString() : "";
+      $("info").innerHTML = `<div class="mk" style="font-size:1.6rem"><i style="display:inline-block;width:14px;height:14px;border-radius:3px;background:${listCol(d.listId)}"></i> ${esc(d.list)} \u00b7 ${esc(devId(r))}</div>
+        <div class="kv">${info}${d.x != null && PLAN && !PLAN.synthetic ? `<b>Position</b><span>X ${ftIn(d.x)} \u00b7 Y ${ftIn(d.y)}</span>` : ""}
+          <b>Status</b><span>${r.punch ? { ok: "&#9989; OK", punch: "&#9888; Punch", missing: "&#10060; Missing" }[r.punch] + " \u00b7 " + when(r.punchAt) : "not checked"}</span>
+          <b>Run</b><span>${r.runDoneAt ? "complete, " + when(r.runDoneAt) : "not yet"}</span>
+          <b>Labeled</b><span>${r.labeledAt ? "yes, " + when(r.labeledAt) : "not yet"}</span>
+          <b>Map</b><span>${d.x != null ? "on this map" : r.map || r.ft ? "on another map" : "not placed yet"}</span></div>
+        ${ro ? "" : `<div class="acts">${[["ok", "&#9989; OK"], ["punch", "&#9888; Punch"], ["missing", "&#10060; Missing"]].map(([k, t]) => `<button type="button" data-st="${k}" class="${r.punch === k ? "done" : ""}">${t}</button>`).join("")}<button type="button" data-st="">Clear</button></div>`}
+        <textarea id="rm-dnote" placeholder="punch note / what's wrong"${ro ? " readonly" : ""}>${esc(r.punchNote || "")}</textarea>
+        <div class="photos" id="rm-photos"></div>
+        ${ro ? "" : `<div class="acts">
+          <label class="btn primary">&#128247; Take / choose photo<input type="file" id="rm-addDevPhoto" accept="image/*" class="file-input" /></label>
+          <button type="button" data-fl="runDoneAt" class="${r.runDoneAt ? "done" : ""}">${r.runDoneAt ? "&#10003; Run complete" : "Mark run complete"}</button>
+          <button type="button" data-fl="labeledAt" class="${r.labeledAt ? "done" : ""}">${r.labeledAt ? "&#10003; Labeled" : "Mark labeled"}</button>
+          <button type="button" data-da="move">&#128205; ${d.x != null ? "Move" : "Place on this map"}</button>
+          ${d.x != null ? '<button type="button" data-da="unplace">Remove from this map</button>' : ""}
+          <span class="muted" id="rm-upState"></span></div>`}`;
+      const box = $("photos"), imgs = (r.images || []).filter(im => im && im.url);
+      box.innerHTML = imgs.length ? imgs.map((im, k) => `<a href="#" role="button" data-k="${k}"><img alt="" src="${esc(im.url)}" /></a>`).join("") : '<span class="muted">No photos yet.</span>';
+      box.onclick = e => { const a = e.target.closest("a[data-k]"); if (!a) return; e.preventDefault();
+        openPhotoViewer(imgs.map(im => ({ name: String(im.path || "").split("/").pop() || "photo", url: im.url })), Number(a.dataset.k), {}); };
+      if (!ro) {
+        const fi = $("addDevPhoto"); if (fi) fi.onchange = e => addDevPhoto(d, e.target.files[0]);
+        $("dnote").onchange = e => devWrite(d, { punchNote: e.target.value.trim() || null });
+      }
+      draw();
+    }
+    $("info").addEventListener("click", async e => {
+      if (!selDev || RO()) return; const d = DEV.find(x => x.listId === selDev.listId && x.rowId === selDev.rowId); if (!d) return;
+      const st = e.target.closest("[data-st]"), fl = e.target.closest("[data-fl]"), da = e.target.closest("[data-da]");
+      try {
+        if (st) { const v = st.dataset.st; await devWrite(d, { punch: v || null, punchAt: v ? Date.now() : null }); }
+        else if (fl) { const k = fl.dataset.fl; await devWrite(d, { [k]: d.r[k] ? null : Date.now() }); }
+        else if (da && da.dataset.da === "move") startPlace(d.listId, d.rowId);
+        else if (da && da.dataset.da === "unplace") { const dp = curDevPlan(); await devWrite(d, dp ? { map: null } : { ft: null }); }
+      } catch (err) { alert("Couldn't save: " + (err.code || err.message || err)); }
+    });
+    async function addDevPhoto(d, file) {
+      if (!file || !OWNER || RO()) return; const r = d.r, id = devId(r), st = $("upState"); if (st) st.textContent = "Uploading...";
+      try {
+        const it = await uploadPhoto({ owner: OWNER, task: TASKREC, sub: clean(d.list), file, name: `${clean(TASKREC.customerName || "job")}_${clean(d.list)}_${clean(id)}.jpg`,
+          label: `${String(TASKREC.customerName || "").trim()} ${d.list} ${id}`.trim(), id: TASK });
+        const url = await getDownloadURL(it);
+        await set(ref(database, devPath(d.listId, d.rowId) + "/images"), [...(r.images || []), { url, path: it.fullPath, note: "" }]);
+      } catch (e) { if (st) st.textContent = ""; alert("Upload failed: " + (e.code || e.message || e)); }
+    }
+    // PLACE: pick a device (drawer, or Move on its card), then tap its spot on the map showing
+    function startPlace(listId, rowId) {
+      if (layout !== "floor") { alert("Switch to the Floor view to place devices."); return; }
+      if (!PLANS.length && !B) { alert("Add a map first (+ Map)."); return; }
+      placing = { listId, rowId }; scaling = null; $("dd").hidden = true;
+      const r = (LISTS[listId] || {})[rowId] || {}; devHint(`Tap the map where ${LISTS[listId]?._name || listId} ${devId(r)} goes \u00b7 Esc cancels`);
+    }
+    const unrotP = (a, b) => ROT === 90 ? [b, -a] : ROT === 180 ? [-a, -b] : ROT === 270 ? [-b, a] : [a, b];
+    function screenFeet(e) { if (!B) return null; const rc = cv.getBoundingClientRect(), px = (e.clientX - rc.left) * cv.width / rc.width, py = (e.clientY - rc.top) * cv.height / rc.height;
+      return unrotP(B.x0 + (px - view.ox) / view.s, B.y1 - (py - view.oy) / view.s); }
+    let pdown = null;
+    cv.addEventListener("pointerdown", e => { pdown = { x: e.clientX, y: e.clientY, t: e.timeStamp }; });
+    cv.addEventListener("pointerup", async e => {
+      if (!placing && !scaling) return; const dn = pdown; pdown = null;
+      if (!dn || Math.hypot(e.clientX - dn.x, e.clientY - dn.y) > 10 || e.timeStamp - dn.t > 450) return;   // a pan, not a tap
+      const f = screenFeet(e); if (!f) return;
+      if (placing) { const p = placing; placing = null; devHint(""); await saveDevAt(p.listId, p.rowId, f[0], f[1]);
+        selDev = { listId: p.listId, rowId: p.rowId }; return; }
+      if (scaling) { scaling.pts.push(f);
+        if (scaling.pts.length === 1) { devHint("Scale: now tap the SECOND point"); return; }
+        devHint(""); openScaleBox(); }
+    });
+    window.addEventListener("keydown", e => { if (e.key === "Escape" && (placing || scaling)) { placing = null; scaling = null; devHint(""); } });
+    // SCALE (an added map): tap two points, type the real distance -> devicePlans/<key>/cal {k px/ft, x0, y0}, first tap = 0,0 (Y up,
+    // the radar way). From then on that map shows feet and the devices placed on it also keep their feet (row.ft).
+    function startScale() {
+      const dp = curDevPlan(); if (!dp) { alert("Scale works on a map you added (+ Map). Radar maps are fitted with Set plan."); return; }
+      placing = null; scaling = { dp, pts: [] }; devHint("Scale: tap the FIRST point of a known distance \u00b7 Esc cancels");
+    }
+    function openScaleBox() {
+      $("dd").dataset.view = "scale"; $("dd").hidden = false;
+      $("ddbox").innerHTML = `<div class="rm-row"><b>&#128207; Scale this map</b><span style="flex:1"></span><button type="button" data-ddx="1">Close</button></div>
+        <div class="muted">Real distance between the two points you tapped:</div>
+        <div class="rm-row"><input id="rm-scft" placeholder="feet - 50 or 12'6&quot;" inputmode="text" /> <button type="button" id="rm-scsave" class="primary">Save scale</button></div>`;
+      $("scsave").onclick = async () => {
+        const r = readFt($("scft").value), sc = scaling; if (!r || !r.v || r.v <= 0 || !sc || !PLAN) { $("scft").focus(); return; }
+        const uv = f => [(f[0] - PLAN.x0) * PLAN.k, (PLAN.y0 - f[1]) * PLAN.k], [a, b] = sc.pts.map(uv), px = Math.hypot(b[0] - a[0], b[1] - a[1]);
+        if (px < 5) { alert("Those two taps are too close - try again."); return; }
+        const k = px / Math.abs(r.v), cal = { k: +k.toFixed(5), x0: +(-a[0] / k).toFixed(3), y0: +(a[1] / k).toFixed(3), at: Date.now() };
+        try { await update(ref(database, `${OWNER}/tasks/${TASK}/devicePlans/${sc.dp}`), { cal }); scaling = null; $("dd").hidden = true; devHint(`Scale saved (${r.txt})`); }
+        catch (e) { alert("Couldn't save: " + (e.code || e.message || e)); }
+      };
+    }
+    // the PLACE / ADD drawer: every device of every list (not placed first), search, and a new device / new list
+    function renderDrawer() {
+      const dd = $("dd"), q = (dd.dataset.find || "").toLowerCase(), ids = devListIds(); dd.dataset.view = "list";
+      let html = `<div class="rm-row"><b>&#128205; Place / add devices</b><span style="flex:1"></span><button type="button" data-ddx="1">Close</button></div>
+        <div class="rm-row"><select id="rm-newlist">${ids.map(id => `<option value="${esc(id)}">${esc(LISTS[id]._name || id)}</option>`).join("")}<option value="__new">+ new list\u2026</option></select>
+          <input id="rm-newname" placeholder="new list name (CCTV / CX / Burg)" style="display:none" /><input id="rm-newid" placeholder="device id" style="width:8em" />
+          <button type="button" id="rm-newgo">New device</button></div>
+        <input id="rm-dfind" placeholder="search devices" value="${esc(dd.dataset.find || "")}" style="width:100%" />`;
+      for (const id of ids) {
+        const rows = DEV.filter(d => d.listId === id && (!q || `${devId(d.r)} ${d.r.location || ""} ${d.r.type || ""} ${d.r.model || ""}`.toLowerCase().includes(q)))
+          .sort((a, b) => (a.x != null) - (b.x != null) || devId(a.r).localeCompare(devId(b.r), undefined, { numeric: true }));
+        if (!rows.length) continue;
+        html += `<div class="muted" style="margin-top:8px;text-transform:uppercase;font-size:.8rem">${esc(LISTS[id]._name || id)}</div>` + rows.map(d =>
+          `<div class="row" data-pl="${esc(d.listId)}" data-pr="${esc(d.rowId)}"><i style="background:${listCol(id)}"></i><b>${esc(devId(d.r))}</b> ${esc(d.r.location || d.r.type || "")}<small>${d.x != null ? "on this map \u00b7 move" : d.r.map || d.r.ft ? "on another map" : "not placed"}</small></div>`).join("");
+      }
+      $("ddbox").innerHTML = html; dd.hidden = false;
+      $("newlist").onchange = e => { $("newname").style.display = e.target.value === "__new" ? "" : "none"; };
+      $("dfind").oninput = e => { dd.dataset.find = e.target.value; const pos = e.target.selectionStart; renderDrawer(); const n = $("dfind"); n.focus(); n.setSelectionRange(pos, pos); };
+      $("newgo").onclick = async () => {
+        const did = $("newid").value.trim(); if (!did) { $("newid").focus(); return; }
+        let listId = $("newlist").value;
+        try {
+          if (listId === "__new" || !listId) { const nm = $("newname").value.trim(); if (!nm) { $("newname").style.display = ""; $("newname").focus(); return; }
+            listId = clean(nm).toLowerCase() || "list" + Date.now(); await update(ref(database, `${OWNER}/tasks/${TASK}/lists/${listId}`), { _name: nm, createdAt: Date.now() }); }
+          const rowId = clean(did) || String(Date.now());
+          if (!(LISTS[listId] || {})[rowId]) await set(ref(database, devPath(listId, rowId)), { id: did, notes: "", createdAt: Date.now() });
+          startPlace(listId, rowId);
+        } catch (e) { alert("Couldn't add: " + (e.code || e.message || e)); }
+      };
+    }
+    $("dd").addEventListener("click", e => {
+      if (e.target === $("dd") || e.target.closest("[data-ddx]")) { $("dd").hidden = true; if (scaling) { scaling = null; devHint(""); } return; }
+      const r = e.target.closest("[data-pl]"); if (r) startPlace(r.dataset.pl, r.dataset.pr);
+    });
+    $("devbar").addEventListener("click", e => {
+      const c = e.target.closest("[data-layer]");
+      if (c) { const id = c.dataset.layer; hideLists.has(id) ? hideLists.delete(id) : hideLists.add(id); renderDevBar(); draw(); return; }
+      if (e.target.closest("#rm-dplace")) { if (!OWNER) return; $("dd").dataset.find = ""; renderDrawer(); return; }
+      if (e.target.closest("#rm-dscale")) startScale();
+    });
     function drawPlan() {
       const p = PLAN, light = document.documentElement.classList.contains("light");
       const sc = (u, v) => { const [rx, ry] = rotXY(p.x0 + u / p.k, p.y0 - v / p.k); return [view.ox + (rx - B.x0) * view.s, view.oy + (B.y1 - ry) * view.s]; };
@@ -615,7 +882,7 @@ export function mountRadarMap(root, opts = {}) {
       } catch (e) { if (st) st.textContent = ""; if (inp) { inp.disabled = false; inp.value = ""; } alert("Upload failed: " + (e.code || e.message || e)); }
     }
     function showHub(h) {
-      selHub = h; sel = -1; const items = HUBPH[h] || [], idf = h === "MDF" ? null : Number(h.slice(3));
+      selHub = h; sel = -1; selDev = null; const items = HUBPH[h] || [], idf = h === "MDF" ? null : Number(h.slice(3));
       const rs = idf ? S.filter(s => s.idf === idf) : S, runs = rs.filter(s => s.runDoneAt).length, ph = rs.filter(s => s.photos >= 4).length;
       $("info").innerHTML = `<div class="mk">${hubLabel(h)}</div><div class="kv">
         <b>Sensors</b><span>${rs.length}</span>
@@ -643,7 +910,7 @@ export function mountRadarMap(root, opts = {}) {
       } catch (e) { if (st) st.textContent = ""; if (inp) { inp.disabled = false; inp.value = ""; } alert("Upload failed: " + (e.code || e.message || e)); }
     }
     function show(i) {
-      sel = i; selHub = null; const s = S[i];
+      sel = i; selHub = null; selDev = null; const s = S[i];
       $("info").innerHTML = `<div class="mk"><button type="button" class="rm-nav" data-nav="-1" aria-label="Previous sensor" title="Previous sensor (or swipe right)"${i > 0 ? "" : " disabled"}>&#8249;</button> #${s.m} <button type="button" class="rm-nav" data-nav="1" aria-label="Next sensor" title="Next sensor (or swipe left)"${i < S.length - 1 ? "" : " disabled"}>&#8250;</button></div><div class="kv">
         <b>Serial</b><span>${esc(s.serial) || "-"}</span>
         <b>Position</b><span>X <input name="x" value="${esc(ftIn(s.x))}" form="rm-measure" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="width:7.5em" /> · Y <input name="y" value="${esc(ftIn(s.y))}" form="rm-measure" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="width:7.5em" /></span>
@@ -765,6 +1032,7 @@ export function mountRadarMap(root, opts = {}) {
       const snap = dragSnap; dragSnap = null;
       if (!m || !OWNER) return;
       try {
+        if (m.kind === "dev") { await saveDevAt(m.d.listId, m.d.rowId, m.d.x, m.d.y); draw(); return; }
         if (m.kind === "sensor") { const s = S[m.i]; s.pos = { x: Math.round(s.x * 100) / 100, y: Math.round(s.y * 100) / 100 }; s.x = s.pos.x; s.y = s.pos.y;
           s.pos = null; s.plan = [s.x, s.y];   // the new spot IS the measurement (L 2026-10-04 "just enter what it is")
           const fields = { m1: "X " + ftIn(s.x), m2: "Y " + ftIn(s.y), pos: null, posAt: null, updatedAt: Date.now() };
@@ -952,7 +1220,7 @@ export function mountRadarMap(root, opts = {}) {
       if (taps.length >= 3) { taps = []; $("rot").click(); } });
     $("rot").addEventListener("click", () => { ROT = (ROT + 90) % 360; try { localStorage.setItem("rm-rot", String(ROT)); } catch (_) {}
       $("rot").title = `Rotated ${ROT}° - tap to turn again`; if (layout === "floor") fit(false); });
-    $("planpick").addEventListener("click", () => { const i = PLANS.findIndex(p => p.key === planPick); if (PLANS.length > 1) usePlan(PLANS[(i + 1) % PLANS.length].key); });
+    $("planpick").addEventListener("change", e => usePlan(e.target.value));   // a dropdown (L 2026-10-27 "where it says key map that should be a dropdown")
     $("plan").addEventListener("click", () => { planMode = planMode === "dim" ? "full" : planMode === "full" ? "off" : "dim";
       try { localStorage.setItem("rm-plan-mode", planMode); } catch (_) {} planLabel(); draw(); });
     // ---------- SET PLAN (L 2026-10-05 "1 and 2"): any Site Image (or a file) becomes this job's floor plan ----------
@@ -1066,12 +1334,12 @@ export function mountRadarMap(root, opts = {}) {
     $("job").addEventListener("change", e => { const t = e.target.value; if (!t) return;
       try { localStorage.setItem("sensorTask", JSON.stringify({ task: t, name: e.target.selectedOptions[0].text, at: Date.now() })); } catch (_) {}
       try { const u = new URL(location.href); u.searchParams.set("task", t); history.replaceState(null, "", u); } catch (_) {}
-      setTaskId(t); HL = new Set(); $("find").value = ""; $("info").innerHTML = '<span class="muted">Tap a sensor to see its details.</span>';
+      setTaskId(t); HL = new Set(); $("find").value = ""; $("info").innerHTML = '<span class="muted">Tap a sensor or device to see its details.</span>';
       load(auth.currentUser); });
     legend(); fit();
     onAuthStateChanged(auth, async u => { await loadJobs(u); load(u); });   // jobs first: a sibling-night id gets swapped for the canonical one before the data read
     return {
-      setTask(t) { if (!t || String(t) === TASK) return; setTaskId(t); $("info").innerHTML = '<span class="muted">Tap a sensor to see its details.</span>'; load(auth.currentUser); },
+      setTask(t) { if (!t || String(t) === TASK) return; setTaskId(t); $("info").innerHTML = '<span class="muted">Tap a sensor or device to see its details.</span>'; load(auth.currentUser); },
       refit: fit,
     };
   
