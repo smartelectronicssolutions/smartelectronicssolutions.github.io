@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.4">
+    <meta name="version" content="1.0.5">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Luis Solutions — My Websites</title>
@@ -150,6 +150,7 @@
             <div id="sw-bar" class="sw-bar" hidden>
                 <label class="sw"><input type="checkbox" id="sw-all"><span class="sw-k"></span><b>All sites</b> <span class="sw-on" data-for="all">ON</span></label>
                 <label class="sw"><input type="checkbox" id="sw-ses"><span class="sw-k"></span>Smart Solutions site <span class="sw-on" data-for="ses">ON</span></label>
+                <label class="sw" title="on = signed-out visitors to the workspace go to the registration page"><input type="checkbox" id="sw-wslogin"><span class="sw-k"></span>Workspace needs login <span class="sw-on" data-for="wslogin">OFF</span></label>
                 <input id="sw-msg" type="text" placeholder="message visitors see (shared by all switches)" maxlength="240">
                 <span id="sw-st" class="sw-st"></span>
             </div>
@@ -303,6 +304,8 @@ function paint() {
     const lbl = (k, live) => { const e = document.querySelector(`.sw-on[data-for="${k}"]`); if (e) { e.textContent = live ? "ON" : "OFF"; e.classList.toggle("is-off", !live); } };
     lbl("all", !all.on); lbl("ses", !all.on && !(sites.ses && sites.ses.on));
     if (document.activeElement !== $("#sw-msg")) $("#sw-msg").value = all.message || "";
+    { const wl = !!(cur.login && cur.login.workspace && cur.login.workspace.on), e = document.querySelector('.sw-on[data-for="wslogin"]');
+      $("#sw-wslogin").checked = wl; if (e) { e.textContent = wl ? "ON" : "OFF"; e.classList.toggle("is-off", !wl); } }
     document.querySelectorAll(".thumbnail[data-site]").forEach(t => {
         const k = t.dataset.site, on = !!(sites[k] && sites[k].on) || !!all.on;
         t.classList.toggle("off", on);
@@ -325,6 +328,11 @@ async function write(key, on) {
 }
 $("#sw-all").addEventListener("change", e => write("all", !e.target.checked));
 $("#sw-ses").addEventListener("change", e => write("ses", !e.target.checked));
+// WORKSPACE LOGIN (L 2026-10-27: "on the workspace add that needs to be logged in"): ticked = workspace.html sends signed-out
+// visitors to reg.html?next=/workspace.html. Flag public/site/login/workspace {on, at, by}; the gate lives in workspace.html.
+$("#sw-wslogin").addEventListener("change", async e => { if (!uid) return; const on = e.target.checked;
+    try { await set(ref(database, "public/site/login/workspace"), { on, at: Date.now(), by: uid }); $("#sw-st").textContent = "workspace " + (on ? "needs login" : "is open to everyone"); }
+    catch (err) { $("#sw-st").textContent = "failed: " + err.message; } });
 $("#sw-msg").addEventListener("change", () => { const all = cur.maintenance || {}; if (all.on) write("all", true); else Object.entries(cur.sites || {}).forEach(([k, v]) => { if (v && v.on) write(k, true); }); });
 onAuthStateChanged(auth, u => {
     uid = u && u.uid === OWNER ? u.uid : null;
