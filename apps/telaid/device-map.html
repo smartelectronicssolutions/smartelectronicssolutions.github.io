@@ -14,7 +14,7 @@
 <head>
   <script>(function(){try{if(localStorage.getItem("ss-theme")==="light")document.documentElement.classList.add("light")}catch(e){}})();</script>
   <meta charset="UTF-8" />
-  <meta name="version" content="1.0.1">
+  <meta name="version" content="1.0.2">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>Telaid Device Map</title>
   <link rel="icon" href="./assets/img/favicon.ico" type="image/x-icon" />
@@ -36,7 +36,7 @@
     html:not(.light) #dm-wrap { background: #1b1f24; }
     #dm-stage { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
     #dm-stage img { display: block; user-select: none; -webkit-user-drag: none; pointer-events: none; }
-    html:not(.light) #dm-stage img { filter: invert(.9) hue-rotate(180deg); }
+    html:not(.light) #dm-stage img:not(.color) { filter: invert(.9) hue-rotate(180deg); }
     .pin { position: absolute; width: 0; height: 0; }
     .pin b { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%) scale(var(--pz, 1)); width: 18px; height: 18px; border-radius: 50%;
       border: 3px solid var(--lc); background: var(--fill, rgba(255,255,255,.85)); box-shadow: 0 0 0 1px #0006; cursor: pointer; transform-origin: center; }
@@ -84,11 +84,13 @@
         <select id="dm-site" title="job"></select>
         <select id="dm-plan" title="plan"></select>
         <button type="button" id="dm-addplan" title="add a floor plan image">+ Plan</button>
+        <button type="button" id="dm-scale" title="give this plan a scale: tap two points, enter the distance">📏 Scale</button>
         <button type="button" id="dm-place" title="put devices on the plan">📍 Place devices</button>
         <label class="chip" title="show device ids"><input type="checkbox" id="dm-lbl" style="margin:0"> Labels</label>
         <select id="dm-filter" title="show">
           <option value="all">All</option><option value="open">Not checked</option><option value="ok">✅ OK</option>
           <option value="punch">⚠ Punch</option><option value="missing">❌ Missing</option><option value="photo">No photo</option>
+          <option value="nolabel">Not labeled</option><option value="norun">Run not complete</option>
         </select>
       </div>
       <div class="bar" id="dm-layers"></div>
@@ -108,31 +110,64 @@
   <script type="module">
     import { auth, database, storage, ref, update, set, onValue, storageRef, uploadBytes, getDownloadURL, onAuthStateChanged }
       from "../assets/js/firebase-init.js";
-    import { listSites, canonicalId, loadJob, uploadPhoto, imagesDir, clean, esc } from "./assets/js/telaid-data.js?v=20261027a";
+    import { listSites, canonicalId, loadJob, uploadPhoto, imagesDir, clean, esc, feet, isSensorsList, markOf, patchSensor, uploadSensorPhoto,
+      loadFloorPlan, loadExtraPlans, loadExtraPlanImg } from "./assets/js/telaid-data.js?v=20261027a";
     import { resizeImg } from "../assets/js/imgupload.js?v=20261003a";
 
     const $ = id => document.getElementById(id);
     const RESERVED = new Set(["_name", "createdAt", "meta", "items"]);
     const COLORS = ["#2f81f7", "#d9480f", "#2b8a3e", "#ae3ec9", "#e8590c", "#0c8599", "#c2255c", "#5c940d", "#364fc7", "#a61e4d"];
     const ST = { ok: { t: "✅ OK", c: "#2b8a3e" }, punch: { t: "⚠ Punch", c: "#f08c00" }, missing: { t: "❌ Missing", c: "#e03131" } };
-    const S = { user: null, owner: null, tid: null, task: null, plans: {}, plan: null, lists: {}, hidden: new Set(), sel: null, placing: null,
-      tx: 0, ty: 0, z: 1, unsub: [] };
+    const S = { user: null, owner: null, tid: null, task: null, plans: {}, devPlans: {}, radarPlans: {}, plan: null, lists: {}, sheet: null, L: {},
+      hidden: new Set(), sel: null, placing: null, scaling: null, tx: 0, ty: 0, z: 1, unsub: [] };
     const q = new URLSearchParams(location.search);
     const store = (k, v) => { try { v === undefined ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (_) {} };
     const recall = k => { try { return localStorage.getItem(k); } catch (_) { return null; } };
 
     // ---------- data ----------
     const base = () => `${S.owner}/tasks/${S.tid}`;
-    function rowsOf(listId) { const l = S.lists[listId] || {}; return Object.entries(l).filter(([k, v]) => !RESERVED.has(k) && v && typeof v === "object").map(([rowId, r]) => ({ listId, rowId, r })); }
-    const allRows = () => Object.keys(S.lists).flatMap(rowsOf);
-    const listName = id => String(S.lists[id]?._name || id);
-    const colorOf = id => COLORS[Object.keys(S.lists).sort().indexOf(id) % COLORS.length];
+    // ONE STANDARD (L 2026-10-27 "a multi map setup ... works for both radar sensors and other devices, keep the site generic, have
+    // the data tell"): every device is a row in a device list. Where it sits on a plan comes from its data, in this order:
+    //   row.map {plan,x,y} on that plan (tapped there) > row.pos {x,y} feet (radar as-built) > row.ft {x,y} feet > m1/m2 "X .."/"Y .." feet.
+    // Feet land on any plan that carries a scale (cal {k px/ft, x0, y0}: feet = x0 + u/k, y0 - v/k - the radar map's own fit).
+    // A Sensors list (or an old sensorMeta sheet) is written through telaid-data patchSensor, field for field what radar-map writes.
+    const SHEET = "__sheet";
+    function rebuildLists() {
+      const L = { ...S.lists };
+      if (S.sheet && !Object.values(S.lists).some(l => isSensorsList(l))) { const l = { _name: "Sensors" };
+        for (const [m, v] of Object.entries(S.sheet)) if (v && typeof v === "object" && Number(m)) l[m] = { ...v, id: m, mark: Number(m) }; L[SHEET] = l; }
+      S.L = L;
+    }
+    const isSensor = d => isSensorsList(S.L[d.listId]);
+    function feetOf(r) {
+      if (r.pos && Number.isFinite(+r.pos.x) && Number.isFinite(+r.pos.y)) return [+r.pos.x, +r.pos.y];
+      if (r.ft && Number.isFinite(+r.ft.x) && Number.isFinite(+r.ft.y)) return [+r.ft.x, +r.ft.y];
+      const x = feet(r.m1), y = feet(r.m2); return x != null && y != null ? [x, y] : null;
+    }
+    function posOn(r, key) {
+      const p = S.plans[key]; if (!p || !r) return null;
+      if (r.map && r.map.plan === key) return [+r.map.x, +r.map.y];
+      const c = p.cal, f = c && feetOf(r); if (!f || !p.w || !p.h) return null;
+      const x = (f[0] - c.x0) * c.k / p.w, y = (c.y0 - f[1]) * c.k / p.h;
+      return x > -0.02 && x < 1.02 && y > -0.02 && y < 1.02 ? [x, y] : null;
+    }
+    const toFeet = (key, x, y) => { const p = S.plans[key], c = p && p.cal; return c ? [c.x0 + x * p.w / c.k, c.y0 - y * p.h / c.k] : null; };
+    function ftIn(v) { if (v == null || !Number.isFinite(v)) return ""; const neg = v < 0, t = Math.round(Math.abs(v) * 12 * 2) / 2;
+      const ft = Math.floor(t / 12), inch = t - ft * 12; return `${neg ? "-" : ""}${ft}'-${String(inch).replace(".5", " 1/2")}"`; }
+    function write(d, fields) {
+      const f = { ...fields, updatedAt: Date.now() };
+      if (isSensor(d)) return patchSensor(S.owner, S.tid, markOf(d.r), f);
+      return update(ref(database, rowPath(d.listId, d.rowId)), f);
+    }
+    function rowsOf(listId) { const l = S.L[listId] || {}; return Object.entries(l).filter(([k, v]) => !RESERVED.has(k) && v && typeof v === "object").map(([rowId, r]) => ({ listId, rowId, r })); }
+    const allRows = () => Object.keys(S.L).flatMap(rowsOf);
+    const listName = id => String(S.L[id]?._name || id);
+    const colorOf = id => COLORS[Object.keys(S.L).sort().indexOf(id) % COLORS.length];
     const devId = r => String(r.id ?? r.mark ?? r.label ?? "?");
     const rowPath = (listId, rowId) => `${base()}/lists/${listId}/${rowId}`;
-    const patchRow = (d, fields) => update(ref(database, rowPath(d.listId, d.rowId)), { ...fields, updatedAt: Date.now() });
     function passes(d) {
       const f = $("dm-filter").value, p = d.r.punch, ph = (d.r.images || []).length;
-      return f === "all" || (f === "open" && !p) || f === p || (f === "photo" && !ph);
+      return f === "all" || (f === "open" && !p) || f === p || (f === "photo" && !ph) || (f === "nolabel" && !d.r.labeledAt) || (f === "norun" && !d.r.runDoneAt);
     }
 
     async function loadSites() {
@@ -148,11 +183,27 @@
       const job = await loadJob(S.user, tid); if (!job.task) { $("dm-stats").textContent = "Job not found."; return; }
       S.owner = job.owner; S.tid = tid; S.task = job.task; store("dmTask", tid);
       const u = new URL(location.href); u.searchParams.set("task", tid); history.replaceState(null, "", u);
-      S.unsub.push(onValue(ref(database, `${base()}/lists`), s => { S.lists = s.val() || {}; renderLayers(); renderPins(); if (S.sel) openCard(S.sel.listId, S.sel.rowId, true); if ($("dm-drawer").classList.contains("open")) renderDrawer(); }));
-      S.unsub.push(onValue(ref(database, `${base()}/devicePlans`), s => { S.plans = s.val() || {}; renderPlans(); }));
+      S.lists = {}; S.sheet = null; S.devPlans = {}; S.radarPlans = {}; S.plans = {}; S.plan = null; rebuildLists();
+      const live = () => { rebuildLists(); renderLayers(); renderPins(); if (S.sel) openCard(S.sel.listId, S.sel.rowId, true); if ($("dm-drawer").classList.contains("open")) renderDrawer(); };
+      S.unsub.push(onValue(ref(database, `${base()}/sensorMeta`), s => { S.sheet = s.val() || null; live(); }));
+      loadRadarPlans(tid).catch(() => {});
+      S.unsub.push(onValue(ref(database, `${base()}/lists`), s => { S.lists = s.val() || {}; rebuildLists(); renderLayers(); renderPins(); if (S.sel) openCard(S.sel.listId, S.sel.rowId, true); if ($("dm-drawer").classList.contains("open")) renderDrawer(); }));
+      S.unsub.push(onValue(ref(database, `${base()}/devicePlans`), s => { S.devPlans = s.val() || {}; mergePlans(); }));
     }
 
     // ---------- plans ----------
+    // radar sheets (tasks_plans/<id>: the main fitted floor plan + extra fitted sheets) join the job's own plans; same picker, same pins
+    async function loadRadarPlans(tid) {
+      const owner = S.owner, out = {};
+      const main = await loadFloorPlan(owner, tid).catch(() => null);
+      if (main && main.img) out.radar = { name: "Floor plan" + (main.src ? " - " + String(main.src).replace(/\s*\(.*$/, "") : ""), url: main.img, w: main.w, h: main.h,
+        cal: { k: main.k, x0: main.x0, y0: main.y0 }, addedAt: 0, radar: true };
+      const ex = await loadExtraPlans(owner, tid).catch(() => ({}));
+      for (const [key, m] of Object.entries(ex || {})) if (m && m.k) out["radar_" + key] = { name: m.label || key, url: null, extra: key, meta: m, w: m.w, h: m.h,
+        cal: { k: m.k, x0: m.x0, y0: m.y0 }, color: !!m.color, addedAt: 1, radar: true };
+      if (tid !== S.tid) return; S.radarPlans = out; mergePlans();
+    }
+    function mergePlans() { S.plans = { ...S.radarPlans, ...S.devPlans }; renderPlans(); }
     function renderPlans() {
       const keys = Object.keys(S.plans).sort((a, b) => (S.plans[a].addedAt || 0) - (S.plans[b].addedAt || 0));
       const sel = $("dm-plan");
@@ -162,7 +213,8 @@
     }
     function showPlan(k) {
       const p = S.plans[k]; if (!p) return; const first = S.plan !== k; S.plan = k; store("dmPlan:" + S.tid, k); renderLayers();
-      const img = $("dm-img");
+      const img = $("dm-img"); img.classList.toggle("color", !!p.color);
+      if (!p.url && p.extra) { hint("Loading plan…"); loadExtraPlanImg(S.owner, S.tid, p.extra, p.meta).then(u => { hint(""); if (u) { p.url = u; if (S.plan === k) { S.plan = null; showPlan(k); } } }); return; }
       if (img.dataset.src !== p.url) { img.dataset.src = p.url; img.onload = () => { if (first) fit(); renderPins(); }; img.src = p.url; }
       else { if (first) fit(); renderPins(); }
     }
@@ -182,13 +234,13 @@
 
     // ---------- layers + pins ----------
     function renderLayers() {
-      const ids = Object.keys(S.lists).sort((a, b) => listName(a).localeCompare(listName(b)));
+      const ids = Object.keys(S.L).sort((a, b) => listName(a).localeCompare(listName(b)));
       $("dm-layers").innerHTML = ids.map(id => {
-        const rows = rowsOf(id), placed = rows.filter(d => d.r.map && d.r.map.plan === S.plan).length;
+        const rows = rowsOf(id), placed = rows.filter(d => posOn(d.r, S.plan)).length;
         return `<span class="chip${S.hidden.has(id) ? " off" : ""}" data-layer="${esc(id)}"><i style="background:${colorOf(id)}"></i>${esc(listName(id))} <small>${placed}/${rows.length}</small></span>`;
       }).join("") || '<span class="chip off">No device lists on this job yet - add them in the Jobs app or with 📍 Place devices → New device</span>';
-      const all = allRows(), on = all.filter(d => d.r.map), c = k => all.filter(d => d.r.punch === k).length;
-      $("dm-stats").textContent = all.length ? `${all.length} devices · ${on.length} on a plan · ✅ ${c("ok")} · ⚠ ${c("punch")} · ❌ ${c("missing")} · ${all.length - c("ok") - c("punch") - c("missing")} not checked` : "";
+      const all = allRows(), on = all.filter(d => d.r.map || feetOf(d.r)), c = k => all.filter(d => d.r.punch === k).length;
+      $("dm-stats").textContent = all.length ? `${all.length} devices · ${on.length} placed · 🏷 ${all.filter(d => d.r.labeledAt).length} labeled · ✅ ${c("ok")} · ⚠ ${c("punch")} · ❌ ${c("missing")} · ${all.length - c("ok") - c("punch") - c("missing")} not checked` : "";
     }
     function renderPins() {
       const st = $("dm-stage"); st.querySelectorAll(".pin").forEach(n => n.remove());
@@ -196,11 +248,12 @@
       st.style.width = img.naturalWidth + "px"; st.style.height = img.naturalHeight + "px";
       const frag = document.createDocumentFragment();
       for (const d of allRows()) {
-        const m = d.r.map; if (!m || m.plan !== S.plan || S.hidden.has(d.listId) || !passes(d)) continue;
+        const m = posOn(d.r, S.plan); if (!m || S.hidden.has(d.listId) || !passes(d)) continue;
         const el = document.createElement("div"); el.className = "pin" + ((d.r.images || []).length ? " cam" : "") + (S.sel && S.sel.rowId === d.rowId && S.sel.listId === d.listId ? " sel" : "");
-        el.style.left = m.x * img.naturalWidth + "px"; el.style.top = m.y * img.naturalHeight + "px";
+        el.style.left = m[0] * img.naturalWidth + "px"; el.style.top = m[1] * img.naturalHeight + "px";
         el.style.setProperty("--lc", colorOf(d.listId));
         if (d.r.punch) el.style.setProperty("--fill", ST[d.r.punch]?.c || "#fff");
+        else if (d.r.runDoneAt && d.r.labeledAt) el.style.setProperty("--fill", "#74c0fc");
         el.dataset.l = d.listId; el.dataset.r = d.rowId; el.title = `${listName(d.listId)} ${devId(d.r)}`;
         el.innerHTML = `<b></b><span>${esc(devId(d.r))}</span>`; frag.appendChild(el);
       }
@@ -244,6 +297,7 @@
       if (pts.size || !gesture) { if (!pts.size) gesture = null; return; }
       const g = gesture; gesture = null; if (g.moved || g.pinch) return;
       const pin = g.target.closest && g.target.closest(".pin");
+      if (S.scaling) { scaleTap(e.clientX, e.clientY); return; }
       if (S.placing) { placeAt(e.clientX, e.clientY); return; }
       if (pin) openCard(pin.dataset.l, pin.dataset.r); else closeCard();
     };
@@ -256,7 +310,7 @@
     function startPlace(listId, rowId) {
       if (!S.plan) { hint("Add a plan first (+ Plan)"); return; }
       S.placing = { listId, rowId }; $("dm-drawer").classList.remove("open"); closeCard();
-      const r = S.lists[listId]?.[rowId] || {};
+      const r = S.L[listId]?.[rowId] || {};
       hint(`Tap the plan where ${listName(listId)} ${devId(r)} goes · Esc to cancel`);
     }
     async function placeAt(cx, cy) {
@@ -264,11 +318,45 @@
       const x = (cx - R.left - S.tx) / S.z / img.naturalWidth, y = (cy - R.top - S.ty) / S.z / img.naturalHeight;
       const p = S.placing; S.placing = null; hint("");
       if (x < 0 || y < 0 || x > 1 || y > 1) { hint("That was off the plan - try again"); return; }
-      await patchRow(p, { map: { plan: S.plan, x: +x.toFixed(5), y: +y.toFixed(5) } });
+      const ftp = toFeet(S.plan, x, y);
+      if (isSensor(p)) { if (!ftp) { hint("Radar devices need a plan with a scale (📏 Scale)"); return; }
+        await write(p, { m1: "X " + ftIn(ftp[0]), m2: "Y " + ftIn(ftp[1]), pos: null, posAt: null }); }   // = radar-map's move: the spot IS the measurement
+      else await write(p, { map: { plan: S.plan, x: +x.toFixed(5), y: +y.toFixed(5) }, ft: ftp ? { x: +ftp[0].toFixed(2), y: +ftp[1].toFixed(2) } : null });
       S.sel = p; openCard(p.listId, p.rowId);
     }
+    // SCALE (any plan): tap A, tap B, type the real distance -> devicePlans/<key>/cal {k, x0, y0} with A as 0,0 (Y up, the radar way).
+    // A radar sheet keeps the fit radar-map made from its sensors; this never overwrites it.
+    function imgXY(cx, cy) { const img = $("dm-img"), R = wrap.getBoundingClientRect();
+      return [(cx - R.left - S.tx) / S.z / img.naturalWidth, (cy - R.top - S.ty) / S.z / img.naturalHeight]; }
+    function startScale() {
+      const p = S.plans[S.plan]; if (!p) return hint("Pick a plan first");
+      if (p.radar) return hint("This Radar plan already has its scale (fitted in the Radar floorplan)");
+      S.placing = null; closeCard(); S.scaling = { a: null }; hint("Scale: tap the FIRST point of a known distance · Esc to cancel");
+    }
+    function scaleTap(cx, cy) {
+      const pt = imgXY(cx, cy);
+      if (!S.scaling.a) { S.scaling.a = pt; hint("Scale: now tap the SECOND point"); return; }
+      S.scaling.b = pt; hint("");
+      const card = $("dm-card");
+      card.innerHTML = `<h3>📏 Scale<button type="button" class="x" data-sc="x">✕</button></h3>
+        <div class="meta">Real distance between the two points you tapped:</div>
+        <div class="acts"><input id="dm-scft" placeholder="feet, e.g. 50 or 12'6&quot;" style="flex:1;min-width:0"><button type="button" data-sc="save">Save scale</button></div>`;
+      card.classList.add("open"); setTimeout(() => $("dm-scft").focus(), 50);
+    }
+    $("dm-card").addEventListener("click", async e => {
+      const b = e.target.closest("[data-sc]"); if (!b || !S.scaling) return; e.stopImmediatePropagation();
+      if (b.dataset.sc === "x") { S.scaling = null; $("dm-card").classList.remove("open"); return; }
+      const ft = feet($("dm-scft").value); const p = S.plans[S.plan], { a, b: bb } = S.scaling;
+      if (!ft || ft <= 0 || !p) { $("dm-scft").focus(); return; }
+      const w = p.w || $("dm-img").naturalWidth, h = p.h || $("dm-img").naturalHeight;
+      const px = Math.hypot((bb[0] - a[0]) * w, (bb[1] - a[1]) * h); if (px < 5) { hint("Points too close - try again"); S.scaling = null; return; }
+      const k = px / ft, cal = { k: +k.toFixed(5), x0: +(-(a[0] * w) / k).toFixed(3), y0: +((a[1] * h) / k).toFixed(3), at: Date.now() };
+      await update(ref(database, `${base()}/devicePlans/${S.plan}`), { cal, w, h });
+      S.scaling = null; $("dm-card").classList.remove("open"); hint(`Scale saved: ${ft.toFixed(1)} ft`);
+      setTimeout(() => hint(""), 2500);
+    }, true);
     function renderDrawer() {
-      const dr = $("dm-drawer"); const ids = Object.keys(S.lists).sort((a, b) => listName(a).localeCompare(listName(b)));
+      const dr = $("dm-drawer"); const ids = Object.keys(S.L).sort((a, b) => listName(a).localeCompare(listName(b)));
       const lsel = `<select id="dm-newlist">${ids.map(id => `<option value="${esc(id)}">${esc(listName(id))}</option>`).join("")}<option value="__new">+ New list…</option></select>`;
       let html = `<h3 style="display:flex;align-items:center;margin:0 0 8px">📍 Place devices<button type="button" class="x" style="margin-left:auto" data-close>✕</button></h3>
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${lsel}<input id="dm-newname" placeholder="new list name" style="display:none;width:130px">
@@ -280,7 +368,7 @@
         if (!rows.length) continue;
         rows.sort((a, b) => (a.r.map ? 1 : 0) - (b.r.map ? 1 : 0) || devId(a.r).localeCompare(devId(b.r), undefined, { numeric: true }));
         html += `<div class="ph" style="opacity:.7;margin:10px 0 4px;font-size:.8rem;text-transform:uppercase">${esc(listName(id))}</div>` + rows.map(d =>
-          `<div class="row" data-pl="${esc(d.listId)}" data-pr="${esc(d.rowId)}"><i style="background:${colorOf(id)}"></i><b>${esc(devId(d.r))}</b> ${esc(d.r.location || d.r.type || "")}<small>${d.r.map ? (d.r.map.plan === S.plan ? "on plan · move" : "other plan") : "not placed"}</small></div>`).join("");
+          `<div class="row" data-pl="${esc(d.listId)}" data-pr="${esc(d.rowId)}"><i style="background:${colorOf(id)}"></i><b>${esc(devId(d.r))}</b> ${esc(d.r.location || d.r.type || "")}<small>${posOn(d.r, S.plan) ? "on plan · move" : d.r.map || feetOf(d.r) ? "other plan" : "not placed"}</small></div>`).join("");
       }
       dr.innerHTML = html;
       $("dm-newlist").onchange = e => { $("dm-newname").style.display = e.target.value === "__new" ? "" : "none"; };
@@ -291,7 +379,7 @@
         if (listId === "__new" || !listId) { const nm = $("dm-newname").value.trim(); if (!nm) { $("dm-newname").style.display = ""; $("dm-newname").focus(); return; }
           listId = clean(nm).toLowerCase() || "list" + Date.now(); await update(ref(database, `${base()}/lists/${listId}`), { _name: nm, createdAt: Date.now() }); }
         const rowId = clean(did) || String(Date.now());
-        if (S.lists[listId]?.[rowId]) { startPlace(listId, rowId); return; }
+        if (S.L[listId]?.[rowId]) { startPlace(listId, rowId); return; }
         await set(ref(database, rowPath(listId, rowId)), { id: did, notes: "", createdAt: Date.now() });
         startPlace(listId, rowId);
       };
@@ -304,40 +392,47 @@
     // ---------- device card ----------
     function closeCard() { $("dm-card").classList.remove("open"); const had = S.sel; S.sel = null; if (had) renderPins(); }
     function openCard(listId, rowId, refresh) {
-      const r = S.lists[listId]?.[rowId]; if (!r) { closeCard(); return; }
+      const r = S.L[listId]?.[rowId]; if (!r) { closeCard(); return; }
       const card = $("dm-card"); if (refresh && !card.classList.contains("open")) return;
       const keepNote = refresh && document.activeElement && document.activeElement.id === "dm-note" ? document.activeElement.value : null;
       const was = S.sel; S.sel = { listId, rowId }; if (!refresh && (!was || was.rowId !== rowId)) renderPins();
-      const info = ["type", "model", "location", "ip", "mac", "serial", "status"].filter(k => r[k]).map(k => `${k}: ${esc(r[k])}`).join(" · ");
+      const on = posOn(r, S.plan), fp = feetOf(r) || (on && toFeet(S.plan, on[0], on[1])), sens = isSensorsList(S.L[listId]);
+      const info = ["type", "model", "location", "ip", "mac", "serial", "status"].filter(k => r[k]).map(k => `${k}: ${esc(r[k])}`)
+        .concat(fp ? [`X ${ftIn(fp[0])} · Y ${ftIn(fp[1])}${r.m3 ? " · " + esc(r.m3) : ""}`] : []).join(" · ");
       card.innerHTML = `<h3><i style="width:12px;height:12px;border-radius:50%;background:${colorOf(listId)};display:inline-block"></i>${esc(listName(listId))} · ${esc(devId(r))}
           <button type="button" class="x" data-a="close">✕</button></h3>
         <div class="meta">${info || "&nbsp;"}</div>
         <div class="st">${Object.entries(ST).map(([k, v]) => `<button type="button" data-st="${k}" class="${r.punch === k ? "on" : ""}">${v.t}</button>`).join("")}
           <button type="button" data-st="" title="clear">Clear</button></div>
+        <div class="st"><button type="button" data-fl="labeledAt" class="${r.labeledAt ? "on" : ""}">🏷 Labeled</button>
+          <button type="button" data-fl="runDoneAt" class="${r.runDoneAt ? "on" : ""}">🔌 Run complete</button></div>
         <textarea id="dm-note" placeholder="punch note / what's wrong">${esc(keepNote ?? r.punchNote ?? "")}</textarea>
         <div class="ph">${(r.images || []).map((im, i) => `<img src="${esc(im.url)}" data-full="${i}" alt="">`).join("")}</div>
         <div class="acts"><button type="button" data-a="photo">📷 Add photo</button><button type="button" data-a="move">📍 Move</button>
-          <button type="button" data-a="unplace">Remove from plan</button></div>`;
+          ${sens ? "" : '<button type="button" data-a="unplace">Remove from plan</button>'}</div>`;
       card.classList.add("open");
       if (keepNote !== null) { const n = $("dm-note"); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }
     }
     $("dm-card").addEventListener("click", async e => {
-      const d = S.sel; if (!d) return; const r = S.lists[d.listId]?.[d.rowId] || {};
+      const d = S.sel; if (!d) return; const r = S.L[d.listId]?.[d.rowId] || {};
+      const fl = e.target.closest("[data-fl]"); if (fl) { const k = fl.dataset.fl; await write(d, { [k]: r[k] ? null : Date.now() }); return; }
       const st = e.target.closest("[data-st]");
-      if (st) { const v = st.dataset.st; await patchRow(d, { punch: v || null, punchAt: v ? Date.now() : null }); return; }
+      if (st) { const v = st.dataset.st; await write(d, { punch: v || null, punchAt: v ? Date.now() : null }); return; }
       const im = e.target.closest("[data-full]");
       if (im) { const o = document.createElement("div"); o.className = "dm-full"; o.innerHTML = `<img src="${esc(r.images[im.dataset.full].url)}" alt="">`; o.onclick = () => o.remove(); document.body.appendChild(o); return; }
       const a = e.target.closest("[data-a]")?.dataset.a;
       if (a === "close") closeCard();
       else if (a === "move") startPlace(d.listId, d.rowId);
-      else if (a === "unplace") await patchRow(d, { map: null });
+      else if (a === "unplace") await write(d, { map: null, ft: null });
       else if (a === "photo") $("dm-photofile").click();
     });
-    $("dm-card").addEventListener("change", e => { if (e.target.id === "dm-note" && S.sel) patchRow(S.sel, { punchNote: e.target.value.trim() || null }); });
+    $("dm-card").addEventListener("change", e => { if (e.target.id === "dm-note" && S.sel) write(S.sel, { punchNote: e.target.value.trim() || null }); });
     $("dm-photofile").addEventListener("change", async e => {
       const file = e.target.files[0]; e.target.value = ""; const d = S.sel; if (!file || !d) return;
-      const r = S.lists[d.listId]?.[d.rowId] || {}, ln = listName(d.listId), id = devId(r);
+      const r = S.L[d.listId]?.[d.rowId] || {}, ln = listName(d.listId), id = devId(r);
       hint("Uploading photo…");
+      if (isSensor(d)) { try { await uploadSensorPhoto({ owner: S.owner, task: S.task, mark: markOf(r), serial: r.serial || "", file, id: S.tid }); hint(""); }
+        catch (err) { hint("Photo failed: " + (err.message || err)); } return; }   // the radar naming + the row link, exactly like radar-tools
       try {
         const sref = await uploadPhoto({ owner: S.owner, task: S.task, sub: clean(ln), file, name: `${clean(S.task.customerName || "job")}_${clean(ln)}_${clean(id)}.jpg`,
           label: `${S.task.customerName || ""} ${ln} ${id}`.trim(), id: S.tid });
@@ -350,6 +445,7 @@
     // ---------- wiring ----------
     $("dm-site").onchange = e => e.target.value && openJob(e.target.value);
     $("dm-plan").onchange = e => { S.plan = null; showPlan(e.target.value); renderLayers(); };
+    $("dm-scale").onclick = startScale;
     $("dm-addplan").onclick = () => S.task ? $("dm-planfile").click() : hint("Pick a job first");
     $("dm-planfile").onchange = e => { const f = e.target.files[0]; e.target.value = ""; addPlan(f); };
     $("dm-place").onclick = () => { if (!S.task) return hint("Pick a job first"); renderDrawer(); $("dm-drawer").classList.add("open"); };
@@ -357,7 +453,7 @@
     $("dm-filter").onchange = renderPins;
     $("dm-layers").addEventListener("click", e => { const c = e.target.closest("[data-layer]"); if (!c) return; const id = c.dataset.layer;
       S.hidden.has(id) ? S.hidden.delete(id) : S.hidden.add(id); renderLayers(); renderPins(); });
-    document.addEventListener("keydown", e => { if (e.key === "Escape") { if (S.placing) { S.placing = null; hint(""); } else closeCard(); } });
+    document.addEventListener("keydown", e => { if (e.key === "Escape") { if (S.scaling) { S.scaling = null; hint(""); $("dm-card").classList.remove("open"); } else if (S.placing) { S.placing = null; hint(""); } else closeCard(); } });
     window.addEventListener("resize", () => applyZoom());
     $("dm-lbl").checked = recall("dmLabels") === "1";
     onAuthStateChanged(auth, u => { if (!u || (S.user && S.user.uid === u.uid)) return; S.user = u; loadSites().catch(e => { $("dm-stats").textContent = "Couldn't load jobs: " + (e.message || e); }); });
