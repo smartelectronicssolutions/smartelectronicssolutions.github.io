@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.93"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.95"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -5620,8 +5620,13 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     const asideWide = matchMedia('(min-width: 761px)');
     // BOTTOM DOCK (L 2026-10-24: "an option to put the secondary pane on the bottom side of the window in mobile"): on the phone the
     // aside can sit under the main pane (drag bar between, height remembered) instead of sliding over it. ⬓ in its header toggles.
-    const asideBottom = () => !(asideWide.matches && !DC_isPhone()) && (() => { try { return localStorage.getItem('dc_aside_phone') === 'bottom'; } catch (_) { return false; } })();
+    // DESKTOP TOO (L 2026-10-27: "the same way I move left and right to move the pane if I move down put it on the bottom"): drag the
+    // aside's bar down to the bottom edge = bottom dock; drag the bar up to the top or out to a side edge = back to that side. Wide and
+    // phone remember their own choice (dc_aside_wide / dc_aside_phone).
+    const asideKey = () => (asideWide.matches && !DC_isPhone()) ? 'dc_aside_wide' : 'dc_aside_phone';
+    const asideBottom = () => { try { return localStorage.getItem(asideKey()) === 'bottom'; } catch (_) { return false; } };
     const asideDocked = () => (asideWide.matches && !DC_isPhone()) || asideBottom();
+    function setAsideBottom(on) { try { localStorage.setItem(asideKey(), on ? 'bottom' : (asideWide.matches && !DC_isPhone()) ? 'side' : 'over'); } catch (_) {} }
     function DC_isPhone() { try { return window.matchMedia('(max-width: 640px), (max-height: 480px)').matches; } catch (_) { return false; } }
     function drawerOpen() { const d = $('#dc-drawer'); return !!(d && d.classList.contains('open')); }
     function closeDrawer() { const d = $('#dc-drawer'); if (!d) return; d.classList.remove('open'); $('#dc-drawer-scrim').classList.remove('open');
@@ -5652,7 +5657,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         const paint = () => { const o = sel.selectedOptions[0]; brand.innerHTML = `${BRAIN_ICON[sel.value] || '🤖'} ${esc(o ? o.textContent.trim() : 'Droplet')}<span class="caret">▾</span><span class="dot" hidden></span>`; dots(); };
         sel.addEventListener('change', paint);
         const dr = document.createElement('div'); dr.id = 'dc-drawer'; dr.dataset.view = 'list';
-        dr.innerHTML = '<div class="dh"><button type="button" class="dback" title="back to the chat list" hidden>‹</button><b title="triple-tap: browser">Chats</b><span class="sp"></span><button type="button" class="dbot" title="phone: dock this pane at the bottom / slide over">⬓</button><button type="button" class="dx" title="hide this pane">✕</button></div><div class="ph drw-list">Brains</div><div id="dc-brains"></div>';
+        dr.innerHTML = '<div class="dh"><button type="button" class="dback" title="back to the chat list" hidden>‹</button><b title="triple-tap: browser">Chats</b><span class="sp"></span><button type="button" class="dbot" title="dock this pane at the bottom / back to the side (or drag its bar down / up)">⬓</button><button type="button" class="dx" title="hide this pane">✕</button></div><div class="ph drw-list">Brains</div><div id="dc-brains"></div>';
         dr.appendChild(home);
         { const web = $('#dc-peer-web'); if (web) dr.appendChild(web); }      // the browser lives in the aside now
         { const sc = $('#dc-sys-col'); if (sc) dr.appendChild(sc); }          // and so does Settings (the System panels)
@@ -5667,19 +5672,25 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
           let sd = null; try { sd = localStorage.getItem('dc_aside_side'); } catch (_) {} body.classList.toggle('dc-aside-right', sd === 'right');
           let h = 0; try { h = Number(localStorage.getItem('dc_aside_h')); } catch (_) {} if (h > 0) body.style.setProperty('--dc-aside-h', h + '%'); }
         const paintBottom = () => { const on = asideBottom(); body.classList.toggle('dc-aside-bot', on);
-            const b = dr.querySelector('.dbot'); if (b) { b.hidden = asideWide.matches && !DC_isPhone(); b.classList.toggle('on', on); }
+            const b = dr.querySelector('.dbot'); if (b) b.classList.toggle('on', on);
             if (on) $('#dc-drawer-scrim').classList.remove('open'); };
         paintBottom(); asideWide.addEventListener('change', paintBottom);
         { let pid = null, x0 = 0, w0 = 0, y0 = 0, h0 = 0;
           asp.addEventListener('pointerdown', e => { pid = e.pointerId; x0 = e.clientX; w0 = dr.getBoundingClientRect().width; y0 = e.clientY; h0 = dr.getBoundingClientRect().height; try { asp.setPointerCapture(pid); } catch (_) {} asp.classList.add('on'); e.preventDefault(); });
           // bottom dock: the bar resizes the aside's HEIGHT (percent of the console body, 20-80), remembered on this device
           asp.addEventListener('pointermove', e => { if (pid === null || !body.classList.contains('dc-aside-bot')) return; e.stopImmediatePropagation();
-              const R = body.getBoundingClientRect(), pct = Math.max(20, Math.min(80, (h0 - (e.clientY - y0)) / R.height * 100));
+              const R = body.getBoundingClientRect();
+              // bottom -> side: bar dragged up to the top, or out to the left/right edge (that edge picks the side)
+              const toL = e.clientX < R.left + 60 && x0 - e.clientX > 80, toR = e.clientX > R.right - 60 && e.clientX - x0 > 80;
+              if (e.clientY < R.top + 60 || toL || toR) { if (toL || toR) { body.classList.toggle('dc-aside-right', toR); try { localStorage.setItem('dc_aside_side', toR ? 'right' : 'left'); } catch (_) {} }
+                  setAsideBottom(false); paintBottom(); pid = null; asp.classList.remove('on'); if (!asideDocked()) $('#dc-drawer-scrim').classList.add('open'); return; }
+              const pct = Math.max(20, Math.min(80, (h0 - (e.clientY - y0)) / R.height * 100));
               body.style.setProperty('--dc-aside-h', pct.toFixed(1) + '%'); });
           asp.addEventListener('pointerup', () => { if (!body.classList.contains('dc-aside-bot')) return; const v = parseFloat(body.style.getPropertyValue('--dc-aside-h')); try { if (v > 0) localStorage.setItem('dc_aside_h', String(v)); } catch (_) {} });
           // FLIP SIDES (L 2026-10-23: "if I drag the new panel all the way can I have it switch sides and vice versa"): drag the edge to
           // within 60 px of the far edge of the console and the aside jumps to that side (remembered); drag it back across to return.
           asp.addEventListener('pointermove', e => { if (pid === null) return; const R = body.getBoundingClientRect(), right = body.classList.contains('dc-aside-right');
+              if (e.clientY > R.bottom - 60 && e.clientY - y0 > 80) { setAsideBottom(true); paintBottom(); pid = null; asp.classList.remove('on'); return; }   // side -> bottom
               if ((!right && e.clientX > R.right - 60) || (right && e.clientX < R.left + 60)) { body.classList.toggle('dc-aside-right', !right);
                   try { localStorage.setItem('dc_aside_side', right ? 'left' : 'right'); } catch (_) {} pid = null; asp.classList.remove('on'); return; }
               const w = Math.max(220, Math.min(R.width - 320, right ? w0 - (e.clientX - x0) : w0 + e.clientX - x0)); body.style.setProperty('--dc-aside-w', Math.round(w) + 'px'); });
@@ -5695,8 +5706,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
               if (tp.n >= 3) { tp.n = 0; asideView(dr.dataset.view === 'web' ? 'list' : 'web'); if (dr.dataset.view === 'list') { drawerBrains(); renderHome(); } } }); }
         dr.addEventListener('click', e => { const t = e.target;
             const bb = t.closest('[data-brain]'); if (bb) { sel.value = bb.dataset.brain; sel.dispatchEvent(new Event('change', { bubbles: true })); if (P.open) closePeer(); drawerBrains(); if (!asideDocked()) closeDrawer(); return; }   // a brain = the Droplet chat in the main pane
-            if (t.closest('.dbot')) { const on = !asideBottom(); try { localStorage.setItem('dc_aside_phone', on ? 'bottom' : 'over'); } catch (_) {}
-                paintBottom(); if (!on) $('#dc-drawer-scrim').classList.add('open'); try { localStorage.setItem('dc_aside_open', on ? '1' : '0'); } catch (_) {} return; }
+            if (t.closest('.dbot')) { const on = !asideBottom(); setAsideBottom(on);
+                paintBottom(); if (!asideDocked()) $('#dc-drawer-scrim').classList.add('open'); try { localStorage.setItem('dc_aside_open', on ? '1' : '0'); } catch (_) {} return; }
             if (t.closest('.dx')) { closeDrawer(); return; }
             if (t.closest('.dback')) { asideView('list'); drawerBrains(); renderHome(); return; }
             if (t.closest('[data-dweb]')) { asideView('web'); return; }
