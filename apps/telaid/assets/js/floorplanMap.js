@@ -1,4 +1,4 @@
-// radarMap.js - THE site map for a RADAR job, shared by radar-map.html (the full page) and radar-tools.html (the
+// floorplanMap.js (was radarMap.js, renamed 2026-10-27) - THE map app for every Telaid job (radar sensors + device lists), floorplan.html (the full page) and radar-tools.html (the
 // "Site Map" section of the checklist). L 2026-10-02: "since it's 2 things now in sections of the Telaid checklist,
 // can it grab the logic from the same place" - so the map, its sensor/IDF cards, photo upload and the run/label
 // toggles live ONLY here. mountRadarMap(root, {task, embed}) -> { setTask(id), refit() }.

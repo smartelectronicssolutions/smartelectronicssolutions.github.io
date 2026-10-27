@@ -13,7 +13,7 @@
 // owner = the signed-in uid, falling back to the Telaid uid (shared crew data). "public" is the signed-out tree.
 // One row per SITE: many job records share a customer+project (one per night); the canonical id is the EARLIEST
 // record, picked exactly the way radar-tools' resolveMetaOwnerTaskId() does, so checklist, map and photos agree.
-// Migration plan: radarMap.js uses this now; radar-tools / sensor-lookup / dashboard move over a section at a time.
+// Migration plan: floorplanMap.js (was radarMap.js) uses this now; radar-tools / sensor-lookup / dashboard move over a section at a time.
 import { auth, database, storage, ref, get, set, update, onValue, storageRef, listAll, uploadBytes, getDownloadURL, deleteObject, onAuthStateChanged }
   from "../../../assets/js/firebase-init.js";
 import { resizeImg, stampImg } from "../../../assets/js/imgupload.js?v=20261003a";
