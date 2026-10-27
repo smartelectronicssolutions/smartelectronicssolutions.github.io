@@ -161,10 +161,10 @@ const TEMPLATE = `<div class="app-shell">
         <div class="thumbs" id="rm-spthumbs"></div>
         <div class="rm-row"><input type="file" id="rm-spfile" accept="image/*" /></div>
         <div id="rm-spfit" hidden>
-          <div class="muted">2. Type a sensor # in A, tap where that sensor is on the drawing; same for B. Pick two far apart (opposite corners is best).</div>
+          <div class="muted">2. Type a device # in A, tap where that device is on the drawing; same for B. Pick two far apart (opposite corners is best).</div>
           <div class="rm-row">
-            <button type="button" class="tgt on" data-t="a">A &#9679;</button> sensor # <input type="number" id="rm-spa" min="1" />
-            <button type="button" class="tgt" data-t="b">B &#9679;</button> sensor # <input type="number" id="rm-spb" min="1" />
+            <button type="button" class="tgt on" data-t="a">A &#9679;</button> device # <input type="number" id="rm-spa" min="1" />
+            <button type="button" class="tgt" data-t="b">B &#9679;</button> device # <input type="number" id="rm-spb" min="1" />
             <span class="muted" id="rm-spcalc"></span><span style="flex:1"></span>
             <button type="button" id="rm-spsave" disabled>Save as the floor plan</button></div>
           <div class="stage"><div class="spwrap" id="rm-spstage"><img id="rm-spimg" alt="the drawing" /></div></div>
@@ -180,15 +180,15 @@ const TEMPLATE = `<div class="app-shell">
         <button data-m="switch">Switch</button>
         <button data-m="runs">Runs</button>
         <span style="flex:1"></span>
-        <input id="rm-find" type="text" inputmode="numeric" placeholder="Sensor #" autocomplete="off" />
+        <input id="rm-find" type="text" inputmode="text" placeholder="Find #" autocomplete="off" autocapitalize="off" spellcheck="false" />
       </div>
-      <div class="mapwrap"><canvas id="rm-map" tabindex="0" aria-label="Floor map of every sensor"></canvas>
+      <div class="mapwrap"><canvas id="rm-map" tabindex="0" aria-label="Floor map of every device"></canvas>
         <div class="rm-zoom"><button type="button" id="rm-zin" aria-label="Zoom in" title="Zoom in">+</button><button type="button" id="rm-zout" aria-label="Zoom out" title="Zoom out">&minus;</button></div>
         <input type="range" id="rm-slx" class="rm-sl rm-slx" min="0" max="1000" value="0" aria-label="Move the map left or right" hidden />
         <input type="range" id="rm-sly" class="rm-sl rm-sly" min="0" max="1000" value="0" aria-label="Move the map up or down" hidden /></div>
       <div class="legend" id="rm-legend"></div>
-      <div class="muted hint">Pinch, or Shift + scroll, to zoom · one finger scrolls the page; to move the map: hold half a second on empty floor then drag, two fingers, the edge sliders, or a mouse drag · tap a sensor or cabinet for its photos · hold one ~half a second, then drag, to move it · double-tap to reset the view, triple-tap to rotate · &#8630; (or Ctrl+Z on the map) puts the last moved sensor or cabinet (or its IDF / zone / switch pick) back, &#8631; (Ctrl+Shift+Z / Ctrl+Y) moves it again.</div>
-      <div class="card" id="rm-info"><span class="muted">Tap a sensor or device to see its details.</span></div>
+      <div class="muted hint">Pinch, or Shift + scroll, to zoom · one finger scrolls the page; to move the map: hold half a second on empty floor then drag, two fingers, the edge sliders, or a mouse drag · tap a device or cabinet for its photos · hold one ~half a second, then drag, to move it · double-tap to reset the view, triple-tap to rotate · &#8630; (or Ctrl+Z on the map) puts the last moved device or cabinet (or its IDF / zone / switch pick) back, &#8631; (Ctrl+Shift+Z / Ctrl+Y) moves it again.</div>
+      <div class="card" id="rm-info"><span class="muted">Tap a device to see its details.</span></div>
     </div>`;
 
 // ---- ASSIGN HELPERS (pure) ---- the sensor card's IDF / zone / switch / port selectors (L 2026-10-07). A sensor's own
@@ -244,6 +244,7 @@ export function mountRadarMap(root, opts = {}) {
     // (the sheet = 200 units wide) so the map engine can draw it - sensors hide on those (their feet don't apply).
     let LISTS = {}, DPLANS = {}, DEV = [], selDev = null, placing = null, scaling = null, stopDev = null;
     const hideLists = new Set();
+    let HLD = new Set();   // devices ringed by the Find box
     const LIST_RESERVED = new Set(["_name", "createdAt", "meta", "items"]);
     let mode = "idf", sel = -1, layout = "floor";
     let OWNER = null, TASKREC = {};      // set by load(); used by the card's actions
@@ -293,7 +294,7 @@ export function mountRadarMap(root, opts = {}) {
       const hasDev = devListIds().length > 0 || Object.keys(DPLANS).length > 0;
       // nothing to show for this job (or this account can't see it): CLEAR the map - it used to keep the last job's drawing
       // and dots, which read as "the map didn't change" (L 2026-10-05)
-      if (!meta && !hasDev) { DEV = []; OWNER = owner; TASKREC = task || {}; renderDevBar(); $("source").textContent = "No sensor data found for this job" + (task ? "." : " in this account - pick the account that has it (Account, in the sign-in section).");
+      if (!meta && !hasDev) { DEV = []; OWNER = owner; TASKREC = task || {}; renderDevBar(); $("source").textContent = "No devices found for this job" + (task ? "." : " in this account - pick the account that has it (Account, in the sign-in section).");
         $("stats").innerHTML = ""; renderHubs(); draw(); return; }
       RAW = rawOf(meta || {});
       TABLES = tablesFor(task, TASK); SWITCHES = TABLES ? TABLES.switches : {};
@@ -309,7 +310,7 @@ export function mountRadarMap(root, opts = {}) {
       const placed = S.filter(s => s.pos).length, refs = placed * 2 >= S.length ? [] : [...new Set(Object.values(meta || {}).flatMap(v => [gridRef(v?.m1), gridRef(v?.m2)]).filter(Boolean))].sort();
       if (!S.length && hasDev && mode === "idf") { mode = "status"; root.querySelectorAll("#rm-modes button").forEach(x => x.classList.toggle("on", x.dataset.m === "status")); legend(); }
       buildDev();
-      const line = `${task.customerName || "Job " + TASK} \u00b7 ${S.length ? S.length + " sensors" : ""}${S.length && DEV.length ? " \u00b7 " : ""}${DEV.length ? DEV.length + " devices" : ""}${S.length && placed * 2 >= S.length ? " · placed on the drawing" : ""}${refs.length ? ` \u00b7 measured off grid lines ${refs.join(", ")} - positions are offsets, approximate` : ""} \u00b7 loaded ${new Date().toLocaleTimeString()}${TABLES ? ` \u00b7 site plan: ${TABLES.from}` : ""}${RO() ? ` \u00b7 shared copy by ${task.sharedByName || "?"} (read-only)` : ""}`;
+      const line = `${task.customerName || "Job " + TASK} \u00b7 ${S.length ? S.length + " radar devices" : ""}${S.length && DEV.length ? " \u00b7 " : ""}${DEV.length ? DEV.length + " devices" : ""}${S.length && placed * 2 >= S.length ? " · placed on the drawing" : ""}${refs.length ? ` \u00b7 measured off grid lines ${refs.join(", ")} - positions are offsets, approximate` : ""} \u00b7 loaded ${new Date().toLocaleTimeString()}${TABLES ? ` \u00b7 site plan: ${TABLES.from}` : ""}${RO() ? ` \u00b7 shared copy by ${task.sharedByName || "?"} (read-only)` : ""}`;
       $("source").textContent = line + " \u00b7 photos loading\u2026";
       renderHubs(); renderDevBar(); renderStats(); fit(false);
       // PHOTOS IN THE BACKGROUND (L 2026-10-03, "did you freeze?": on a network that could not resolve
@@ -371,7 +372,7 @@ export function mountRadarMap(root, opts = {}) {
         : PHOTOS === "loading" ? `<span class="muted">photos loading\u2026</span>` : `<span class="muted">photos: can't reach Storage on this network</span>`;
       const D = DEV, dc = k => D.filter(d => d.r.punch === k).length;
       const devBits = D.length ? `<span><b>${D.length}</b> devices</span><span>&#9989; <b>${dc("ok")}</b></span><span>&#9888; <b>${dc("punch")}</b></span><span>&#10060; <b>${dc("missing")}</b></span><span><b>${D.filter(d => d.r.labeledAt).length}</b> labeled</span>` : "";
-      $("stats").innerHTML = (S.length ? `<span><b>${S.length}</b> sensors</span><span><b>${runs}</b> runs complete</span><span><b>${lab}</b> labeled</span>${photoBits}` : "") + devBits;
+      $("stats").innerHTML = (S.length ? `<span><b>${S.length}</b> radar devices</span><span><b>${runs}</b> runs complete</span><span><b>${lab}</b> labeled</span>${photoBits}` : "") + devBits;
     }
 
     // ---------- drawing ----------
@@ -522,6 +523,8 @@ export function mountRadarMap(root, opts = {}) {
           if (boxes.some(o => bx[0] < o[2] && o[0] < bx[2] && bx[1] < o[3] && o[1] < bx[3])) continue;
           boxes.push(bx); cx.strokeText(t, tx, ty); cx.fillText(t, tx, ty); }
       }
+      if (HLD.size && layout === "floor") { cx.strokeStyle = "#facc15"; cx.lineWidth = 2.5 * dpr;
+        for (const d of devShown()) { if (!HLD.has(d.listId + "/" + d.rowId)) continue; const [x, y] = PP(rotXY(d.x, d.y)); cx.beginPath(); cx.arc(x, y, r * 1.7 + 4 * dpr, 0, 6.283); cx.stroke(); } }
       if (HL.size) { cx.strokeStyle = "#facc15"; cx.lineWidth = 2.5 * dpr;
         for (const i of HL) { const [x, y] = P(S[i]); cx.beginPath(); cx.arc(x, y, r + 4 * dpr, 0, 6.283); cx.stroke(); } }
       if (sel >= 0) { const s = S[sel], [x, y] = P(s); cx.strokeStyle = css("--textColor") || "#fff"; cx.lineWidth = 2.5 * dpr;
@@ -868,9 +871,9 @@ export function mountRadarMap(root, opts = {}) {
     // job's sensors folder, a confirm once the sensor already has its 4 photos.
     async function addPhoto(file) {
       const s = S[sel]; if (!s || !file || !OWNER || RO()) return;
-      if (s.photos >= 4 && !confirm(`Sensor ${String(s.m).padStart(2, "0")} already has ${s.photos} photos. Upload another?`)) { if ($("addPhoto")) $("addPhoto").value = ""; return; }
+      if (s.photos >= 4 && !confirm(`Device ${String(s.m).padStart(2, "0")} already has ${s.photos} photos. Upload another?`)) { if ($("addPhoto")) $("addPhoto").value = ""; return; }
       let serial = clean(s.serial);
-      if (!serial) { serial = clean(prompt(`Sensor #${s.m} has no serial yet. Serial number:`) || ""); if (!serial) return;
+      if (!serial) { serial = clean(prompt(`Device #${s.m} has no serial yet. Serial number:`) || ""); if (!serial) return;
         await patchSensor(OWNER, TASK, s.m, { serial, updatedAt: Date.now() }).catch(() => {}); s.serial = serial; }
       const st = $("upState"), inp = $("addPhoto"); if (st) st.textContent = "Uploading..."; if (inp) inp.disabled = true;   // one at a time (sensor-83 scar)
       try {
@@ -885,9 +888,9 @@ export function mountRadarMap(root, opts = {}) {
       selHub = h; sel = -1; selDev = null; const items = HUBPH[h] || [], idf = h === "MDF" ? null : Number(h.slice(3));
       const rs = idf ? S.filter(s => s.idf === idf) : S, runs = rs.filter(s => s.runDoneAt).length, ph = rs.filter(s => s.photos >= 4).length;
       $("info").innerHTML = `<div class="mk">${hubLabel(h)}</div><div class="kv">
-        <b>Sensors</b><span>${rs.length}</span>
+        <b>Devices</b><span>${rs.length}</span>
         <b>Runs complete</b><span>${runs} / ${rs.length}</span>
-        <b>Sensor photos</b><span>${PHOTOS === "ok" ? `${ph} / ${rs.length} with all 4` : PHOTOS === "loading" ? "loading\u2026" : "can't reach Storage"}</span>
+        <b>Device photos</b><span>${PHOTOS === "ok" ? `${ph} / ${rs.length} with all 4` : PHOTOS === "loading" ? "loading\u2026" : "can't reach Storage"}</span>
         ${idf && TABLES && SWITCHES[idf] ? `<b>Switches</b><span>${SWITCHES[idf].map(w => w === "new" ? "3rd needed" : "#" + w).join(", ")}</span>` : ""}
         <b>Photos</b><span>${items.length || PHOTOS === "ok" ? items.length : PHOTOS === "loading" ? "loading\u2026" : "can't reach Storage"}</span></div>
         <div class="photos" id="rm-photos"></div>
@@ -911,7 +914,7 @@ export function mountRadarMap(root, opts = {}) {
     }
     function show(i) {
       sel = i; selHub = null; selDev = null; const s = S[i];
-      $("info").innerHTML = `<div class="mk"><button type="button" class="rm-nav" data-nav="-1" aria-label="Previous sensor" title="Previous sensor (or swipe right)"${i > 0 ? "" : " disabled"}>&#8249;</button> #${s.m} <button type="button" class="rm-nav" data-nav="1" aria-label="Next sensor" title="Next sensor (or swipe left)"${i < S.length - 1 ? "" : " disabled"}>&#8250;</button></div><div class="kv">
+      $("info").innerHTML = `<div class="mk"><button type="button" class="rm-nav" data-nav="-1" aria-label="Previous device" title="Previous device (or swipe right)"${i > 0 ? "" : " disabled"}>&#8249;</button> #${s.m} <button type="button" class="rm-nav" data-nav="1" aria-label="Next device" title="Next device (or swipe left)"${i < S.length - 1 ? "" : " disabled"}>&#8250;</button></div><div class="kv">
         <b>Serial</b><span>${esc(s.serial) || "-"}</span>
         <b>Position</b><span>X <input name="x" value="${esc(ftIn(s.x))}" form="rm-measure" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="width:7.5em" /> · Y <input name="y" value="${esc(ftIn(s.y))}" form="rm-measure" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="width:7.5em" /></span>
         <b>Height</b><span><input name="z" value="${esc(ftIn(s.z))}" form="rm-measure" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="width:7.5em" /> <button type="submit" form="rm-measure" id="rm-measureSave" class="primary" hidden>Save</button> <span class="muted" id="rm-measureState"></span></span>
@@ -1054,7 +1057,7 @@ export function mountRadarMap(root, opts = {}) {
         for (const k of MOVE_KEYS) prev[k] = r[k] === undefined ? null : r[k]; return { kind: "sensor", id: s.m, prev }; }
       const xy = hubXY(t.h); return xy ? { kind: "hub", id: t.h, prev: [xy[0], xy[1]] } : null;
     }
-    const undoName = u => u.kind === "hub" ? hubLabel(u.id) : `sensor ${u.id}`;
+    const undoName = u => u.kind === "hub" ? hubLabel(u.id) : `device ${u.id}`;
     const sameMove = (u, after) => u.kind === "assign" ? !ASSIGN_CMP.some(k => String(u.prev[k] ?? "") !== String(after[k] ?? "")) : u.kind === "sensor"
       ? (u.prev.m1 ?? "") === after.m1 && (u.prev.m2 ?? "") === after.m2 && u.prev.pos == null && u.prev.posAt == null
       : u.prev[0] === after[0] && u.prev[1] === after[1];
@@ -1173,7 +1176,7 @@ export function mountRadarMap(root, opts = {}) {
     }
     async function resetPos(i) {
       const s = S[i]; if (!s || !OWNER) return;
-      if (s.plan[0] == null || s.plan[1] == null) { alert("This sensor has no readable plan X/Y to go back to - its spot comes from the drawing."); return; }
+      if (s.plan[0] == null || s.plan[1] == null) { alert("This device has no readable plan X/Y to go back to - its spot comes from the drawing."); return; }
       try { await patchSensor(OWNER, TASK, s.m, { pos: null, posAt: null }); s.pos = null; s.x = s.plan[0]; s.y = s.plan[1]; show(i); }
       catch (e) { alert("Couldn't reset: " + (e.code || e.message || e)); }
     }
@@ -1191,7 +1194,19 @@ export function mountRadarMap(root, opts = {}) {
     // LIVE FIND (L 2026-10-02: "when I type a radar number have it highlight in real time"): every keystroke rings the
     // sensors whose number starts with what's typed (yellow); an exact number also flies there and opens its card.
     const centerOn = (i, minZoom) => { const s = S[i]; cvw.centerOn(X(s), Y(s), minZoom); };
+    // FIND ANY DEVICE (L 2026-10-27 "can the search represent the device in the open map not just sensors"): the same box rings the
+    // devices on the map showing whose id starts with what's typed (cameras 142, speakers SP-11, burg points); one match / an exact
+    // id flies there and opens its card. Sensors keep their number search below.
+    const findKey = v => String(v || "").toLowerCase().replace(/[\s#-]/g, "");
     $("find").addEventListener("input", e => {
+      const q = findKey(e.target.value); HLD = new Set();
+      if (q && cvw.fitted && layout === "floor") {
+        const hits = devShown().filter(d => findKey(devId(d.r)).startsWith(q)); hits.forEach(d => HLD.add(d.listId + "/" + d.rowId));
+        const exact = hits.find(d => findKey(devId(d.r)) === q);
+        const one = exact && (hits.length === 1 || q.length >= 3) ? exact : hits.length === 1 ? hits[0] : null;
+        if (one) { cvw.centerOn(...rotXY(one.x, one.y), 4); showDev(one); }
+        if (hits.length && !/^\d+$/.test(q)) { HL = new Set(); draw(); return; }   // letters = a device id, not a sensor #
+      }
       const t = e.target.value.replace(/\D/g, ""); HL = new Set();
       if (!t || !cvw.fitted) { draw(); return; }
       S.forEach((s, i) => { if (String(s.m).startsWith(t)) HL.add(i); });
@@ -1248,10 +1263,10 @@ export function mountRadarMap(root, opts = {}) {
       SP.fit = null; $("spsave").disabled = true;
       const ma = Number($("spa").value), mb = Number($("spb").value);
       const A = S.find(s => s.m === ma), B2 = S.find(s => s.m === mb);
-      if (!SP.a || !SP.b || !A || !B2 || ma === mb) { $("spcalc").textContent = (ma && !A) || (mb && !B2) ? "that sensor # has no plan X/Y" : ""; return; }
+      if (!SP.a || !SP.b || !A || !B2 || ma === mb) { $("spcalc").textContent = (ma && !A) || (mb && !B2) ? "that device # has no plan X/Y" : ""; return; }
       const [XA, YA] = A.plan, [XB, YB] = B2.plan;
       const dpx = Math.hypot(SP.b.u - SP.a.u, SP.b.v - SP.a.v), dft = Math.hypot(XB - XA, YB - YA);
-      if (dpx < 20 || dft < 5) { $("spcalc").textContent = "pick two sensors further apart"; return; }
+      if (dpx < 20 || dft < 5) { $("spcalc").textContent = "pick two devices further apart"; return; }
       const k = dpx / dft;
       const x0 = ((XA - SP.a.u / k) + (XB - SP.b.u / k)) / 2, y0 = ((YA + SP.a.v / k) + (YB + SP.b.v / k)) / 2;
       // how square the drawing is to the plan: compare the tap direction with the plan direction
@@ -1290,7 +1305,7 @@ export function mountRadarMap(root, opts = {}) {
       if (SP.a && SP.b && !SP.picked) { const d = q => Math.hypot(r.left + q.u / SP.w * r.width - e.clientX, r.top + q.v / SP.h * r.height - e.clientY); SP.t = d(SP.a) <= d(SP.b) ? "a" : "b"; }
       SP[SP.t] = { u: Math.max(0, Math.min(SP.w, (e.clientX - r.left) / r.width * SP.w)), v: Math.max(0, Math.min(SP.h, (e.clientY - r.top) / r.height * SP.h)) };
       const placed = SP.t.toUpperCase(); SP.picked = false; if (SP.t === "a" && !SP.b) SP.t = "b"; spPins(); spCalc();
-      spMsg(`${SP.name} \u00b7 ${placed} placed${SP.a && SP.b ? " - both set; tap near a pin to move it (or pick A / B first)" : " - now tap where sensor B is"}`); });
+      spMsg(`${SP.name} \u00b7 ${placed} placed${SP.a && SP.b ? " - both set; tap near a pin to move it (or pick A / B first)" : " - now tap where device B is"}`); });
     $("spimg").addEventListener("dragstart", e => e.preventDefault());
     $("spsave").addEventListener("click", async () => {
       if (!SP.fit || !SP.img) return;
@@ -1303,7 +1318,7 @@ export function mountRadarMap(root, opts = {}) {
     });
     $("hubs").addEventListener("click", e => { const b = e.target.closest("button[data-h]"); if (b) showHub(b.dataset.h); });
     $("views").addEventListener("click", e => { const b = e.target.closest("button[data-v]"); if (!b) return;
-      if (b.dataset.v === "wiring" && !TABLES) { alert("The wiring view needs a site plan (zones, IDF per sensor, switches) on this job's record - this site has none yet."); return; }
+      if (b.dataset.v === "wiring" && !TABLES) { alert("The wiring view needs a site plan (zones, IDF per device, switches) on this job's record - this site has none yet."); return; }
       layout = b.dataset.v; root.querySelectorAll("#rm-views button").forEach(x => x.classList.toggle("on", x === b)); fit(false); });
     async function loadJobs(user) {   // same one-row-per-site list as the checklist (telaid-data groupSites)
       const selEl = $("job"); if (EMBED || !user || !selEl) return;
@@ -1323,10 +1338,10 @@ export function mountRadarMap(root, opts = {}) {
       const selEl = $("job"); if (!selEl) return;
       const words = ($("jobq").value || "").toLowerCase().split(/\s+/).filter(Boolean);
       const cur = JOBS.find(g => g.ids.includes(TASK));
-      const hits = JOBS.filter(g => g === cur || words.every(w => `${g.label} ${g.hasSensors ? "" : "no sensors"}`.toLowerCase().includes(w)));
+      const hits = JOBS.filter(g => g === cur || words.every(w => `${g.label}`.toLowerCase().includes(w)));
       const n = hits.filter(g => g !== cur).length;
       selEl.innerHTML = (words.length ? `<option value="" disabled>${n} match${n === 1 ? "" : "es"} for "${esc(words.join(" "))}"</option>` : "")
-        + hits.map(g => `<option value="${g.id}"${cur === g ? " selected" : ""}>${g.hasSensors ? "" : "(no sensors) "}${esc(g.label)}</option>`).join("");
+        + hits.map(g => `<option value="${g.id}"${cur === g ? " selected" : ""}>${esc(g.label)}</option>`).join("");
       return hits.filter(g => g !== cur);
     }
     $("jobq").addEventListener("input", () => { const only = renderJobs();
@@ -1334,12 +1349,12 @@ export function mountRadarMap(root, opts = {}) {
     $("job").addEventListener("change", e => { const t = e.target.value; if (!t) return;
       try { localStorage.setItem("sensorTask", JSON.stringify({ task: t, name: e.target.selectedOptions[0].text, at: Date.now() })); } catch (_) {}
       try { const u = new URL(location.href); u.searchParams.set("task", t); history.replaceState(null, "", u); } catch (_) {}
-      setTaskId(t); HL = new Set(); $("find").value = ""; $("info").innerHTML = '<span class="muted">Tap a sensor or device to see its details.</span>';
+      setTaskId(t); HL = new Set(); $("find").value = ""; $("info").innerHTML = '<span class="muted">Tap a device to see its details.</span>';
       load(auth.currentUser); });
     legend(); fit();
     onAuthStateChanged(auth, async u => { await loadJobs(u); load(u); });   // jobs first: a sibling-night id gets swapped for the canonical one before the data read
     return {
-      setTask(t) { if (!t || String(t) === TASK) return; setTaskId(t); $("info").innerHTML = '<span class="muted">Tap a sensor or device to see its details.</span>'; load(auth.currentUser); },
+      setTask(t) { if (!t || String(t) === TASK) return; setTaskId(t); $("info").innerHTML = '<span class="muted">Tap a device to see its details.</span>'; load(auth.currentUser); },
       refit: fit,
     };
   
