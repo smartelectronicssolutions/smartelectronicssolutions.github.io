@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.95"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.96"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -501,6 +501,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         html .dc-topics .dc-topic.on { background: var(--dc-purple); border-color: var(--dc-purple); color: var(--bg); font-weight: 600; }
         html .dc-topics .dc-topic.on .n { opacity: 0.85; }
         html .dc-topics .dc-topic.on .x { opacity: 0.85; }
+        .dc-bub .who .dc-tp { color: inherit; text-decoration: underline dotted; cursor: pointer; pointer-events: auto; }
+        .dc-bub .who .dc-tp:hover { opacity: 1; text-decoration: underline; }
         .dc-bub .who { display: block; font-size: calc(0.58rem * var(--dc-fs, 1)); text-transform: uppercase; letter-spacing: 1px; opacity: 0.6; margin-bottom: 3px; }
         .dc-bub.me { align-self: flex-end; background: color-mix(in srgb, var(--dc-me-bg) var(--dc-me-op, 100%), transparent); color: color-mix(in srgb, var(--dc-me-fg) var(--dc-me-tx, 100%), transparent); border-bottom-right-radius: 4px; font-family: var(--font-mono); font-size: calc(0.84rem * var(--dc-fs, 1)); }
         .dc-bub.drop { align-self: flex-start; border: 1px solid var(--border); border-bottom-left-radius: 4px; background: color-mix(in srgb, var(--dc-dp-bg, var(--surface)) var(--dc-dp-op, 100%), transparent); color: color-mix(in srgb, var(--dc-dp-fg, var(--text)) var(--dc-dp-tx, 100%), transparent); }   /* the Look sliders (2026-10-04): --dc-*-op = bubble opacity, --dc-*-tx = text opacity; NOT #dc-console-scoped, or it outranks the glass style (2026-09-27) */
@@ -1292,7 +1294,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const editBtn = (me && t.__last) ? '<button type="button" class="dc-edit" title="edit this message and send it again">✎</button>' : '';
             const favBtn = (!me && !t.pending && t.__k) ? `<button type="button" class="dc-fav${(DC.favs || {})[t.__k] ? ' on' : ''}" title="favorite this reply">${'\u2605'}</button>` : '';
             const enh = changed ? `<details class="enh"><summary>✨ see what was sent</summary><div>${esc(t.enhanced)}</div></details>` : '';
-            const tp = (!DC.topic && t.topic) ? ' · # ' + esc(t.topic) : '';   // All view: show which topic a turn belongs to
+            // All view: show which topic a turn belongs to - tap it = open that tab (L 2026-10-27 "when I click on the #name have it take me to that tab")
+            const tp = (!DC.topic && t.topic) ? ` · <a href="#" class="dc-tp" data-topic="${esc(t.topic)}" title="open the # ${esc(t.topic)} tab"># ${esc(t.topic)}</a>` : '';
             // 1 / 2 BUTTONS (2026-09-24, L: "yes"): daemon 0.29 reports a terminal menu as "My terminal is asking: ...
             // 1. Yes ... 2. No ...". On the tail turn, each option becomes a button that sends its digit as the next message.
             let choices = '';
@@ -2054,6 +2057,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 if (n >= 4) { n = 0; undoLast(); }
             });
         })();
+        // the "# topic" on a bubble in the All view: one tap = jump to that tab (capture phase, so the triple-tap counter never sees it)
+        document.getElementById('dc-chat-log') && document.getElementById('dc-chat-log').addEventListener('click', e => {
+            const a = e.target.closest && e.target.closest('.dc-tp'); if (!a) return; e.preventDefault(); e.stopPropagation(); setTopic(a.dataset.topic);
+        }, true);
         window.__dcConfirmDelete = confirmDelete;   // test hook
         window.__dcMsgSheet = (k, ext) => confirmDelete(k, ext);   // the 👥 pane's triple-tap
         document.getElementById('dc-chat-log') && document.getElementById('dc-chat-log').addEventListener('click', async e => {
