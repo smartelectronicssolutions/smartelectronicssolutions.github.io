@@ -62,7 +62,7 @@ function insertToggleButtonIntoHeader() {
 
     const btn = document.createElement('button');
     btn.id = 'toggleSidebar';
-    btn.innerText = 'Menu';
+    btn.innerText = 'Links';
 
     headerEl.appendChild(btn);
 }
@@ -104,7 +104,7 @@ function wireUpSidebarToggle() {
         sidebar.classList.toggle('hidden');
 
         if (sidebar.classList.contains('hidden')) {
-            toggleBtn.innerText = 'Menu';
+            toggleBtn.innerText = 'Links';
         } else {
             toggleBtn.innerText = 'Close';
         }
@@ -119,6 +119,6 @@ function wireUpSidebarToggle() {
             return;
         }
         sidebar.classList.add('hidden');
-        toggleBtn.innerText = 'Menu';
+        toggleBtn.innerText = 'Links';
     });
 }
