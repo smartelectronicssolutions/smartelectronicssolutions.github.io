@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.21">
+    <meta name="version" content="1.0.23">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Control Hub</title>
     <link rel="stylesheet" href="assets/css/master.css">
@@ -654,19 +654,6 @@
                 <div class="hcard"><h3>Quick Commands</h3><div id="cmd-list"></div></div>
             </section>
 
-            <!-- LINKS (2026-10-10, L: "onlinelinks - that user specific list that loads of bookmarks"): the signed-in
-                 person's own {uid}/links (same node onlinelinks.html writes), filter + category, tap = open in a new tab -->
-            <section class="hub-section">
-                <div class="hcard">
-                    <h3>Links <a href="apps/online/onlinelinks.html" target="_blank" style="float:right;font-size:0.72rem;color:steelblue;font-weight:400;text-transform:none;letter-spacing:0;text-decoration:none">open ↗</a></h3>
-                    <div style="display:flex;gap:8px;margin-bottom:10px">
-                        <input id="hl-q" type="search" placeholder="Filter…" style="flex:1;min-width:0;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:0.82rem">
-                        <select id="hl-cat" style="max-width:45%;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:0.82rem"><option value="">All</option></select>
-                    </div>
-                    <div id="hl-list" style="display:flex;flex-wrap:wrap;gap:6px;max-height:260px;overflow:auto"><span style="color:var(--muted);font-style:italic">Loading…</span></div>
-                </div>
-            </section>
-
             <section class="hub-section">
                 <div class="grid-2">
                     <div class="hcard">
@@ -765,28 +752,6 @@
             });
         }
         window.__hubGuest = applyGuest;   // test hook
-        // LINKS card (2026-10-10): same parse as onlinelinks.html - rows need a url; categories may be a string or a list
-        let HL = [];
-        function renderHubLinks(data) {
-            HL = Object.values(data).filter(v => v && typeof v.url === 'string' && v.url.trim()).map(v => ({
-                url: v.url.trim(), title: v.title || '',
-                cats: Array.isArray(v.categories) ? v.categories : v.categories ? [v.categories] : [] }));
-            const sel = $('#hl-cat'), keep = sel.value, cats = [...new Set(HL.flatMap(r => r.cats))].sort((a, b) => a.localeCompare(b));
-            sel.innerHTML = '<option value="">All</option>' + cats.map(c => `<option>${esc(c)}</option>`).join('');
-            if (cats.includes(keep)) sel.value = keep;
-            paintHubLinks();
-        }
-        function paintHubLinks() {
-            const q = ($('#hl-q').value || '').trim().toLowerCase(), cat = $('#hl-cat').value;
-            const rows = HL.filter(r => (!cat || r.cats.includes(cat)) &&
-                    (!q || (r.title + ' ' + r.url + ' ' + r.cats.join(' ')).toLowerCase().includes(q)))
-                .sort((a, b) => (a.title || a.url).toLowerCase().localeCompare((b.title || b.url).toLowerCase()));
-            $('#hl-list').innerHTML = rows.length ? rows.map(r =>
-                `<a class="hbtn" href="${/^https?:\/\//i.test(r.url) ? esc(r.url) : '#'}" target="_blank" rel="noopener noreferrer" title="${esc(r.url)}" style="text-decoration:none;padding:5px 12px;font-size:0.78rem;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.title || r.url.replace(/^https?:\/\//i, ''))}</a>`).join('')
-                : `<span style="color:var(--muted);font-style:italic">${HL.length ? 'No matching links' : 'No saved links yet - add some in Online Links'}</span>`;
-        }
-        $('#hl-q').addEventListener('input', paintHubLinks);
-        $('#hl-cat').addEventListener('change', paintHubLinks);
         let cardOrderWired = false;
         function wireCardOrder() {
             if (cardOrderWired) return; cardOrderWired = true;
@@ -986,7 +951,6 @@
             applyGuest(u.uid !== HUB_OWNER_UID);
             DC.uid = u.uid; DC.base = `${u.uid}/console`;
             wireCardOrder();
-            onValue(ref(database, `${u.uid}/links`), snap => renderHubLinks(snap.val() || {}));
             onValue(ref(database, `${DC.base}/usage`), s => renderUsage(s.val() || {}));
             onValue(ref(database, `${DC.base}/data`), s => renderData(s.val() || null));
             onValue(ref(database, `${DC.base}/drives`), s => { window.__drivesScan = s.val() || {}; window.__paintDrives && window.__paintDrives(); });
