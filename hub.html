@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.17">
+    <meta name="version" content="1.0.19">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Control Hub</title>
     <link rel="stylesheet" href="assets/css/master.css">
@@ -550,12 +550,6 @@
                  system"): Preview = dry run, Run = apply. se/pi go straight to the daemon (kind:'cleanup' -> elevated task
                  ops-cleanup -> console/cleanup/<system>); the VMs and other PCs go to Droplet as a job (they need creds). -->
             <section class="hub-section">
-                <div class="hcard" id="siteswitch-card">
-                    <h3>Site switches</h3>
-                    <div style="font-size:0.78rem;color:var(--muted)">Site switches moved to the websites page (2026-10-21): one toggle per site, plus Everything. <a href="/websites/index.html" style="color:var(--accent,#c0405a)">Open the websites page &rarr;</a></div>
-                </div>
-            </section>
-            <section class="hub-section">
                 <div class="hcard" id="cleanup-card">
                     <h3>Storage <span id="cl-age" style="float:right;font-size:0.65rem;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0"></span></h3>
                     <!-- STORAGE (2026-10-29, L: "combine cleanup, server drives, call it storage"): the Server Drives table now sits on top of Cleanup -->
@@ -684,25 +678,6 @@
                     <div class="hcard">
                         <h3>Quick Notes <a href="apps/online/onlinenotes.html" target="_blank" style="float:right;font-size:0.72rem;color:steelblue;font-weight:400;text-transform:none;letter-spacing:0;text-decoration:none">open ↗</a></h3>
                         <div id="notes-list"><span style="color:var(--muted);font-style:italic">Loading...</span></div>
-                    </div>
-                </div>
-            </section>
-
-            <section class="hub-section">
-                <div class="grid-2">
-                    <div class="hcard">
-                        <h3>Open Service Tickets</h3>
-                        <table class="htable">
-                            <thead><tr><th>ID</th><th>Device</th><th>Status</th><th>Customer</th></tr></thead>
-                            <tbody id="ticket-rows"><tr><td colspan="4" style="color:var(--muted);font-style:italic">Loading...</td></tr></tbody>
-                        </table>
-                    </div>
-                    <div class="hcard">
-                        <h3>Inventory</h3>
-                        <table class="htable">
-                            <thead><tr><th>Item</th><th>Qty</th><th>Price</th></tr></thead>
-                            <tbody id="inv-rows"><tr><td colspan="3" style="color:var(--muted);font-style:italic">Loading...</td></tr></tbody>
-                        </table>
                     </div>
                 </div>
             </section>
@@ -1161,31 +1136,6 @@
 
         function escH(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
-        function renderTickets(items) {
-            const active = items.filter(t => t.status !== 'closed').slice(0, 25);
-            document.getElementById('ticket-rows').innerHTML = active.length
-                ? active.map(t => {
-                    const col = t.status === 'open' ? '#f87171' : t.status === 'in-progress' ? '#facc15' : 'var(--muted)';
-                    return `<tr>
-                        <td>${escH(t.id || '—')}</td>
-                        <td>${escH(t.device || '—')}</td>
-                        <td style="color:${col}">${escH(t.status || '—')}</td>
-                        <td>${escH(t.customer || '—')}</td>
-                    </tr>`;
-                }).join('')
-                : '<tr><td colspan="4" style="color:var(--muted);font-style:italic">No open tickets</td></tr>';
-        }
-
-        function renderInventory(items) {
-            document.getElementById('inv-rows').innerHTML = items.length
-                ? items.slice(0, 30).map(i => `<tr>
-                    <td>${escH(i.name || '—')}</td>
-                    <td>${escH(i.quantity ?? '—')}</td>
-                    <td>${i.price != null ? '$' + i.price : '—'}</td>
-                </tr>`).join('')
-                : '<tr><td colspan="3" style="color:var(--muted);font-style:italic">No items</td></tr>';
-        }
-
         function renderAll(d) {
             if (d.external)    renderServices('svc-external', d.external);
             if (d.local)       renderServices('svc-local', d.local);
@@ -1302,24 +1252,6 @@
             renderAll(data);
             window.__hubData = data;
             revealDropletToggle();
-
-            // Service tickets (open + in-progress)
-            get(ref(database, `${user.uid}/serviceTickets`))
-                .then(s => {
-                    if (s.exists()) { renderTickets(Object.values(s.val())); return; }
-                    return get(ref(database, 'public/serviceTickets'))
-                        .then(ps => ps.exists() ? renderTickets(Object.values(ps.val()))
-                            : renderTickets([]));
-                }).catch(() => renderTickets([]));
-
-            // Inventory
-            get(ref(database, `${user.uid}/money/inventory`))
-                .then(s => {
-                    if (s.exists()) { renderInventory(Object.values(s.val())); return; }
-                    return get(ref(database, 'public/money/inventory'))
-                        .then(ps => ps.exists() ? renderInventory(Object.values(ps.val()))
-                            : renderInventory([]));
-                }).catch(() => renderInventory([]));
 
             // Quick Notes
             get(ref(database, `${user.uid}/notes`))
