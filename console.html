@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.107"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.108"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -3656,8 +3656,20 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         function sendChat() {
             try { const r = window.__dcWpmTake && window.__dcWpmTake(); if (r && DC.base) push(ref(database, `${DC.base}/wpm`), { t: Date.now(), w: Math.round((r.c / 5) / (r.ms / 60000)), c: r.c, m: matchMedia('(pointer: coarse)').matches ? 'phone' : 'desk' }).catch(() => {}); } catch (_) {}   // WPM log (2026-10-22)
             if (sendChatBusy) { const st = $('#dc-chat-status'); if (st && !st.textContent) st.textContent = '\u2728 finishing\u2026'; return sendChatBusy; }
-            sendChatBusy = sendChatOnce().finally(() => { sendChatBusy = null; });
-            return sendChatBusy;
+            // WEAK SIGNAL (2026-10-30, L: "Send or enter isn't always working"): Firebase's set() does not reject without a connection, it
+            // just waits, so one stuck message held this lock and the disabled ▲ and every later Enter / tap did nothing. After 6 s the box is
+            // already empty, so let go: the stuck write still lands by itself when the signal returns. An edit keeps its text, so it stays locked.
+            const p = sendChatOnce();
+            sendChatBusy = p;
+            const release = setTimeout(() => {
+                if (sendChatBusy !== p || DC.editKey) return;
+                sendChatBusy = null;
+                const sb = $('#dc-chat-send'), st = $('#dc-chat-status');
+                if (sb) sb.disabled = false;
+                if (st) st.textContent = '⏸ weak signal - that one sends when the connection is back; you can keep going';
+            }, 6000);
+            p.finally(() => { clearTimeout(release); if (sendChatBusy === p) sendChatBusy = null; }).catch(() => {});
+            return p;
         }
         async function sendChatOnce() {
             const ta = $('#dc-chat-in'); let raw = ta.value.trim();
