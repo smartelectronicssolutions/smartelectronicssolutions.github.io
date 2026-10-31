@@ -2,7 +2,7 @@
 <html lang="en">
 
 <head>
-  <meta name="version" content="1.0.0">
+  <meta name="version" content="1.0.1">
   <script>(function(){try{if(localStorage.getItem("ss-theme")==="light")document.documentElement.classList.add("light")}catch(e){}})();</script>  <!-- saved light/dark before first paint (2026-10-01) -->
   <title>Live Notes</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
@@ -127,6 +127,7 @@
     let revealed = true;       // is the window showing plaintext (editable) vs the encrypted cipher block (read-only)?
     let lastWord = '';         // the word this note is encrypted under this session (memory only, never stored) - lets edits re-save encrypted
     let wordTimer = null;      // debounce so the live convert waits until you stop typing the word
+    let wordUndo = null;       // while the box still holds the word that just locked the note: the lock state to return to if it is emptied
     const WORD_DELAY = 1600;   // ms after the last key keystroke before the note auto-converts
     const ENC_PREFIX = 'AGCM1.';   // AES-256-GCM notes - the real engine, shared with testbed/encryption.html
     const SX_PREFIX = 'SXOR1.';    // legacy light cipher from an interim build - READ-ONLY: revealed notes re-save as AES
@@ -153,13 +154,24 @@
     // LIVE CONVERT (no buttons): a short pause after you type the key word flips the note. Typing the word toggles locked/open.
     function scheduleWord(){
       if (wordTimer) clearTimeout(wordTimer);
-      if (keyInput.value.trim()) setStatus('... converting');
+      if (keyInput.value.trim()) setStatus('... waiting for you to finish');
       wordTimer = setTimeout(wordSettled, WORD_DELAY);
+    }
+    // WORD STAYS IN THE BOX (2026-10-30, L: "it's in there until I finish typing"): a pause mid-word used to lock and blank the box.
+    // Now the word stays while the box has focus, more typing re-locks under the longer word, and leaving the box finishes it.
+    async function wordDone(){
+      if (wordTimer) { clearTimeout(wordTimer); await wordSettled(); }
+      wordUndo = null;
+      if (!revealed) keyInput.value = '';
     }
     async function wordSettled(){
       wordTimer = null;
       const pw = keyInput.value.trim();
       if (!revealed) {                                       // LOCKED -> the word opens it
+        if (wordUndo) {                                      // still typing the word that locked it
+          if (pw) { try { lockedBlob = await encryptText(clearText, pw); lastWord = pw; } catch { setStatus('encryption failed'); } renderNote(); return; }
+          lockedBlob = wordUndo.lockedBlob; lastWord = wordUndo.lastWord; wordUndo = null; revealed = true; renderNote(); return;   // box emptied: undo the lock
+        }
         if (!pw) { renderNote(); return; }
         let plain = null;
         try {
@@ -167,13 +179,15 @@
           else plain = await decryptText(lockedBlob, pw);
         } catch (_){}
         if (plain != null) { clearText = plain; lastWord = pw; revealed = true; keyInput.value = ''; renderNote(); }
-        else if (clearText != null) { revealed = true; keyInput.value = ''; renderNote(); }   // in-session: we still hold it
         else { notesTextarea.value = await garbageView(lockedBlob, pw); notesTextarea.readOnly = true; setStatus('wrong word - this is the note under that word'); }   // GARBAGE VIEW (L 2026-10-03, see garbageView)
       } else {                                               // OPEN -> the word locks it (encrypt)
         if (!pw || !(clearText && clearText.trim())) { renderNote(); return; }
+        const undo = { lockedBlob, lastWord };
         try { lockedBlob = await encryptText(clearText, pw); lastWord = pw; }
         catch { setStatus('encryption failed'); return; }
-        revealed = false; keyInput.value = ''; renderNote();
+        revealed = false;
+        if (document.activeElement === keyInput) wordUndo = undo; else keyInput.value = '';
+        renderNote();
       }
     }
     const _b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
@@ -254,11 +268,13 @@
       // LIVE, no buttons: typing the 🔑 word auto-converts after a short pause (scheduleWord -> wordSettled).
       // Typing the word toggles the note between open (editable) and encrypted. Enter applies immediately.
       keyInput.addEventListener('input', scheduleWord);
-      keyInput.addEventListener('keydown', (e) => {
+      keyInput.addEventListener('blur', wordDone);
+      keyInput.addEventListener('keydown', async (e) => {
         if (e.key !== 'Enter') return;
         e.preventDefault();
         if (wordTimer) clearTimeout(wordTimer);
-        wordSettled();
+        await wordSettled();
+        keyInput.blur();
       });
       document.getElementById('autosave-checkbox').addEventListener('change', toggleAutoSave);
       document.addEventListener("keydown", handleKeyboardShortcuts);
