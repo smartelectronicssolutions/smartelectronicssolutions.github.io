@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.111"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.113"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1088,6 +1088,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (DC.uid === HUB_OWNER_UID) ['today', 'last30'].forEach(k => onValue(ref(database, `${PILET_UID}/console/usage/${k}`), s => { DC.pilet = Object.assign(DC.pilet || {}, { [k]: s.val() || null }); if (DC.usage) renderUsageAdv(DC.usage); }));
             onValue(ref(database, `${DC.base}/settings/autoArchiveChars`), s => { DC.autoArchiveChars = Number(s.val() || 0); const b = $('#dc-auto-arch'); if (b && document.activeElement !== b) b.value = Math.round(DC.autoArchiveChars / 1000); updateThreadSize(DC.chatTurns || {}); });
             onValue(query(ref(database, `${DC.base}/chat/turns`), limitToLast(120)), s => { DC.ownTurns = s.val() || {}; if (!DC.remote) renderChat(DC.ownTurns); });
+            onValue(ref(database, `${DC.base}/settings/tabModel`), s => { DC.tabModels = s.val() || {}; });
             onValue(ref(database, `${DC.base}/chat/topics`), s => { DC.topicList = s.val() || {}; renderTopics(); });
             onValue(ref(database, `${DC.base}/chat/favorites`), s => { DC.favs = s.val() || {}; renderChat(DC.chatTurns || {}); });
             onValue(ref(database, `${DC.base}/seen/topics`), s => { DC.seenCloud = s.val() || {}; if (!DC.remote) renderChat(DC.ownTurns || DC.chatTurns || {}); });   // read on another device -> clear here
@@ -1378,10 +1379,42 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // One multi-path update rewrites `topic` on every turn under the old name, then the
         // topic node is recreated under the new one and the old is removed. Renaming onto an
         // existing name MERGES - deliberately, because that is the only way to undo a fork.
-        async function renameTopic(oldName) {
+        // TAB EDIT POPUP (2026-10-31, L: "the pencil ... a model select in that popup"): name + model for this tab.
+        // The value goes on every job from the tab; the daemon's _tabmodel_job answers it. Empty = the main session.
+        const TAB_MODELS = [['', 'Default (main session)'], ['claude:claude-opus-5-5', 'Claude Opus 5.5'], ['claude:claude-sonnet-5-5', 'Claude Sonnet 5.5'],
+            ['claude:claude-haiku-5-5', 'Claude Haiku 5.5'], ['claude:claude-fable-5-1', 'Claude Fable 5.1'], ['local:qwen3:14b', 'Local: qwen3:14b'],
+            ['local:qwen3.8:27b', 'Local: qwen3.8:27b'], ['local:gemma4:26b', 'Local: gemma4:26b'], ['local:gemma2:9b', 'Local: gemma2:9b'], ['local:dolphin3:latest', 'Local: dolphin3']];
+        const tabModelOf = n => (DC.tabModels || {})[topicKey(n)] || '';
+        function editTab(oldName) {
+            const w = document.createElement('div');
+            w.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px';
+            const box = document.createElement('div');
+            box.style.cssText = 'width:100%;max-width:340px;background:var(--panel,#16213a);color:var(--text,#eee);border:1px solid var(--border,#345);border-radius:12px;padding:16px;display:grid;gap:10px';
+            const fld = 'font-size:16px;padding:8px;border-radius:8px;border:1px solid var(--border,#345);background:var(--bg,#0d1526);color:inherit;width:100%;box-sizing:border-box';
+            box.innerHTML = '<b>Edit tab</b><label>Name<input id="dc-te-name" maxlength="40"></label><label>Model<select id="dc-te-model"></select></label>'
+                + '<small id="dc-te-note" style="opacity:.75"></small><div style="display:flex;gap:8px;justify-content:flex-end"><button class="dc-btn ghost sm" id="dc-te-x">Cancel</button><button class="dc-btn sm" id="dc-te-ok">Save</button></div>';
+            w.appendChild(box); document.body.appendChild(w);
+            const name = box.querySelector('#dc-te-name'), sel = box.querySelector('#dc-te-model'), note = box.querySelector('#dc-te-note');
+            name.style.cssText = fld; sel.style.cssText = fld; name.value = oldName;
+            for (const [v, t] of TAB_MODELS) { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.appendChild(o); }
+            sel.value = tabModelOf(oldName);
+            const say = () => { note.textContent = !sel.value ? 'Uses this main session.' : sel.value.startsWith('local:') ? 'Local chat: no tools or memory files.'
+                : 'Its own side session: reads memory, no main-session chat, approved read-only tools only.'; };
+            sel.onchange = say; say();
+            const close = () => w.remove();
+            w.onclick = e => { if (e.target === w) close(); };
+            box.querySelector('#dc-te-x').onclick = close;
+            box.querySelector('#dc-te-ok').onclick = async () => {
+                const nm = String(name.value).trim().replace(/\s+/g, ' ').slice(0, 40), m = sel.value;
+                close();
+                try {
+                    await set(ref(database, `${DC.base}/settings/tabModel/${topicKey(nm || oldName)}`), m || null);
+                    if (nm && nm !== oldName) { await set(ref(database, `${DC.base}/settings/tabModel/${topicKey(oldName)}`), null); await renameTopic(oldName, nm); }
+                } catch (e) { const st = $('#dc-chat-status'); if (st) st.textContent = '⚠ tab edit failed: ' + (e.message || e); }
+            };
+        }
+        async function renameTopic(oldName, inp) {
             if (!DC.base || !oldName || oldName === FAV_TAB) return;
-            const inp = window.prompt('Rename this tab (its messages come with it):', oldName);
-            if (inp === null) return;
             const nm = String(inp).trim().replace(/\s+/g, ' ').slice(0, 40);
             if (!nm || nm === oldName) return;
             const status = $('#dc-chat-status');
@@ -1520,8 +1553,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 // same teal dashed outline the other person's chip has, so both sides see the same tab the same way.
                 const _sh = (window.__dcMyShares || []).find(x => x.topic === nm);
                 if (_sh) { c.classList.add('sharing'); c.insertAdjacentText('afterbegin', '📺 '); c.title = `shared with ${_sh.name} - they see it live (view only)`; }
-                if (DC.topic === nm) { const p = document.createElement('span'); p.className = 'x'; p.textContent = '✎'; p.title = 'rename this tab - its messages come with it';
-                    p.onclick = e => { e.stopPropagation(); renameTopic(nm); }; c.appendChild(p); }
+                if (DC.topic === nm) { const p = document.createElement('span'); p.className = 'x'; p.textContent = '✎'; p.title = 'edit this tab: name and model';
+                    p.onclick = e => { e.stopPropagation(); editTab(nm); }; c.appendChild(p); }
                 // MUTE PER CHAT (2026-10-23, Telegram review #2, on/off only): a muted tab still gets its messages + unread mark, no push
                 { const M = window.__dcMute, mk = 'dc_' + topicKey(nm), on = !!(M && M.is(mk));
                     if (on) c.insertAdjacentText('afterbegin', '🔕 ');
@@ -3771,7 +3804,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 const job = target === 'command'
                     ? { kind: 'command', command: raw, code: ykCode, chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing }
                     : { kind: 'prompt', target: jobTarget, rough: raw, enhanced: prompt, chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing,
-                        enhance: !!(enhOn && DC.kdaemon), lturn: lref.key, ...tpc, ...(editTurn ? { edited: true } : {}) };   // kdaemon: enhance server-side + which turn to annotate
+                        enhance: !!(enhOn && DC.kdaemon), lturn: lref.key, ...tpc, ...(jobTarget === 'droplet' && !DC.kdaemon && DC.topic && tabModelOf(DC.topic) ? { tabModel: tabModelOf(DC.topic) } : {}), ...(editTurn ? { edited: true } : {}) };   // kdaemon: enhance server-side + which turn to annotate
                 await set(jref, job);
                 try { await update(lref, { jobId: jref.key }); } catch (_) {}   // lets a later delete blank the job text as well
                 DC.lastJob = jref.key;
