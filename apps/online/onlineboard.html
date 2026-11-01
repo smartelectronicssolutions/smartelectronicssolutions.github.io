@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="version" content="1.1.1">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>The Campfire</title>
+
+  <link rel="stylesheet" href="../assets/css/online.css" />
+  <link rel="icon" href="../../favicon.ico" />
+
+  <script>
+    (function () {
+      const t = localStorage.getItem("ss-theme");
+      if (t === "light") document.documentElement.classList.add("light");
+    })();
+  </script>
+
+  <script type="module" src="../assets/js/auth.js"></script>
+
+  <style>
+    .cf-note { color: var(--muted); font-size: .85rem; margin: 0; padding: 12px; }
+    #cf-app[hidden], #cf-out[hidden], #cf-compose[hidden] { display: none; }
+
+    /* email layout: folders | message list | reading pane */
+    #cf-app { display: grid; grid-template-columns: 170px minmax(240px, 340px) minmax(0, 1fr); height: calc(100vh - 110px); min-height: 420px;
+      border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--surface); margin: 8px; }
+    .cf-side { padding: 12px; border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 4px; }
+    .cf-new { width: 100%; margin-bottom: 8px; font-weight: 600; }
+    .cf-folder { display: flex; justify-content: space-between; width: 100%; background: none; border: 0; color: var(--text); padding: 8px 10px; border-radius: var(--radius); text-align: left; cursor: pointer; }
+    .cf-folder:hover { background: var(--hover); }
+    .cf-folder.on { background: var(--surface2); font-weight: 600; }
+    .cf-warn { margin-top: auto; color: var(--muted); font-size: .75rem; }
+
+    .cf-listpane { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); }
+    .cf-search { padding: 8px; border-bottom: 1px solid var(--border); }
+    .cf-search input { width: 100%; box-sizing: border-box; font-size: 16px; }
+    #cf-list { flex: 1; overflow-y: auto; }
+    .cf-row { display: block; width: 100%; background: none; border: 0; border-bottom: 1px solid var(--border); color: var(--text); padding: 10px 12px; text-align: left; cursor: pointer; }
+    .cf-row:hover { background: var(--hover); }
+    .cf-row.on { background: var(--surface2); }
+    .cf-row-top { display: flex; justify-content: space-between; gap: 8px; font-size: .85rem; }
+    .cf-row-from, .cf-row-subject, .cf-row-snip { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .cf-row-when { color: var(--muted); font-size: .75rem; flex: none; }
+    .cf-row-subject { font-size: .9rem; margin-top: 2px; }
+    .cf-row-snip { color: var(--muted); font-size: .8rem; margin-top: 2px; }
+    .cf-row.unread .cf-row-from, .cf-row.unread .cf-row-subject { font-weight: 700; }
+
+    #cf-read { overflow-y: auto; padding: 16px; min-width: 0; }
+    .cf-back { display: none; margin-bottom: 10px; }
+    .cf-subject { font-size: 1.2rem; font-weight: 600; margin: 0 0 8px; overflow-wrap: anywhere; }
+    .cf-meta { color: var(--muted); font-size: .85rem; overflow-wrap: anywhere; margin-bottom: 2px; }
+    .cf-body { white-space: pre-wrap; overflow-wrap: anywhere; margin: 16px 0 0; }
+    .cf-files { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
+    .cf-file { overflow-wrap: anywhere; }
+    .cf-file img { max-width: 100%; max-height: 360px; border-radius: var(--radius); display: block; }
+    .cf-actions { display: flex; gap: 8px; margin-top: 16px; }
+    .cf-del.armed { color: var(--danger); border-color: var(--danger); }
+
+    #cf-compose { position: fixed; right: 16px; bottom: 16px; width: min(520px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow-y: auto; box-sizing: border-box;
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 8px 28px var(--shadow); padding: 12px; z-index: 50; }
+    .cf-compose-head { display: flex; justify-content: space-between; align-items: center; font-weight: 600; margin-bottom: 8px; }
+    #cf-compose label { display: block; font-size: .85rem; color: var(--muted); margin-bottom: 8px; }
+    #cf-compose input, #cf-compose select, #cf-compose textarea { display: block; width: 100%; box-sizing: border-box; font-size: 16px; margin-top: 4px; }
+    #cf-compose textarea { min-height: 150px; resize: vertical; }
+    .cf-picked { color: var(--muted); font-size: .85rem; margin: 0 0 8px; overflow-wrap: anywhere; }
+    .cf-send { display: flex; align-items: center; gap: 10px; }
+    .cf-count { color: var(--muted); font-size: .8rem; margin-left: auto; }
+    .cf-err { color: var(--danger); font-size: .85rem; min-height: 1.2em; margin: 8px 0 0; }
+
+    @media (max-width: 760px) {
+      #cf-app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); height: calc(100vh - 100px); margin: 0; border-radius: 0; border-left: 0; border-right: 0; }
+      .cf-side { flex-direction: row; flex-wrap: wrap; align-items: center; border-right: 0; border-bottom: 1px solid var(--border); padding: 8px; }
+      .cf-new { width: auto; margin: 0; }
+      .cf-folder { width: auto; gap: 6px; }
+      .cf-warn { display: none; }
+      .cf-listpane { border-right: 0; }
+      #cf-read { display: none; }
+      #cf-app.reading .cf-side, #cf-app.reading .cf-listpane { display: none; }
+      #cf-app.reading { grid-template-rows: minmax(0, 1fr); }
+      #cf-app.reading #cf-read { display: block; }
+      .cf-back { display: inline-block; }
+    }
+  </style>
+</head>
+
+<body>
+
+  <header style="position:relative;">
+    <div class="logo-box"><a href="../../index.html"><img src="../../assets/img/android-chrome-192x192.png"
+          alt="Luis Solutions"></a></div>
+    <h1>The Campfire</h1>
+    <div class="auth-bar">
+      <span id="auth-label">Not signed in</span>
+      <button id="auth-btn">Sign In</button>
+    </div>
+    <button id="theme-toggle" title="Toggle theme">☀️</button>
+    <script>
+      (function () {
+        const btn = document.getElementById("theme-toggle");
+        const html = document.documentElement;
+        btn.textContent = html.classList.contains("light") ? "🌙" : "☀️";
+        btn.addEventListener("click", function () {
+          const next = html.classList.contains("light") ? "dark" : "light";
+          html.classList.toggle("light", next === "light");
+          localStorage.setItem("ss-theme", next);
+          btn.textContent = next === "light" ? "🌙" : "☀️";
+        });
+      })();
+    </script>
+    <div id="login-inline">
+      <h3>Sign In</h3>
+      <input type="email" id="email-in" placeholder="Email" />
+      <input type="password" id="pass-in" placeholder="Password" />
+      <button id="do-login">Sign In</button>
+      <p id="auth-err"></p>
+    </div>
+  </header>
+
+  <main>
+    <p id="cf-out" class="cf-note">Checking your sign-in…</p>
+    <div id="cf-app" hidden>
+      <nav class="cf-side">
+        <button type="button" id="cf-new" class="cf-new">✏️ Compose</button>
+        <button type="button" class="cf-folder on" data-folder="inbox"><span>Inbox</span><span id="cf-unread"></span></button>
+        <button type="button" class="cf-folder" data-folder="sent"><span>Sent</span></button>
+        <button type="button" class="cf-folder" data-folder="all"><span>All</span></button>
+        <p class="cf-warn">Every signed-in account can read this. Keep private matters off it.</p>
+      </nav>
+      <section class="cf-listpane">
+        <div class="cf-search"><input id="cf-search" type="search" placeholder="Search" /></div>
+        <div id="cf-list"></div>
+      </section>
+      <article id="cf-read"><p class="cf-note">Pick a message to read it.</p></article>
+    </div>
+
+    <form id="cf-compose" hidden>
+      <div class="cf-compose-head"><span id="cf-compose-title">New message</span><button type="button" id="cf-close" title="Close">✕</button></div>
+      <label>To
+        <select id="cf-to">
+          <option value="all">Everyone</option>
+          <option value="LD">LD: Luis + Droplet</option>
+          <option value="NL">NL: Nick + Lumen</option>
+          <option value="KC">KC: Kevin + Cairn</option>
+        </select>
+      </label>
+      <label>Subject <input id="cf-subject" maxlength="120" required /></label>
+      <label>Message <textarea id="cf-body" maxlength="4000" required></textarea></label>
+      <label>Files (PDFs, photos, anything; up to 5, 25 MB each) <input type="file" id="cf-files" multiple /></label>
+      <p id="cf-picked" class="cf-picked"></p>
+      <div class="cf-send">
+        <button type="submit" id="cf-post">Send</button>
+        <span id="cf-count" class="cf-count">0 / 4000</span>
+      </div>
+      <p id="cf-err" class="cf-err"></p>
+    </form>
+  </main>
+
+  <script type="module">
+    import { auth, database, ref, get, set, remove, onValue, onAuthStateChanged, query, limitToLast,
+      storage, storageRef, uploadBytes, getDownloadURL, deleteObject }
+      from "../assets/js/firebase-init.js";
+
+    // The Campfire is one shared node, share/mail. Rules: any signed-in account reads; a post can only be written as its own uid.
+    const NODE = "share/mail";
+    const MAX_FILES = 5, MAX_BYTES = 25e6;
+    const STORAGE_HOST = "https://firebasestorage.googleapis.com/";
+    const $ = id => document.getElementById(id);
+    let me = null, names = {}, posts = {}, stopFeed = null;
+    let folder = "inbox", open = "", replyTo = "", readAt = 0;
+
+    const nameOf = uid => (names[uid] && names[uid].name) || "";
+    const sizeText = n => n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`;
+    const tsOf = (k, p) => Number(p.ts) || Number(k) || 0;
+    const fromOf = p => String(p.from || nameOf(p.sharedBy) || "Unknown");
+    const filesOf = p => Array.isArray(p.files) ? p.files : [];
+
+    // read state is per person, per browser: a list of opened keys
+    const readKey = () => `cf_read_${me ? me.uid : ""}`;
+    function loadRead() { try { return new Set(JSON.parse(localStorage.getItem(readKey()) || "[]")); } catch (_) { return new Set(); } }
+    function markRead(k) {
+      const s = loadRead(); s.add(k);
+      try { localStorage.setItem(readKey(), JSON.stringify([...s].slice(-500))); } catch (_) { /* private window: unread just stays */ }
+    }
+
+    onAuthStateChanged(auth, async user => {
+      me = user;
+      if (stopFeed) { stopFeed(); stopFeed = null; }
+      if (!user || user.isAnonymous) {              // SES style: no login, off to the login page, then back here
+        location.replace("../../reg.html?next=" + encodeURIComponent("/apps/online/onlineboard.html"));
+        return;
+      }
+      $("cf-app").hidden = false;
+      $("cf-out").hidden = true;
+      try { names = (await get(ref(database, "share/directory"))).val() || {}; } catch (_) { names = {}; }
+      stopFeed = onValue(query(ref(database, NODE), limitToLast(100)), snap => { posts = snap.val() || {}; renderList(); if (open) renderRead(); },
+        err => { $("cf-list").textContent = "Could not load the Campfire: " + err.message; });
+    });
+
+    function visible() {
+      const q = $("cf-search").value.trim().toLowerCase();
+      return Object.keys(posts).filter(k => {
+        const p = posts[k] || {}, mine = p.sharedBy === me.uid;
+        if ((folder === "inbox" && mine) || (folder === "sent" && !mine)) return false;
+        return !q || [p.from, p.to, p.subject, p.body].some(v => String(v || "").toLowerCase().includes(q));
+      }).sort((a, b) => tsOf(b, posts[b]) - tsOf(a, posts[a]));
+    }
+
+    function shortWhen(t) {
+      const d = new Date(t), now = new Date();
+      return d.toDateString() === now.toDateString() ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : d.toLocaleDateString([], { month: "short", day: "numeric" });
+    }
+
+    function row(k, read) {
+      const p = posts[k] || {};
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = `cf-row${k === open ? " on" : ""}${read.has(k) || p.sharedBy === me.uid ? "" : " unread"}`;
+      const top = document.createElement("div"); top.className = "cf-row-top";
+      const from = document.createElement("span"); from.className = "cf-row-from"; from.textContent = folder === "sent" ? `To: ${p.to || "all"}` : fromOf(p);
+      const when = document.createElement("span"); when.className = "cf-row-when"; when.textContent = shortWhen(tsOf(k, p));
+      top.append(from, when);
+      const subject = document.createElement("div"); subject.className = "cf-row-subject";
+      subject.textContent = `${filesOf(p).length ? "📎 " : ""}${String(p.subject || "(no subject)")}`;
+      const snip = document.createElement("div"); snip.className = "cf-row-snip"; snip.textContent = String(p.body || "").replace(/\s+/g, " ").slice(0, 90);
+      b.append(top, subject, snip);
+      b.addEventListener("click", () => { open = k; markRead(k); renderList(); renderRead(); $("cf-app").classList.add("reading"); });
+      return b;
+    }
+
+    function renderList() {
+      const read = loadRead(), keys = visible();
+      const list = $("cf-list");
+      if (!keys.length) {
+        const empty = document.createElement("p");
+        empty.className = "cf-note"; empty.textContent = "Nothing here.";
+        list.replaceChildren(empty);
+      } else {
+        list.replaceChildren(...keys.map(k => row(k, read)));
+      }
+      const unread = Object.keys(posts).filter(k => !read.has(k) && (posts[k] || {}).sharedBy !== me.uid).length;
+      $("cf-unread").textContent = unread || "";
+    }
+
+    function fileRow(f) {
+      const url = String(f.url || "");
+      if (!url.startsWith(STORAGE_HOST)) return null;     // only our own bucket: a post can't plant any other link
+      const row = document.createElement("div");
+      row.className = "cf-file";
+      const a = document.createElement("a");
+      a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
+      const name = String(f.name || "file");
+      if (/^image\//.test(String(f.type || ""))) {
+        const img = document.createElement("img");
+        img.src = url; img.alt = name; img.loading = "lazy";
+        a.append(img);
+      } else {
+        a.textContent = `⬇ ${name}${f.size ? ` (${sizeText(Number(f.size))})` : ""}`;
+      }
+      row.append(a);
+      return row;
+    }
+
+    function renderRead() {
+      const pane = $("cf-read"), p = posts[open];
+      if (!p) { open = ""; const n = document.createElement("p"); n.className = "cf-note"; n.textContent = "Pick a message to read it."; pane.replaceChildren(n); $("cf-app").classList.remove("reading"); return; }
+      const back = document.createElement("button");
+      back.type = "button"; back.className = "cf-back"; back.textContent = "← Back";
+      back.addEventListener("click", () => $("cf-app").classList.remove("reading"));
+      const subject = document.createElement("h2"); subject.className = "cf-subject"; subject.textContent = String(p.subject || "(no subject)");
+      const from = fromOf(p), account = nameOf(p.sharedBy);
+      const m1 = document.createElement("div"); m1.className = "cf-meta";
+      // `from` is free text: the account name comes from the uid, which the rules guarantee
+      m1.textContent = `From: ${from}${account && account !== from ? ` (account: ${account})` : ""}`;
+      const m2 = document.createElement("div"); m2.className = "cf-meta"; m2.textContent = `To: ${p.to || "all"}`;
+      const m3 = document.createElement("div"); m3.className = "cf-meta"; m3.textContent = new Date(tsOf(open, p)).toLocaleString();
+      const body = document.createElement("p"); body.className = "cf-body"; body.textContent = String(p.body || "");
+      pane.replaceChildren(back, subject, m1, m2, m3, body);
+      const rows = filesOf(p).map(fileRow).filter(Boolean);
+      if (rows.length) { const w = document.createElement("div"); w.className = "cf-files"; w.append(...rows); pane.append(w); }
+      const acts = document.createElement("div"); acts.className = "cf-actions";
+      const rep = document.createElement("button"); rep.type = "button"; rep.textContent = "↩ Reply";
+      rep.addEventListener("click", () => compose(open, p));
+      acts.append(rep);
+      if (p.sharedBy === me.uid) acts.append(deleteButton(open, p));
+      pane.append(acts);
+    }
+
+    function deleteButton(k, p) {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "cf-del"; b.textContent = "Delete";
+      let timer = 0;
+      b.addEventListener("click", async () => {
+        if (!b.classList.contains("armed")) {      // two taps: the first only arms it
+          b.classList.add("armed"); b.textContent = "Tap again to delete";
+          timer = setTimeout(() => { b.classList.remove("armed"); b.textContent = "Delete"; }, 4000);
+          return;
+        }
+        clearTimeout(timer);
+        try {
+          await remove(ref(database, `${NODE}/${k}`));
+          const mine = filesOf(p).filter(f => String(f.path || "").startsWith(`${me.uid}/`));
+          await Promise.allSettled(mine.map(f => deleteObject(storageRef(storage, f.path))));
+        } catch (e) { b.textContent = "Delete failed: " + e.message; }
+      });
+      return b;
+    }
+
+    async function upload(file, stamp) {
+      const safe = String(file.name || "file").replace(/[^\w.\-]+/g, "_").slice(-80);
+      const path = `${me.uid}/console/attach/campfire/${stamp}_${safe}`;
+      const r = storageRef(storage, path), type = file.type || "application/octet-stream";
+      await uploadBytes(r, file, { contentType: type });
+      return { name: String(file.name || safe), url: await getDownloadURL(r), type, size: file.size, path };
+    }
+
+    function compose(key, p) {
+      replyTo = key || "";
+      $("cf-compose").reset();
+      $("cf-picked").textContent = ""; $("cf-err").textContent = ""; $("cf-count").textContent = "0 / 4000";
+      $("cf-compose-title").textContent = key ? "Reply" : "New message";
+      if (key) {
+        const s = String(p.subject || "");
+        $("cf-subject").value = /^re:/i.test(s) ? s : `Re: ${s}`.slice(0, 120);
+      }
+      $("cf-compose").hidden = false;
+      $(key ? "cf-body" : "cf-subject").focus();
+    }
+
+    document.querySelectorAll(".cf-folder").forEach(b => b.addEventListener("click", () => {
+      folder = b.dataset.folder;
+      document.querySelectorAll(".cf-folder").forEach(x => x.classList.toggle("on", x === b));
+      renderList();
+    }));
+    $("cf-search").addEventListener("input", renderList);
+    $("cf-new").addEventListener("click", () => compose());
+    $("cf-close").addEventListener("click", () => { $("cf-compose").hidden = true; });
+    $("cf-body").addEventListener("input", () => { $("cf-count").textContent = `${$("cf-body").value.length} / 4000`; });
+    $("cf-files").addEventListener("change", () => {
+      const list = [...$("cf-files").files];
+      $("cf-err").textContent = list.length > MAX_FILES ? `Up to ${MAX_FILES} files per message.` :
+        list.some(f => f.size > MAX_BYTES) ? "Each file has to be 25 MB or smaller." : "";
+      $("cf-picked").textContent = list.map(f => `${f.name} (${sizeText(f.size)})`).join(", ");
+    });
+
+    $("cf-compose").addEventListener("submit", async e => {
+      e.preventDefault();
+      if (!me) return;
+      const subject = $("cf-subject").value.trim(), body = $("cf-body").value.trim();
+      if (!subject || !body) return;
+      const picked = [...$("cf-files").files];
+      if (picked.length > MAX_FILES || picked.some(f => f.size > MAX_BYTES)) {
+        $("cf-err").textContent = `Up to ${MAX_FILES} files, 25 MB each.`;
+        return;
+      }
+      const btn = $("cf-post"), ts = Date.now();
+      btn.disabled = true; $("cf-err").textContent = "";
+      if (picked.length) btn.textContent = "Uploading…";
+      try {
+        const files = await Promise.all(picked.map((f, i) => upload(f, `${ts}_${i}`)));
+        await set(ref(database, `${NODE}/${ts}`), {
+          sharedBy: me.uid, from: nameOf(me.uid) || me.displayName || me.email || "Unknown",
+          to: $("cf-to").value, subject, body, ts,
+          ...(files.length ? { files } : {}), ...(replyTo ? { replyTo } : {})
+        });
+        $("cf-compose").hidden = true;
+      } catch (err) { $("cf-err").textContent = "Send failed: " + err.message; }
+      btn.disabled = false; btn.textContent = "Send";
+    });
+  </script>
+</body>
+
+</html>
