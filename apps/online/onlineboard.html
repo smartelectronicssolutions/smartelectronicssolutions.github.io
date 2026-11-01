@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="version" content="1.1.6">
+  <meta name="version" content="1.1.7">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>The Campfire</title>
 
@@ -169,7 +169,7 @@
   </main>
 
   <script type="module">
-    import { auth, database, ref, get, set, remove, onValue, onAuthStateChanged, query, limitToLast,
+    import { auth, database, ref, get, set, update, remove, onValue, onAuthStateChanged, query, limitToLast,
       storage, storageRef, uploadBytes, getDownloadURL, deleteObject }
       from "../assets/js/firebase-init.js";
 
@@ -432,13 +432,15 @@
       if (picked.length) btn.textContent = "Uploading…";
       try {
         const files = await Promise.all(picked.map((f, i) => upload(f, `${ts}_${i}`)));
-        await set(ref(database, `${NODE}/${ts}`), {
+        const rec = {
           sharedBy: me.uid, from: nameOf(me.uid) || me.displayName || me.email || "Unknown",
           to: $("cf-to").value, subject, body, ts,
           ...(files.length ? { files } : {}), ...(replyTo ? { replyTo } : {})
-        });
+        };
+        // one write: the post and this account's rate mark, or the rules refuse it (one post per 10 seconds)
+        await update(ref(database), { [`${NODE}/${ts}`]: rec, [`share/rate/${me.uid}`]: { ".sv": "timestamp" } });
         $("cf-compose").hidden = true;
-      } catch (err) { $("cf-err").textContent = "Send failed: " + err.message; }
+      } catch (err) { $("cf-err").textContent = /permission/i.test(err.message) ? "Please wait 10 seconds between messages, then send again." : "Send failed: " + err.message; }
       btn.disabled = false; btn.textContent = "Send";
     });
   </script>
