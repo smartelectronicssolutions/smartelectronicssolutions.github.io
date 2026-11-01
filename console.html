@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.119"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.120"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -464,6 +464,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         .dc-pick-strip button.x { flex: none; width: 22px; padding: 0; border-color: var(--border); color: var(--muted); border-radius: 999px; line-height: 20px; }
         .dc-bub .dc-choice { border: 1px solid var(--dc-green); color: var(--dc-green); background: color-mix(in srgb, var(--dc-green) 12%, transparent); border-radius: var(--dc-r-md); padding: 8px 14px; min-height: 36px; cursor: pointer; font-family: inherit; font-size: calc(0.88rem * var(--dc-fs, 1)); font-weight: 600; text-align: left; }
         .dc-bub .dc-choice:disabled { opacity: 0.45; cursor: default; }
+        .dc-bub .dc-cf-opts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
         .dc-bub .dc-choices.answered { color: var(--dc-green); font-size: 0.82rem; }   /* a Droplet confirm card after the tap */
         /* ⤓ latest pill: floats over the chat log when scrolled away from the newest message.
            Wears --dc-purple, the theme's LEAD token (current tab, send button) - it shipped in --dc-green,
@@ -2132,6 +2133,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         document.getElementById('dc-chat-log') && document.getElementById('dc-chat-log').addEventListener('click', e => {
             const a = e.target.closest && e.target.closest('.dc-tp'); if (!a) return; e.preventDefault(); e.stopPropagation(); setTopic(a.dataset.topic);
         }, true);
+        // a Campfire post handed over from the 👥 pane: the normal send path to Droplet, whatever the target pick says
+        window.__dcSayDroplet = text => { const ta = $('#dc-chat-in'), sel = $('#dc-chat-target'); if (!ta) return false; const was = sel ? sel.value : '';
+            if (DC.editKey) { ta.value = ''; setEditMode(''); } if (sel) sel.value = 'droplet'; ta.value = text; sendChat(); if (sel && was) sel.value = was; return true; };
         window.__dcConfirmDelete = confirmDelete;   // test hook
         window.__dcMsgSheet = (k, ext) => confirmDelete(k, ext);   // the 👥 pane's triple-tap
         document.getElementById('dc-chat-log') && document.getElementById('dc-chat-log').addEventListener('click', async e => {
@@ -5062,9 +5066,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // MESSENGER KIT in 👥 (2026-10-15, L: "Not in the member section?"): 📎 photo/file, paste a picture, :shortcodes:, reply bar
         window.__dcKit && window.__dcKit.shortcodes($('#dc-peer-in'));
         { const pa = $('#dc-peer-attach'); if (pa) { pa.addEventListener('pointerdown', e => e.preventDefault());
-            pa.onclick = () => { if (!P.open || P.open === 'site' || P.open === 'bizbot') return; const inp = document.createElement('input'); inp.type = 'file';
+            pa.onclick = () => { if (!P.open || P.open === 'site' || P.open === 'bizbot' || P.open === 'campfire') return; const inp = document.createElement('input'); inp.type = 'file';
                 inp.onchange = () => { const f = inp.files && inp.files[0]; if (f) (/^image\//.test(f.type) ? sendPhoto(f) : sendFile(f)); }; inp.click(); }; } }
-        $('#dc-peer-in').addEventListener('paste', e => { const f = ((e.clipboardData && e.clipboardData.files) || [])[0]; if (!f || !P.open || P.open === 'site' || P.open === 'bizbot') return; e.preventDefault(); (/^image\//.test(f.type) ? sendPhoto(f) : sendFile(f)); });
+        $('#dc-peer-in').addEventListener('paste', e => { const f = ((e.clipboardData && e.clipboardData.files) || [])[0]; if (!f || !P.open || P.open === 'site' || P.open === 'bizbot' || P.open === 'campfire') return; e.preventDefault(); (/^image\//.test(f.type) ? sendPhoto(f) : sendFile(f)); });
         { const cb = document.createElement('div'); cb.id = 'dc-peer-compose'; cb.className = 'dc-compose'; cb.hidden = true; const fm = $('#dc-peer-form'); fm.parentElement.insertBefore(cb, fm);
           cb.addEventListener('pointerdown', e => e.preventDefault()); cb.addEventListener('click', e => { if (e.target.closest('button')) setPeerReply(null); }); }
     }
@@ -5097,7 +5101,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     // browser tab title blinks "💬 New message" when the page is in the background.
     let titleTimer = null, baseTitle = document.title;
     function dots() {
-        const any = Object.keys(P.index).some(t => !t.startsWith('tab-') && unread(t)) || siteUnreadN() > 0 || bizUnreadN() > 0;   // + 🌐 Site visitors + 🤖 Biz bot   // tab entries are not listed any more, so they must not keep 👥 flashing
+        const any = Object.keys(P.index).some(t => !t.startsWith('tab-') && unread(t)) || siteUnreadN() > 0 || bizUnreadN() > 0 || cfUnreadN() > 0;   // + 🌐 Site visitors + 🤖 Biz bot + 🔥 Campfire   // tab entries are not listed any more, so they must not keep 👥 flashing
         const d = $('#dc-peer-btn .dot'); if (d) d.hidden = !any;
         { const bd = $('#dc-brand-btn .dot'); if (bd) bd.hidden = !any; }   // #1: the name top-left carries the unread dot now
         const b = $('#dc-peer-btn'); if (b) b.classList.toggle('flash', any);
@@ -5193,7 +5197,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // 1. conversations, newest first
             const convs = Object.entries(P.index).filter(([t, x]) => x && x.ts && x.ts > (x.clearedAt || 0) && !t.startsWith('tab-'))   // shared tabs live in the tab bar (teal chip), not here (L 2026-09-27)
                 .sort((a, b) => (isPinned(b[0]) - isPinned(a[0])) || b[1].ts - a[1].ts);   // 📌 pinned first (#4), then newest; cleared ones come back only with a newer message
-            const siteRow = siteRowHTML() + bizRowHTML();   // 🌐 Site visitors (owner): the public site chat, a member-like conversation (L 2026-10-21) + 🤖 Biz bot (2026-10-22)
+            const siteRow = cfRowHTML() + siteRowHTML() + bizRowHTML();   // 🌐 Site visitors (owner): the public site chat, a member-like conversation (L 2026-10-21) + 🤖 Biz bot (2026-10-22)
             if (convs.length || siteRow) {
                 html += H('Conversations', 'convs') + siteRow;
                 html += convs.map(([t, x]) => { const tab = t.startsWith('tab-');
@@ -5229,6 +5233,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         home.querySelectorAll('[data-u]').forEach(b => b.onclick = () => openPeer(b.dataset.u));
         home.querySelectorAll('[data-site]').forEach(b => b.onclick = () => openSite());
         home.querySelectorAll('[data-bizbot]').forEach(b => b.onclick = () => openBiz());
+        home.querySelectorAll('[data-campfire]').forEach(b => b.onclick = () => openCampfire());
         home.querySelectorAll('[data-grp]').forEach(b => b.onclick = () => openGroup(b.dataset.grp));
         home.querySelectorAll('[data-newgrp]').forEach(b => b.onclick = () => groupForm(null));
         home.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => showHome('pick'));
@@ -5557,6 +5562,61 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         if (document.visibilityState === 'visible') bizMarkSeen();
     }
     document.addEventListener('visibilitychange', () => { if (!document.hidden && P.open === 'bizbot') renderBiz(); });
+
+    // 🔥 CAMPFIRE (2026-11-01, L: "a message that comes from one of them pop up in like a member with a red indicator that could have the
+    // option in it"): share/mail as a conversation in 👥, owner only. Red dot = posts from others not opened yet. Each post carries its
+    // buttons; Hand sends the same words the old card did, so nothing reaches Droplet without the tap. Post text goes through richBody
+    // (escaped) and can't draw a button: the buttons are built here from the key. svc-board-watch still sends the phone notice.
+    var CF = CF || { on: false, posts: {}, seen: 0, done: {} };
+    try { CF.seen = Math.max(CF.seen, +localStorage.getItem('dc-campfire-seen') || 0); } catch (_) {}
+    function cfStart() {
+        if (CF.on || P.me !== OWNER) return; CF.on = true;
+        onValue(query(ref(database, 'share/mail'), limitToLast(60)), s => { CF.posts = s.val() || {}; cfPaint(); }, dcWarn('campfire'));
+        onValue(ref(database, `${P.me}/console/campfire`), s => { const v = s.val() || {}; CF.done = v.done || {};
+            if ((+v.seen || 0) > CF.seen) { CF.seen = +v.seen; try { localStorage.setItem('dc-campfire-seen', String(CF.seen)); } catch (_) {} } cfPaint(); }, dcWarn('campfire state'));
+    }
+    function cfRows() { return Object.entries(CF.posts || {}).filter(([, m]) => m && typeof m === 'object').sort((a, b) => Number(a[0]) - Number(b[0])); }
+    function cfForMe(m) { return /\b(droplet|luis|all|ld)\b/i.test(String(m.to || '')); }
+    function cfUnreadN() { return (!CF || P.open === 'campfire') ? 0 : cfRows().filter(([k, m]) => m.sharedBy !== P.me && cfForMe(m) && Number(k) > CF.seen).length; }
+    function cfMarkSeen() { const last = cfRows().reduce((t, [k]) => Math.max(t, Number(k) || 0), 0);
+        if (last > CF.seen) { CF.seen = last; try { localStorage.setItem('dc-campfire-seen', String(last)); } catch (_) {} update(ref(database, `${P.me}/console/campfire`), { seen: last }).catch(() => {}); } }
+    function cfPaint() { if (!document.getElementById('dc-peer')) return; if (P.open === 'campfire') renderCampfire(); else if (!P.open) renderHome(); dots(); }
+    function cfRowHTML() {
+        cfStart(); if (P.me !== OWNER) return '';
+        const rows = cfRows(), last = rows.length ? rows[rows.length - 1] : null, n = cfUnreadN();
+        const pre = last ? `${last[1].from || 'Someone'}: ${last[1].subject || ''}` : 'Messages from the group land here';
+        return `<button type="button" class="dc-peer-row" data-campfire="1">🔥 Campfire${n ? `<span class="dot n">${n > 99 ? '99+' : n}</span>` : ''}<span class="pago">${last ? ago(Number(last[0])) : ''}</span><small>${esc(pre.slice(0, 90))}</small></button>`;
+    }
+    function openCampfire() {
+        if (P.unsub) { P.unsub(); P.unsub = null; } if (P.unsubX) { P.unsubX.forEach(f => f()); P.unsubX = null; }
+        if (P.editing) stopEdit();
+        cfStart(); P.open = 'campfire'; P.other = null; setPeerReply(null);
+        $('#dc-peer-home').hidden = true; $('#dc-peer-log').hidden = false; $('#dc-peer-form').hidden = true; $('#dc-peer-back').hidden = false;
+        { const w = $('#dc-peer-web'); if (w) w.hidden = true; } { const k = $('#dc-peer-word'); if (k) k.hidden = true; } { const bb = $('#dc-peer-bar'); if (bb) { bb.hidden = true; bb.innerHTML = ''; } }
+        $('#dc-peer-name').textContent = '🔥 Campfire';
+        peerSplit(); renderCampfire(); dots();
+    }
+    function renderCampfire() {
+        const log = $('#dc-peer-log'); if (!log || P.open !== 'campfire') return;
+        const nf = newestFirst(); $('#dc-peer') && $('#dc-peer').classList.toggle('nf', nf);
+        const L = window.__dcShared || {}, lk = L.linkify || (x => x), rich = L.richBody ? (x => L.richBody(x, true)) : (x => lk(esc(x))), stamp = L.fmtStamp || (t => new Date(t).toLocaleString());
+        const rows = cfRows(), list = nf ? rows.slice().reverse() : rows;
+        log.innerHTML = list.length ? list.map(([k, m]) => { const mine = m.sharedBy === P.me, tm = stamp(Number(k)), state = CF.done[k];
+            const files = Array.isArray(m.files) && m.files.length ? `<div class="dc-att"><a class="file" href="/board.html" target="_blank" rel="noopener">📎 ${m.files.length} file${m.files.length > 1 ? 's' : ''}: open the board</a></div>` : '';
+            const opts = mine || !cfForMe(m) ? '' : state ? `<div class="dc-choices answered">✓ ${esc(state === 'hand' ? 'Handed to Droplet' : 'Left for now')}</div>`
+                : `<div class="dc-cf-opts" data-cf="${esc(k)}"><button type="button" class="dc-choice" data-act="hand">Hand to Droplet</button><button type="button" class="dc-choice" data-act="leave">Leave for now</button></div>`;
+            return `<div class="dc-bub ${mine ? 'me' : 'drop'}" data-cf-k="${esc(k)}"><span class="who">${esc(String(m.from || 'Someone'))} → ${esc(String(m.to || 'all'))} · ${tm}</span>${m.subject ? `<b>${esc(String(m.subject))}</b>` : ''}<div style="white-space:pre-wrap">${rich(String(m.body || ''))}</div>${files}${opts}<div class="ts">${tm}</div></div>`; }).join('')
+            : '<div style="opacity:.6;text-align:center;padding:10px">Nothing yet. Messages from the group land here.</div>';
+        log.onclick = e => {
+            const b = e.target.closest && e.target.closest('.dc-cf-opts .dc-choice'); if (!b) return; e.stopPropagation();
+            const k = b.parentNode.dataset.cf, act = b.dataset.act;
+            if (act === 'hand' && !(window.__dcSayDroplet && window.__dcSayDroplet(`Hand Campfire post ${k.slice(-4)} to Droplet`))) return;
+            CF.done[k] = act; update(ref(database, `${P.me}/console/campfire/done`), { [k]: act }).catch(() => {}); renderCampfire();
+        };
+        log.scrollTop = nf ? 0 : log.scrollHeight;
+        if (document.visibilityState === 'visible') cfMarkSeen();
+    }
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && P.open === 'campfire') renderCampfire(); });
 
     // / COMMAND MENU (2026-10-23, Telegram review #8): typing "/" in a bot chat lists what that bot understands (the same lists the
     // services answer: biz-svc handle_command, email-chat-notify console_cmd); tap one to fill it in. Delegated - the box is built late.
@@ -5937,7 +5997,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         { let o = null; try { o = localStorage.getItem('dc_aside_open'); } catch (_) {} if (o === '1' && asideDocked()) openDrawer(); }   // wide screen: the aside comes back the way you left it
     }
     // GLOBAL SEARCH data (#6): every People thread + group + the Biz bot, last 300 messages each, read once when "All chats" opens.
-    window.__dcOpenTid = t => t === 'bizbot' ? openBiz() : openByTid(t);
+    window.__dcOpenTid = t => t === 'bizbot' ? openBiz() : t === 'campfire' ? openCampfire() : openByTid(t);
     window.__dcPeerSearch = async () => { const out = [];
         const add = (tid, name, k, m) => { const text = m.enc ? (E2E.plain.get(k) ?? '') : String(m.text || '');
             out.push({ where: 'peer', tid, name, k, ts: m.ts || 0, text, who: m.from === P.me || m.from === 'me' ? 'You' : (m.name || P.dir[m.from] || 'them'), m }); };
