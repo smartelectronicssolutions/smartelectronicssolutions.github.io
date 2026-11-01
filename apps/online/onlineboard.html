@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="version" content="1.1.7">
+  <meta name="version" content="1.1.8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>The Campfire</title>
 
@@ -158,7 +158,7 @@
       </label>
       <label>Subject <input id="cf-subject" maxlength="120" required /></label>
       <label>Message <textarea id="cf-body" maxlength="4000" required></textarea></label>
-      <label>Files (PDFs, photos, anything; up to 5, 25 MB each) <input type="file" id="cf-files" multiple /></label>
+      <label>Files (PDFs, photos, anything; up to 5, 200 MB each, big ones split on their own) <input type="file" id="cf-files" multiple /></label>
       <p id="cf-picked" class="cf-picked"></p>
       <div class="cf-send">
         <button type="submit" id="cf-post">Send</button>
@@ -175,7 +175,7 @@
 
     // The Campfire is one shared node, share/mail. Rules: any signed-in account reads; a post can only be written as its own uid.
     const NODE = "share/mail";
-    const MAX_FILES = 5, MAX_BYTES = 25e6;
+    const MAX_FILES = 5, MAX_BYTES = 200e6, PART_BYTES = 24e6;
     const STORAGE_HOST = "https://firebasestorage.googleapis.com/v0/b/persinfo-df93f.appspot.com/o/";
     const $ = id => document.getElementById(id);
     let me = null, names = {}, posts = {}, stopFeed = null;
@@ -279,7 +279,37 @@
       $("cf-unread").textContent = unread || "";
     }
 
+    // A big file is stored as 24 MB parts: uploaded split, put back together here so the download is the original file.
+    function partsRow(f) {
+      const urls = f.parts.map(p => String((p || {}).url || ""));
+      if (!urls.length || !urls.every(u => u.startsWith(STORAGE_HOST))) return null;
+      const name = String(f.name || "file"), label = `⬇ ${name}${f.size ? ` (${sizeText(Number(f.size))})` : ""}`;
+      const row = document.createElement("div"); row.className = "cf-file";
+      const b = document.createElement("button"); b.type = "button"; b.textContent = label;
+      b.addEventListener("click", async () => {
+        b.disabled = true;
+        try {
+          const blobs = [];
+          for (let i = 0; i < urls.length; i++) {
+            b.textContent = `Downloading part ${i + 1} of ${urls.length}…`;
+            const r = await fetch(urls[i]);
+            if (!r.ok) throw new Error(`part ${i + 1} failed`);
+            blobs.push(await r.blob());
+          }
+          const link = document.createElement("a");
+          link.href = URL.createObjectURL(new Blob(blobs, { type: String(f.type || "application/octet-stream") }));
+          link.download = name; document.body.append(link); link.click(); link.remove();
+          setTimeout(() => URL.revokeObjectURL(link.href), 60000);
+          b.textContent = label;
+        } catch (e) { b.textContent = "Download failed: " + e.message; }
+        b.disabled = false;
+      });
+      row.append(b);
+      return row;
+    }
+
     function fileRow(f) {
+      if (Array.isArray(f.parts)) return partsRow(f);
       const url = String(f.url || "");
       if (!url.startsWith(STORAGE_HOST)) return null;     // only our own bucket: a post can't plant any other link
       const row = document.createElement("div");
@@ -371,7 +401,7 @@
         clearTimeout(timer);
         try {
           await remove(ref(database, `${NODE}/${k}`));
-          const mine = filesOf(p).filter(f => String(f.path || "").startsWith(`${me.uid}/`));
+          const mine = filesOf(p).flatMap(f => Array.isArray(f.parts) ? f.parts : [f]).filter(f => String(f.path || "").startsWith(`${me.uid}/`));
           await Promise.allSettled(mine.map(f => deleteObject(storageRef(storage, f.path))));
         } catch (e) { b.textContent = "Delete failed: " + e.message; }
       });
@@ -381,7 +411,17 @@
     async function upload(file, stamp) {
       const safe = String(file.name || "file").replace(/[^\w.\-]+/g, "_").slice(-80);
       const path = `${me.uid}/console/attach/campfire/${stamp}_${safe}`;
-      const r = storageRef(storage, path), type = file.type || "application/octet-stream";
+      const type = file.type || "application/octet-stream";
+      const put = async (blob, p) => { const r = storageRef(storage, p); await uploadBytes(r, blob, { contentType: "application/octet-stream" }); return { url: await getDownloadURL(r), path: p }; };
+      if (file.size > PART_BYTES) {
+        const parts = [], n = Math.ceil(file.size / PART_BYTES);
+        for (let i = 0; i < n; i++) {
+          $("cf-post").textContent = `Uploading ${String(file.name || safe).slice(0, 24)}: part ${i + 1} of ${n}…`;
+          parts.push(await put(file.slice(i * PART_BYTES, (i + 1) * PART_BYTES), `${path}.part${i + 1}`));
+        }
+        return { name: String(file.name || safe), type, size: file.size, parts };
+      }
+      const r = storageRef(storage, path);
       await uploadBytes(r, file, { contentType: type });
       return { name: String(file.name || safe), url: await getDownloadURL(r), type, size: file.size, path };
     }
@@ -413,7 +453,7 @@
     $("cf-files").addEventListener("change", () => {
       const list = [...$("cf-files").files];
       $("cf-err").textContent = list.length > MAX_FILES ? `Up to ${MAX_FILES} files per message.` :
-        list.some(f => f.size > MAX_BYTES) ? "Each file has to be 25 MB or smaller." : "";
+        list.some(f => f.size > MAX_BYTES) ? "Each file has to be 200 MB or smaller." : "";
       $("cf-picked").textContent = list.map(f => `${f.name} (${sizeText(f.size)})`).join(", ");
     });
 
@@ -424,7 +464,7 @@
       if (!subject || !body) return;
       const picked = [...$("cf-files").files];
       if (picked.length > MAX_FILES || picked.some(f => f.size > MAX_BYTES)) {
-        $("cf-err").textContent = `Up to ${MAX_FILES} files, 25 MB each.`;
+        $("cf-err").textContent = `Up to ${MAX_FILES} files, 200 MB each.`;
         return;
       }
       const btn = $("cf-post"), ts = Date.now();
