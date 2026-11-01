@@ -223,8 +223,8 @@ export function renderArticleCards(data, container) {
       div.innerHTML = `
         ${previewImg}
         <small>${new Date(article.createdAt || Date.now()).toLocaleDateString()}</small>
-        <h3>${article.title || "Untitled"}</h3>
-        <p>${article.description || ""}</p>
+        <h3>${escapeHtml(article.title || "Untitled")}</h3>
+        <p>${escapeHtml(article.description || "")}</p>
       `;
 
       div.onclick = () => {

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.0">
+    <meta name="version" content="1.0.1">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>News — Eco Lou</title>
     <link rel="stylesheet" href="assets/css/styles.css">
@@ -70,28 +70,31 @@ function shuffle(arr) {
     return arr;
 }
 
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));   // public/journal text is outside data
+const safeUrl = u => /^(https?:\/\/|\/|\.\/)/i.test(String(u ?? '').trim()) ? String(u).trim() : '';
+
 function renderContentItem(item) {
     switch (item.type) {
-        case 'text':        return `<p>${item.value || ''}</p>`;
-        case 'code':        return `<pre><code>${item.value || ''}</code></pre>`;
-        case 'list':        return '<ul>' + (item.items || []).map(i => `<li>${i}</li>`).join('') + '</ul>';
-        case 'image':       return item.src ? `<img src="${item.src}" style="max-width:100%;border-radius:6px;margin:12px 0">` : '';
-        case 'link_button': return `<a href="${item.href || '#'}" class="eco-news-link-btn" target="_blank" rel="noopener">${item.label || item.href}</a>`;
-        default:            return item.value ? `<p>${item.value}</p>` : '';
+        case 'text':        return `<p>${esc(item.value)}</p>`;
+        case 'code':        return `<pre><code>${esc(item.value)}</code></pre>`;
+        case 'list':        return '<ul>' + (item.items || []).map(i => `<li>${esc(i)}</li>`).join('') + '</ul>';
+        case 'image':       return safeUrl(item.src) ? `<img src="${esc(safeUrl(item.src))}" style="max-width:100%;border-radius:6px;margin:12px 0">` : '';
+        case 'link_button': return `<a href="${esc(safeUrl(item.href) || '#')}" class="eco-news-link-btn" target="_blank" rel="noopener">${esc(item.label || item.href)}</a>`;
+        default:            return item.value ? `<p>${esc(item.value)}</p>` : '';
     }
 }
 
 function renderArticleBody(article) {
-    if (article.body) return article.body;
+    if (article.body) return `<p>${esc(article.body)}</p>`;
     if (article.sections?.length) {
         return article.sections.map(s => `
-            ${s.title ? `<h4>${s.title}</h4>` : ''}
-            ${s.summary ? `<p>${s.summary}</p>` : ''}
+            ${s.title ? `<h4>${esc(s.title)}</h4>` : ''}
+            ${s.summary ? `<p>${esc(s.summary)}</p>` : ''}
             ${s.content?.length ? s.content.map(renderContentItem).join('') : ''}
-            ${s.steps?.length ? '<ul>' + s.steps.map(st => `<li>${st}</li>`).join('') + '</ul>' : ''}
+            ${s.steps?.length ? '<ul>' + s.steps.map(st => `<li>${esc(st)}</li>`).join('') + '</ul>' : ''}
         `).join('');
     }
-    return `<p>${article.description || ''}</p>`;
+    return `<p>${esc(article.description)}</p>`;
 }
 
 function renderList(cat) {
@@ -110,14 +113,14 @@ function renderList(cat) {
     const extraTags = p => (p.tags || []).filter(t => !ECO_TAGS.includes(t.toLowerCase()));
 
     list.innerHTML = posts.map(p => `
-        <div class="eco-news-card" data-id="${p.id}" role="button" tabindex="0">
+        <div class="eco-news-card" data-id="${esc(p.id)}" role="button" tabindex="0">
             <div class="eco-news-card-meta">
                 <span class="eco-news-badge" style="background:${CAT_COLORS[p.category]}">${CAT_LABELS[p.category]}</span>
                 <span class="eco-news-date">${formatDate(p.createdAt)}</span>
             </div>
-            <h3 class="eco-news-card-title">${p.title}</h3>
-            <p class="eco-news-card-summary">${p.description || ''}</p>
-            <div class="eco-news-tags">${extraTags(p).map(t => `<span class="eco-news-tag">${t}</span>`).join('')}</div>
+            <h3 class="eco-news-card-title">${esc(p.title)}</h3>
+            <p class="eco-news-card-summary">${esc(p.description)}</p>
+            <div class="eco-news-tags">${extraTags(p).map(t => `<span class="eco-news-tag">${esc(t)}</span>`).join('')}</div>
             <span class="eco-news-read-more">Read more &#8594;</span>
         </div>
     `).join('');
@@ -139,8 +142,8 @@ function openArticle(id) {
             <span class="eco-news-badge" style="background:${CAT_COLORS[post.category]}">${CAT_LABELS[post.category]}</span>
             <span class="eco-news-date">${formatDate(post.createdAt)}</span>
         </div>
-        <h2 class="eco-news-article-title">${post.title}</h2>
-        <div class="eco-news-tags" style="margin-bottom:20px">${extraTags.map(t => `<span class="eco-news-tag">${t}</span>`).join('')}</div>
+        <h2 class="eco-news-article-title">${esc(post.title)}</h2>
+        <div class="eco-news-tags" style="margin-bottom:20px">${extraTags.map(t => `<span class="eco-news-tag">${esc(t)}</span>`).join('')}</div>
         <div class="eco-news-article-content">${renderArticleBody(post)}</div>
     `;
     document.getElementById('eco-news-article').style.display = '';
