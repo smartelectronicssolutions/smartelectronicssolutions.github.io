@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.122"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.123"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -394,6 +394,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         #dc-console.no-ideas .dc-ideas { display: none !important; }
         #dc-console.no-emoji #dc-emoji-btn, #dc-console.no-emoji #dc-peer-emoji, #dc-console.no-emoji .dc-emoji { display: none !important; }   /* 📎 and 🎙 share the .dc-emoji-btn look - 'Emoji off' hid them too (L 2026-10-21: "the attachment and voice button are tied to the emoji") */   /* gear: 🙂 Emoji off (L, 2026-09-27) */
         #dc-console.no-emoji .dc-wpm { right: 40px; }
+        #dc-console.no-rec #dc-mic-btn { display: none !important; }   /* 🎙 Show rec button (L 2026-11-02, same pattern as Show emoji) */
         /* rotation: iOS Safari inflates text when the layout width changes (its "text size adjustment") unless told not to */
         html, body { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
         /* phone rules apply in landscape too (a phone on its side is ~390 px tall, so max-height catches it) */
@@ -644,7 +645,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         .dc-bub .dc-copy { flex: none; min-height: 28px; padding: 3px 11px; border: 1px solid var(--border); border-radius: var(--dc-r-sm); background: transparent; color: inherit; font: inherit; cursor: pointer; }
         .dc-bub .dc-code pre { margin: 0; padding: 7px 10px 9px; overflow-x: auto; -webkit-overflow-scrolling: touch; white-space: pre; overflow-wrap: normal; word-break: normal; font-family: var(--font-mono); font-size: calc(0.78rem * var(--dc-fs, 1)); line-height: 1.4; }
         .dc-bub .dc-code code { font: inherit; }
-        .dc-bub .dc-ic { padding: 1px 4px; border-radius: 4px; background: var(--dc-inset); font-family: var(--font-mono); font-size: .92em; overflow-wrap: anywhere; }
+        .dc-bub .dc-ic { padding: 1px 4px; border-radius: 4px; background: var(--dc-inset); font-family: var(--font-mono); font-size: .92em; overflow-wrap: anywhere; cursor: copy; }
+        .dc-bub .dc-ic.copied { outline: 2px solid var(--dc-green); }   /* tap = copied (2026-11-02) */
+        .dc-bub .dc-ic.copyfail { outline: 2px solid #d1434b; }
         /* THEME SETS (2026-11-01, L: Look > Theme): same selector weight as html.light #dc-console and later in the file, so they win in both modes.
            They recolour the page tokens too, scoped to the console. A tapped bubble colour is an inline style on top of a set. SES = no class. */
         html #dc-console.c-burgundy { --bg: #1a0c11; --surface: #241218; --surface2: #1e0e14; --border: #4a2230; --text: #f6e9ec; --muted: #c9a7b0; --primary: #8e2a43; --accent: #d9738c; --on-primary: #fff;
@@ -960,6 +963,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     <label class="dc-chk lk-chip" id="dc-nf-lbl" title="where the newest message sits: Top = newest first, input under the strips; Bottom = oldest first, input at the bottom. Tap to flip."><input type="checkbox" id="dc-newest" class="dc-hide"><span id="dc-nf-txt">⬆ Newest top</span></label>
                     <label class="dc-chk lk-chip" title="show the recent-ideas strip above the input (your open tickler items). Unticked hides it entirely - tapping its label only folds it."><input type="checkbox" id="dc-show-ideas"> 💡 Show ideas strip</label>
                     <label class="dc-chk lk-chip" title="show the 🙂 emoji button in the message box (remembered on this device)"><input type="checkbox" id="dc-show-emoji" checked> 🙂 Show emoji button</label>
+                    <label class="dc-chk lk-chip" title="show the 🎙 voice-note (rec) button in the message box (remembered on this device)"><input type="checkbox" id="dc-show-rec" checked> 🎙 Show rec button</label>
                 </div>
                 <div class="lk-row"><button type="button" class="lk-x" id="lk-reset">reset device defaults</button></div>
             </div>
@@ -2025,7 +2029,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (!ext) { if (DC.editKey) { const ta0 = $('#dc-chat-in'); if (ta0) ta0.value = ''; } setEditMode(''); }   // a triple-tap on the newest message had started an edit: drop it
             const box = document.createElement('div'); box.className = 'dc-del';
             const playing = DC.speakingKey === k;
-            box.innerHTML = `<div class="t">Message${t.topic ? ' <span class="tg"># ' + esc(t.topic) + '</span>' : ''}</div><div class="q">${esc(String(t.text || '').slice(0, 140))}</div><div class="r"><button type="button" class="play" title="Play - read it aloud with this device's voice - nothing is saved">${playing ? '■' : '▶'}</button><button type="button" class="rsvp" title="Read - speed read, a few words at a time, like the text app">⚡</button>${ext ? '' : '<button type="button" class="tag" title="Tag - move this message (and its reply) to another topic tab, or untag it">#</button>'}${!ext || ext.onDelete ? '<button type="button" class="go">Delete</button>' : ''}</div>`;
+            box.innerHTML = `<div class="t">Message${t.topic ? ' <span class="tg"># ' + esc(t.topic) + '</span>' : ''}</div><div class="q">${esc(String(t.text || '').slice(0, 140))}</div><div class="r"><button type="button" class="play" title="Play - read it aloud with this device's voice - nothing is saved">${playing ? '■' : '▶'}</button><button type="button" class="rsvp" title="Read - speed read, a few words at a time, like the text app">⚡</button><button type="button" class="cpy" title="Copy - the whole message text to the clipboard">Copy</button>${ext ? '' : '<button type="button" class="tag" title="Tag - move this message (and its reply) to another topic tab, or untag it">#</button>'}${!ext || ext.onDelete ? '<button type="button" class="go">Delete</button>' : ''}</div>`;
             host.appendChild(box);
             // ARMING (2026-09-19, second pass): the box opens right under a finger that is often still tapping. The first fix only
             // ignored taps OUTSIDE the box for 550 ms - a 4th tap landing on Close (or Delete!) still fired at once, and a slow
@@ -2061,6 +2065,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 if (speakText(t.text, k, () => { pb.textContent = '▶'; })) pb.textContent = '■';   // symbols only (L, 2026-09-25); the titles carry the words
             };
             box.querySelector('.rsvp').onclick = () => { if (quiet()) return; close(); stopSpeak(); openSpeedRead(t.text); };
+            // COPY (L 2026-11-02 "I can't copy text from my phone"): the whole message, synchronously inside the tap (iOS needs that)
+            box.querySelector('.cpy').onclick = e => { if (quiet()) return; const b = e.currentTarget, ok = window.__dcCopyText(String(t.text || ''));
+                ok.then(r => { b.textContent = r ? 'Copied' : 'Failed'; setTimeout(close, 700); }); };
             const gob = box.querySelector('.go');
             if (gob) gob.onclick = async () => { if (quiet()) return; close(); if (ext) await ext.onDelete(); else await deleteTurn(k); };
             if (ext) return;   // no tag row outside the Droplet chat
@@ -2145,7 +2152,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const a = e.target.closest && e.target.closest('.dc-tp'); if (!a) return; e.preventDefault(); e.stopPropagation(); setTopic(a.dataset.topic);
         }, true);
         // a Campfire post handed over from the 👥 pane: the normal send path to Droplet, whatever the target pick says
-        window.__dcSayDroplet = text => { const ta = $('#dc-chat-in'), sel = $('#dc-chat-target'); if (!ta) return false; const was = sel ? sel.value : '';
+        window.__dcSayDroplet = (text, topic) => { const ta = $('#dc-chat-in'), sel = $('#dc-chat-target'); if (!ta) return false; const was = sel ? sel.value : '';
+            if (topic !== undefined) DC.sendTopicOnce = topic;   // '' = untagged, shows in All (2026-11-02)
             if (DC.editKey) { ta.value = ''; setEditMode(''); } if (sel) sel.value = 'droplet'; ta.value = text; DC.mainSession = true; sendChat(); DC.mainSession = false; if (sel && was) sel.value = was; return true; };   // main session, never a tab's model: only it knows the Campfire steps
         window.__dcConfirmDelete = confirmDelete;   // test hook
         window.__dcMsgSheet = (k, ext) => confirmDelete(k, ext);   // the 👥 pane's triple-tap
@@ -2180,6 +2188,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 const tsel = $('#dc-chat-target'); const was = tsel ? tsel.value : '';
                 if (tsel) tsel.value = 'droplet';
                 const say = picked.length === 1 ? picked[0].dataset.say : 'Picked:\n' + picked.map(x => `${x.dataset.n}. ${x.dataset.say}`).join('\n');
+                { const ct = k && (DC.chatTurns || {})[k]; if (ct) DC.sendTopicOnce = ct.topic || ''; }   // the answer goes to the card's tab
                 ta.value = say; sendChat();
                 if (k) update(ref(database, `${DC.base}/chat/turns/${k}`), { answered: picked.map(x => x.dataset.say).join(' + ') }).catch(() => {});
                 if (tsel && was) tsel.value = was;
@@ -2189,6 +2198,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (DC.editKey) { ta.value = ''; setEditMode(''); }
             const sel = $('#dc-chat-target'); const was = sel ? sel.value : '';
             if (sel) sel.value = 'droplet';           // the menu is on Droplet's terminal - the answer goes there whatever the target pick
+            if (b.dataset.say) { const w0 = b.closest('.dc-choices'), k0 = w0 && w0.dataset ? w0.dataset.k : '', ct = k0 && (DC.chatTurns || {})[k0]; if (ct) DC.sendTopicOnce = ct.topic || ''; }   // a Droplet card's answer goes to the card's tab
             ta.value = b.dataset.say || b.dataset.n; sendChat();         // reads the target synchronously before its first await
             if (b.dataset.say) {                        // a Droplet confirm card: remember the answer on the turn so the card closes everywhere
                 const wrap = b.closest('.dc-choices'), k = wrap && wrap.dataset ? wrap.dataset.k : '';
@@ -2198,6 +2208,24 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             b.closest('.dc-choices').querySelectorAll('.dc-choice').forEach(x => { x.disabled = true; });
         }, true);
 
+        // ONE COPY HELPER (2026-11-02): clipboard API inside the tap, hidden-textarea execCommand as the fallback. Resolves true/false.
+        function dcCopyText(text) {
+            const fallback = () => { const ta = document.createElement('textarea'); ta.value = text; ta.readOnly = true; ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;font-size:16px';
+                document.body.appendChild(ta); ta.focus(); ta.select(); ta.setSelectionRange(0, text.length); let ok = false; try { ok = document.execCommand('copy'); } catch (_) {} ta.remove(); return ok; };
+            if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text).then(() => true, () => fallback());
+            return Promise.resolve(fallback());
+        }
+        window.__dcCopyText = dcCopyText;
+        // DOUBLE-TAP INLINE CODE = COPY IT (L 2026-11-02, on site: a password / UUID in `code` couldn't be copied on the phone;
+        // then "require a double click rather than a single"). Our own 2-tap counter - iOS doesn't send dblclick reliably. Taps on a
+        // code bit stay out of the bubble's triple-tap counter.
+        const icTap = { el: null, t: 0 };
+        document.addEventListener('click', e => {
+            const c = e.target.closest && e.target.closest('.dc-bub code.dc-ic'); if (!c) return; e.stopPropagation(); e.preventDefault();
+            const now = Date.now(); if (icTap.el !== c || now - icTap.t > 450) { icTap.el = c; icTap.t = now; return; }
+            icTap.el = null;
+            dcCopyText(c.textContent).then(ok => { c.classList.add(ok ? 'copied' : 'copyfail'); clearTimeout(c._t); c._t = setTimeout(() => c.classList.remove('copied', 'copyfail'), 1200); });
+        }, true);
         // COPY on a code box: textContent of the <pre> IS the raw code (esc() undone by the browser). clipboard.writeText needs the
         // tap itself, so it runs synchronously in the handler; the hidden-textarea fallback covers a refused or missing clipboard.
         document.addEventListener('click', e => {
@@ -3445,7 +3473,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     if (x.id === 'lk-bg-none') { if (b) b.value = 'none'; themeSet('bg', 'none'); return; }
                     if (x.id === 'lk-reset') { Object.values(THEME_KEYS).forEach(k => { try { localStorage.removeItem(k); } catch (_) {} }); if (b) b.value = 'none'; themeSet('bg', 'none');   // reset = no background (L 2026-10-24)
                         // the Chat row too (2026-10-24): newest on top, ideas strip off, emoji button on - each box fires its own change so it repaints
-                        [['#dc-newest', true], ['#dc-show-ideas', false], ['#dc-show-emoji', true]].forEach(([id, v]) => { const c = $(id); if (c && c.checked !== v) { c.checked = v; c.dispatchEvent(new Event('change')); } }); }
+                        [['#dc-newest', true], ['#dc-show-ideas', false], ['#dc-show-emoji', true], ['#dc-show-rec', true]].forEach(([id, v]) => { const c = $(id); if (c && c.checked !== v) { c.checked = v; c.dispatchEvent(new Event('change')); } }); }
                 });
                 $('#lk-me') && $('#lk-me').addEventListener('input', e => themeSet('me', e.target.value));
                 $('#lk-dp') && $('#lk-dp').addEventListener('input', e => themeSet('dp', e.target.value));
@@ -3793,6 +3821,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             return p;
         }
         async function sendChatOnce() {
+            // CARD ANSWERS STAY WITH THE CARD (L 2026-11-02 "why not just in the All tab"): a tap on a card sends into the card's own
+            // tab (untagged card = All), not whatever tab happened to be open. Read synchronously, before the first await.
+            const forcedTopic = DC.sendTopicOnce; DC.sendTopicOnce = undefined;
             const ta = $('#dc-chat-in'); let raw = ta.value.trim();
             const KIT = window.__dcKit;   // messenger kit: reply-to + attachments
             if (KIT && KIT.uploading()) { $('#dc-chat-status').textContent = '📎 still uploading - one sec'; return; }
@@ -3827,7 +3858,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 const editKey = DC.editKey || ''; const editTurn = editKey ? (DC.chatTurns || {})[editKey] : null;
                 if (editTurn && raw === String(editTurn.text || '').trim()) {   // edit with no change: nothing to resend
                     ta.value = ''; setEditMode(''); send.disabled = false; return; }
-                const tpc = editTurn ? (editTurn.topic ? { topic: editTurn.topic } : {}) : ((DC.topic && DC.topic !== FAV_TAB) ? { topic: DC.topic } : {});   // an edit keeps its turn's topic; else the active tab (★ view sends untagged)
+                const tpc = editTurn ? (editTurn.topic ? { topic: editTurn.topic } : {}) : forcedTopic !== undefined ? (forcedTopic ? { topic: forcedTopic } : {}) : ((DC.topic && DC.topic !== FAV_TAB) ? { topic: DC.topic } : {});   // an edit keeps its turn's topic; else the active tab (★ view sends untagged)
                 const kx = (!editTurn && KIT) ? KIT.take() : { turn: {}, pre: '', post: '' };
                 const lref = editTurn ? ref(database, `${turns}/${editKey}`) : push(ref(database, turns));
                 if (editTurn) await update(lref, { text: raw, edited: true, editedAt: Date.now(), enhanced: null, enhNote: null });
@@ -4799,6 +4830,14 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 try { localStorage.setItem('dc_show_emoji', se.checked ? '1' : '0'); } catch (_) {}
             });
         } }
+        { const sr = $('#dc-show-rec'); if (sr) {   // 🎙 Show rec button (L 2026-11-02): per-device, remembered, like Show emoji
+            const on = (() => { try { return localStorage.getItem('dc_show_rec') !== '0'; } catch (_) { return true; } })();
+            sr.checked = on; $('#dc-console').classList.toggle('no-rec', !on);
+            sr.addEventListener('change', () => {
+                $('#dc-console').classList.toggle('no-rec', !sr.checked);
+                try { localStorage.setItem('dc_show_rec', sr.checked ? '1' : '0'); } catch (_) {}
+            });
+        } }
         { const si = $('#dc-show-ideas'); if (si) {
             const on = (() => { try { return localStorage.getItem('dc_show_ideas') === '1'; } catch (_) { return false; } })();   // OFF by default (L 2026-10-21 "default idea strip off") - the gear ticks it back on
             si.checked = on; $('#dc-console').classList.toggle('no-ideas', !on);
@@ -5643,7 +5682,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         log.onclick = e => {
             const b = e.target.closest && e.target.closest('.dc-cf-opts .dc-choice'); if (!b) return; e.stopPropagation();
             const k = b.parentNode.dataset.cf, act = b.dataset.act;
-            if (act === 'hand' && !(window.__dcSayDroplet && window.__dcSayDroplet(`Hand Campfire post ${k.slice(-4)} to Droplet`))) return;
+            if (act === 'hand' && !(window.__dcSayDroplet && window.__dcSayDroplet(`Hand Campfire post ${k.slice(-4)} to Droplet`, ''))) return;   // Campfire hand-overs go untagged = All (L 2026-11-02), not the open tab
             CF.done[k] = act; update(ref(database, `${P.me}/console/campfire/done`), { [k]: act }).catch(() => {}); renderCampfire();
         };
         log.scrollTop = nf ? 0 : log.scrollHeight;
@@ -5926,7 +5965,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
               const R = body.getBoundingClientRect();
               // bottom -> side: bar dragged up to the top, or out to the left/right edge (that edge picks the side)
               const toL = e.clientX < R.left + 60 && x0 - e.clientX > 80, toR = e.clientX > R.right - 60 && e.clientX - x0 > 80;
-              if (e.clientY < R.top + 60 || toL || toR) { if (toL || toR) { body.classList.toggle('dc-aside-right', toR); try { localStorage.setItem('dc_aside_side', toR ? 'right' : 'left'); } catch (_) {} }
+              // PHONE (L 2026-11-02 "wouldn't expand when I swiped up"): a big drag up on the phone was flipping the dock out of bottom
+              // mode instead of growing it - on the phone the bar only resizes (20-80%); ⬓ in the header is the way out of the dock.
+              if (!DC_isPhone() && (e.clientY < R.top + 60 || toL || toR)) { if (toL || toR) { body.classList.toggle('dc-aside-right', toR); try { localStorage.setItem('dc_aside_side', toR ? 'right' : 'left'); } catch (_) {} }
                   setAsideBottom(false); paintBottom(); pid = null; asp.classList.remove('on'); if (!asideDocked()) $('#dc-drawer-scrim').classList.add('open'); return; }
               const pct = Math.max(20, Math.min(80, (h0 - (e.clientY - y0)) / R.height * 100));
               body.style.setProperty('--dc-aside-h', pct.toFixed(1) + '%'); });
@@ -5942,6 +5983,16 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
           asp.addEventListener('pointerup', end); asp.addEventListener('pointercancel', end);
           asp.addEventListener('dblclick', () => { if (body.classList.contains('dc-aside-bot')) { body.style.removeProperty('--dc-aside-h'); try { localStorage.removeItem('dc_aside_h'); } catch (_) {} return; }
               body.style.removeProperty('--dc-aside-w'); try { localStorage.removeItem('dc_aside_w'); } catch (_) {} }); }
+        // SWIPE THE HEADER (L 2026-11-02): with the aside docked at the bottom, a swipe UP on its header grows it to 80% of the console,
+        // a swipe DOWN takes it back to the default 45% (remembered like the bar). The thin bar still drags to any height.
+        { const dh = dr.querySelector('.dh'); let sy = null, sx = 0;
+          dh.style.touchAction = 'none';
+          dh.addEventListener('pointerdown', e => { if (!body.classList.contains('dc-aside-bot') || e.target.closest('button, input, a')) return; sy = e.clientY; sx = e.clientX; });
+          dh.addEventListener('pointerup', e => { if (sy == null) return; const dy = e.clientY - sy, dx = Math.abs(e.clientX - sx); sy = null;
+              if (dx > Math.abs(dy) || Math.abs(dy) < 30) return;
+              const pct = dy < 0 ? 80 : 45; body.style.setProperty('--dc-aside-h', pct + '%');
+              try { localStorage.setItem('dc_aside_h', String(pct)); } catch (_) {} });
+          dh.addEventListener('pointercancel', () => { sy = null; }); }
         { const hb = dr.querySelector('.dh b'), tp = { n: 0, t: 0 }; hb.style.cursor = 'pointer'; hb.style.userSelect = 'none'; hb.style.touchAction = 'manipulation';
           // the whole header is the back button outside the list (L 2026-10-23: "instead of just the arrow to go back let the whole text back")
           const dh = dr.querySelector('.dh'); dh.addEventListener('click', e => { if (dr.dataset.view === 'list' || e.target.closest('.dx, .dback')) return;
@@ -5999,6 +6050,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
 .dc-body.dc-2p.dc-aside-bot>#dc-drawer{position:static;order:3;width:auto;flex:0 0 var(--dc-aside-h,45%);min-height:0;z-index:auto;border-right:0;border-left:0;border-top:1px solid var(--border,#333)}
 .dc-body.dc-2p.dc-aside-bot.dc-aside>#dc-aside-split{display:block;order:2;flex:0 0 14px;cursor:ns-resize}
 .dc-body.dc-2p.dc-aside-bot>#dc-aside-split::before{width:46px;height:4px}
+@media (max-width:760px){.dc-body.dc-2p.dc-aside-bot.dc-aside>#dc-aside-split{flex-basis:24px}}
 .dc-body.dc-2p.dc-aside-bot>#dc-chat-panel,.dc-body.dc-2p.dc-aside-bot>#dc-peer{min-height:0}
 .dc-body.dc-2p.dc-aside-bot>#dc-drawer-scrim{display:none !important}
 #dc-drawer .dbot{background:none;border:0;color:inherit;font-size:1.05em;cursor:pointer;opacity:.6;padding:0 8px}
