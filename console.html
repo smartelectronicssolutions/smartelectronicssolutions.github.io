@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.121"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.122"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -464,6 +464,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         .dc-pick-strip button.x { flex: none; width: 22px; padding: 0; border-color: var(--border); color: var(--muted); border-radius: 999px; line-height: 20px; }
         .dc-bub .dc-choice { border: 1px solid var(--dc-green); color: var(--dc-green); background: color-mix(in srgb, var(--dc-green) 12%, transparent); border-radius: var(--dc-r-md); padding: 8px 14px; min-height: 36px; cursor: pointer; font-family: inherit; font-size: calc(0.88rem * var(--dc-fs, 1)); font-weight: 600; text-align: left; }
         .dc-bub .dc-choice:disabled { opacity: 0.45; cursor: default; }
+        .dc-bub .dc-choice.dc-multi.on { background: var(--dc-green); color: var(--dc-on-green, #fff); }   /* multi-pick card: picked */
+        .dc-bub .dc-choice.dc-multi-send { border-style: dashed; }
         .dc-bub .dc-cf-opts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
         .dc-bub .dc-choices.answered { color: var(--dc-green); font-size: 0.82rem; }   /* a Droplet confirm card after the tap */
         /* ⤓ latest pill: floats over the chat log when scrolled away from the newest message.
@@ -1339,15 +1341,24 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // 1 / 2 BUTTONS (2026-09-24, L: "yes"): daemon 0.29 reports a terminal menu as "My terminal is asking: ...
             // 1. Yes ... 2. No ...". On the tail turn, each option becomes a button that sends its digit as the next message.
             let choices = '';
+            let cardBody = body;   // ONE LIST (L 2026-11-02 "why 2 ways?"): a Droplet card's "  1. ..." lines are dropped from the text - the buttons ARE the list
             // DROPLET CONFIRM CARDS (2026-10-20, L picked "3: Yes/No buttons"): a reply carrying a line "Droplet is asking: <q>"
             // plus option lines "  1. ..." / "  2. ..." renders the same buttons as a terminal menu; a tap sends the OPTION TEXT
             // as your next message and stamps the turn `answered`, so money / time / delete decisions are one tap and logged
             // like any message. Terminal menus still send the digit. Stays tappable until answered (not only on the tail turn).
-            const askDrop = !me && !t.pending && /Droplet is asking:/.test(t.text || '');
+            const askDrop = !me && !t.pending && /Droplet is asking(?: \(pick any\))?:/.test(t.text || '');
+            // MULTI-PICK CARDS (2026-11-02, L picked #5): "Droplet is asking (pick any): <q>" = toggle buttons + Send; Send posts
+            // every pick as ONE message. Picks live in DC.multiSel[<turn key>] so a re-render of the bubble keeps them.
+            const askMulti = askDrop && /Droplet is asking \(pick any\):/.test(t.text || '');
             if ((!me && !t.pending && t.__tail && /My terminal is asking:/.test(t.text || '')) || askDrop) {
                 const opts = []; const re = /^\s{2}(\d)\.\s+(.+?)\s*$/gm; let m;
                 while ((m = re.exec(t.text || ''))) opts.push([m[1], m[2]]);
+                if (askDrop && opts.length >= 2) cardBody = body.replace(/^\s{2}\d\.\s+.+$\n?/gm, '').replace(/\n{3,}/g, '\n\n').trimEnd();
                 if (askDrop && t.answered) choices = `<div class="dc-choices answered">✓ ${esc(t.answered)}</div>`;
+                else if (askMulti && opts.length >= 2) {
+                    const sel = (DC.multiSel || {})[t.__k || ''] || new Set();
+                    choices = `<div class="dc-choices multi" data-k="${esc(t.__k || '')}">${opts.map(([n, l]) => `<button type="button" class="dc-choice dc-multi${sel.has(n) ? ' on' : ''}" aria-pressed="${sel.has(n)}" data-n="${n}" data-say="${esc(l)}" title="pick or unpick: ${esc(l)}">${sel.has(n) ? '☑' : '☐'} ${n} · ${esc(l)}</button>`).join('')}<button type="button" class="dc-choice dc-multi-send"${sel.size ? '' : ' disabled'} title="send every pick as one message">Send ${sel.size || ''} ➤</button></div>`;
+                }
                 else if (opts.length >= 2) choices = `<div class="dc-choices" data-k="${esc(t.__k || '')}">${opts.map(([n, l]) => `<button type="button" class="dc-choice" data-n="${n}"${askDrop ? ` data-say="${esc(l)}"` : ''} title="${askDrop ? 'answer: ' + esc(l) : "answer the terminal's menu with " + n}">${n} · ${esc(l)}</button>`).join('')}</div>`;
             }
             // the stamp rides the name line too (L, 2026-09-24: "also after where it says Droplet or its name")
@@ -1371,7 +1382,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const jumbo = bt.length <= 24 && /^(?:\p{Extended_Pictographic}|\p{Emoji_Modifier}|\uFE0F|\u200D|\s)+$/u.test(bt);
             const yt = (/(?:youtube\.com\/(?:watch\?(?:[^\s]*&)?v=|shorts\/)|youtu\.be\/)([\w-]{11})/.exec(body) || [])[1];
             const lp = yt ? `<a class="dc-yt" href="https://www.youtube.com/watch?v=${yt}" target="_blank" rel="noopener noreferrer"><img src="https://i.ytimg.com/vi/${yt}/hqdefault.jpg" loading="lazy" alt="YouTube video"><span>▶</span></a>` : '';
-            const bodyHtml = jumbo ? `<span class="dc-jumbo">${esc(bt)}</span>` : richBody(body, me, !me && clean && !t.pending);
+            const bodyHtml = jumbo ? `<span class="dc-jumbo">${esc(bt)}</span>` : richBody(cardBody, me, !me && clean && !t.pending);
             return { cls: `dc-bub ${me ? 'me' : 'drop'}${pend}${t.s === 'G' && !me ? ' guest' : ''}${R && t.s === 'L' ? ' owner' : ''}`, html: `${editBtn}${favBtn}<span class="who">${who}${time ? ' · ' + time : ''}${tick}${tag}${tp}</span>${qt}${bodyHtml}${att}${lp}${wait}${choices}${snapBox}${enh}${rx}<div class="ts">${time}</div>` };
         }
         // PERF: keyed incremental render - only turns whose content changed are re-built; the rest of the DOM is
@@ -2153,6 +2164,28 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         document.getElementById('dc-chat-log') && document.getElementById('dc-chat-log').addEventListener('click', e => {
             const b = e.target.closest && e.target.closest('.dc-choice'); if (!b) return; e.stopPropagation(); e.preventDefault();
             const ta = $('#dc-chat-in'); if (!ta) return;
+            const mwrap = b.closest('.dc-choices.multi');
+            if (mwrap) {                                // MULTI-PICK: a tap toggles; Send posts all picks as one message
+                const k = mwrap.dataset.k || ''; DC.multiSel = DC.multiSel || {}; const sel = DC.multiSel[k] = DC.multiSel[k] || new Set();
+                if (b.classList.contains('dc-multi')) {
+                    const n = b.dataset.n, on = !sel.has(n); on ? sel.add(n) : sel.delete(n);
+                    b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on));
+                    b.textContent = (on ? '☑ ' : '☐ ') + n + ' · ' + b.dataset.say;
+                    const s = mwrap.querySelector('.dc-multi-send'); if (s) { s.disabled = !sel.size; s.textContent = `Send ${sel.size || ''} ➤`; }
+                    return;
+                }
+                const picked = [...mwrap.querySelectorAll('.dc-multi')].filter(x => sel.has(x.dataset.n));
+                if (!picked.length) return;
+                if (DC.editKey) { ta.value = ''; setEditMode(''); }
+                const tsel = $('#dc-chat-target'); const was = tsel ? tsel.value : '';
+                if (tsel) tsel.value = 'droplet';
+                const say = picked.length === 1 ? picked[0].dataset.say : 'Picked:\n' + picked.map(x => `${x.dataset.n}. ${x.dataset.say}`).join('\n');
+                ta.value = say; sendChat();
+                if (k) update(ref(database, `${DC.base}/chat/turns/${k}`), { answered: picked.map(x => x.dataset.say).join(' + ') }).catch(() => {});
+                if (tsel && was) tsel.value = was;
+                mwrap.querySelectorAll('.dc-choice').forEach(x => { x.disabled = true; }); delete DC.multiSel[k];
+                return;
+            }
             if (DC.editKey) { ta.value = ''; setEditMode(''); }
             const sel = $('#dc-chat-target'); const was = sel ? sel.value : '';
             if (sel) sel.value = 'droplet';           // the menu is on Droplet's terminal - the answer goes there whatever the target pick
