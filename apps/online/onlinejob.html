@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="version" content="1.0.7">
+  <meta name="version" content="1.0.9">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>Jobs</title>
   <link rel="stylesheet" href="../assets/css/online.css" />
@@ -392,7 +392,10 @@
     }
     function calcLength(task) {
       const s = new Date(task.startTime), e = task.endTime ? new Date(task.endTime) : new Date();
-      const sec = (e - s) / 1000;
+      let sec = (e - s) / 1000;
+      // A closed job with segments = the sum of its segments, not first-start to last-end
+      // (2026-11-03: CVS 2159 read 19 h = Sun 6 PM drive -> Mon 1 PM; segments say 3 + 5 = 8 h).
+      if (task.endTime && Array.isArray(task.segments) && task.segments.length) sec = recHours(task) * 3600;
       if (Math.abs(sec) > 10 * 365 * 24 * 3600) return "More than 10 years";
       const neg = sec < 0, abs = Math.abs(sec);
       const h = Math.floor(abs / 3600), m = Math.floor((abs % 3600) / 60), ss = Math.floor(abs % 60);
@@ -709,7 +712,7 @@
 
     function updateTotalHours(tasks) {
       let s = 0;
-      tasks.forEach(t => { if (t.endTime) s += (new Date(t.endTime) - new Date(t.startTime)) / 1000; });
+      tasks.forEach(t => { if (t.endTime) s += (Array.isArray(t.segments) && t.segments.length) ? recHours(t) * 3600 : (new Date(t.endTime) - new Date(t.startTime)) / 1000; });   // segments win over the span (2026-11-03)
       totalHoursSpan.innerText = `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m (${(s / 3600).toFixed(2)})`;
     }
 
