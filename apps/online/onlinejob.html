@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="version" content="1.0.9">
+  <meta name="version" content="1.0.10">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>Jobs</title>
   <link rel="stylesheet" href="../assets/css/online.css" />
@@ -770,7 +770,19 @@
         autoTaskSelected = true;
         document.getElementById("autoTaskNotice")?.remove();
       } else if (bookedHit) {
-        autoTaskNotice(`Job "${bookedHit.customerName || autoTaskId}" is booked, not started yet - it lives in onlineschedule (press Start there on the day). The job shown below is a different one.`);
+        // 2026-11-03 (L "make it so the app doesn't do that anymore"): a link to a booked job offers Start right here -
+        // same flip as onlineschedule's Start (status -> active); the listener refires and the link then selects the job.
+        autoTaskNotice(`Job "${bookedHit.customerName || autoTaskId}" is booked, not started yet.`);
+        const n = document.getElementById("autoTaskNotice");
+        if (n && !n.querySelector("button")) {
+          const b = document.createElement("button"); b.type = "button"; b.textContent = "▶ Start this job"; b.style.marginLeft = "8px";
+          b.onclick = async () => {
+            b.disabled = true; b.textContent = "Starting…";
+            try { await update(dbRef(database, `${DB}/tasks/${autoTaskId}`), { status: "active" }); }
+            catch (err) { b.disabled = false; b.textContent = "▶ Start this job"; alert("Couldn't start the job: " + err.message); }
+          };
+          n.appendChild(b);
+        }
       } else if (autoTaskId && !autoTaskSelected) {
         autoTaskNotice(`Job "${autoTaskId}" isn't in this account (${DB.slice(0, 6)}…). Sign in to the account that owns it.`);
       }
