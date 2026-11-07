@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.131"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.133"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -5591,7 +5591,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             else asc.push(m);
         }
         const mine = P.index[P.open];
-        if (!asc.length && mine && mine.ts > cleared) clearConv(P.open);   // nothing left to read = the conversation is cleared (L)
+        if (!asc.length && mine && mine.ts > cleared && mine.kind !== 'group') clearConv(P.open);   // nothing left to read = the conversation is cleared (L); a group stays like Telegram even when empty (L 2026-11-07: new group vanished on back-out)
         const list = nf ? asc.slice().reverse() : asc;
         const S = window.__dcShared || {}, lk = S.linkify || (x => x), rich = S.richBody ? (x => S.richBody(x, true)) : (x => lk(esc(x))), stamp = S.fmtStamp || (t => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
         const lastMine = [...asc].reverse().find(m => m.from === P.me);
@@ -5898,7 +5898,11 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     P.groups = {};
     const isGroup = tid => String(tid || '').startsWith('grp-');
     async function groupOf(tid, fresh) { if (!fresh && P.groups[tid]) return P.groups[tid];
-        try { const g = (await get(ref(database, `share/chat/${tid}`))).val(); if (g) { delete g.messages; delete g.reacts; delete g.seen; P.groups[tid] = g; } } catch (_) {}
+        // Read only the group's own fields, never the whole node: Read Mail's messages are ~3 MB (2,241 mails) and every
+        // open/send pulled all of it (L 2026-11-07 'Read Mail loads slower').
+        try { const F = ['kind', 'name', 'members', 'names', 'owner', 'bots', 'createdAt'];
+            const v = await Promise.all(F.map(f => get(ref(database, `share/chat/${tid}/${f}`)).then(s => s.val()).catch(() => null)));
+            const g = {}; F.forEach((f, i) => { if (v[i] != null) g[f] = v[i]; }); if (g.kind || g.members) P.groups[tid] = g; } catch (_) {}
         return P.groups[tid] || null; }
     async function fanIndex(tid, last, ts) {
         const g = await groupOf(tid); if (!g) return;
