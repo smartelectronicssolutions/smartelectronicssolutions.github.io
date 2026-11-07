@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
-<meta name="version" content="1.0.27">
+<meta name="version" content="1.0.28">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0c0f13"><title>Loadout</title>
 <style>
@@ -793,7 +793,9 @@ const ROOMS={
     {to:"kevinhouse",x:349,y:124,w:26,h:18,entry:[256,430],out:[362,164]},
     {to:"nickhouse",x:349,y:520,w:26,h:18,entry:[256,430],out:[362,554]},
     {to:"glade",x:752,y:4,w:48,h:20,entry:[256,440]},
-    {to:"yourroom",x:121,y:520,w:26,h:18,entry:[256,436],out:[134,554]}]},   // 2026-10-18 symmetric plots: door index order kept (erik, kevin, nick, glade, yourroom)
+    {to:"yourroom",x:121,y:520,w:26,h:18,entry:[256,436],out:[134,554]},   // 2026-10-18 symmetric plots: door index order kept (erik, kevin, nick, glade, yourroom)
+    {to:"traininghall",x:820,y:478,w:26,h:18,entry:[256,446],out:[833,516]}]},   // TRAINING HALL (2026-11-05): appended LAST (index 5) - the hall sign/building is drawn relative to this door
+  traininghall:{name:"Training Hall",floor:"oak",doors:[{to:"street",x:232,y:482,w:48,h:22,entry:[256,446]}]},   // TRAINING HALL (2026-11-05): demo-only tutorial room
   store54:{name:"Store Fifty-Four",floor:"concrete",big:{w:960,h:640},doors:[{to:"street",x:470,y:648,w:60,h:24,entry:[662,566]}]},
   glade:{name:"The Glade",floor:"grass",doors:[{to:"street",x:232,y:476,w:48,h:28,entry:[256,60]}]},
   erikhouse:{name:"Erik's Place",floor:"wood",doors:[{to:"street",x:232,y:482,w:48,h:22,entry:[104,150]}]},
@@ -1284,6 +1286,143 @@ window.__loGo=(r,x,y)=>{if(ROOMS[r])go({to:r,entry:[x||256,y||300]});};window.__
 window.__loPlace=(x,y)=>{player.x=x;player.y=y;doorLock=false;return window.__loState();};
 window.__loWalk=(dir,steps)=>{for(let i=0;i<(steps||1);i++){if(transing)break;computeROOMR();keys.clear();keys.add(dir);step(1/30);}keys.clear();return window.__loState();};   // test hook: walk without animation frames (a locked screen stops rAF)
 window.__loState=()=>({room,x:Math.round(player.x),y:Math.round(player.y),lock:doorLock,trans:transing,story:STORY,npcs:npcsIn(room),fx:fixIn(room)});   // test hooks
+// ===== TRAINING HALL (2026-11-05) - DEMO-ONLY tutorial room: L's real home/work automations as 8 stations =====
+// Self-contained: ROOMS.traininghall + the street door (index 5, appended last) live in the ROOMS literal; everything else is
+// in this block plus one-line hooks tagged "TRAINING HALL (2026-11-05)" in render / drawStreet / solidRects / pickInteractable /
+// interactAt. NOTHING here calls Home Assistant, the job app, Paycom or Firebase - progress is kept in this browser only
+// (localStorage "loadout:dayrun"). To remove: delete this block, the hooks and the two ROOMS lines.
+var TH_ST=[   // x,y = base centre of the prop; look = how it is drawn; lines = what it says (plain words, phone-readable)
+  {id:"radio",label:"RADIO",x:72,y:430,look:"radio",lines:["Morning briefing.","On weekdays, 90 minutes before your first job, the light strip comes on.","Then the Sonos reads you the weather and your jobs for the day."]},
+  {id:"board",label:"QUEST BOARD",x:72,y:315,look:"board",lines:["Outlook watcher.","Every 30 min on weekdays I check Telaid Outlook for new work orders, book them in the job app and push you a notification.","The Sonos announces it too. Cancellations: I ask you first."]},
+  {id:"door",label:"FRONT DOOR",x:72,y:200,look:"door",lines:["Leave-home sweep.","5 min after your work phone leaves home, the fan, heating pad, light strip and bedroom light turn off.","The Sonos stays powered."]},
+  {id:"ring",label:"JOB SITE",x:256,y:118,look:"ring",lines:["Geofence. Step into the glowing ring to try it.","3 min inside a job's circle clocks you in. 10 min outside clocks you out.","Times snap to 15 min."]},
+  {id:"bed",label:"HOME DESK",x:440,y:178,look:"bed",lines:["Home close-out.","When you get home I close travel and put today's Paycom hours in as drafts.","Per diem only on away days. You approve."]},
+  {id:"lantern",label:"NIGHT GUARD",x:440,y:268,look:"lantern",lines:["9 PM check.","I stay quiet unless the job app shows work today and the close-out never ran."]},
+  {id:"speaker",label:"VOICE",x:440,y:358,look:"speaker",lines:["Voice.","Say “OK Nabu” near the bedroom camera, or tap the house button in the console.","Simple commands are instant. Questions go to Yuki."]},
+  {id:"clock",label:"BEDTIME",x:440,y:448,look:"clock",lines:["Bedtime, 11 PM: strip off, light at 20%, fan on.","Sleep badge ticks if the bedroom light goes off between 9 PM and midnight.","Movement badge at 2,000+ steps."]}];
+var TH_RING={x:256,y:118,rx:48,ry:26};
+var TH={done:{},phase:0,cur:null,ring:{st:"idle",t0:0,tOut:0,endMin:0},toast:null,big:null};
+try{const v=JSON.parse(localStorage.getItem("loadout:dayrun")||"null");if(v&&typeof v==="object"){TH.done=v.done||{};TH.phase=+v.phase||0;}}catch(e){}
+function thSave(){try{localStorage.setItem("loadout:dayrun",JSON.stringify({done:TH.done,phase:TH.phase}));}catch(e){}}
+function thCount(){return TH_ST.filter(s=>TH.done[s.id]).length;}
+function thToast(t,ms){TH.toast={t,until:performance.now()+(ms||3200)};}
+// Yuki (the guide) + a hidden "sign" speaker the stations talk through - both reuse the NPC dialog box (showDialogue / advDlg)
+NPCS.thyuki={room:"traininghall",x:318,y:428,name:"Yuki",spirit:"#ffb8e0",still:true,get lines(){return thYukiLines();}};
+NPCS.thsign={room:"__th_none__",x:0,y:0,name:"Training Hall",still:true,get lines(){return TH.cur?TH.cur.lines:["..."];}};
+for(const _id of ["thyuki","thsign"]){const _n=NPCS[_id];_n.x0=_n.x;_n.y0=_n.y;_n.dir="down";_n.moving=false;_n.frame=0;_n.ft=0;_n.hx=_n.x;_n.hy=_n.y;_n.tx=_n.x;_n.ty=_n.y;_n.wait=1;}
+function thNext(){const s=TH_ST.find(q=>!TH.done[q.id]);return s?s.label.toLowerCase().replace(/^./,c=>c.toUpperCase()):"";}
+function thYukiLines(){const n=thCount();
+  if(TH.phase===0)return["Hi Luis! Welcome to the Training Hall.","Each station here is one of your real automations, in the order a workday runs. Nothing in here is live - it is all a demo.","Walk up to a station and press E (or tap it). I will tick it off. Start with the Radio on the left. Day Run started!"];
+  if(TH.phase===2)return["That is the whole day, start to finish.","Morning briefing, new work orders, leaving home, clocking in and out, closing out, the 9 PM check, voice, and bedtime.","All of it runs on its own. You only step in to approve. Day Run complete!"];
+  if(TH.phase===3)return["Want to run the day again? I will reset the stations."];
+  return["Day Run: "+n+" of "+TH_ST.length+" done.",n<TH_ST.length?"Next up: "+thNext()+".":"All done!"];}
+function thAfter(id){
+  if(id==="thyuki"){if(TH.phase===0){TH.phase=1;dayBanner("✦ Day Run started");chime(1);}
+    else if(TH.phase===2){TH.phase=3;}
+    else if(TH.phase===3){TH.done={};TH.phase=1;TH.ring.st="idle";_bgTime=0;dayBanner("✦ Day Run reset");}
+    thSave();return;}
+  if(id==="thsign"){const s=TH.cur;TH.cur=null;if(s&&s.id!=="ring")thMark(s.id);}}
+function thMark(sid){if(!TH.done[sid]){TH.done[sid]=Date.now();chime(1);}if(TH.phase===0)TH.phase=1;thSave();_bgTime=0;
+  if(thCount()>=TH_ST.length&&TH.phase<2){TH.phase=2;thSave();chime(6);dayBanner("✦ Day Run complete");TH.big={t:"DAY RUN COMPLETE",until:performance.now()+4500};
+    setTimeout(()=>{if(room==="traininghall"&&!dlg)showDialogue("thyuki");},700);}
+  else dayBanner("✓ "+thCount()+" / "+TH_ST.length+" stations");}
+{const _sa=storyAfter;storyAfter=function(id){_sa.apply(this,arguments);if(id==="thyuki"||id==="thsign")thAfter(id);};}
+function thTalk(s){TH.cur=s;NPCS.thsign.name=s.label.charAt(0)+s.label.slice(1).toLowerCase();showDialogue("thsign");}
+function thProp(s){return{x:s.x-18,y:s.y-40,w:36,h:40};}   // drawn box (base at s.y)
+function thInRing(){const R=TH_RING;return((player.x-R.x)/R.rx)**2+((player.y-R.y)/R.ry)**2<=1;}
+function thNear(){if(room!=="traininghall")return null;let best=null,bd=1e9;
+  for(const s of TH_ST){let d;if(s.look==="ring")d=thInRing()?0:Math.hypot(player.x-s.x,(player.y-s.y)*1.6)-TH_RING.rx;else d=Math.hypot(player.x-s.x,player.y-(s.y-8));
+    if(d<44&&d<bd){bd=d;best=s;}}
+  if(!best)return null;const s=best;return{x:s.x,y:s.y-20,py:s.look==="ring"?s.y-30:s.y-44,act:()=>thTalk(s)};}
+function thTapAt(p){if(room!=="traininghall")return null;for(const s of TH_ST){
+  if(s.look==="ring"){if(((p.x-TH_RING.x)/TH_RING.rx)**2+((p.y-TH_RING.y)/TH_RING.ry)**2<=1)return()=>thTalk(s);continue;}
+  const b=thProp(s);if(p.x>=b.x-4&&p.x<=b.x+b.w+4&&p.y>=b.y-14&&p.y<=b.y+b.h+4)return()=>thTalk(s);}return null;}
+function thStreetBody(){const d=ROOMS.street.doors.find(q=>q.to==="traininghall");if(!d)return null;return{x:d.x-21,y:d.y-58,w:68,h:58};}
+function thSolidsInto(r,rects){
+  if(r==="traininghall"){for(const s of TH_ST)if(s.look!=="ring"){const b=thProp(s);rects.push({x:b.x+2,y:b.y+8,w:b.w-4,h:b.h-8});}}
+  else if(r==="street"){const b=thStreetBody();if(b)rects.push(b);}}
+// --- the street entrance: a small dojo-style hall, drawn relative to its door (so a dragged door keeps its building) ---
+function drawTHEntrance(){const d=ROOMS.street.doors.find(q=>q.to==="traininghall");if(!d)return;const bx=d.x-21,by=d.y-62,cx=d.x+d.w/2;
+  ctx.fillStyle="rgba(0,0,0,.28)";ctx.beginPath();ctx.ellipse(cx,d.y+4,40,6,0,0,7);ctx.fill();
+  px(bx,by+20,68,44,"#e6dcc4");px(bx,by+20,2,44,"#f4ecd8");px(bx+66,by+20,2,44,"#c4b89e");px(bx,by+58,68,6,"#8a7a62");   // plaster walls + base
+  px(bx-1,by+20,4,44,"#6b3a24");px(bx+65,by+20,4,44,"#6b3a24");                                                    // corner posts
+  px(bx-7,by+12,82,9,"#7a2a2a");px(bx-7,by+19,82,2,"#4e1a1a");px(bx-3,by+5,74,8,"#8c3434");px(bx-3,by+5,74,2,"#a84a40");px(bx+10,by,48,6,"#5a1e1e");   // tiered roof (burgundy)
+  px(bx-9,by+11,4,3,"#5a1e1e");px(bx+73,by+11,4,3,"#5a1e1e");
+  for(const wx of [bx+6,bx+50]){px(wx,by+36,12,12,"#6b3a24");px(wx+1,by+37,10,10,"#f7e7b4");px(wx+5,by+37,2,10,"#6b3a24");px(wx+1,by+41,10,2,"#6b3a24");}   // paper windows
+  px(bx+8,by+23,52,10,"#3a2414");px(bx+9,by+24,50,8,"#5a3a22");                                                    // sign board
+  ctx.font="6px 'Pixelify Sans',monospace";ctx.textAlign="center";ctx.fillStyle="#ffe9b8";ctx.fillText("TRAINING HALL",cx,by+30.5,48);ctx.textAlign="left";
+  px(d.x,d.y-24,26,26,"#3a2414");px(d.x+2,d.y-22,22,24,"#7a4e2c");px(d.x+12,d.y-22,2,24,"#5a3a22");px(d.x+2,d.y-22,22,2,"#8f5e38");   // sliding door
+  ctx.fillStyle="#e8c05a";ctx.fillRect(d.x+8,d.y-10,2,3);ctx.fillRect(d.x+16,d.y-10,2,3);
+  px(d.x-4,d.y+2,34,4,"#a89a84");px(d.x-4,d.y+2,34,1,"#c9bda6");                                                  // step
+  if(!showLbl(cx,d.y)){lblDot(cx,by-6);return;}
+  ctx.font="8px 'Pixelify Sans',monospace";ctx.textAlign="center";ctx.lineWidth=3;ctx.strokeStyle="#3a1c08";ctx.strokeText("▾ Training Hall",cx,by-4);ctx.fillStyle="#ffe9b8";ctx.fillText("▾ Training Hall",cx,by-4);ctx.textAlign="left";}
+// --- the room: static art (cached ground layer) ---
+function thPropArt(s){const x=s.x,y=s.y;
+  ctx.fillStyle="rgba(0,0,0,.28)";ctx.beginPath();ctx.ellipse(x,y,17,4,0,0,7);ctx.fill();
+  switch(s.look){
+    case"radio":px(x-16,y-18,32,18,"#6b4a2e");px(x-16,y-18,32,3,"#84603c");px(x-14,y-3,3,3,"#4a3220");px(x+11,y-3,3,3,"#4a3220");   // side table
+      px(x-12,y-34,24,16,"#3c4148");px(x-12,y-34,24,2,"#555c64");ctx.fillStyle="#1b1c20";ctx.beginPath();ctx.arc(x-5,y-26,5,0,7);ctx.fill();
+      for(let i=0;i<3;i++)px(x-8+i*3,y-28,1,5,"#555c64");px(x+3,y-31,7,4,"#e8b51a");px(x+4,y-25,2,2,"#c8402e");px(x+7,y-25,2,2,"#c8402e");px(x+9,y-44,1,10,"#9aa0a6");px(x+8,y-45,3,2,"#c8402e");break;
+    case"board":drawLoreObj("board",x,y);px(x-13,y-26,7,2,"#c8402e");px(x+9,y-14,7,2,"#2f6fb0");break;
+    case"door":px(x-17,y-44,34,44,"#8d887f");px(x-17,y-44,34,3,"#a8a297");px(x-14,y-41,28,41,"#5a3a22");px(x-12,y-39,24,39,"#7a4e2c");
+      px(x-9,y-35,8,12,"#6a4426");px(x+1,y-35,8,12,"#6a4426");px(x-9,y-19,8,14,"#6a4426");px(x+1,y-19,8,14,"#6a4426");ctx.fillStyle="#e8c05a";ctx.beginPath();ctx.arc(x+8,y-20,2,0,7);ctx.fill();
+      px(x-16,y-2,32,4,"#7a5a3a");px(x-14,y-1,28,1,"#9a7a52");break;
+    case"bed":px(x-18,y-24,22,24,"#6b4a2e");px(x-17,y-23,20,6,"#f4f1e8");px(x-17,y-17,20,15,"#7a1f2b");px(x-17,y-17,20,2,"#94303c");px(x-17,y-3,20,3,"#4a3220");   // bed (burgundy blanket)
+      px(x+6,y-20,13,20,"#84603c");px(x+6,y-20,13,3,"#9c744a");px(x+8,y-27,10,7,"#2a2f36");px(x+9,y-26,8,5,"#4ab0ff");px(x+7,y-21,12,1,"#1b1c20");break;   // desk + laptop
+    case"lantern":px(x-2,y-40,4,40,"#3a3e44");px(x-6,y-3,12,4,"#2c2f34");px(x-7,y-44,14,4,"#2c2f34");px(x-6,y-40,12,14,"#ffd27a");
+      px(x-6,y-40,1,14,"#2c2f34");px(x+5,y-40,1,14,"#2c2f34");px(x-2,y-36,4,7,"#ff9a3a");px(x-6,y-26,12,2,"#2c2f34");break;
+    case"speaker":px(x-16,y-38,18,38,"#1f2328");px(x-16,y-38,18,2,"#3a3e44");ctx.fillStyle="#3a3e44";ctx.beginPath();ctx.arc(x-7,y-27,5,0,7);ctx.fill();ctx.beginPath();ctx.arc(x-7,y-12,7,0,7);ctx.fill();
+      ctx.fillStyle="#0e1014";ctx.beginPath();ctx.arc(x-7,y-27,2,0,7);ctx.fill();ctx.beginPath();ctx.arc(x-7,y-12,3,0,7);ctx.fill();
+      px(x+10,y-30,2,30,"#9aa0a6");px(x+6,y-2,10,2,"#3a3e44");px(x+8,y-36,6,8,"#555c64");px(x+9,y-35,4,6,"#8d939c");break;   // mic on a stand
+    case"clock":px(x-2,y-24,4,24,"#5a3a22");px(x-8,y-3,16,4,"#4a3220");ctx.fillStyle="#5a3a22";ctx.beginPath();ctx.arc(x,y-30,11,0,7);ctx.fill();ctx.fillStyle="#f4f1e8";ctx.beginPath();ctx.arc(x,y-30,9,0,7);ctx.fill();
+      px(x-1,y-37,2,8,"#1b1c20");px(x,y-31,6,2,"#1b1c20");ctx.fillStyle="#f4e9a0";ctx.beginPath();ctx.arc(x+12,y-46,6,0,7);ctx.fill();ctx.fillStyle="#6b4a2e";ctx.beginPath();ctx.arc(x+15,y-48,5,0,7);ctx.fill();break;}}   // moon = a crescent over the clock
+function drawTHRoom(){
+  // the path: a carpet loop past every station, with a runner up from the door
+  const C="#8c3a3a",E="#5a1e1e";px(104,96,20,368,C);px(388,96,20,368,C);px(104,96,304,20,C);px(104,444,304,20,C);px(246,444,20,40,C);
+  for(const [x,y,w,h] of [[104,96,20,368],[388,96,20,368],[104,96,304,20],[104,444,304,20],[246,464,20,20]]){px(x,y,w,1,E);px(x,y+h-1,w,1,E);px(x,y,1,h,E);px(x+w-1,y,1,h,E);}
+  for(const s of TH_ST){if(s.look==="ring")continue;const sx=s.x<256?s.x+18:s.x-36;px(sx,s.y-12,18,10,C);}   // stubs from the loop to each prop
+  // the job-site ring (floor decal; the glow is live)
+  const R=TH_RING;ctx.fillStyle="rgba(63,208,122,.18)";ctx.beginPath();ctx.ellipse(R.x,R.y,R.rx,R.ry,0,0,7);ctx.fill();
+  ctx.setLineDash([6,4]);ctx.strokeStyle="#2f8a52";ctx.lineWidth=2;ctx.beginPath();ctx.ellipse(R.x,R.y,R.rx,R.ry,0,0,7);ctx.stroke();ctx.setLineDash([]);
+  px(R.x-2,R.y-2,4,4,"#2f8a52");
+  for(const s of TH_ST)if(s.look!=="ring")thPropArt(s);
+  // banner on the back wall
+  px(176,30,160,22,"#5a1e1e");px(178,32,156,18,"#7a2a2a");ctx.font="9px 'Pixelify Sans',monospace";ctx.textAlign="center";ctx.fillStyle="#ffe9b8";ctx.fillText("THE DAY RUN",256,45);ctx.textAlign="left";}
+// --- live layer (under people): ring glow, labels, checkmarks, and the ring clock logic ---
+function thFmt(m){m=((Math.round(m)%1440)+1440)%1440;const h=Math.floor(m/60),mm=m%60;return((h%12)||12)+":"+(mm<10?"0":"")+mm;}
+function thRingStep(){const G=TH.ring,now=performance.now(),inR=thInRing(),clock=()=>720+(now-G.t0)/1000*12;   // demo clock: 12 game-minutes per real second
+  if(G.st==="idle"){if(inR){G.st="in";G.t0=now;thToast("Clocked in 12:00");chime(1);}return;}
+  if(G.st==="in"){if(!inR){G.st="leaving";G.tOut=now;G.endMin=clock();thToast("Left the site - closing in 5 s",2000);}return;}
+  if(G.st==="leaving"){if(inR){G.st="in";thToast("Back on site",1500);return;}
+    if(now-G.tOut>=5000){let end=Math.round(G.endMin/15)*15;if(end<=720)end=735;const hrs=(end-720)/60;G.st="idle";
+      thToast("Work closed "+thFmt(end)+" - "+hrs.toFixed(2)+" h",4500);chime(2);thMark("ring");}}}
+function thLabel(t,x,y,done){ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="center";const tw=ctx.measureText(t).width+8;
+  ctx.fillStyle=done?"#d8f5df":"#ffe9b8";ctx.fillRect(Math.round(x-tw/2),y-8,Math.round(tw),10);ctx.fillStyle=done?"#1f6b3a":"#4a2510";ctx.fillText(t,x,y);ctx.textAlign="left";}
+function thCheck(x,y){ctx.fillStyle="#1f6b3a";ctx.beginPath();ctx.arc(x,y,6,0,7);ctx.fill();ctx.strokeStyle="#ffffff";ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x-3,y);ctx.lineTo(x-1,y+3);ctx.lineTo(x+3,y-3);ctx.stroke();}
+function drawTHLive(){const t=performance.now()/1000;
+  if(!editMode&&!transing)thRingStep();else if(TH.ring.st!=="idle"&&editMode)TH.ring.st="idle";
+  const R=TH_RING,on=TH.ring.st!=="idle",pu=.5+.5*Math.sin(t*3);
+  ctx.strokeStyle=on?"rgba(63,208,122,.95)":"rgba(120,230,160,"+(.35+.4*pu)+")";ctx.lineWidth=on?3:2;ctx.beginPath();ctx.ellipse(R.x,R.y,R.rx+(on?0:pu*3),R.ry+(on?0:pu*2),0,0,7);ctx.stroke();
+  if(on){ctx.fillStyle="rgba(63,208,122,.16)";ctx.beginPath();ctx.ellipse(R.x,R.y,R.rx,R.ry,0,0,7);ctx.fill();}
+  {const s=TH_ST.find(q=>q.id==="lantern");const g=ctx.createRadialGradient(s.x,s.y-33,1,s.x,s.y-33,22+pu*3);g.addColorStop(0,"rgba(255,200,90,.45)");g.addColorStop(1,"rgba(255,200,90,0)");ctx.fillStyle=g;ctx.fillRect(s.x-28,s.y-62,56,56);}
+  TH_ST.forEach((s,i)=>{const done=!!TH.done[s.id],lx=s.x,ly=s.look==="ring"?R.y-R.ry-6:s.y-50;thLabel((i+1)+" · "+s.label,lx,ly,done);
+    if(done)thCheck(lx+(s.look==="ring"?R.rx-6:16),ly-14);});}
+// --- screen-space HUD: progress pill, ring timer, toast, big banner ---
+function thPill(t,x,y,bg,fg,font){ctx.font=font||"9px 'Pixelify Sans',monospace";const tw=Math.min(VW-16,ctx.measureText(t).width+14);ctx.fillStyle=bg;ctx.fillRect(Math.round(x-tw/2),y,Math.round(tw),16);
+  ctx.strokeStyle="#4a2510";ctx.lineWidth=1;ctx.strokeRect(Math.round(x-tw/2)+.5,y+.5,Math.round(tw)-1,15);ctx.fillStyle=fg;ctx.textAlign="center";ctx.fillText(t,x,y+11.5,tw-10);ctx.textAlign="left";}
+function drawTHHud(){if(editMode)return;const now=performance.now(),G=TH.ring;ctx.save();ctx.setTransform(1,0,0,1,0,0);const cx=VW/2;let y=VH-26;
+  thPill("Day Run "+thCount()+" / "+TH_ST.length+(TH.phase===0?" · talk to Yuki":""),cx,y,"#ffe9b8","#4a2510");y-=20;
+  if(G.st==="in")thPill("⏱ On the clock "+thFmt(720+(now-G.t0)/1000*12),cx,y,"#d8f5df","#1f6b3a");
+  else if(G.st==="leaving")thPill("⏱ Off site · clock-out in "+Math.max(0,Math.ceil((5000-(now-G.tOut))/1000))+" s",cx,y,"#fbe9a0","#4a2510");
+  if(G.st!=="idle")y-=20;
+  if(TH.toast&&now<TH.toast.until)thPill(TH.toast.t,cx,y,"#2b2e33","#ffe9b8");
+  if(TH.big&&now<TH.big.until){const a=Math.min(1,(TH.big.until-now)/600);ctx.globalAlpha=a;ctx.font="bold 16px 'Pixelify Sans',monospace";const tw=ctx.measureText(TH.big.t).width+28,by=Math.round(VH*.32);
+    ctx.fillStyle="#7a2a2a";ctx.fillRect(Math.round(cx-tw/2),by,Math.round(tw),30);ctx.strokeStyle="#ffe9b8";ctx.lineWidth=2;ctx.strokeRect(Math.round(cx-tw/2)+1,by+1,Math.round(tw)-2,28);
+    ctx.fillStyle="#ffe9b8";ctx.textAlign="center";ctx.fillText(TH.big.t,cx,by+21);ctx.textAlign="left";ctx.globalAlpha=1;}
+  ctx.restore();}
+window.__loTH=()=>({room,hasRoom:!!ROOMS.traininghall,streetDoors:ROOMS.street.doors.map(d=>d.to+"@"+d.x+","+d.y),done:Object.keys(TH.done),phase:TH.phase,ring:TH.ring.st,
+  toast:TH.toast&&performance.now()<TH.toast.until?TH.toast.t:null,dlg:dlg?{id:dlg.id,name:$("npcName").textContent,line:$("npcLine").textContent}:null,x:Math.round(player.x),y:Math.round(player.y)});   // test hook
+// ===== /TRAINING HALL (2026-11-05) =====
 /* TIP TOP-RIGHT + FADE NEAR (b104, L 2026-10-19: "the text in the upper left conflicts with views, Erik's Place tag also blocks that text - have the text to the right,
    and the tag and text go transparent when I walk near them"). The quest tip is drawn in SCREEN space at the top-right (no longer under the room-name tag), and both
    the tip and the room tag fade to 25% while the player is under them. */
@@ -1520,6 +1659,7 @@ function solidRects(r){const rects=[];if(r==="street")rects.push(...HOOD_SOLID);
   if(r==="street"){for(const h of STREET_HOUSES){const B=houseBox(h);rects.push({x:B.x+14,y:B.y+Math.round(B.h*.2),w:B.w-28,h:(h.at[1]+92)-(B.y+Math.round(B.h*.2))});}
     for(const v of STREET_CARS)rects.push({x:v.x+8,y:v.y+44,w:140,h:44});}
   if(r==="glade")rects.push({x:GLADE_T.x-GLADE_T.rx+10,y:GLADE_T.y-GLADE_T.ry+6,w:GLADE_T.rx*2-20,h:GLADE_T.ry*2});   // the round table
+  thSolidsInto(r,rects);   // TRAINING HALL (2026-11-05) hook
   if(r==="street")rects.push({x:SHOP_RECT.x+6,y:SHOP_RECT.y+28,w:SHOP_RECT.w-12,h:SHOP_RECT.h-32});           // shop
   for(const [k,p] of placesIn(r))rects.push({x:p.x,y:p.y+p.h-14,w:p.w,h:16});
   for(const {d} of decorList(r)){const cb=CAT[d.k]?CAT[d.k].base:undefined;
@@ -1585,6 +1725,7 @@ function pickInteractable(){const cands=[];const add=(cx,cy,py,act)=>cands.push(
   if(room==="street"){const sv=STREET_CARS.find(c=>c.k==="van");if(sv){const vr={x:sv.x,y:sv.y+30,w:156,h:66};if(nearR(vr,16))add(vr.x+78,vr.y+30,sv.y+8,()=>openVanStorage());}}
   if(room==="street"){const hn=hoodNear();if(hn)add(hn.x,hn.y,hn.py,hn.act);}
   {const sn=storeNear();if(sn)add(sn.x,sn.y,sn.y-20,sn.act);}
+  {const tn=thNear();if(tn)add(tn.x,tn.y,tn.py,tn.act);}   // TRAINING HALL (2026-11-05) hook
   if(room==="street"&&nearR(SHOP_RECT,16))add(SHOP_RECT.x+SHOP_RECT.w/2,SHOP_RECT.y+SHOP_RECT.h/2,SHOP_RECT.y-6,()=>openShop());
   const sid=nearStore();if(sid){const d=roomDecor[room][sid],c=CAT[d.k]||{w:32,h:32},s=d.s||1;add(d.x+c.w*s/2,d.y+c.h*s/2,d.y-8,()=>{if(d.storeArea){openArea(d.storeArea);}else{openPanelFor(d.storeLoc||("decor:"+room+":"+sid));}});}
   for(const {d:_cd} of decorList(room)){if(!_cd.changeStation)continue;const _cc=CAT[_cd.k]||{w:32,h:32},_cs=_cd.s||1,_ccx=_cd.x+_cc.w*_cs/2,_ccy=_cd.y+_cc.h*_cs;if(Math.hypot(player.x-_ccx,player.y-_ccy)<58){add(_ccx,_ccy,_cd.y-8,openCharEditor);break;}}
@@ -1607,6 +1748,7 @@ cv.addEventListener("pointerdown",e=>{if(editMode||isOpen()||transing)return;ptr
 cv.addEventListener("pointermove",e=>{if(!ptr||e.pointerId!==ptr.id)return;const ax=e.clientX-ptr.cx,ay=e.clientY-ptr.cy,l=Math.hypot(ax,ay);if(l>=14){ptrMoved=true;moveTarget=null;joy={dx:ax/l,dy:ay/l};}});
 // double-tap = interact with WHATEVER is under the taps (storage decor, NPC, place, shop, van...)
 function interactAt(p){
+  {const ta=thTapAt(p);if(ta)return ta;}   // TRAINING HALL (2026-11-05) hook
   for(const id of npcsIn(room)){const n=NPCS[id];if(Math.hypot(p.x-n.x,p.y-n.y)<34)return()=>showDialogue(id);}
   for(const id of fixIn(room)){const fx=FIXTURES[id];
     if(p.x>=fx.x-6&&p.x<=fx.x+fx.w+6&&p.y>=fx.y-6&&p.y<=fx.y+fx.h+6)
@@ -1907,6 +2049,7 @@ function render(){const R=ROOMS[room];
     if(_bgc.width!==worldW()||_bgc.height!==worldH()){_bgc.width=worldW();_bgc.height=worldH();_bgctx.imageSmoothingEnabled=false;}
     const _m=ctx;ctx=_bgctx;ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,_bgc.width,_bgc.height);
     if(room==="street")drawStreet();else if(room==="glade")drawGlade();else{tileFloor(R.floor);if(room==="store54"){drawWalls();drawStore54();}
+      if(room==="traininghall")drawTHRoom();   // TRAINING HALL (2026-11-05) hook
       for(const key in (FTILES[room]||{})){const p=key.split("_");drawFtile(+p[0],+p[1],FTILES[room][key]);}
       drawWalls();}
     for(const {d} of decorList(room))if(isFlat(d.k))drawDecorItem(d);
@@ -1914,6 +2057,7 @@ function render(){const R=ROOMS[room];
     for(const d of R.doors)drawDoor(d);
     ctx=_m;}
   ctx.drawImage(_bgc,0,0);
+  if(room==="traininghall")drawTHLive();   // TRAINING HALL (2026-11-05) hook
   const ents=[];
   for(const {id,d} of decorList(room))if(!isFlat(d.k)){const s=d.s||1,W0=CAT[d.k].w*s,H0=CAT[d.k].h*s,rh=(d.rot||0)%2?W0:H0;ents.push({t:"d",id,d,z:d.z||0,sy:d.y+(H0+rh)/2});}   // base line = the bottom you SEE (rotated pieces spin round their centre)
   for(const[k,p]of placesIn(room))ents.push({t:"p",k,p,z:p.z||0,sy:p.y+p.h});
@@ -1939,6 +2083,7 @@ function render(){const R=ROOMS[room];
   for(const t of things)if(!done.has(t))draw(t);
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
+  if(room==="traininghall")drawTHHud();   // TRAINING HALL (2026-11-05) hook
   ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b132",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
@@ -2069,7 +2214,9 @@ function drawStreet(){const W=worldW(),H=worldH();
     if(v.k==="van"&&!showLbl(v.x+78,v.y+60))lblDot(v.x+78,v.y+4);
     else if(v.k==="van"){ctx.fillStyle="#f2a541";ctx.font="8px 'Pixelify Sans',monospace";ctx.textAlign="center";ctx.fillText("▸ "+slab("van","THE VAN"),v.x+78,v.y+6);ctx.textAlign="left";}}
   drawShop();drawHoodProps();
-  const gd=ROOMS.street.doors.find(d=>d.to==="glade");if(gd)drawGate(gd.x,gd.y,gd.w,gd.h,"GLADE");}
+  const gd=ROOMS.street.doors.find(d=>d.to==="glade");if(gd)drawGate(gd.x,gd.y,gd.w,gd.h,"GLADE");
+  drawTHEntrance();   // TRAINING HALL (2026-11-05) hook
+}
 const STREET_ROAD={y:170,h:52};
 const STREET_HOUSES=[{at:[59,28],roof:["#3a3e46","#464b54"],style:"ranch",wall:"#9c4a3a",lab:"house_erik",def:"ERIK'S"},   /* b111 styles: Erik = brick ranch */
   {at:[287,28],roof:["#8a3f34","#9c4a3d"],style:"twostory",wall:"#e6e1d6",lab:"house_kevin",def:"KEVIN'S"},                       /* Kevin = big 2-story colonial */

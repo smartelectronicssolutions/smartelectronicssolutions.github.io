@@ -4,7 +4,7 @@
 <head>
   <script>(function(){try{if(localStorage.getItem("ss-theme")==="light")document.documentElement.classList.add("light")}catch(e){}})();</script>  <!-- saved light/dark before first paint (2026-10-01) -->
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.0">
+    <meta name="version" content="1.0.4">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Appointment Scheduler</title>
     <link href="https://cdn.jsdelivr.net/npm/fullcalendar@5.10.1/main.min.css" rel="stylesheet">
@@ -117,7 +117,7 @@
                     <label for="appointmentTime">Time:</label>
                     <input type="time" id="appointmentTime"><br>
 
-                    <label for="customerAddress" id="addressLabel" style="cursor: pointer;">Address:</label>
+                    <label for="customerAddress" id="addressLabel" style="cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: manipulation; -webkit-touch-callout: none; padding: 6px 0; display: inline-block;" title="Double-click: copy · Triple-click: Apple Maps">Address:</label>
                     <input type="text" id="customerAddress" placeholder="Enter address"><br>
 
                     <label for="customerPhone" id="phoneLabel" style="cursor: pointer;">Phone Number:</label>
@@ -152,6 +152,8 @@
 
             calendar = new FullCalendar.Calendar(calendarEl, {
                 initialView: 'dayGridMonth',
+                // 2026-11-04 (L): onlinejob's "booked, not started" notice links here with ?date=YYYY-MM-DD&task=<id>
+                ...(/^\d{4}-\d{2}-\d{2}$/.test(LINK_DATE) ? { initialDate: LINK_DATE } : {}),
                 headerToolbar: {
                     left: 'prev,next today',
                     center: 'title',
@@ -239,6 +241,9 @@
         });
 
         let lastTasks = {};
+        const _qs = new URLSearchParams(location.search);
+        const LINK_DATE = _qs.get('date') || '';
+        let linkTask = _qs.get('task') || '';
         // Re-render the calendar from the latest tasks, honoring the Show: filters (scheduled/active/complete).
         function renderEvents() {
             if (!calendar) return;
@@ -248,6 +253,7 @@
                 const t = lastTasks[id];
                 if (t && typeof t === 'object' && show.has(jobState(t))) calendar.addEvent(formatTaskAsEvent(t, id));
             });
+            if (linkTask) { const ev = calendar.getEventById(linkTask); if (ev) { linkTask = ''; openModalForExistingTask(ev); } }
         }
         function formatTaskAsEvent(task, id) {
             const state = jobState(task);
@@ -348,21 +354,28 @@
             document.getElementById('id').value = '';
         }
 
-        document.getElementById('addressLabel').addEventListener('click', () => {
-            const addressInput = document.getElementById('customerAddress');
-            const address = addressInput.value.trim();
-
-            if (address) {
+        // 2026-11-04 (L): Address label - double click copies, triple click opens Apple Maps.
+        // Both act inside the click itself (clipboard + window.open need the user gesture), so no alert on copy:
+        // a modal would swallow the third click. The label flashes instead.
+        // iPhone (L 11/4 "not working with tap"): iOS Safari reports e.detail = 1 for every tap and the label's for= focus
+        // pops the keyboard between taps, so count taps ourselves (gap < 450 ms) and never let the label focus the input.
+        let addrTaps = 0, addrLast = 0;
+        document.getElementById('addressLabel').addEventListener('click', (e) => {
+            e.preventDefault();
+            const now = Date.now(); addrTaps = (now - addrLast < 450) ? addrTaps + 1 : 1; addrLast = now;
+            const n = Math.max(addrTaps, e.detail || 1);
+            const lbl = e.currentTarget;
+            const address = document.getElementById('customerAddress').value.trim();
+            const flash = (txt) => { lbl.textContent = txt; clearTimeout(lbl._t); lbl._t = setTimeout(() => { lbl.textContent = 'Address:'; }, 1500); };
+            if (n === 2) {
+                if (!address) { flash('Address: (none)'); return; }
                 navigator.clipboard.writeText(address)
-                    .then(() => {
-                        alert('Address copied to clipboard!');
-                    })
-                    .catch(err => {
-                        console.error('Error copying address:', err);
-                        alert('Failed to copy address.');
-                    });
-            } else {
-                alert('No address to copy.');
+                    .then(() => flash('Address: copied ✓'))
+                    .catch(err => { console.error('Error copying address:', err); flash('Address: copy failed'); });
+            } else if (n === 3) {
+                if (!address) { flash('Address: (none)'); return; }
+                flash('Address: opening Maps…');
+                window.open('https://maps.apple.com/?daddr=' + encodeURIComponent(address), '_blank');
             }
         });
 

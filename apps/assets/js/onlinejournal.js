@@ -135,7 +135,7 @@ export function renderArticleContent(article) {
           : "";
         const tbody = `<tbody>${item.rows
           .map((row) => `<tr>${(Array.isArray(row) ? row : [row])
-            .map((c) => `<td>${escapeHtml(c == null ? "" : String(c))}</td>`)
+            .map((c) => `<td>${linkify(escapeHtml(c == null ? "" : String(c)))}</td>`)
             .join("")}</tr>`)
           .join("")}</tbody>`;
         html += `<div class="article-table-wrap"><table class="article-table">${thead}${tbody}</table></div>`;
