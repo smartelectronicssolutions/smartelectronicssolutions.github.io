@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.141"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.142"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -2332,10 +2332,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
 
         // DAEMON UPDATE (2026-10-10). The latest portable daemon lives in Storage (public/kdaemon/, readable without a
         // login, so a mind in another house can fetch it). Bump these three lines + upload the file for each release.
-        const KDAEMON_LATEST = { version: '0.2.9', size: 39354,
-            sha256: '775a78fc65de37c636e772f4743a4fd03035e3b1e9623b837030083a41b30a5d',
-            url: 'https://firebasestorage.googleapis.com/v0/b/persinfo-df93f.appspot.com/o/public%2Fkdaemon%2Fkdaemon-0.2.9.py?alt=media',
-            notes: 'log lines no longer doubled under systemd (0.2.9); a job cut off by a restart is closed with a resend note instead of spinning forever (0.2.8); botName + self-reload (0.2.7)' };
+        const KDAEMON_LATEST = { version: '0.2.18', size: 64273,
+            sha256: 'd74ecf63b19d9d811534d809263944f2b72e3d2c1972138c4b932d5c9c1a5876',
+            url: 'https://firebasestorage.googleapis.com/v0/b/persinfo-df93f.appspot.com/o/assistant-console%2Fkdaemon-0.2.18.py?alt=media&token=44e2c408-220d-4b69-b3a9-14c8bd953920',
+            notes: 'Chrome browsing (chrome:true), in-console self-update (this button), full-size photos, attachment Inbox, singleton + dup-send guards' };
         const _vnum = v => String(v || '').split('.').map(n => parseInt(n, 10) || 0);
         const _volder = (a, b) => { const x = _vnum(a), y = _vnum(b); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) < (y[i] || 0); } return false; };
         function paintKdUpdate(m) {
@@ -2350,6 +2350,15 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         document.getElementById('dc-kd-update-btn') && document.getElementById('dc-kd-update-btn').addEventListener('click', e => {
             const b = e.currentTarget, cur = b.dataset.cur || '?', selfReload = !!b.dataset.self, L = KDAEMON_LATEST;
             const name = DC.instName || 'Droplet';
+            // 0.2.18+ daemons carry the `update` job handler: enqueue an automated in-place update (download+verify+swap+reload).
+            if (cur !== '?' && !_volder(cur, '0.2.18')) {
+                import('./assets/js/firebase-init.js?v=20261011b').then(async m => {
+                    const j = m.push(m.ref(database, `${DC.base}/jobs`));
+                    await m.set(j, { kind: 'update', url: L.url, version: L.version, status: 'queued', createdAt: Date.now(), chat: true });
+                    const st = document.getElementById('dc-chat-status'); if (st) st.textContent = `updating daemon to ${L.version}…`;
+                }).catch(err => alert('Could not queue the update: ' + (err.code || err.message)));
+                return;
+            }
             const text = [
                 `[Daemon update - sent by the hub's Update button] ${name}, please update the console daemon on your machine from kdaemon ${cur} to kdaemon ${L.version}.`,
                 ``,
