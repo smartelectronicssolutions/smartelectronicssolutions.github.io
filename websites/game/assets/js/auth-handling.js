@@ -1,7 +1,7 @@
 // game's own login (2026-10-16, L: "add login info to game site same shape as the others") - same flow as
 // websites/eco/assets/js/auth-handling.js: login.html = Login / Register toggle, and every page's nav carries an
 // #authLink that reads "Login" (-> login.html) or "Logout" when signed in.
-import { auth, database, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, ref, set } from "./firebase-init.js";
+import { auth, database, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, ref, set, update } from "./firebase-init.js";
 
 const $ = id => document.getElementById(id);
 const back = () => new URLSearchParams(location.search).get("next") || "index.html";
@@ -24,7 +24,7 @@ if (registrationForm) {
         if (password !== $("reg-confirm-password").value) { alert("Passwords do not match. Please try again."); return; }
         try {
             const cred = await createUserWithEmailAndPassword(auth, email, password);
-            await set(ref(database, `${cred.user.uid}/profile`), { email });
+            await update(ref(database, `${cred.user.uid}/profile`), { email });   // 2026-11-08: merge, never replace the profile
             alert("Registration Successful");
             registrationForm.reset();
             location.href = back();

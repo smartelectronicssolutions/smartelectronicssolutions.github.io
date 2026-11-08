@@ -72,3 +72,29 @@ export function isPart(tx) { return String((tx && tx.cat) || '').trim() !== ''; 
 
 // one line for prompts / hints: "🍽 Dining · 🛒 Groceries · ..."
 export const SPENDING_HINT = SPENDING_TAGS.map(s => `${s.tag} ${s.label}`).join(' · ');
+
+// ONE LEDGER ROW SHAPE (2026-11-08, audit fix #2). financials, gas and inventory each kept their own whitelist, so saving a
+// row in one app silently dropped the others' fields (altAmt/qty from inventory, postedDate, imgMarkup from gallery, cat/sub/
+// sku/link from finance). This is the superset: the core fields always; the optional ones ONLY when present, so a gas row
+// never grows a qty and a finance row never grows an altAmt. Every app saves through this.
+export function stripTxForSave(t) {
+  const obj = {
+    amt: Number(t.amt ?? 0),
+    cat: String(t.cat ?? ''),
+    sub: String(t.sub ?? ''),
+    sku: String(t.sku ?? ''),
+    link: String(t.link ?? ''),
+    img: String(t.img ?? ''),
+    imgPath: String(t.imgPath ?? ''),
+    desc: String(t.desc ?? ''),
+    name: String(t.name ?? ''),
+    tags: Array.isArray(t.tags) ? t.tags : [],
+    type: String(t.type || '').toLowerCase() === 'income' ? 'income' : 'expense',
+    date: Number(t.date ?? Date.now()),
+  };
+  if (t.postedDate != null && Number.isFinite(Number(t.postedDate))) obj.postedDate = Number(t.postedDate);
+  if (t.altAmt != null && Number.isFinite(Number(t.altAmt))) obj.altAmt = Number(t.altAmt);
+  if (t.qty != null && Number.isFinite(Number(t.qty))) obj.qty = Number(t.qty);
+  if (typeof t.imgMarkup === 'string' && t.imgMarkup) obj.imgMarkup = t.imgMarkup;
+  return obj;
+}

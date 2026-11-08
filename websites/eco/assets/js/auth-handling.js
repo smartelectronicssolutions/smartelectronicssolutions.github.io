@@ -1,4 +1,4 @@
-import { auth, database, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, ref, set } from "./firebase-init.js";
+import { auth, database, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, ref, set, update } from "./firebase-init.js";
 
 const loginForm = document.getElementById("login-form");
 if (loginForm) {
@@ -57,7 +57,7 @@ if (registrationForm) {
 }
 
 async function saveUserData(userId, email, ipAddress) {
-    await set(ref(database, `${userId}/profile`), { email, ipAddress });
+    await update(ref(database, `${userId}/profile`), { email, ipAddress });   // 2026-11-08: merge, never replace the profile
 }
 
 async function getIP() {
