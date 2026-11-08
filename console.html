@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.135"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.136"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -5764,7 +5764,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     // visibility (L 2026-11-08 "only see their own, or sent to them, or them included"): a member sees posts they wrote, posts addressed to
     // them (name/uid) or to all/everyone - nothing else; the owner (admin) sees the whole fire. UI-level: the rules grant the list to any
     // approved account, so true enforcement would need per-recipient fan-out (share/mailbox/{uid}) - the next rung if L wants it.
-    function cfRows() { return Object.entries(CF.posts || {}).filter(([, m]) => m && typeof m === 'object' && (P.me === OWNER || m.sharedBy === P.me || cfForMe(m))).sort((a, b) => Number(a[0]) - Number(b[0])); }
+    function cfRows() { return Object.entries(CF.posts || {}).filter(([k, m]) => m && typeof m === 'object' && CF.done[k] !== 'hide' && (P.me === OWNER || m.sharedBy === P.me || cfForMe(m))).sort((a, b) => Number(a[0]) - Number(b[0])); }   // 'hide' = cleared by this reader (L 2026-11-08 "deleted after read and assessed")
     function cfForMe(m) {   // generic (2026-11-08): "all"/"everyone", my display name or my uid; the owner also answers to droplet/luis/ld
         const to = String(m.to || ''); if (/\b(all|everyone)\b/i.test(to)) return true;
         if (P.me === OWNER && /\b(droplet|luis|ld)\b/i.test(to)) return true;
@@ -5784,7 +5784,16 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         if (P.editing) stopEdit();
         cfStart(); P.open = 'campfire'; P.other = null; setPeerReply(null);
         $('#dc-peer-home').hidden = true; $('#dc-peer-log').hidden = false; $('#dc-peer-form').hidden = true; $('#dc-peer-back').hidden = false;
-        { const w = $('#dc-peer-web'); if (w) w.hidden = true; } { const k = $('#dc-peer-word'); if (k) k.hidden = true; } { const bb = $('#dc-peer-bar'); if (bb) { bb.hidden = true; bb.innerHTML = ''; } }
+        { const w = $('#dc-peer-web'); if (w) w.hidden = true; } { const k = $('#dc-peer-word'); if (k) k.hidden = true; }
+        // compose (L 2026-11-08 "make it so he can use campfire"): a member posts straight to the fire. The rules want the post and
+        // share/rate/{me} = server time in ONE write (one post per 10 s), sharedBy = me. Lives in the head bar so a re-render of the
+        // log never wipes what's being typed; the bar is hidden again by every other open path.
+        { const bb = $('#dc-peer-bar'); if (bb) { bb.hidden = false; bb.innerHTML = `<div style="flex:1 1 100%;display:flex;flex-direction:column;gap:4px;padding-top:4px"><input id="cf-to" autocomplete="off" placeholder="to: a name, or all" style="font:inherit;padding:6px 8px;border:1px solid var(--border);border-radius:8px;background:transparent;color:inherit"><textarea id="cf-body" rows="2" autocomplete="off" placeholder="Say something to the fire…" style="font:inherit;padding:6px 8px;border:1px solid var(--border);border-radius:8px;background:transparent;color:inherit;resize:vertical"></textarea><button type="button" class="pbar-b" id="cf-post">🔥 Post to the fire</button></div>`;
+            bb.querySelector('#cf-post').onclick = async () => {
+                const toEl = $('#cf-to'), bodyEl = $('#cf-body'), to = (toEl.value.trim() || 'all'), body = bodyEl.value.trim(); if (!body || !P.me) return;
+                const ts = Date.now(), subject = body.split('\n')[0].slice(0, 80);
+                try { await update(ref(database, 'share'), { [`mail/${ts}`]: { sharedBy: P.me, from: P.myName || 'Someone', to, subject, body: body.slice(0, 6000), ts }, [`rate/${P.me}`]: serverTimestamp() }); bodyEl.value = ''; }
+                catch (e) { const c = String(e.code || e.message); alert('Not posted: ' + c + (/permission|denied/i.test(c) ? ' - one post every 10 seconds, and your account must be approved by the admin.' : '')); } }; } }
         $('#dc-peer-name').textContent = '🔥 Campfire';
         peerSplit(); renderCampfire(); dots();
     }
@@ -5795,14 +5804,26 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         const rows = cfRows(), list = nf ? rows.slice().reverse() : rows;
         log.innerHTML = list.length ? list.map(([k, m]) => { const mine = m.sharedBy === P.me, tm = stamp(Number(k)), state = CF.done[k];
             const files = Array.isArray(m.files) && m.files.length ? `<div class="dc-att"><a class="file" href="/board.html" target="_blank" rel="noopener">📎 ${m.files.length} file${m.files.length > 1 ? 's' : ''}: open the board</a></div>` : '';
-            const opts = mine || !cfForMe(m) ? '' : state ? `<div class="dc-choices answered">✓ ${esc(state === 'hand' ? 'Handed to Droplet' : 'Left for now')}</div>`
-                : `<div class="dc-cf-opts" data-cf="${esc(k)}"><button type="button" class="dc-choice" data-act="hand">Hand to Droplet</button><button type="button" class="dc-choice" data-act="leave">Leave for now</button></div>`;
+            const ai = P.me === OWNER ? 'Droplet' : 'my assistant';   // a member's local AI isn't called Droplet (2026-11-08)
+            const canDel = mine || P.me === OWNER;   // rules: an author may remove their own post, the admin any one
+            const tail = `<div class="dc-cf-opts" data-cf="${esc(k)}"><button type="button" class="dc-choice" data-act="hide" title="clear it from your Campfire - others still see it">✓ Clear</button>${canDel ? '<button type="button" class="dc-choice" data-act="del" title="delete this post for everyone (asks first)">🗑 Delete</button>' : ''}</div>`;
+            const opts = (mine || !cfForMe(m) ? '' : state ? `<div class="dc-choices answered">✓ ${esc(state === 'hand' ? 'Handed to ' + ai : 'Left for now')}</div>`
+                : `<div class="dc-cf-opts" data-cf="${esc(k)}"><button type="button" class="dc-choice" data-act="hand">Hand to ${esc(ai)}</button><button type="button" class="dc-choice" data-act="leave">Leave for now</button></div>`) + tail;
             return `<div class="dc-bub ${mine ? 'me' : 'drop'}" data-cf-k="${esc(k)}"><span class="who">${esc(String(m.from || 'Someone'))} → ${esc(String(m.to || 'all'))} · ${tm}</span>${m.subject ? `<b>${esc(String(m.subject))}</b>` : ''}<div style="white-space:pre-wrap">${rich(String(m.body || ''))}</div>${files}${opts}<div class="ts">${tm}</div></div>`; }).join('')
             : '<div style="opacity:.6;text-align:center;padding:10px">Nothing yet. Messages from the group land here.</div>';
         log.onclick = e => {
             const b = e.target.closest && e.target.closest('.dc-cf-opts .dc-choice'); if (!b) return; e.stopPropagation();
             const k = b.parentNode.dataset.cf, act = b.dataset.act;
-            if (act === 'hand' && !(window.__dcSayDroplet && window.__dcSayDroplet(`Hand Campfire post ${k.slice(-4)} to Droplet`, ''))) return;   // Campfire hand-overs go untagged = All (L 2026-11-02), not the open tab
+            if (act === 'del') {   // real delete = verify first (L: all deletes have a verify)
+                const m = (CF.posts || {})[k] || {}; if (!confirm(`Delete this Campfire post for everyone?\n\n${String(m.subject || m.body || '').slice(0, 80)}`)) return;
+                set(ref(database, `share/mail/${k}`), null).then(() => { delete CF.posts[k]; renderCampfire(); dots(); }).catch(e => alert('Could not delete: ' + (e.code || e.message))); return; }
+            if (act === 'hide') { CF.done[k] = 'hide'; update(ref(database, `${P.me}/console/campfire/done`), { [k]: 'hide' }).catch(() => {}); renderCampfire(); dots(); return; }   // cleared for me only, no confirm - nothing is destroyed
+            if (act === 'hand') {   // Campfire hand-overs go untagged = All (L 2026-11-02), not the open tab
+                // 2026-11-08: carry the post itself. A member's assistant is sandboxed (no Firebase) - with only the pointer line it got
+                // "Hand Campfire post 3027" and nothing else (Erik's). First line unchanged so the owner's daemon still recognises it.
+                const m = (CF.posts || {})[k] || {};
+                const handed = `Hand Campfire post ${k.slice(-4)} to Droplet\nFrom: ${String(m.from || 'Someone')} → ${String(m.to || 'all')}${m.subject ? `\nSubject: ${String(m.subject)}` : ''}\n\n${String(m.body || '').slice(0, 3500)}`;
+                if (!(window.__dcSayDroplet && window.__dcSayDroplet(handed, ''))) return; }
             CF.done[k] = act; update(ref(database, `${P.me}/console/campfire/done`), { [k]: act }).catch(() => {}); renderCampfire();
         };
         log.scrollTop = nf ? 0 : log.scrollHeight;
