@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="version" content="1.0.12">
+  <meta name="version" content="1.0.14">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>Jobs</title>
   <link rel="stylesheet" href="../assets/css/online.css" />
@@ -81,9 +81,6 @@
       <div class="notes-column-input"><textarea id="taskNotes" placeholder="Notes"></textarea></div>
       <button id="updateTaskBtn" style="display:none">Update Task</button>
       <div class="ctrl-row" style="margin-top:8px">
-        <button id="shareJobBtn" title="Mirror this job (every record + the floor plan, no photos) into the share branch - anyone signed in can view it; the Telaid map and lookup read it">Share</button>
-        <button id="unshareJobBtn" class="clear-button" title="Remove this job's mirror from the share branch">Unshare</button>
-        <span id="shareJobStatus" class="status-hint"></span>
       </div>
     </section>
 
@@ -1868,77 +1865,13 @@
         if (gen !== projectLoadGen) return;
         await loadImageFolders(); await loadDeviceLists(); await loadDailyTasks();
         await loadReportStars();
-        updateShareStatus();
       } catch (e) { console.error(e); alert("Failed to load project."); }
       finally { if (gen === projectLoadGen) isLoadingProject = false; }
     }
 
-    // ── Share = a MIRROR of the job in the share branch ─────────────────────────────────────────────────────────
-    // L 2026-10-03: "when I press share I just want a mirror of what's there, to the share branch... storage and all."
-    // share/tasks/<id>       = each record of the project in its origin shape + sharedBy / sharedByName / sharedAt
-    // share/tasks_plans/<id> = the floor plan (map). NO PHOTOS for now (L: "no img then for now") - the photos stay in
-    // the sharer's Storage; a shared map shows the sensors, flags and plan without pictures. Any signed-in account reads
-    // share/*; the Telaid map / lookup / dashboard read it as their last fallback, so ?task=<id> works for anyone
-    // (read-only there). Re-share refreshes, Unshare removes. 2026-10-11 (L): Share NO LONGER writes the telaid@telaid.com
-    // account - that is a live shared workspace (techs/PMs/IT update it); syncing it with lcurbelo is done by Droplet on request.
-    const SHARE_ROOT = "share";
-
     function projectRecords(tasksObj) {
       const projKey = normKey(currentProjectName);
       return Object.entries(tasksObj || {}).filter(([, t]) => normKey(t.project) === projKey);
-    }
-
-    async function sharerName() {
-      try { const v = (await get(dbRef(database, `${SHARE_ROOT}/directory/${auth.currentUser.uid}`))).val(); return (v && (v.name || (typeof v === "string" ? v : ""))) || auth.currentUser.email || ""; }
-      catch { return auth.currentUser?.email || ""; }
-    }
-
-    async function shareJobToPM() {
-      const projName = currentProjectName || currentProject;
-      if (!projName) { alert("Load a job first."); return; }
-      const snap = await get(dbRef(database, `${DB}/tasks`));
-      const matches = snap.exists() ? projectRecords(snap.val()) : [];
-      if (!matches.length) { alert(`No task records found for "${projName}".`); return; }
-      if (!confirm(`Share "${projName}"?\n\nMirrors ${matches.length} record(s) and the floor plan into the share branch (no photos). Anyone signed in can view it; the Telaid map / lookup open it with ?task=<id>. Re-sharing refreshes the mirror.`)) return;
-      const btn = document.getElementById("shareJobBtn"); if (btn) btn.disabled = true;
-      try {
-        const stamp = { sharedBy: auth.currentUser.uid, sharedByName: await sharerName(), sharedAt: Date.now() };
-        for (const [id, rec] of matches) {
-          await set(dbRef(database, `${SHARE_ROOT}/tasks/${id}`), { ...rec, ...stamp });
-          const plan = await get(dbRef(database, `${DB}/tasks_plans/${id}`)).catch(() => null);
-          if (plan && plan.exists()) await set(dbRef(database, `${SHARE_ROOT}/tasks_plans/${id}`), { ...plan.val(), ...stamp });
-        }
-        await updateShareStatus();
-        alert(`Shared "${projName}": ${matches.length} record(s). Map link for anyone signed in: floorplan.html?task=${matches[0][0]}`);
-      } catch (e) {
-        console.error("[share]", e);
-        alert("Share failed - see console. (A permission error means this account can't write to share/.)");
-      } finally { if (btn) btn.disabled = false; }
-    }
-
-    async function unshareJobFromPM() {
-      const projName = currentProjectName || currentProject;
-      if (!projName) { alert("Load a job first."); return; }
-      const snap = await get(dbRef(database, `${SHARE_ROOT}/tasks`));
-      const matches = snap.exists() ? projectRecords(snap.val()) : [];
-      if (!matches.length) { alert(`"${projName}" isn't shared.`); return; }
-      if (!confirm(`Remove "${projName}" from the share branch (${matches.length} record(s) and its plan)?`)) return;
-      try {
-        for (const [id] of matches) { await remove(dbRef(database, `${SHARE_ROOT}/tasks/${id}`)); await remove(dbRef(database, `${SHARE_ROOT}/tasks_plans/${id}`)).catch(() => {}); }
-        await updateShareStatus();
-        alert(`Unshared "${projName}".`);
-      } catch (e) { console.error("[unshare]", e); alert("Unshare failed - see console."); }
-    }
-
-    async function updateShareStatus() {
-      const el = document.getElementById("shareJobStatus"); if (!el) return;
-      if (!(currentProjectName || currentProject)) { el.textContent = ""; return; }
-      try {
-        const snap = await get(dbRef(database, `${SHARE_ROOT}/tasks`));
-        const mine = snap.exists() ? projectRecords(snap.val()) : [];
-        const at = mine.length ? Math.max(...mine.map(([, r]) => Number(r.sharedAt) || 0)) : 0;
-        el.textContent = mine.length ? `✓ Shared (${mine.length} record${mine.length > 1 ? "s" : ""}${at ? ", " + new Date(at).toLocaleDateString() : ""})` : "Not shared";
-      } catch { el.textContent = ""; }
     }
 
     function filterDailyTasks() {
@@ -1974,8 +1907,6 @@
     document.getElementById("deviceFilter").addEventListener("input", filterDeviceTable);
     document.querySelectorAll(".device-toggle-column").forEach(cb => cb.addEventListener("change", () => { saveDeviceColVis(); applyDeviceColVis(); }));
     loadDeviceColVis();
-    document.getElementById("shareJobBtn").onclick = shareJobToPM;
-    document.getElementById("unshareJobBtn").onclick = unshareJobFromPM;
 
     document.getElementById("exportDeviceCSV").onclick = () => {
       if (!activeDeviceListId || !currentDeviceLists[activeDeviceListId]) { alert("Select a device list first."); return; }
