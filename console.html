@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.134"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.135"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -3887,6 +3887,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // first one has taken the text out of the box; by then the box is empty (or holds a NEW message), so nothing doubles.
         var sendChatBusy = null;   // var, not let: a call before this line runs must not hit the TDZ (module-eval scar)
         function sendChat() {
+            try { const _hv = (($('#dc-chat-in') || {}).value || '').trim(); if (_hv) { DC.cmdHist = DC.cmdHist || []; if (DC.cmdHist[DC.cmdHist.length - 1] !== _hv) { DC.cmdHist.push(_hv); if (DC.cmdHist.length > 50) DC.cmdHist.shift(); } } DC.cmdHistPos = -1; } catch (_) {}   // up-arrow recalls sent messages (2026-11-08)
             try { const r = window.__dcWpmTake && window.__dcWpmTake(); if (r && DC.base) push(ref(database, `${DC.base}/wpm`), { t: Date.now(), w: Math.round((r.c / 5) / (r.ms / 60000)), c: r.c, m: matchMedia('(pointer: coarse)').matches ? 'phone' : 'desk' }).catch(() => {}); } catch (_) {}   // WPM log (2026-10-22)
             if (sendChatBusy) { const st = $('#dc-chat-status'); if (st && !st.textContent) st.textContent = '\u2728 finishing\u2026'; return sendChatBusy; }
             // WEAK SIGNAL (2026-10-30, L: "Send or enter isn't always working"): Firebase's set() does not reject without a connection, it
@@ -4520,7 +4521,25 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         };
         window.dcAttachResizer($('#dc-resize'), $('#dc-chat-in'), 'dc-input-h');
         $('#dc-chat-send').onclick = sendChat;
-        $('#dc-chat-in').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } });
+        $('#dc-chat-in').addEventListener('keydown', e => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); return; }
+            // terminal-style history: Up recalls previous sent messages, Down goes forward (2026-11-08)
+            if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && DC.cmdHist && DC.cmdHist.length) {
+                const ta = e.target, oneLine = !ta.value.includes('\n');
+                const atStart = ta.selectionStart === 0 && ta.selectionEnd === 0;
+                const atEnd = ta.selectionStart === ta.value.length && ta.selectionEnd === ta.value.length;
+                if (e.key === 'ArrowUp' && (ta.value === '' || oneLine || atStart)) {
+                    if (DC.cmdHistPos == null || DC.cmdHistPos < 0) DC.cmdHistPos = DC.cmdHist.length;
+                    if (DC.cmdHistPos > 0) { DC.cmdHistPos--; e.preventDefault(); ta.value = DC.cmdHist[DC.cmdHistPos]; ta.selectionStart = ta.selectionEnd = ta.value.length; }
+                } else if (e.key === 'ArrowDown' && (ta.value === '' || oneLine || atEnd)) {
+                    if (DC.cmdHistPos != null && DC.cmdHistPos >= 0 && DC.cmdHistPos < DC.cmdHist.length) {
+                        DC.cmdHistPos++; e.preventDefault();
+                        ta.value = DC.cmdHistPos >= DC.cmdHist.length ? '' : DC.cmdHist[DC.cmdHistPos];
+                        ta.selectionStart = ta.selectionEnd = ta.value.length;
+                    }
+                }
+            }
+        });
         // LIVE ENHANCE (2026-09-25, L: "autocorrect on the fly... suggest a rewrite as you're typing, so it feels like it's
         // improving what you just typed"). Two layers, both only while ✨ Enhance is on:
         //   1. AUTOCORRECT - instant and local. When a word is finished (space / punctuation) a small table fixes it in place:
@@ -5352,7 +5371,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     function renderHome(mode) {
         const home = $('#dc-peer-home'); if (!home || home.hidden) return;
         const topic = curTopic(), owner = P.me === OWNER, sh = topic && P.shares[slug(topic)];
-        const others = Object.entries(P.dir).filter(([u]) => u !== P.me).sort((a, b) => a[1].localeCompare(b[1]));
+        const inConvo = new Set(Object.values(P.index || {}).map(x => x && x.with).filter(Boolean));   // already have a chat -> don't also list under Members (2026-11-08)
+        const others = Object.entries(P.dir).filter(([u]) => u !== P.me && !inConvo.has(u)).sort((a, b) => a[1].localeCompare(b[1]));
         let html = '';
         if (mode === 'pick') {
             html += `<div class="pnote">Share <b># ${esc(topic)}</b>: they see the whole tab live in their tab bar, view only. You two talk here in 👥.</div>`;
@@ -5736,19 +5756,25 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     var CF = CF || { on: false, posts: {}, seen: 0, done: {} };
     try { CF.seen = Math.max(CF.seen, +localStorage.getItem('dc-campfire-seen') || 0); } catch (_) {}
     function cfStart() {
-        if (CF.on || P.me !== OWNER) return; CF.on = true;
-        onValue(query(ref(database, 'share/mail'), limitToLast(60)), s => { CF.posts = s.val() || {}; cfPaint(); }, dcWarn('campfire'));
+        if (CF.on || !P.me) return; CF.on = true;   // 2026-11-08 (L: every member sees the fire): any signed-in member subscribes; the rules gate share/mail on share/approved, so an unapproved account just gets denied and never shows the row
+        onValue(query(ref(database, 'share/mail'), limitToLast(60)), s => { CF.posts = s.val() || {}; CF.ok = true; cfPaint(); }, e => { CF.denied = true; dcWarn('campfire')(e); });
         onValue(ref(database, `${P.me}/console/campfire`), s => { const v = s.val() || {}; CF.done = v.done || {};
             if ((+v.seen || 0) > CF.seen) { CF.seen = +v.seen; try { localStorage.setItem('dc-campfire-seen', String(CF.seen)); } catch (_) {} } cfPaint(); }, dcWarn('campfire state'));
     }
-    function cfRows() { return Object.entries(CF.posts || {}).filter(([, m]) => m && typeof m === 'object').sort((a, b) => Number(a[0]) - Number(b[0])); }
-    function cfForMe(m) { return /\b(droplet|luis|all|ld)\b/i.test(String(m.to || '')); }
+    // visibility (L 2026-11-08 "only see their own, or sent to them, or them included"): a member sees posts they wrote, posts addressed to
+    // them (name/uid) or to all/everyone - nothing else; the owner (admin) sees the whole fire. UI-level: the rules grant the list to any
+    // approved account, so true enforcement would need per-recipient fan-out (share/mailbox/{uid}) - the next rung if L wants it.
+    function cfRows() { return Object.entries(CF.posts || {}).filter(([, m]) => m && typeof m === 'object' && (P.me === OWNER || m.sharedBy === P.me || cfForMe(m))).sort((a, b) => Number(a[0]) - Number(b[0])); }
+    function cfForMe(m) {   // generic (2026-11-08): "all"/"everyone", my display name or my uid; the owner also answers to droplet/luis/ld
+        const to = String(m.to || ''); if (/\b(all|everyone)\b/i.test(to)) return true;
+        if (P.me === OWNER && /\b(droplet|luis|ld)\b/i.test(to)) return true;
+        const nm = String(P.myName || '').trim().toLowerCase(); return (!!nm && to.toLowerCase().includes(nm)) || (!!P.me && to.includes(P.me)); }
     function cfUnreadN() { return (!CF || P.open === 'campfire') ? 0 : cfRows().filter(([k, m]) => m.sharedBy !== P.me && cfForMe(m) && Number(k) > CF.seen).length; }
     function cfMarkSeen() { const last = cfRows().reduce((t, [k]) => Math.max(t, Number(k) || 0), 0);
         if (last > CF.seen) { CF.seen = last; try { localStorage.setItem('dc-campfire-seen', String(last)); } catch (_) {} update(ref(database, `${P.me}/console/campfire`), { seen: last }).catch(() => {}); } }
     function cfPaint() { if (!document.getElementById('dc-peer')) return; if (P.open === 'campfire') renderCampfire(); else if (!P.open) renderHome(); dots(); }
     function cfRowHTML() {
-        cfStart(); if (P.me !== OWNER) return '';
+        cfStart(); if (P.me !== OWNER && !CF.ok) return '';   // members: row appears once the first share/mail read succeeds (approved); owner: always
         const rows = cfRows(), last = rows.length ? rows[rows.length - 1] : null, n = cfUnreadN();
         const pre = last ? `${last[1].from || 'Someone'}: ${last[1].subject || ''}` : 'Messages from the group land here';
         return `<button type="button" class="dc-peer-row" data-campfire="1">🔥 Campfire${n ? `<span class="dot n">${n > 99 ? '99+' : n}</span>` : ''}<span class="pago">${last ? ago(Number(last[0])) : ''}</span><small>${esc(pre.slice(0, 90))}</small></button>`;
