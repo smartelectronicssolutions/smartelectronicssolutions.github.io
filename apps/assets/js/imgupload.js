@@ -75,14 +75,14 @@ const _locks = new Set();
  *                                  stay in /2024/ even when uploaded later).
  * @returns {Promise<{url:string, path:string, didResize:boolean}>}
  */
-export async function uploadImage({ file, basePath, name, priorPath, lockKey, dateMs }) {
+export async function uploadImage({ file, basePath, name, priorPath, lockKey, dateMs, maxW, quality }) {
     if (!file) throw new Error("uploadImage: no file");
     if (!basePath) throw new Error("uploadImage: basePath required");
     const key = lockKey || `${basePath}:${name}`;
     if (_locks.has(key)) throw new Error("upload already in progress");
     _locks.add(key);
     try {
-        const resized = await fileToJpegMaxWidth(file, 2048, 0.9);
+        const resized = await fileToJpegMaxWidth(file, maxW || 2048, quality || 0.9);   // 2026-11-08: callers may pass a bigger cap (console full-size toggle for readable card codes); default unchanged
         const ts = Date.now();                         // always-now uniqueness suffix
         const dateForBucket = Number(dateMs) || ts;    // year + date portion in filename
         const year = new Date(dateForBucket).getUTCFullYear();

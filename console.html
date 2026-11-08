@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.140"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.141"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -2948,14 +2948,17 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // triple-tap sheet, :shortcodes:, 🔍 search in the tab, ✓/✓✓ ticks, big lone emoji, YouTube cards (in bubbleHtml).
         (function messengerKit() {
             const ta = $('#dc-chat-in'), bar = $('#dc-compose'), log = $('#dc-chat-log'); if (!ta || !bar || !log) return;
-            const S = { reply: null, att: [], tag: '' };   // att: { name, type, url, path, state: up|ok|err, thumb }; tag = the photo's name ("speaker 8")
+            const S = { reply: null, att: [], tag: '' };
+            try { DC.fullImg = localStorage.getItem('dc_full_img') === '1'; } catch (_) {}   // att: { name, type, url, path, state: up|ok|err, thumb }; tag = the photo's name ("speaker 8")
             const short = s => String(s || '').replace(/```[\s\S]*?```/g, ' ').replace(/[*_`#>|]/g, '').replace(/\s+/g, ' ').trim();
             const status = m => { const st = $('#dc-chat-status'); if (st) st.textContent = m; };
             function paint() {
                 const parts = [];
                 if (S.reply) parts.push(`<div class="row"><span class="lbl">↩ ${esc(S.reply.who)}</span><span class="tx">${esc(S.reply.text.slice(0, 90))}</span><button type="button" data-x="reply" title="cancel the reply">✕</button></div>`);
                 S.att.forEach((a, i) => parts.push(`<div class="row"><span class="lbl">${a.state === 'up' ? '⏳' : a.state === 'err' ? '⚠' : '📎'}</span>${a.thumb ? `<img src="${a.thumb}" alt="">` : ''}<span class="tx">${esc(a.name)}${a.state === 'err' ? ' - upload failed' : a.state === 'up' ? ' - uploading…' : ''}</span><button type="button" data-x="${i}" title="remove">✕</button></div>`));
+                if (parts.length) parts.push('<div class="row dc-fullimg" style="gap:6px;cursor:pointer" title="Full size sends the photo at original resolution so fine print like card set codes stays readable. Off = 2048px, lighter on data."><span class="lbl">' + (DC.fullImg ? '🔍' : '📷') + '</span><span class="tx">full size: <b>' + (DC.fullImg ? 'ON' : 'off') + '</b></span></div>');
                 bar.innerHTML = parts.join(''); bar.hidden = !parts.length;
+                const fi = bar.querySelector('.dc-fullimg'); if (fi) fi.onclick = () => { DC.fullImg = !DC.fullImg; try { localStorage.setItem('dc_full_img', DC.fullImg ? '1' : '0'); } catch (_) {} paint(); status(DC.fullImg ? 'full size on - re-attach the photo to apply' : 'full size off'); };
                 // 2026-10-21 (L: "can I just send a message with the image attached with context"): no tag row - the message IS the context
                 if (ta) { ta.dataset.ph = ta.dataset.ph || ta.placeholder; const has = S.att.length > 0;
                     ta.placeholder = has ? 'say what this is and where it goes…' : ta.dataset.ph;
@@ -2975,7 +2978,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     if (img) { const { uploadImage } = await import('./apps/assets/js/imgupload.js');   // resized JPEG, same helper as the 👥 pane
                         // PHOTO FALLBACK (2026-10-25, L: "sometimes I take a picture on my phone and it doesn't load in"): a big iPhone
                         // photo can fail the in-browser resize (decode/memory) - send the original file instead of dropping it.
-                        try { up = await uploadImage({ file: f, basePath: `${DC.uid}/console/attach`, name: 'chat-photo', lockKey: 'kit-' + Date.now() + Math.random() }); }
+                        try { up = await uploadImage({ file: f, basePath: `${DC.uid}/console/attach`, name: 'chat-photo', lockKey: 'kit-' + Date.now() + Math.random(), maxW: DC.fullImg ? 10000 : 2048, quality: DC.fullImg ? 0.95 : 0.9 }); }
                         catch (e) { console.warn('photo resize failed, sending the original', e); a.type = f.type || 'image/jpeg'; }
                         if (up) { a.url = up.url; a.path = up.path; } }
                     if (!up) { const m = await import('./assets/js/firebase-init.js?v=20261011b');
