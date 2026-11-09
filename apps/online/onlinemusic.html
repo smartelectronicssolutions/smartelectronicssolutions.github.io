@@ -1,0 +1,375 @@
+<!doctype html>
+<!-- onlinemusic - Jellyfin -> Bedroom Sonos remote (2026-11-07, L: "a separate music page that I can control this
+     music that's playing and get a search for all the songs I have ... local only" + "ties with what I asked him to
+     play uses the Sonos"). Local only: this page never touches se. It writes commands to <uid>/music/cmd and reads
+     <uid>/music/{state,art,search,browse,library}; svc-music on se (E:\Containers\ops\music-svc\music_svc.py) does the
+     Jellyfin + Sonos work on the LAN. Same Sonos queue that "OK Nabu, play X" fills. -->
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="version" content="1.0.1">
+  <title>Music</title>
+
+  <link rel="stylesheet" href="../assets/css/online.css" />
+  <link rel="icon" href="../../favicon.ico" />
+
+  <script>
+    (function () {
+      const t = localStorage.getItem("ss-theme");
+      if (t === "light") document.documentElement.classList.add("light");
+    })();
+  </script>
+
+  <script type="module" src="../assets/js/auth.js"></script>
+
+  <style>
+    .app-shell { max-width: 760px; margin: auto; padding: 12px; }
+    .hidden { display: none !important; }
+    .note { color: var(--muted); font-size: .9rem; margin: 6px 0; }
+    .warn { color: var(--warn); }
+
+    /* now playing */
+    .np { display: flex; gap: 14px; align-items: center; background: var(--surface); border: 1px solid var(--border);
+          border-radius: var(--radius); padding: 12px; }
+    .np-art { width: 96px; height: 96px; flex: 0 0 96px; border-radius: 8px; background: var(--surface2);
+              object-fit: cover; }
+    .np-meta { flex: 1; min-width: 0; }
+    .np-t { font-weight: 700; font-size: 1.1rem; overflow-wrap: anywhere; }
+    .np-a, .np-al { color: var(--muted); overflow-wrap: anywhere; }
+    .bar { height: 8px; background: var(--surface2); border-radius: 4px; margin: 10px 0 4px; cursor: pointer; position: relative; }
+    .bar > i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--primary); border-radius: 4px; }
+    .times { display: flex; justify-content: space-between; color: var(--muted); font-size: .8rem; }
+    .ctl { display: flex; gap: 8px; align-items: center; justify-content: center; margin-top: 10px; flex-wrap: wrap; }
+    .ctl button { min-width: 44px; min-height: 44px; font-size: 1.15rem; }
+    .ctl .big { min-width: 58px; font-size: 1.4rem; }
+    .ctl .on { background: var(--primary); color: var(--on-primary); }
+    .vol { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+    .vol input { flex: 1; }
+
+    /* tabs + lists */
+    .tabs { display: flex; gap: 6px; margin: 14px 0 8px; }
+    .tabs button { flex: 1; }
+    .tabs .on { background: var(--primary); color: var(--on-primary); }
+    .row { display: flex; align-items: center; gap: 8px; padding: 8px 6px; border-bottom: 1px solid var(--border); }
+    .row:hover { background: var(--hover); }
+    .row .main { flex: 1; min-width: 0; cursor: pointer; }
+    .row .t { overflow-wrap: anywhere; }
+    .row .s { color: var(--muted); font-size: .85rem; overflow-wrap: anywhere; }
+    .row .n { color: var(--muted); width: 2.2em; text-align: right; font-size: .85rem; }
+    .row.cur { background: var(--surface2); }
+    .row.cur .t { color: var(--accent); font-weight: 700; }
+    .row button { min-width: 38px; min-height: 38px; padding: 4px 8px; }
+    .sec { margin: 14px 0 4px; color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; }
+    .search { display: flex; gap: 6px; }
+    .search input { flex: 1; min-width: 0; }
+    .head { display: flex; align-items: center; gap: 8px; margin: 6px 0; flex-wrap: wrap; }
+    .head h2 { flex: 1; margin: 0; font-size: 1.15rem; overflow-wrap: anywhere; }
+    .letters { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+    .letters button { min-width: 32px; padding: 4px; }
+    .toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); background: var(--surface2);
+             border: 1px solid var(--border); padding: 8px 14px; border-radius: var(--radius); box-shadow: var(--shadow);
+             max-width: 90vw; }
+  </style>
+</head>
+
+<body>
+
+  <header style="position:relative;">
+    <div class="logo-box"><a href="../../index.html"><img src="../../assets/img/android-chrome-192x192.png"
+          alt="Luis Solutions"></a></div>
+    <h1>Music</h1>
+    <div class="auth-bar">
+      <span id="auth-label">Not signed in</span>
+      <button id="auth-btn">Sign In</button>
+    </div>
+    <button id="theme-toggle" title="Toggle theme">☀️</button>
+    <script src="../assets/js/theme-toggle.js"></script>
+    <div id="login-inline">
+      <h3>Sign In</h3>
+      <input type="email" id="email-in" placeholder="Email" />
+      <input type="password" id="pass-in" placeholder="Password" />
+      <button id="do-login">Sign In</button>
+      <p id="auth-err"></p>
+    </div>
+  </header>
+
+  <main>
+    <div class="app-shell">
+      <p id="signed-out" class="note">Sign in to control the music on the Bedroom Sonos.</p>
+
+      <div id="app" class="hidden">
+        <p id="svc-warn" class="note warn hidden">se's music service isn't answering - commands will wait until it's back.</p>
+
+        <div class="np">
+          <img id="np-art" class="np-art" alt="" />
+          <div class="np-meta">
+            <div id="np-t" class="np-t">Nothing playing</div>
+            <div id="np-a" class="np-a"></div>
+            <div id="np-al" class="np-al"></div>
+          </div>
+        </div>
+        <div id="bar" class="bar" title="Tap to seek"><i id="bar-fill"></i></div>
+        <div class="times"><span id="t-pos">0:00</span><span id="t-dur">0:00</span></div>
+        <div class="ctl">
+          <button id="b-shuffle" title="Shuffle">🔀</button>
+          <button id="b-prev" title="Previous">⏮</button>
+          <button id="b-play" class="big" title="Play / pause">▶</button>
+          <button id="b-next" title="Next">⏭</button>
+          <button id="b-repeat" title="Repeat">🔁</button>
+        </div>
+        <div class="vol"><span>🔈</span><input id="vol" type="range" min="0" max="100" /><span id="vol-n">0</span></div>
+
+        <div class="tabs">
+          <button data-tab="queue" class="on">Queue</button>
+          <button data-tab="search">Search</button>
+          <button data-tab="artists">Artists</button>
+        </div>
+
+        <section id="tab-queue">
+          <div class="head"><h2 id="q-title">Queue</h2><button id="b-clear" title="Clear the queue">Clear</button></div>
+          <div id="queue"></div>
+        </section>
+
+        <section id="tab-search" class="hidden">
+          <form id="search-form" class="search">
+            <input id="search-in" type="search" placeholder="Artist, album or song" autocomplete="off" />
+            <button type="submit">Search</button>
+          </form>
+          <div id="search-out"></div>
+        </section>
+
+        <section id="tab-artists" class="hidden">
+          <div class="search"><input id="art-filter" type="search" placeholder="Filter artists" autocomplete="off" /></div>
+          <div id="letters" class="letters"></div>
+          <div id="art-list"></div>
+        </section>
+
+        <section id="tab-browse" class="hidden">
+          <div class="head"><button id="b-back">← Back</button><h2 id="br-title"></h2></div>
+          <p id="br-sub" class="note"></p>
+          <div id="br-actions" class="ctl"></div>
+          <div id="br-out"></div>
+        </section>
+      </div>
+      <div id="toast" class="toast hidden"></div>
+    </div>
+  </main>
+
+  <script type="module">
+    import { auth, database, ref, get, push, onValue, onAuthStateChanged } from "../assets/js/firebase-init.js";
+
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    const mmss = (s) => { s = Math.max(0, Math.floor(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+
+    let UID = null, ST = null, LIB = [], unsub = [], lastTab = "queue", browseReq = "", searchReq = "", volBusy = 0;
+    const node = (p) => ref(database, `${UID}/music/${p}`);
+
+    function toast(msg) {
+      const t = $("toast"); t.textContent = msg; t.classList.remove("hidden");
+      clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.add("hidden"), 2200);
+    }
+    async function cmd(c, say) {
+      if (!UID) return;
+      await push(node("cmd"), { ...c, at: Date.now() });
+      if (say) toast(say);
+    }
+
+    // ---------- auth ----------
+    onAuthStateChanged(auth, (user) => {
+      unsub.forEach((u) => u()); unsub = [];
+      UID = user ? user.uid : null;
+      $("app").classList.toggle("hidden", !UID);
+      $("signed-out").classList.toggle("hidden", !!UID);
+      if (!UID) return;
+      unsub.push(onValue(node("state"), (s) => { ST = s.val(); renderState(); }));
+      unsub.push(onValue(node("art"), (s) => {
+        const a = s.val();
+        $("np-art").src = a && a.b64 ? `data:image/jpeg;base64,${a.b64}` : "";
+      }));
+      unsub.push(onValue(node("search"), (s) => renderSearch(s.val())));
+      unsub.push(onValue(node("browse"), (s) => renderBrowse(s.val())));
+      get(node("library/artists")).then((s) => { LIB = s.val() || []; renderArtists(); });
+    });
+
+    // ---------- now playing + queue ----------
+    function posNow() {
+      if (!ST) return 0;
+      const p = ST.pos || 0;
+      return ST.status === "PLAYING" ? p + (Date.now() - (ST.posAt || Date.now())) / 1000 : p;
+    }
+    function tick() {
+      if (!ST) return;
+      const d = (ST.track && ST.track.d) || 0, p = Math.min(posNow(), d || Infinity);
+      $("t-pos").textContent = mmss(p); $("t-dur").textContent = mmss(d);
+      $("bar-fill").style.width = d ? `${Math.min(100, (p / d) * 100)}%` : "0%";
+      $("svc-warn").classList.toggle("hidden", !!ST.svcAt && Date.now() - ST.svcAt < 3 * 60 * 1000);
+    }
+    setInterval(tick, 500);
+
+    function renderState() {
+      if (!ST) { $("np-t").textContent = "Waiting for se..."; return; }
+      const t = ST.track || {}, playing = ST.status === "PLAYING" || ST.status === "TRANSITIONING";
+      $("np-t").textContent = t.t || "Nothing playing";
+      $("np-a").textContent = t.a || "";
+      $("np-al").textContent = t.al || "";
+      $("b-play").textContent = playing ? "⏸" : "▶";
+      const mode = ST.mode || "NORMAL";
+      $("b-shuffle").classList.toggle("on", mode.startsWith("SHUFFLE"));
+      $("b-repeat").classList.toggle("on", mode === "REPEAT_ALL" || mode === "SHUFFLE");
+      if (Date.now() - volBusy > 2500) { $("vol").value = ST.volume ?? 0; $("vol-n").textContent = ST.volume ?? 0; }
+      const q = ST.queue || [];
+      $("q-title").textContent = `Queue · ${ST.queueSize || q.length}`;
+      $("queue").innerHTML = q.length ? q.map((it, i) => `
+        <div class="row ${i === ST.index ? "cur" : ""}">
+          <span class="n">${i === ST.index && playing ? "♪" : i + 1}</span>
+          <div class="main" data-jump="${i}"><div class="t">${esc(it.t)}</div><div class="s">${esc([it.a, it.al].filter(Boolean).join(" · "))}</div></div>
+          <button data-remove="${i}" title="Remove">✕</button>
+        </div>`).join("") + ((ST.queueSize || 0) > q.length ? `<p class="note">+ ${ST.queueSize - q.length} more</p>` : "")
+        : `<p class="note">The queue is empty. Search for something, or say "OK Nabu, play ...".</p>`;
+      if (ST.err && Date.now() - (ST.errAt || 0) < 15000) toast(`se: ${ST.err}`);
+      tick();
+    }
+
+    $("queue").addEventListener("click", (e) => {
+      const j = e.target.closest("[data-jump]"), r = e.target.closest("[data-remove]");
+      if (j) cmd({ op: "ctl", action: "jump", value: +j.dataset.jump });
+      if (r) cmd({ op: "ctl", action: "remove", value: +r.dataset.remove }, "Removed");
+    });
+    $("b-play").onclick = () => cmd({ op: "ctl", action: (ST && ST.status === "PLAYING") ? "pause" : "play" });
+    $("b-next").onclick = () => cmd({ op: "ctl", action: "next" });
+    $("b-prev").onclick = () => cmd({ op: "ctl", action: "prev" });
+    $("b-shuffle").onclick = () => cmd({ op: "ctl", action: "shuffle", value: !$("b-shuffle").classList.contains("on") });
+    $("b-repeat").onclick = () => cmd({ op: "ctl", action: "repeat", value: !$("b-repeat").classList.contains("on") });
+    $("b-clear").onclick = () => { if (confirmClear()) cmd({ op: "ctl", action: "clear" }, "Queue cleared"); };
+    function confirmClear() {   // two taps instead of a browser dialog
+      const b = $("b-clear");
+      if (b.dataset.arm) { delete b.dataset.arm; b.textContent = "Clear"; return true; }
+      b.dataset.arm = 1; b.textContent = "Tap again"; setTimeout(() => { delete b.dataset.arm; b.textContent = "Clear"; }, 3000);
+      return false;
+    }
+    $("vol").oninput = () => { volBusy = Date.now(); $("vol-n").textContent = $("vol").value; };
+    $("vol").onchange = () => { volBusy = Date.now(); cmd({ op: "ctl", action: "volume", value: +$("vol").value }); };
+    $("bar").onclick = (e) => {
+      const d = ST && ST.track && ST.track.d; if (!d) return;
+      const r = $("bar").getBoundingClientRect();
+      cmd({ op: "ctl", action: "seek", value: Math.round(((e.clientX - r.left) / r.width) * d) });
+    };
+
+    // ---------- tabs ----------
+    function showTab(name) {
+      ["queue", "search", "artists", "browse"].forEach((t) => $(`tab-${t}`).classList.toggle("hidden", t !== name));
+      document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === name));
+      if (name !== "browse") lastTab = name;
+      if (name === "search") $("search-in").focus();
+    }
+    document.querySelectorAll(".tabs button").forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
+    $("b-back").onclick = () => showTab(lastTab);
+
+    // ---------- track rows (shared) ----------
+    const trackRow = (t, i, ctx) => `
+      <div class="row">
+        <span class="n">${ctx.numbered ? i + 1 : ""}</span>
+        <div class="main" data-play="${i}"><div class="t">${esc(t.t)}</div><div class="s">${esc([t.a, t.al, mmss(t.d)].filter(Boolean).join(" · "))}</div></div>
+        <button data-next="${i}" title="Play next">⤵</button>
+        <button data-add="${i}" title="Add to queue">＋</button>
+      </div>`;
+
+    function wireTracks(box, list, playFn) {
+      box.onclick = (e) => {
+        const p = e.target.closest("[data-play]"), n = e.target.closest("[data-next]"), a = e.target.closest("[data-add]");
+        const el = p || n || a; if (!el) return;
+        const t = list[+(el.dataset.play ?? el.dataset.next ?? el.dataset.add)];
+        if (p) playFn(+p.dataset.play, t);
+        if (n) cmd({ op: "add", kind: "track", id: t.id, next: true }, `Next: ${t.t}`);
+        if (a) cmd({ op: "add", kind: "track", id: t.id }, `Added: ${t.t}`);
+      };
+    }
+
+    // ---------- search ----------
+    $("search-form").onsubmit = (e) => {
+      e.preventDefault();
+      const q = $("search-in").value.trim(); if (!q) return;
+      searchReq = String(Date.now());
+      $("search-out").innerHTML = `<p class="note">Searching...</p>`;
+      cmd({ op: "search", q, id: searchReq });
+    };
+    function renderSearch(r) {
+      if (!r || (searchReq && r.id !== searchReq)) return;
+      const box = $("search-out");
+      if (!r.artists.length && !(r.albums || []).length && !(r.tracks || []).length) {
+        box.innerHTML = `<p class="note">Nothing found for "${esc(r.q)}".</p>`; return;
+      }
+      const ar = r.artists || [], al = r.albums || [], tr = r.tracks || [];
+      box.innerHTML =
+        (ar.length ? `<div class="sec">Artists</div>` + ar.map((a) => `<div class="row"><div class="main" data-artist="${esc(a.id)}"><div class="t">${esc(a.t)}</div></div></div>`).join("") : "") +
+        (al.length ? `<div class="sec">Albums</div>` + al.map((a) => `<div class="row"><div class="main" data-album="${esc(a.id)}"><div class="t">${esc(a.t)}</div><div class="s">${esc([a.a, a.y].filter(Boolean).join(" · "))}</div></div></div>`).join("") : "") +
+        (tr.length ? `<div class="sec">Songs</div><div id="sr-tracks">${tr.map((t, i) => trackRow(t, i, {})).join("")}</div>` : "");
+      box.querySelectorAll("[data-artist]").forEach((el) => (el.onclick = () => openBrowse("artist", el.dataset.artist, el.textContent)));
+      box.querySelectorAll("[data-album]").forEach((el) => (el.onclick = () => openBrowse("album", el.dataset.album, el.querySelector(".t").textContent)));
+      const st = $("sr-tracks");
+      if (st) wireTracks(st, tr, (i, t) => cmd({ op: "play", kind: "track", id: t.id }, `Playing ${t.t}`));
+    }
+
+    // ---------- artists A-Z ----------
+    const sortKey = (n) => n.replace(/^the\s+/i, "");
+    function renderArtists() {
+      const f = $("art-filter").value.trim().toLowerCase();
+      const L = f ? LIB.filter(([, n]) => n.toLowerCase().includes(f)) : LIB;
+      const letters = [...new Set(LIB.map(([, n]) => { const c = sortKey(n)[0]?.toUpperCase() || "#"; return /[A-Z]/.test(c) ? c : "#"; }))];
+      $("letters").innerHTML = f ? "" : letters.map((c) => `<button data-letter="${c}">${c}</button>`).join("");
+      $("art-list").innerHTML = L.length ? L.map(([id, n]) => {
+        const c = sortKey(n)[0]?.toUpperCase() || "#";
+        return `<div class="row" data-l="${/[A-Z]/.test(c) ? c : "#"}"><div class="main" data-artist="${esc(id)}"><div class="t">${esc(n)}</div></div></div>`;
+      }).join("") : `<p class="note">${LIB.length ? "No artist matches." : "Loading your library..."}</p>`;
+    }
+    $("art-filter").oninput = renderArtists;
+    $("letters").onclick = (e) => {
+      const b = e.target.closest("[data-letter]"); if (!b) return;
+      const row = $("art-list").querySelector(`[data-l="${b.dataset.letter}"]`);
+      if (row) row.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+    $("art-list").onclick = (e) => {
+      const el = e.target.closest("[data-artist]");
+      if (el) openBrowse("artist", el.dataset.artist, el.textContent.trim());
+    };
+
+    // ---------- browse (artist / album) ----------
+    function openBrowse(kind, id, name) {
+      browseReq = String(Date.now());
+      $("br-title").textContent = name || ""; $("br-sub").textContent = "Loading..."; $("br-actions").innerHTML = ""; $("br-out").innerHTML = "";
+      showTab("browse");
+      cmd({ op: "browse", kind, id, req: browseReq });
+    }
+    function renderBrowse(b) {
+      if (!b || b.req !== browseReq) return;
+      $("br-title").textContent = b.name || "";
+      const tr = b.tracks || [];
+      if (b.kind === "artist") {
+        const al = b.albums || [];
+        $("br-sub").textContent = `${al.length} album${al.length === 1 ? "" : "s"} · ${tr.length} song${tr.length === 1 ? "" : "s"}`;
+        $("br-actions").innerHTML = `<button id="ba-play">▶ Play all</button><button id="ba-shuf">🔀 Shuffle</button>`;
+        $("ba-play").onclick = () => cmd({ op: "play", kind: "artist", id: b.id }, `Playing ${b.name}`);
+        $("ba-shuf").onclick = () => cmd({ op: "play", kind: "artist_shuffle", id: b.id }, `Shuffling ${b.name}`);
+        $("br-out").innerHTML =
+          (al.length ? `<div class="sec">Albums</div>` + al.map((a) => `<div class="row"><div class="main" data-album="${esc(a.id)}"><div class="t">${esc(a.t)}</div><div class="s">${esc([a.y, a.n ? a.n + " songs" : ""].filter(Boolean).join(" · "))}</div></div></div>`).join("") : "") +
+          (tr.length ? `<div class="sec">Songs</div><div id="br-tracks">${tr.map((t, i) => trackRow(t, i, {})).join("")}</div>` : "");
+        $("br-out").querySelectorAll("[data-album]").forEach((el) => (el.onclick = () => openBrowse("album", el.dataset.album, el.querySelector(".t").textContent)));
+        const bt = $("br-tracks");
+        if (bt) wireTracks(bt, tr, (i) => cmd({ op: "play", kind: "artist", id: b.id, start: i }, `Playing ${b.name}`));
+      } else {
+        $("br-sub").textContent = [b.by, b.y, `${tr.length} songs`].filter(Boolean).join(" · ");
+        $("br-actions").innerHTML = `<button id="ba-play">▶ Play album</button><button id="ba-add">＋ Add album</button>`;
+        $("ba-play").onclick = () => cmd({ op: "play", kind: "album", id: b.id }, `Playing ${b.name}`);
+        $("ba-add").onclick = () => cmd({ op: "add", kind: "album", id: b.id }, `Added ${b.name}`);
+        $("br-out").innerHTML = `<div id="br-tracks">${tr.map((t, i) => trackRow(t, i, { numbered: true })).join("")}</div>`;
+        wireTracks($("br-tracks"), tr, (i) => cmd({ op: "play", kind: "album", id: b.id, start: i }, `Playing ${b.name}`));
+      }
+      if (tr.some((t) => t.c === "wav")) $("br-sub").textContent += " · WAV songs skip (Sonos can't play them)";
+    }
+  </script>
+</body>
+
+</html>
