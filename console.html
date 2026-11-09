@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.148"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.149"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -4389,7 +4389,15 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const a = (url, label) => SAFE.test(url)
                 ? `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`
                 : null;
+            // TAP TO CALL (2026-11-09, L: "Could the phone number be made to be clickable?"): [label](tel:+18002557828) and bare US
+            // numbers - 1-800-255-7828, (860) 439-7323, 860.581.0377, +1 931 244 4142 - become tel: links. The href is rebuilt
+            // from the digits alone (never the matched text), a bare number needs its separators (a 13-digit timestamp, a
+            // tracking number or an order id never matches), and a number inside an href/anchor cannot re-match (preceded by " or >).
+            const tel = (digits, label) => { const d = digits.replace(/\D/g, ''); const n = d.length === 11 && d[0] === '1' ? d : d.length === 10 ? '1' + d : null;
+                return n ? `<a href="tel:+${n}" class="dc-tel">${label}</a>` : null; };
             return (h || '')
+                .replace(/\[([^\]\n]{1,160})\]\(tel:(\+?[\d().\- ]{7,20})\)/g, (m, label, num) => tel(num, label) || m)
+                .replace(/(^|[\s(>])((?:\+?1[-. ])?\(?\d{3}\)?[-. ]\d{3}[-. ]\d{4})(?=$|[\s<.,;:!?)])/g, (m, pre, num) => { const link = tel(num, num); return link ? pre + link : m; })
                 .replace(/\[([^\]\n]{1,160})\]\((https?:\/\/[^\s)]+)\)/g, (m, label, url) => a(url, label) || m)
                 .replace(/(^|[\s(*_~])(https?:\/\/[^\s<]+[^\s<.,;:!?)\]*_~])/g, (m, pre, url) => {   // * _ ~ are markdown emphasis, not URL characters: allowed before, trimmed after.
                     // Without this, a bolded **https://...** produced NO link at all, because the
