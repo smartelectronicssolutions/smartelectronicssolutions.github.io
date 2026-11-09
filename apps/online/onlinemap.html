@@ -1,0 +1,221 @@
+<!doctype html>
+<!-- onlinemap.html - L's own Timeline (2026-11-09): a day picker, the route drawn on a map, the stops with times.
+     Data = the compact per-day records svc-location-log (se) writes under the signed-in uid: location/index/<date> +
+     location/days/<date>. One small read per day picked, never a live listener (Firebase bill, 2026-10 scar).
+     Map tiles = OpenStreetMap via Leaflet (a tile map, not a drawn one - canvasview.js stays the engine for drawn maps);
+     the house gesture rules still hold: plain wheel scrolls the page, Ctrl/Shift+wheel zooms, one finger scrolls the
+     page, two fingers pinch + pan, mouse drag pans, double-click re-fits the day. -->
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="version" content="1.0.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Timeline</title>
+
+  <link rel="stylesheet" href="../assets/css/online.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+  <link rel="icon" href="../../favicon.ico" />
+  <script>
+    (function () {
+      const t = localStorage.getItem("ss-theme");
+      if (t === "light") document.documentElement.classList.add("light");
+    })();
+  </script>
+  <script type="module" src="../assets/js/auth.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+
+  <style>
+    .app-shell { max-width: 900px; margin: auto; padding: 12px; }
+    .tl-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+    .tl-bar input[type="date"] { font: inherit; padding: 6px 8px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+    .tl-bar button { font: inherit; padding: 6px 12px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; }
+    .tl-bar button.primary { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+    .tl-bar label { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); font-size: .92em; }
+    .tl-stats { color: var(--muted); font-size: .95em; margin: 4px 0 8px; min-height: 1.3em; }
+    #map { height: 56vh; min-height: 320px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface2); touch-action: pan-y; }
+    .tl-hint { color: var(--muted); font-size: .85em; margin: 6px 0 14px; }
+    .tl-stops { list-style: none; padding: 0; margin: 0; }
+    .tl-stops li { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); margin-bottom: 8px; cursor: pointer; }
+    .tl-stops li:hover, .tl-stops li.on { border-color: var(--accent); }
+    .tl-stops .lbl { font-weight: 600; }
+    .tl-stops .when { color: var(--muted); font-size: .92em; grid-column: 1 / -1; }
+    .tl-stops .dur { color: var(--accent); font-weight: 600; white-space: nowrap; }
+    .tl-stops a { color: var(--primary); text-decoration: none; font-size: .9em; }
+    .tl-empty { color: var(--muted); padding: 18px 4px; }
+    /* dark theme: dim + invert the OSM tiles so the map matches the page */
+    html:not(.light) .leaflet-tile { filter: brightness(.62) invert(1) contrast(2.6) hue-rotate(195deg) saturate(.35) brightness(.78); }
+    html:not(.light) .leaflet-container { background: var(--surface2); }
+    .leaflet-container { font: inherit; }
+    .leaflet-control-attribution { font-size: 10px; }
+  </style>
+</head>
+
+<body>
+
+  <header style="position:relative;">
+    <div class="logo-box"><a href="../../index.html"><img src="../../assets/img/android-chrome-192x192.png" alt="Luis Solutions"></a></div>
+    <h1>Timeline</h1>
+    <div class="auth-bar">
+      <span id="auth-label">Not signed in</span>
+      <button id="auth-btn">Sign In</button>
+    </div>
+    <button id="theme-toggle" title="Toggle theme">☀️</button>
+    <script>
+      (function () {
+        const btn = document.getElementById("theme-toggle");
+        const html = document.documentElement;
+        btn.textContent = html.classList.contains("light") ? "🌙" : "☀️";
+        btn.addEventListener("click", function () {
+          const next = html.classList.contains("light") ? "dark" : "light";
+          html.classList.toggle("light", next === "light");
+          localStorage.setItem("ss-theme", next);
+          btn.textContent = next === "light" ? "🌙" : "☀️";
+        });
+      })();
+    </script>
+    <div id="login-inline">
+      <h3>Sign In</h3>
+      <input type="email" id="email-in" placeholder="Email" />
+      <input type="password" id="pass-in" placeholder="Password" />
+      <button id="do-login">Sign In</button>
+      <p id="auth-err"></p>
+    </div>
+  </header>
+
+  <main>
+    <div class="app-shell">
+      <div class="tl-bar">
+        <button id="tl-prev" title="Previous day">◀</button>
+        <input type="date" id="tl-date" />
+        <button id="tl-next" title="Next day">▶</button>
+        <button id="tl-today">Today</button>
+        <button id="tl-refresh" class="primary" title="Re-read this day">Refresh</button>
+        <label><input type="checkbox" id="tl-auto" checked> auto-refresh today (2 min)</label>
+      </div>
+      <div class="tl-stats" id="tl-stats"></div>
+      <div id="map"></div>
+      <div class="tl-hint" id="tl-hint"></div>
+      <ol class="tl-stops" id="tl-stops"></ol>
+      <div class="tl-empty" id="tl-empty">Sign in to see your timeline.</div>
+    </div>
+  </main>
+
+  <script type="module">
+    import { auth, onAuthStateChanged, database, ref, get, basePathFor } from "../assets/js/firebase-init.js";
+
+    const $ = id => document.getElementById(id);
+    const coarse = matchMedia("(pointer: coarse)").matches;
+    let BASE = "public", index = {}, day = null, dayData = null, timer = null, map, layer, stopMarks = [];
+
+    // ---- map (house gesture rules) ----
+    map = L.map("map", { scrollWheelZoom: false, dragging: !coarse, touchZoom: true, tap: false, doubleClickZoom: false, zoomControl: true, attributionControl: true });
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "&copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a>" }).addTo(map);
+    map.setView([41.6927, -72.7949], 11);
+    $("map").addEventListener("wheel", e => {   // plain wheel = the page scrolls; Ctrl/Shift/Cmd + wheel = zoom at the pointer
+      if (!(e.ctrlKey || e.shiftKey || e.metaKey)) return;
+      e.preventDefault();
+      map.setZoomAround(map.mouseEventToContainerPoint(e), map.getZoom() + (e.deltaY < 0 ? 1 : -1));
+    }, { passive: false });
+    map.on("dblclick", fitDay);
+    $("tl-hint").textContent = coarse ? "Two fingers move and zoom the map; one finger scrolls the page. Tap a stop to centre it." : "Drag to pan, Ctrl+wheel (or Shift+wheel) to zoom, double-click to re-fit the day. Click a stop to centre it.";
+
+    const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim() || "#7c3aed";
+    const fmtT = ms => new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    const fmtDur = ms => { const m = Math.round(ms / 60000); return m >= 60 ? `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")} m` : `${m} min`; };
+    const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+    const shift = (iso, n) => { const d = new Date(iso + "T12:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+
+    function clearMap() {
+      if (layer) { layer.remove(); layer = null; }
+      stopMarks.forEach(m => m.remove()); stopMarks = [];
+    }
+
+    function fitDay() {
+      if (!layer) return;
+      const b = layer.getBounds();
+      if (b.isValid()) map.fitBounds(b.pad(0.12), { maxZoom: 16 });
+    }
+
+    function draw(rec) {
+      clearMap();
+      const pts = (rec && rec.pts || []).map(p => [p[1], p[2]]);
+      const stops = rec && rec.stops || [];
+      layer = L.featureGroup().addTo(map);
+      if (pts.length > 1) L.polyline(pts, { color: css("--accent"), weight: 4, opacity: .9, lineJoin: "round" }).addTo(layer);
+      if (pts.length) {
+        L.circleMarker(pts[0], { radius: 6, color: css("--ok"), fillColor: css("--ok"), fillOpacity: 1 }).bindTooltip("start " + fmtT(rec.pts[0][0])).addTo(layer);
+        L.circleMarker(pts[pts.length - 1], { radius: 6, color: css("--danger"), fillColor: css("--danger"), fillOpacity: 1 }).bindTooltip("last " + fmtT(rec.pts[rec.pts.length - 1][0])).addTo(layer);
+      }
+      stops.forEach((s, i) => {
+        const m = L.circleMarker([s.lat, s.lon], { radius: 8, color: css("--primary"), fillColor: css("--surface"), fillOpacity: 1, weight: 3 })
+          .bindTooltip(`${i + 1}. ${s.label || "stop"} · ${fmtT(s.s)}–${fmtT(s.e)}`).addTo(layer);
+        stopMarks.push(m);
+      });
+      fitDay();
+    }
+
+    function renderStops(rec) {
+      const ol = $("tl-stops"); ol.innerHTML = "";
+      const stops = rec && rec.stops || [];
+      stops.forEach((s, i) => {
+        const li = document.createElement("li");
+        li.innerHTML = `<span class="lbl">${i + 1}. ${esc(s.label || "stop")}</span><span class="dur">${fmtDur(s.e - s.s)}</span>` +
+          `<span class="when">${fmtT(s.s)} – ${fmtT(s.e)} · ${s.n} reports · <a href="https://maps.apple.com/?ll=${s.lat},${s.lon}&q=${encodeURIComponent(s.label || "stop")}" target="_blank" rel="noopener">Maps</a></span>`;
+        li.onclick = () => { ol.querySelectorAll("li").forEach(x => x.classList.remove("on")); li.classList.add("on"); map.setView([s.lat, s.lon], Math.max(map.getZoom(), 15)); stopMarks[i] && stopMarks[i].openTooltip(); };
+        ol.appendChild(li);
+      });
+    }
+    const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+    function stats(rec) {
+      if (!rec) { $("tl-stats").textContent = ""; return; }
+      const moving = (rec.pts && rec.pts.length > 1) ? (rec.pts[rec.pts.length - 1][0] - rec.pts[0][0]) - (rec.stops || []).reduce((a, s) => a + (s.e - s.s), 0) : 0;
+      const mi = (rec.km || 0) * 0.621371;
+      $("tl-stats").textContent = `${mi.toFixed(1)} mi · ${(rec.stops || []).length} stop${(rec.stops || []).length === 1 ? "" : "s"} · ${rec.n || 0} reports · on the move ${fmtDur(Math.max(0, moving))} · updated ${fmtT(rec.updated || Date.now())}`;
+    }
+
+    async function loadIndex() {
+      try { const s = await get(ref(database, `${BASE}/location/index`)); index = s.val() || {}; }
+      catch (e) { index = {}; console.warn("index read failed", e); }
+      const days = Object.keys(index).sort();
+      if (days.length) { $("tl-date").min = days[0]; $("tl-date").max = todayISO() > days[days.length - 1] ? todayISO() : days[days.length - 1]; }
+    }
+
+    async function loadDay(d, { quiet } = {}) {
+      day = d; $("tl-date").value = d;
+      if (!quiet) $("tl-stats").textContent = "loading…";
+      try {
+        const s = await get(ref(database, `${BASE}/location/days/${d}`));
+        dayData = s.val();
+      } catch (e) { dayData = null; console.warn("day read failed", e); }
+      $("tl-empty").textContent = dayData ? "" : (auth.currentUser ? `No points logged for ${d}.` : "Sign in to see your timeline.");
+      $("tl-empty").style.display = dayData ? "none" : "";
+      stats(dayData); draw(dayData); renderStops(dayData);
+      armAuto();
+    }
+
+    function armAuto() {
+      clearInterval(timer); timer = null;
+      if ($("tl-auto").checked && day === todayISO() && auth.currentUser) timer = setInterval(() => loadDay(day, { quiet: true }), 120000);
+    }
+
+    $("tl-date").onchange = () => $("tl-date").value && loadDay($("tl-date").value);
+    $("tl-prev").onclick = () => loadDay(shift(day || todayISO(), -1));
+    $("tl-next").onclick = () => loadDay(shift(day || todayISO(), 1));
+    $("tl-today").onclick = () => loadDay(todayISO());
+    $("tl-refresh").onclick = async () => { await loadIndex(); loadDay(day || todayISO()); };
+    $("tl-auto").onchange = armAuto;
+
+    onAuthStateChanged(auth, async user => {
+      BASE = basePathFor(user);
+      if (!user) { clearInterval(timer); clearMap(); $("tl-stops").innerHTML = ""; $("tl-stats").textContent = ""; $("tl-empty").style.display = ""; $("tl-empty").textContent = "Sign in to see your timeline."; return; }
+      await loadIndex();
+      const qs = new URLSearchParams(location.search).get("day");
+      loadDay(/^\d{4}-\d{2}-\d{2}$/.test(qs || "") ? qs : todayISO());
+    });
+    setTimeout(() => map.invalidateSize(), 300);
+  </script>
+</body>
+
+</html>
