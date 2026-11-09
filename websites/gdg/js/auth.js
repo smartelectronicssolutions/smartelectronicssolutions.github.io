@@ -3,7 +3,7 @@ function checkForTokenAndRedirect() {
     if (tokenDataJSON) {
         const tokenData = JSON.parse(tokenDataJSON);
         const currentTime = new Date().getTime();
-        if (tokenData.sToken && tokenData.expiresAt && tokenData.expiresAt > currentTime) {
+        if (tokenData.idToken && tokenData.expiresAt && tokenData.expiresAt > currentTime) {
             // Token is present and not expired
             return;
         }

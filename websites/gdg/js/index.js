@@ -21,7 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
             let tokenData = JSON.parse(localStorage.getItem('sToken'));
 
             const padlock = document.getElementById('padlock');
-            if (padlock && tokenData && tokenData.sToken === "7777777") {
+            if (padlock && tokenData && tokenData.idToken && tokenData.expiresAt > Date.now()) {
                 padlock.style.filter = 'invert(1)';
             }
         }

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="version" content="1.0.0">
+  <meta name="version" content="1.0.1">
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Property Watchlist — Eco Lou Real Estate</title>
   <link rel="stylesheet" href="assets/css/styles.css"/>
@@ -847,10 +847,16 @@ window.pwDelete = function (id) {
 window.pwClearAll = function () {
   const n = Object.keys(cache).length;
   if (!n) return;
-  const warning = mode === 'shared'
-    ? `DELETE ALL ${n} properties from the SHARED REVIEW list (visible to everyone)?\n\nThis wipes votes and comments too. Other users will lose their entries.`
-    : `Delete all ${n} properties from your personal list?`;
-  if (!confirm(warning)) return;
+  if (!currentUserId) { alert('Sign in to clear a list.'); return; }   // 2026-11-08 (audit fix #7): signed out, basePath is a PUBLIC node
+  if (mode === 'shared') {
+    // 2026-11-08 (audit fix #7): the shared review list belongs to everyone - clear only what YOU added, never the whole node.
+    const mine = Object.keys(cache).filter(id => cache[id] && cache[id].createdBy === currentUserId);
+    if (!mine.length) { alert('None of the shared properties were added by you - nothing to clear.'); return; }
+    if (!confirm(`Delete YOUR ${mine.length} propert${mine.length === 1 ? 'y' : 'ies'} from the shared review list? Other people's entries stay.`)) return;
+    Promise.all(mine.map(id => remove(ref(database, `${basePath}/${id}`)))).catch(err => alert('Clear failed: ' + err.message));
+    return;
+  }
+  if (!confirm(`Delete all ${n} properties from your personal list?`)) return;
   set(ref(database, basePath), null).catch(err => alert('Clear failed: ' + err.message));
 };
 

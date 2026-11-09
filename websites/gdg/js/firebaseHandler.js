@@ -1,6 +1,6 @@
 // gdg handler — REST-only, no Firebase SDK and no second project (playground-e3690 retired 2026-08-01): login checks
 // the main site's Firebase Auth accounts through the Identity Toolkit REST API; registrations forward to the contact
-// pipeline; gallery serves local images. The signed-in marker is still the constant sToken below, not a real session.
+// pipeline; gallery serves local images. The signed-in marker is the Identity Toolkit idToken + expiry (real session since 2026-11-08).
 
 const AUTH_KEY = "AIzaSyCv2cQGWeXS-w7psrQiZD8dn4R7hStmY1o"; // persinfo-df93f public web key
 const CONTACT_URL = "https://persinfo-df93f-default-rtdb.firebaseio.com/public/contactSubmissions.json";
@@ -26,11 +26,10 @@ function handleLoginFormSubmission(event) {
     const password = document.getElementById("login-password").value;
 
     loginUser(username, password)
-        .then(() => {
-            const sToken = "7777777";
-            const expirationMinutes = 480;
-            const expirationTime = new Date().getTime() + (expirationMinutes * 60 * 1000);
-            const tokenData = { sToken, expiresAt: expirationTime };
+        .then((j) => {
+            // 2026-11-08 (audit fix #8): keep the REAL Identity Toolkit session (idToken + its expiry), not a constant marker.
+            const expirationTime = new Date().getTime() + (Number(j.expiresIn || 3600) * 1000);
+            const tokenData = { idToken: j.idToken, email: j.email || username, expiresAt: expirationTime };
             localStorage.setItem("sToken", JSON.stringify(tokenData));
 
             const delay = expirationTime - new Date().getTime();

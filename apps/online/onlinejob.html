@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="version" content="1.0.15">
+  <meta name="version" content="1.0.16">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>Jobs</title>
   <link rel="stylesheet" href="../assets/css/online.css" />
@@ -358,6 +358,7 @@
     const autoTaskId = new URLSearchParams(location.search).get('task');
     let autoTaskSelected = false;
     let allTasks = [];
+    const _pristineTasks = {};   // 2026-11-08 (audit fix #4): each task as last READ from Firebase, so saveTask writes only what changed
     let isLoadingImages = false;
     let imageLoadGen = 0;
 
@@ -549,8 +550,21 @@
     // Merging writes only this app's job fields and leaves everything else intact.
     async function saveTask(task) {
       if (!authReady) return;
+      // 2026-11-08 (audit fix #4): send only the fields that changed since this task was last read. The full record also
+      // carries invoice (paid, amountPaid, parts...), schedule and contact fields stamped by other apps on the same node;
+      // a timer tick re-sending a stale copy used to roll those back.
+      let payload = task;
       try {
-        await update(dbRef(database, `${DB}/tasks/${task.id}`), task);
+        const was = _pristineTasks[task.id] ? JSON.parse(_pristineTasks[task.id]) : null;
+        if (was) {
+          payload = {};
+          for (const k of Object.keys(task)) if (JSON.stringify(task[k]) !== JSON.stringify(was[k])) payload[k] = task[k];
+          if (!Object.keys(payload).length) return;
+        }
+      } catch (e) { payload = task; }
+      try {
+        await update(dbRef(database, `${DB}/tasks/${task.id}`), payload);
+        _pristineTasks[task.id] = JSON.stringify(Object.assign(JSON.parse(_pristineTasks[task.id] || "{}"), payload));
       } catch (err) {
         alert(`Save failed: ${err.message}`);
       }
@@ -747,6 +761,7 @@
       const bookedHit = autoTaskId && !autoTaskSelected && tasks.find(t => t.id === autoTaskId && t.status === 'scheduled');
       tasks = tasks.filter(t => t.status !== 'scheduled');   // future/scheduled jobs live in onlineschedule, not the active job log
       taskLogTbody.innerHTML = ""; allTasks = tasks;
+      tasks.forEach(t => { if (t && t.id) _pristineTasks[t.id] = JSON.stringify(t); });
       tasks.sort((a, b) => (Date.parse(b.startTime) || 0) - (Date.parse(a.startTime) || 0));   // 2026-10-11: a record with no startTime made the comparator NaN and scrambled the list (7/14 showed as latest)
       const cutoff = Date.now() - 14 * 24 * 3600 * 1000;
       const recentCount = tasks.filter(t => t.startTime && new Date(t.startTime) >= cutoff).length;
@@ -874,7 +889,14 @@
         loadBtn.onclick = () => { loadTaskForEditing(key); window.scrollTo({ top: 0, behavior: "smooth" }); };
         actC.appendChild(loadBtn);
         const delBtn = document.createElement("button"); delBtn.classList.add("clear-button"); delBtn.innerText = "Delete";
-        delBtn.onclick = () => { if (confirm("Delete this task?")) deleteTaskById(key, row); };
+        delBtn.onclick = () => {
+          if (!confirm("Delete this task?")) return;
+          // 2026-11-08 (audit fix #4): same cross-app guard contacts/schedule have - the node may also hold invoice or schedule data.
+          const t = allTasks.find(x => x.id === key) || {};
+          const shared = Object.keys(t).some(k => /^(invoice|paid|amountPaid|parts|labor|sched|due|status)/i.test(k));
+          if (shared && !confirm("This record also holds invoice or schedule data. Deleting removes ALL of it. Delete anyway?")) return;
+          deleteTaskById(key, row);
+        };
         actC.appendChild(delBtn);
       }
       [nameC, projC, soC, eoC, stC, etC, notesC, phoneC, emailC].filter(Boolean).forEach(c => c.contentEditable = true);

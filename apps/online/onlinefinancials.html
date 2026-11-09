@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="utf-8" />
-  <meta name="version" content="1.0.2">
+  <meta name="version" content="1.0.3">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Finance Ledger</title>
   <link rel="icon" href="../assets/img/financial_logo.png" />
@@ -515,6 +515,7 @@
   <!-- ======= CORE SCRIPT (Year TX Model + Images) ======= -->
   <script type="module">
     import {
+      get,
       auth,
       onAuthStateChanged,
       database,
@@ -1000,15 +1001,15 @@
     async function saveBudgetCategory(tag, monthly) {
       if (!canWrite()) return;
       tag = String(tag).replace(/️/g, ""); // strip emoji variation selector so budget tag matches the ledger tag
-      if (!_budgetPlan) _budgetPlan = {};
-      if (!Array.isArray(_budgetPlan.categories)) _budgetPlan.categories = [];
-      const existing = _budgetPlan.categories.find(c => c.name === tag);
-      if (existing) {
-        existing.monthly = monthly;
-      } else {
-        _budgetPlan.categories.push({ name: tag, monthly });
-      }
-      await set(ref(database, `${DATABASE_BASE_PATH}/money/budget/${currentYear}`), _budgetPlan);
+      // 2026-11-08 (audit fix #6): money/budget/<year> belongs to the budget app. Re-read, change one category, and
+      // update() only `categories` - the old whole-plan set() could put a stale copy of everything else back.
+      const r = ref(database, `${DATABASE_BASE_PATH}/money/budget/${currentYear}`);
+      const snap = await get(r);
+      const plan = snap.exists() ? snap.val() : {};
+      const cats = Array.isArray(plan.categories) ? plan.categories : [];
+      const existing = cats.find(c => c && c.name === tag);
+      if (existing) existing.monthly = monthly; else cats.push({ name: tag, monthly });
+      await update(r, { categories: cats });
     }
 
     /* =========================
