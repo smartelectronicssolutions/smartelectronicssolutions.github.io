@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.149"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.150"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -718,6 +718,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                                  50% { background: rgba(240, 80, 110, .35); border-color: #f0506e; box-shadow: 0 0 10px rgba(240, 80, 110, .7); } }
         @media (prefers-reduced-motion: reduce) { #dc-peer-btn.flash { animation: none; background: rgba(240, 80, 110, .35); border-color: #f0506e; } }
         #dc-peer-btn .dot, .dc-peer-row .dot { position: absolute; top: -3px; right: -3px; width: 9px; height: 9px; border-radius: 50%; background: #f0506e; }
+        .pfilter { padding: 6px 8px 2px; }
+        .pfilter input { width: 100%; box-sizing: border-box; font: inherit; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--dc-inset, var(--surface)); color: inherit; }
         .dc-peer-row { position: relative; display: block; width: 100%; box-sizing: border-box; text-align: left; background: none; border: 0; color: inherit; padding: 8px 10px; border-radius: 8px; cursor: pointer; font: inherit; }   /* border-box: the LABEL rows were 100% + padding = 20px wider than the pane ("shows up extra wide", L 2026-10-03) */
         .dc-peer-row:hover { background: var(--dc-inset, rgba(255,255,255,.06)); }
         /* SWIPE TO CLEAR (2026-09-27, L: "swipe to delete in the previous screen"): the row slides left over a red Clear button */
@@ -2526,7 +2528,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // SAME OPTIONS IN MEMBER CHATS (2026-09-27, L: "we should get all the same options and all that should work the same with
         // whoever I'm talking with"): the 👥 pane uses these instead of its own copies.
         window.__dcShared = { speak: (t, k, d) => speakText(t, k, d), stop: () => stopSpeak(), speakingKey: () => DC.speakingKey,
-                              linkify, richBody, fmtStamp, tidy: x => (window.__dcTidy ? window.__dcTidy(x) : x),
+                              linkify, richBody, fmtStamp, watchSeen, tidy: x => (window.__dcTidy ? window.__dcTidy(x) : x),
                               enhanceOn: () => !!($('#dc-chat-enhance') && $('#dc-chat-enhance').checked) };
         /* DRAG THE TAB STRIP (2026-09-21, L). It is overflow-x:auto with the scrollbar hidden,
            so a trackpad could swipe it and a plain mouse could not reach an off-screen tab at all.
@@ -2863,8 +2865,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 const u = unreadTopics(obj);
                 DC._unread = u.unread;
                 const cur = DC.topic || '';
-                if (u.newest[cur]) markSeen(cur, u.newest[cur]);   // looking at it = read
-                DC._unread[cur] = false;
+                // SEEN ON SCREEN (2026-11-09, L: "the unread numbers only go away once the message has been seen ... scroll to see"):
+                // opening a tab no longer marks it read - watchSeenChat() after the bubbles are drawn marks each new reply once it is in view.
+                DC._unread[cur] = false;   // the open tab's own chip never shows the mark (the bar hides it anyway)
             }
             renderTopics();
             const log = $('#dc-chat-log');
@@ -2904,6 +2907,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 if (el !== want) log.insertBefore(el, want);
                 prev = el;
             }
+            if (!R && !favView) watchSeenChat(log, obj, DC.topic || '');   // SEEN ON SCREEN (2026-11-09)
             // snap to the newest end only when the visible turns or the tab changed - a star toggle, an edit or a
             // reply landing in an existing bubble keeps your scroll position (2026-09-18)
             const rsig = (R ? R.owner + '/' + R.topic : DC.topic) + '|' + nf + '|' + order.join(',');
@@ -3629,6 +3633,34 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 if (ts > (seen[k] || 0)) out[k] = true;
             }
             return { unread: out, newest };
+        }
+        // SEEN ON SCREEN (2026-11-09, L): a message counts as read when its bubble has actually been on screen, not when the chat
+        // opened. CONTIGUOUS watermark: it only moves past an unread message once it AND every unread message before it were
+        // seen - so one left above the fold keeps the badge until you scroll up to it, while landing at the bottom clears what is
+        // in view. A bubble taller than the viewport counts once more than half the viewport is covered by it. Hidden tab = no marks.
+        function watchSeen(log, items, onSeen) {   // items = [{k, ts}] oldest first, unread only; onSeen(ts) when the watermark moves
+            if (log.__seenIO) { log.__seenIO.disconnect(); log.__seenIO = null; }
+            if (!items.length) return;
+            const got = new Set(); let last = 0;
+            const io = new IntersectionObserver(ents => {
+                if (document.hidden) return;
+                for (const e of ents) {
+                    const rh = (e.rootBounds && e.rootBounds.height) || innerHeight;
+                    if (e.isIntersecting && (e.intersectionRatio >= 0.6 || e.intersectionRect.height >= rh * 0.5)) got.add(e.target.dataset.k);
+                }
+                let ts = 0;
+                for (const it of items) { if (!got.has(it.k)) break; ts = it.ts; }
+                if (ts && ts !== last) { last = ts; onSeen(ts); }
+                if (got.size >= items.length) { io.disconnect(); log.__seenIO = null; }
+            }, { threshold: [0, 0.6] });
+            log.__seenIO = io;
+            for (const it of items) { const el = log.querySelector(`[data-k="${CSS.escape(it.k)}"]`); if (el) io.observe(el); }
+        }
+        function watchSeenChat(log, obj, cur) {
+            const was = seenRead()[cur] || 0;
+            const items = Object.entries(obj || {}).filter(([k, t]) => t && t.s === 'D' && !t.pending && (t.topic || '') === cur && (t.ts || 0) > was)
+                .sort((a, b) => (a[1].ts || 0) - (b[1].ts || 0)).map(([k, t]) => ({ k, ts: t.ts || 0 }));
+            watchSeen(log, items, ts => { markSeen(cur, ts); const u = unreadTopics(DC.chatTurns || obj); DC._unread = u.unread; DC._unread[cur] = false; renderTopics(); });
         }
 
         function updateThreadSize(obj) {
@@ -5481,6 +5513,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const convs = Object.entries(P.index).filter(([t, x]) => x && x.ts && x.ts > (x.clearedAt || 0) && !t.startsWith('tab-'))   // shared tabs live in the tab bar (teal chip), not here (L 2026-09-27)
                 .sort((a, b) => (isPinned(b[0]) - isPinned(a[0])) || b[1].ts - a[1].ts);   // 📌 pinned first (#4), then newest; cleared ones come back only with a newer message
             const siteRow = cfRowHTML() + siteRowHTML() + bizRowHTML();   // 🌐 Site visitors (owner): the public site chat, a member-like conversation (L 2026-10-21) + 🤖 Biz bot (2026-10-22)
+            html += `<div class="pfilter"><input type="search" id="dc-peer-filter" placeholder="filter people &amp; groups…" autocomplete="off" data-1p-ignore></div>`;   // FILTER (2026-11-09, L: "add a search filter in the groups")
             if (convs.length || siteRow) {
                 html += H('Conversations', 'convs') + siteRow;
                 html += convs.map(([t, x]) => { const tab = t.startsWith('tab-');
@@ -5511,8 +5544,23 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             html += `<button type="button" class="dc-peer-row" data-readall="1">✓ Mark everything read</button>`;
             html += `<div class="pnote">Members come from the share list (the same one Notes uses). Chats are private to the people in them; nothing typed here reaches the daemon.</div>`;
         }
+        const hadFocus = document.activeElement && document.activeElement.id === 'dc-peer-filter';
         home.innerHTML = html;
         wireCollapse(home);
+        {   // FILTER (2026-11-09): rows whose text matches stay; sections with no match fold their header away; a filter opens collapsed sections
+            const fi = home.querySelector('#dc-peer-filter');
+            if (fi) {
+                fi.value = P.filter || '';
+                const apply = () => { const q = (fi.value || '').trim().toLowerCase(); P.filter = q;
+                    home.querySelectorAll('.psec').forEach(sec => { let any = false;
+                        for (const row of sec.children) { const hide = !!q && !(row.textContent || '').toLowerCase().includes(q); row.hidden = hide; if (!hide) any = true; }
+                        const h = sec.previousElementSibling; if (h && h.classList.contains('ph')) h.hidden = !!q && !any;
+                        if (q && any) sec.hidden = false; });
+                };
+                fi.oninput = apply; if (P.filter) apply();
+                if (hadFocus) { fi.focus(); try { fi.setSelectionRange(fi.value.length, fi.value.length); } catch (_) {} }
+            }
+        }
         home.querySelectorAll('[data-u]').forEach(b => b.onclick = () => openPeer(b.dataset.u));
         home.querySelectorAll('[data-site]').forEach(b => b.onclick = () => openSite());
         home.querySelectorAll('[data-bizbot]').forEach(b => b.onclick = () => openBiz());
@@ -5751,7 +5799,14 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     onDelete: (m.from === P.me || P.me === OWNER) ? async () => { try { await set(ref(database, `share/chat/${P.open}/messages/${k}`), null); } catch (er) { alert('Could not delete: ' + (er.code || er.message)); } } : null }); }
         };
         P.swipeReply = k => { const m0 = msgs[k]; if (!m0) return; const m = m0.enc ? { ...m0, text: E2E.plain.get(k) ?? '' } : m0; setPeerReply({ k, from: m.from, text: m.text }); };   // bubble swipe (#10)
-        if (asc.length) markSeen(P.open, asc[asc.length - 1].ts);
+        {   // SEEN ON SCREEN (2026-11-09, L): read when the new bubbles scroll into view, not on open; your own last line = nothing left to read
+            const tid = P.open, was = seen(tid);
+            const items = asc.filter(m => m.from !== P.me && (m.ts || 0) > was).map(m => ({ k: m.__k, ts: m.ts || 0 }));
+            if (!items.length && asc.length && asc[asc.length - 1].from === P.me && asc[asc.length - 1].ts > was) markSeen(tid, asc[asc.length - 1].ts);
+            const ws = (window.__dcShared || {}).watchSeen;
+            if (ws) ws(log, items, ts => { if (P.open === tid) { markSeen(tid, ts); dots(); } });
+            else if (asc.length) markSeen(tid, asc[asc.length - 1].ts);   // old main module cached: fall back to read-on-open
+        }
         dots();
     }
 
