@@ -1,5 +1,6 @@
 // theme-toggle.js - the ☀️/🌙 header button, ONE copy for every app page (2026-10-09: jscpd found the same IIFE pasted
-// into 24 pages in three spellings). Load it right after the button, as a plain script:
+// into 24 pages in three spellings; the last three inline copies - board, chess, music - went 2026-11-08).
+// Load it right after the button, as a plain script:
 //   <button id="theme-toggle" title="Toggle theme">☀️</button>
 //   <script src="../assets/js/theme-toggle.js"></script>
 // The early "ss-theme" read that sets html.light before paint stays inline in each page's <head>.

@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="version" content="1.0.0">
+    <meta name="version" content="1.0.1">
     <title>
       J&amp;E Mobile Detailing &amp; Mechanic | Beaufort SC · Savannah ·
       Charleston
@@ -76,44 +76,10 @@
     }
     </script>
 
-    <!-- Visit Logger (inline; this site lives in its own repo so it can't
-         relative-import the shared visitLogger.js from luissolutions.github.io) -->
+    <!-- Visit Logger - this site's own copy (websites/ are self-contained; one Firebase init via ./assets/js/firebase-init.js) -->
     <script type="module">
-      import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-      import { getDatabase, ref, push, update, set, runTransaction, increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
-
-      const app = initializeApp({
-        apiKey: "AIzaSyCv2cQGWeXS-w7psrQiZD8dn4R7hStmY1o",
-        authDomain: "persinfo-df93f.firebaseapp.com",
-        databaseURL: "https://persinfo-df93f-default-rtdb.firebaseio.com",
-        projectId: "persinfo-df93f"
-      });
-      const db = getDatabase(app);
-
-      const normalizePage = href => {
-        try {
-          let p = new URL(href).pathname.replace(/^\/+/, '');
-          p = p.replace(/\/index\.html$/, '/');
-          return p || 'index.html';
-        } catch { return 'index.html'; }
-      };
-      const sanitizeIp = ip => (ip || 'unknown').replace(/[.:]/g, '-').replace(/[#$\[\]\/]/g, '_');
-
-      (async () => {
-        let ip = 'unknown';
-        try { ip = (await (await fetch('https://api.ipify.org?format=json')).json()).ip; } catch {}
-        const sip = sanitizeIp(ip);
-        const now = new Date().toISOString();
-        const url = window.location.href;
-        const page = normalizePage(url);
-        try {
-          await runTransaction(ref(db, 'public/log/visitCount'), n => (n || 0) + 1);
-          await push(ref(db, `public/log/visits/${sip}/hits`), { time: now, url, page });
-          // write-only (2026-09-27): the visits log is private now - no read-modify-write of the IP node
-          await update(ref(db, `public/log/visits/${sip}`), { ip, lastSeen: now, lastPage: page, count: increment(1) });
-          set(ref(db, `public/log/visits/${sip}/firstSeen`), now).catch(() => {});
-        } catch (err) { console.error('Visit log error:', err); }
-      })();
+      import { getIP, updateVisitCount } from './assets/js/visitLogger.js';
+      getIP().then(ip => updateVisitCount(ip)).catch(() => {});
     </script>
     <link rel="stylesheet" href="./assets/css/styles.css" id="stylesheet" />
   </head>
