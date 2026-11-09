@@ -20,7 +20,6 @@ document.getElementById('logoutButton').addEventListener('click', (event) => {
     
     signOut(auth).then(() => {
         alert("You have been logged out");
-        // window.location.href = 'login.html';
     }).catch((error) => {
         console.error("Logout error", error);
     });

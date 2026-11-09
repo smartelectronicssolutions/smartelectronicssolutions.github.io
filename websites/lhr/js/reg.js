@@ -7,7 +7,6 @@ const regConfirmPass = document.getElementById('reg-confirm-password');
 
 regForm.addEventListener('submit', function (evt) {
   evt.preventDefault();
-  console.log('Form submitted'); // Add this line for debugging
 
   if (regPass.value !== regConfirmPass.value) {
     alert('Passwords do not match. Please try again.');

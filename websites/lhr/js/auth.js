@@ -12,7 +12,6 @@ onAuthStateChanged(auth, (user) => {
 document.getElementById('logoutButton').addEventListener('click', () => {
   signOut(auth).then(() => {
     console.log("You have been logged out");
-    // window.location.href = 'login.html';
   }).catch((error) => {
     console.error("Logout error", error);
   });

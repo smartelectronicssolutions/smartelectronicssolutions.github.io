@@ -52,7 +52,7 @@ function injectSidebarCSS() {
 function insertToggleButtonIntoHeader() {
     const headerEl = document.querySelector('header');
     if (!headerEl) {
-        console.warn('layout.js: No <header> found.');
+        console.warn('sidebar.js: No <header> found.');
         return;
     }
 

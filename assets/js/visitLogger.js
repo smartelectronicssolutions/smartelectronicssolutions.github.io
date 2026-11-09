@@ -22,7 +22,6 @@ function normalizePage(href) {
     let pathname;
     try { pathname = new URL(href).pathname; } catch { pathname = href || '/'; }
     pathname = pathname.replace(/^\/+/, '');
-    pathname = pathname.replace(/^luissolutions\.github\.io\//, '');
     pathname = pathname.replace(/\/index\.html$/, '/');
     return pathname || 'index.html';
 }

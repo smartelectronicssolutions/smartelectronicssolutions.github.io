@@ -1,11 +1,11 @@
-// gdg handler — SAME exports as before, but no Firebase SDK and no second project.
-// (playground-e3690 retired 2026-08-01. Login now checks the main site's accounts;
-//  registrations forward to the contact pipeline; gallery serves local images.)
+// gdg handler — REST-only, no Firebase SDK and no second project (playground-e3690 retired 2026-08-01): login checks
+// the main site's Firebase Auth accounts through the Identity Toolkit REST API; registrations forward to the contact
+// pipeline; gallery serves local images. The signed-in marker is still the constant sToken below, not a real session.
 
 const AUTH_KEY = "AIzaSyCv2cQGWeXS-w7psrQiZD8dn4R7hStmY1o"; // persinfo-df93f public web key
 const CONTACT_URL = "https://persinfo-df93f-default-rtdb.firebaseio.com/public/contactSubmissions.json";
 
-export function initializeFirebase() { /* no-op — kept for API compatibility */ }
+export function initializeFirebase() { /* no-op — nothing to init without the SDK; index.js, full.js and gallery.js still call it */ }
 
 // Sign in against the main site's Firebase Auth (username field takes the account email).
 function loginUser(email, password) {
