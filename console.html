@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.145"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.146"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -559,7 +559,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         /* ONE-LINE PROMPT (L 2026-10-03 "shrink my chatbox to one line that builds, no background; widen it and the background
            comes back"): the box dragged down to its minimum turns into a bare line - transparent, no border, the ❯ as the
            prompt - that grows with what you type; dragged taller again, the normal box returns (dcAttachResizer flips .one). */
-        .dc-chat-input.one textarea { background: transparent !important; border: 0 !important; border-radius: 0 !important; padding: 4px 2px; min-height: 0; box-shadow: none !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; overflow: hidden; }
+        .dc-chat-input.one textarea { background: transparent !important; border: 0 !important; border-radius: 0 !important; padding: 4px 2px; min-height: calc(1.5em + 8px);   /* never thinner than one line: a 0 height clipped the caret and ate taps (L 2026-11-09) */ box-shadow: none !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; overflow: hidden; }
         .dc-chat-input.one .ps { font-weight: 700; }
         .dc-chat-input.one textarea::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }   /* a wrapping placeholder made the empty line 3 lines tall (2026-10-13) */
         /* usage fill: a light left-to-right translucent gradient across the input, width = today's output tokens vs the 30-day peak day (--usg, set by renderUsage) */
@@ -2326,10 +2326,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
 
         // DAEMON UPDATE (2026-10-10). The latest portable daemon lives in Storage (public/kdaemon/, readable without a
         // login, so a mind in another house can fetch it). Bump these three lines + upload the file for each release.
-        const KDAEMON_LATEST = { version: '0.2.18', size: 64273,
-            sha256: 'd74ecf63b19d9d811534d809263944f2b72e3d2c1972138c4b932d5c9c1a5876',
-            url: 'https://firebasestorage.googleapis.com/v0/b/persinfo-df93f.appspot.com/o/assistant-console%2Fkdaemon-0.2.18.py?alt=media&token=44e2c408-220d-4b69-b3a9-14c8bd953920',
-            notes: 'Chrome browsing (chrome:true), in-console self-update (this button), full-size photos, attachment Inbox, singleton + dup-send guards' };
+        const KDAEMON_LATEST = { version: '0.2.20', size: 67246,
+            sha256: '5154fca33ea722309306f79a8b12b7d14cb5b8f7f94eeb67a0f9dc0c12cf00fc',
+            url: 'https://firebasestorage.googleapis.com/v0/b/persinfo-df93f.appspot.com/o/assistant-console%2Fkdaemon-0.2.20.py?alt=media&token=a090e10c-d3ef-4fc3-8f69-233a49a3f8b8',
+            notes: 'Double-tap the daemon-online light to restart the daemon; plus 0.2.19: one daemon per folder, lock freed before restart, Campfire retry on the 10 s limit, single log lines' };
         const _vnum = v => String(v || '').split('.').map(n => parseInt(n, 10) || 0);
         const _volder = (a, b) => { const x = _vnum(a), y = _vnum(b); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) < (y[i] || 0); } return false; };
         function paintKdUpdate(m) {
@@ -2340,7 +2340,26 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             box.hidden = false;
             document.getElementById('dc-kd-ver').textContent = `daemon ${cur} · latest ${KDAEMON_LATEST.version}` + (old ? '' : ' · up to date') + (m.updateError ? ' · ⚠ last update did not compile' : '');
             const b = document.getElementById('dc-kd-update-btn'); b.disabled = !old; b.dataset.cur = cur; b.dataset.self = m.selfReload ? '1' : '';
+            b.textContent = old ? `⬆ Update to ${KDAEMON_LATEST.version}` : `✓ Up to date (${cur})`;   // the label says the version: a grey bare 'Update' read as broken (Kev pressed it, L 2026-11-09)
         }
+        // DAEMON RESTART (L 2026-11-09 "reset daemon from double click on daemon online indicator"): two taps on the green
+        // pill within 400 ms queue {kind:'restart'} - kdaemon 0.2.20+ only, and only while it beats (a dead daemon reads no jobs).
+        // Hand-rolled double-tap: iOS Safari's dblclick is unreliable.
+        { const pill = document.getElementById('dc-daemon'); let lastTap = 0;
+          if (pill) pill.addEventListener('click', () => {
+            const now = Date.now(), dbl = now - lastTap < 400; lastTap = dbl ? 0 : now; if (!dbl) return;
+            const m = DC.lastMeta || {}, cur = ((String(m.version || '').match(/kdaemon\s+([\d.]+)/) || [])[1]) || '';
+            const st = document.getElementById('dc-chat-status'), say = t => { if (st) st.textContent = t; };
+            if (m.daemonKind !== 'kdaemon') { say('restart by double-tap is for the take-home daemon only'); return; }
+            if (!DC.daemonOn) { say('daemon offline - it cannot hear a restart. On that PC: double-click Start-Daemon.bat'); return; }
+            if (!cur || _volder(cur, '0.2.20')) { say(`restart needs daemon 0.2.20+ (this one is ${cur || '?'}) - press Update first`); return; }
+            import('./assets/js/firebase-init.js?v=20261011b').then(async fm => {
+                const j = fm.push(fm.ref(database, `${DC.base}/jobs`));
+                await fm.set(j, { kind: 'restart', status: 'queued', createdAt: Date.now(), chat: true });
+                say('restarting daemon…'); pill.lastChild.textContent = 'restarting…';
+            }).catch(err => say('could not queue the restart: ' + (err.code || err.message)));
+          });
+          pill && (pill.title = 'double-tap = restart the daemon (online, 0.2.20+)'); }
         document.getElementById('dc-kd-update-btn') && document.getElementById('dc-kd-update-btn').addEventListener('click', e => {
             const b = e.currentTarget, cur = b.dataset.cur || '?', selfReload = !!b.dataset.self, L = KDAEMON_LATEST;
             const name = DC.instName || 'Droplet';
@@ -3548,8 +3567,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (me) me.value = themeGet('me') || hex(cs && cs.getPropertyValue('--dc-purple'));   // main = the set's accent until you pick one
             if (dp) { const d = String(cs && cs.getPropertyValue('--dc-dp-bg') || '').trim(); dp.value = themeGet('dp') || (/^#[0-9a-f]{6}$/i.test(d) ? d : '#1b2638'); }
             { const sm = $('#lk-sum'); if (sm) { const bgv = themeGet('bg').trim(), FS = { sm: 'S', '': 'M', xl: 'L' };   // folded = one-line summary (2026-10-24)
-                sm.textContent = [THEME_SETS[themeGet('color')] || 'SES', themeGet('shape') === 'term' ? 'Terminal' : 'Standard', themeGet('font') === 'mono' ? 'Mono' : '', 'text ' + (FS[themeGet('fs')] || 'M'),
-                    !bgv ? '' : bgv.toLowerCase() === 'none' ? 'no bg' : 'custom bg'].filter(Boolean).join(' · '); } }
+                sm.textContent = [THEME_SETS[themeGet('color')] || 'SES', themeGet('shape') === 'term' ? 'Terminal' : 'Standard', themeGet('font') === 'mono' ? 'Mono' : '', FS[themeGet('fs')] || 'M',   // L 2026-11-09: no 'text' word before the size
+                    !bgv || bgv.toLowerCase() === 'none' ? '' : 'custom bg'].filter(Boolean).join(' · '); } }   // no bg = say nothing
             const op = $('#lk-op'); if (op) { op.value = Number(themeGet('op')) || 100; const v = $('#lk-opv'), l = $('#lk-opl'); if (v) v.textContent = op.value + '%'; if (l) l.textContent = opTarget(); }
         }
         {
@@ -4192,9 +4211,21 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             DC.syncModelSel = () => {
                 const sel = $('#dc-model'), lbl = $('#dc-model-lbl'); if (!sel) return;
                 const mm = DC.lastMeta || {};
+                // SWITCHING (L 2026-11-09 "I switched to fable and it went back to opus"): the published label only
+                // changes when a turn ENDS (the Stop hook reads the transcript), so a pick looked ignored. Hold the pick
+                // as "(switching…)" until the hook publishes anything newer than the pick - whatever it says wins.
+                let pend = DC.modelPending || null;
+                if (pend && ((mm.modelAt && mm.modelAt > pend.at) || Date.now() - pend.at > 3 * 3600e3)) { pend = DC.modelPending = null; }
+                [...sel.options].forEach(o => { if (o.dataset.base == null) o.dataset.base = o.textContent;
+                    o.textContent = (pend && o.value === pend.v) ? o.dataset.base + ' (switching…)' : o.dataset.base; });
                 const want = String(mm.modelLabel || '').toLowerCase();
                 const has = !!want && [...sel.options].some(o => o.value === want);
-                const ph = sel.querySelector('option[value=\"\"]'); if (ph) ph.hidden = has;
+                const ph = sel.querySelector('option[value=\"\"]'); if (ph) ph.hidden = has || !!pend;
+                if (pend && [...sel.options].some(o => o.value === pend.v)) {
+                    sel.value = pend.v;
+                    if (lbl) lbl.title = 'Switch to ' + pend.v + ' asked for ' + agoStr(pend.at) + '. It shows as confirmed when Droplet’s current turn ends and the hook publishes what answered.';
+                    return;
+                }
                 sel.value = has ? want : '';
                 if (lbl) lbl.title = (has ? 'Droplet answered its last console message on ' + mm.modelLabel
                         + (mm.model ? ' (' + mm.model + ')' : '') + (mm.modelAt ? ', ' + agoStr(mm.modelAt) : '') + '. ' : '')
@@ -4512,9 +4543,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (!handle || !ta || handle.dataset.bound) return; handle.dataset.bound = '1';
             // ONE-LINE PROMPT: at the minimum height the box becomes a bare growing line (.one on the form); taller = the box again
             const form = ta.closest('.dc-chat-input'), ONE = 40;
-            const grow = () => { if (!form || !form.classList.contains('one')) return; ta.style.height = 'auto'; ta.style.height = Math.min(Math.round(innerHeight * 0.6), ta.scrollHeight) + 'px'; };
+            const grow = () => { if (!form || !form.classList.contains('one')) return; ta.style.height = 'auto'; const sh = ta.scrollHeight; ta.style.height = sh ? Math.min(Math.round(innerHeight * 0.6), sh) + 'px' : ''; };   // sh 0 = box hidden right now (load / other tab): leave the height to rows=1 instead of pinning 0px (2026-11-09)
             const apply = h => { if (form && h <= ONE) { form.classList.add('one'); ta.rows = 1; grow(); } else { form && form.classList.remove('one'); ta.rows = 2; ta.style.height = h + 'px'; } };
-            ta.addEventListener('input', grow); ta.addEventListener('keyup', grow);
+            ta.addEventListener('input', grow); ta.addEventListener('keyup', grow); ta.addEventListener('focus', grow);   // re-measure on tap: a box sized while hidden heals itself
             // the box is emptied BY CODE at send (no input event): hook its value setter instead of polling every 400 ms (2026-10-24)
             { const vd = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
               Object.defineProperty(ta, 'value', { configurable: true, get() { return vd.get.call(this); },
@@ -4932,7 +4963,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (($('#dc-chat-target') || {}).value !== 'droplet') { $('#dc-chat-status').textContent = '\u26a0 model switch only applies to Droplet\u2019s session'; return; }
             const ta = $('#dc-chat-in'); if (!ta) return;
             const held = ta.value; ta.value = '/model ' + v;
-            sendChat().then(() => { if (held) ta.value = held; });
+            DC.modelPending = { v, at: Date.now() }; if (DC.syncModelSel) DC.syncModelSel();   // show "(switching…)" at once
+            sendChat().then(() => { if (held) ta.value = held; })
+                .catch(() => { DC.modelPending = null; if (DC.syncModelSel) DC.syncModelSel(); });
         }); }
         { const se = $('#dc-show-emoji'); if (se) {   // same pattern as Recent: per-device, remembered
             const on = (() => { try { return localStorage.getItem('dc_show_emoji') !== '0'; } catch (_) { return true; } })();
