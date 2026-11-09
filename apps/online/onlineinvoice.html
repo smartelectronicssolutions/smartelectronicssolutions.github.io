@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="version" content="1.0.1">
+  <meta name="version" content="1.0.2">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Invoice Manager</title>
   <link rel="stylesheet" href="../assets/css/online.css" />
@@ -402,8 +402,14 @@
       DB = user ? basePathFor(user) : null;
     });
 
-    // Business info is per-invoice now (the Business Name field) - no global settings.
-    function getBiz() { return {}; }
+    // Business info (2026-11-08): the Business Name field is the source. The last SAVED name + terms are remembered in this
+    // browser so a new invoice starts with them; each invoice stores its own `biz`, which printInvoice reads back.
+    function getBiz() {
+      var last = {}; try { last = JSON.parse(localStorage.getItem("inv_biz") || "{}"); } catch (e) {}
+      var name = ((document.getElementById("invBizName") || {}).value || "").trim();
+      return { name: name || last.name || "", terms: last.terms || "" };
+    }
+    function rememberBiz(biz) { try { localStorage.setItem("inv_biz", JSON.stringify(biz)); } catch (e) {} return biz; }
 
     // ── helpers ──
     function fmt(n) { return "$" + Number(n || 0).toFixed(2); }
@@ -886,7 +892,7 @@
         amountPaid: parseFloat(document.getElementById("amountPaid").value) || 0,
         paidDate: document.getElementById("paidDate").value,
         invoiceTitle: document.getElementById("invBizName").value.trim(),
-        biz: getBiz(),
+        biz: rememberBiz({ name: document.getElementById("invBizName").value.trim(), terms: document.getElementById("invNotes").value.trim() }),
         paid: !!paid,
         savedAt: Date.now(),
         invoiceSaved: true,
