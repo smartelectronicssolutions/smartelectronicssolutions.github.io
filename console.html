@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.146"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.148"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -4668,6 +4668,20 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const neverAgain = w => { const k = acKey(w); if (!k) return; acWrite(`never/${k}`, (((AC().never || {})[k]) || 0) + 1); };
             const caseLike = (src, fix) => src === src.toUpperCase() && src.length > 1 ? fix.toUpperCase() : (src[0] === src[0].toUpperCase() ? fix[0].toUpperCase() + fix.slice(1) : fix);
             const norm = s => s.replace(/\s+/g, ' ').trim();
+            // GUARD RAILS (2026-11-09, from the 11/9 enhanceLog: "let’s run some te#" -> "lets run some te#" and "…retired?" -> "…retired").
+            // Pure: text = what he wrote, out = the model's answer, atEnd = the piece ends the message. Returns {out} to accept
+            // (his curly apostrophes restored) or {why} to drop the answer and mark the piece stable.
+            function acceptGuards(text, out, atEnd) {
+                const qn = x => x.replace(/[’‘]/g, "'").replace(/[“”]/g, '"');
+                if (norm(qn(out)) === norm(qn(text))) return { why: 'no change (quote style only)' };
+                const apos = x => (qn(x).match(/[A-Za-z]'[A-Za-z]/g) || []).length;
+                if (apos(out) < apos(text)) return { why: 'rewrite dropped an apostrophe, kept yours' };
+                if (atEnd) { const endp = /([?!]+)\s*$/.exec(text); if (endp && !/[?!]\s*$/.test(out)) out = out.replace(/[\s.]*$/, '') + endp[1] + (text.match(/\s*$/) || [''])[0]; }
+                if (/’/.test(text) && !/’/.test(out)) out = out.replace(/([A-Za-z])'([A-Za-z])/g, '$1’$2');   // keep his apostrophe style
+                if (norm(out) === norm(text)) return { why: 'no change (quote style only)' };
+                return { out };
+            }
+            if (hooks) window.__dcAcceptGuards = acceptGuards;   // test hook
             let lastFix = null, lastRewrite = null, timer = null, ctl = null, lastSrc = '';
             const hideGhost = () => { ghost.hidden = true; ghost._sugg = null; ghost.dataset.kind = ''; };
             const chip = (kind, html, ms) => { ghost.dataset.kind = kind; ghost.hidden = false; ghost.innerHTML = html; clearTimeout(ghost._t); if (ms) ghost._t = setTimeout(() => { if (ghost.dataset.kind === kind) hideGhost(); }, ms); };
@@ -4679,6 +4693,13 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // inflight = the request in the air, so Send can wait for it instead of asking twice
             let flushing = false, forceApply = false, inflight = null, pendingAgain = false;
             let lastInputAt = 0, deferredApply = null, deferredTimer = null;   // a rewrite that arrived mid-word waits for the word to end
+            // DICTATION GUARD (2026-11-09, L: "enhance causes my message to double or some words to double when I'm using voice to text on my iPad").
+            // iOS dictation inserts whole phrases and keeps REPLACING its own provisional text; every programmatic edit we make while it is
+            // still speaking (an instant fix, a rewrite splice) gets dictation's buffer re-applied on top = doubled words. So: a multi-word
+            // insert (dictation / swipe / iOS replacement) opens a quiet window - no fixes, no splice - until 1.2 s pass with no new chunk;
+            // then ONE catch-up pass walks the whole dictated span. Typed text never enters the window (a key inserts one character).
+            let dictUntil = 0, dictFrom = -1, dictTimer = null;
+            const dictating = () => Date.now() < dictUntil;
             // CARET RULE (Chrome, verified 2026-09-25): setRangeText(..., 'preserve') with the caret sitting EXACTLY at the end of the
             // replaced range does not keep the caret - it SELECTS the new text, and his next key wipes it. Every replacement that can
             // meet the caret at its end sets the caret by hand: past the range -> shifted by the length change; else the range's end.
@@ -4744,6 +4765,12 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 if (!on() || !e.inputType || !e.inputType.startsWith('insert') || e.isComposing) return;   // isComposing: an Android IME is mid-word; touching the box now breaks its composition
                 const caret = ta.selectionStart; if (caret !== ta.selectionEnd) return;
                 const atEnd = caret === ta.value.length;
+                // a chunk = dictation / swipe / an iOS replacement: hold every edit, remember where the span began, pass once it is quiet
+                const chunk = e.inputType === 'insertReplacementText' || e.inputType === 'insertFromComposition' || (e.inputType === 'insertText' && !!e.data && /\S\s+\S/.test(e.data));
+                if (chunk || dictating()) {
+                    if (chunk) { if (!dictating()) enhLog('dictation hold'); dictUntil = Date.now() + 1200; const st = Math.max(0, caret - ((e.data && e.data.length) || 0) - 1); dictFrom = dictFrom < 0 ? st : Math.min(dictFrom, st); }
+                    clearTimeout(dictTimer); dictTimer = setTimeout(dictQuiet, 1250); return;
+                }
                 // a rewrite held back mid-word lands now that a separator arrived (before the instant fixes look at the new word)
                 if (deferredApply && /[\s.,!?;:]$/.test(ta.value.slice(0, caret))) { const f = deferredApply; deferredApply = null; clearTimeout(deferredTimer); f(); }
                 // walk every completed word inside what just arrived (a key: the last word; dictation: all of them)
@@ -4755,15 +4782,31 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 // doubled spaces anywhere in that span first (a dictated "if  this" has its double in the middle, not at the caret)
                 const span = ta.value.slice(scan, caret);
                 if (/ {2,}/.test(span)) { const one = span.replace(/ {2,}/g, ' '); ta.setRangeText(one, scan, caret, 'preserve'); const nc = caret - (span.length - one.length); ta.setSelectionRange(nc, nc); enhLog('double space dropped'); }
-                for (let guard = 0; guard < 16; guard++) {
+                scanWords(scan);
+                if (atEnd) ta.setSelectionRange(ta.value.length, ta.value.length);
+            });
+            // every completed word from `scan` up to the caret gets its instant fix (a key: one word; a chunk: all of them)
+            function scanWords(scan) {
+                for (let guard = 0; guard < 64; guard++) {
                     const seg = ta.value.slice(scan, ta.selectionStart);
                     const mm = /[A-Za-z'’]+[\s.,!?;:]/.exec(seg); if (!mm) break;
                     const sepPos = scan + mm.index + mm[0].length, len0 = ta.value.length;
                     fixAt(sepPos);
                     scan = sepPos + (ta.value.length - len0);
                 }
+            }
+            // dictation went quiet: one catch-up pass over the dictated span (doubled spaces, then the word fixes), then the rewrite timer
+            function dictQuiet() {
+                dictUntil = 0; const from = Math.max(0, Math.min(dictFrom, ta.value.length)); dictFrom = -1;
+                if (!on() || !ta.value || ta.selectionStart !== ta.selectionEnd) return;
+                const caret = ta.selectionStart, atEnd = caret === ta.value.length;
+                const span = ta.value.slice(from, caret);
+                if (/ {2,}/.test(span)) { const one = span.replace(/ {2,}/g, ' '); ta.setRangeText(one, from, caret, 'preserve'); const nc = caret - (span.length - one.length); ta.setSelectionRange(nc, nc); }
+                scanWords(from);
                 if (atEnd) ta.setSelectionRange(ta.value.length, ta.value.length);
-            });
+                enhLog('dictation pass', ta.value.slice(from, ta.selectionStart).trim().slice(0, 60));
+                clearTimeout(timer); timer = setTimeout(() => suggest(5), 300);
+            }
             // the last local pass at send: single spaces, a first capital, a period on a sentence left hanging
             window.__dcTidy = s => { s = String(s || '').replace(/[ \t]{2,}/g, ' ').replace(/\s+([.,!?;:])/g, '$1').trim();
                 if (/^[a-z]/.test(s)) s = s[0].toUpperCase() + s.slice(1);
@@ -4808,6 +4851,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     out = (text.match(/^\s*/) || [''])[0] + out.trim() + (text.match(/\s*$/) || [''])[0];   // keep the segment's own spacing: a rewritten sentence must not swallow the space before the next one
                     // still good if the box STARTS with what we sent - he may have typed on past it, that is fine
                     if (mine !== ctl || ta.value.slice(0, tailEnd) !== full) { enhLog('rewrite stale', (Date.now() - t0) + ' ms'); return; }
+                    const g = acceptGuards(text, out, tailEnd === full.length);   // GUARD RAILS 2026-11-09 (L): quote-style-only = no change; a dropped apostrophe = discard; a finished message keeps its ? / !
+                    if (g.why) { stable = tailEnd; enhLog(g.why, (Date.now() - t0) + ' ms · ' + text.trim().slice(0, 50) + ' → ' + out.trim().slice(0, 50)); return; }
+                    out = g.out;
                     const tooLong = out.length > text.length * 1.6, tooShort = text.length > 40 && out.length < text.length * 0.6;   // a proofread neither pads nor drops half the message
                     if (!out || norm(out) === norm(text) || tooLong || tooShort) { if (ghost.dataset.kind === 'rewrite' || ghost.dataset.kind === 'ready') hideGhost(); stable = tailEnd; enhLog(out && norm(out) !== norm(text) ? (tooLong ? 'rewrite too long, kept yours' : 'rewrite too short, kept yours') : 'no change', (Date.now() - t0) + ' ms'); return; }
                     // a proofread never ADDS content: a word in the answer that is not in the message, and is not a typo fix
@@ -4845,7 +4891,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                         // land it at a word boundary: splicing while a word is half-typed is where a keystroke and the splice can collide.
                         // If he is mid-word right now, the apply waits for his next separator or 450 ms of quiet (Send never waits).
                         const land = () => { applyRewrite(out, text, at, tailEnd); enhLog('rewritten', (Date.now() - t0) + ' ms · ' + text.split(/\s+/).length + ' words · ' + text.trim().slice(0, 70) + ' → ' + out.trim().slice(0, 70)); };
-                        const midWord = !forceApply && Date.now() - lastInputAt < 400 && /[A-Za-z0-9']$/.test(ta.value.slice(0, ta.selectionStart));
+                        const midWord = !forceApply && (dictating() || (Date.now() - lastInputAt < 400 && /[A-Za-z0-9']$/.test(ta.value.slice(0, ta.selectionStart))));
                         if (midWord) { deferredApply = land; clearTimeout(deferredTimer); deferredTimer = setTimeout(() => { if (deferredApply === land) { deferredApply = null; land(); } }, 450); }
                         else land();
                     }
@@ -4888,6 +4934,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 // that is how a long message gets fixed as it grows instead of all at the end. Judged from the text before
                 // the caret, not the typed character, so a swipe-typed "word. " counts too.
                 const p = ta.selectionStart;
+                if (dictating()) return;   // dictation guard: the quiet pass schedules the model once the phrase has settled
                 if (e.inputType && e.inputType.startsWith('insert') && p === ta.value.length && /[.!?]\s$/.test(ta.value.slice(0, p))) { suggest(3); return; }
                 timer = setTimeout(() => suggest(5), 700);
             });
