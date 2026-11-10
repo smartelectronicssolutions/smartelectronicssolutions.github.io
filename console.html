@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.152"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.154"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -3645,22 +3645,31 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // in view. A bubble taller than the viewport counts once more than half the viewport is covered by it. Hidden tab = no marks.
         function watchSeen(log, items, onSeen) {   // items = [{k, ts}] oldest first, unread only; onSeen(ts) when the watermark moves
             if (log.__seenIO) { log.__seenIO.disconnect(); log.__seenIO = null; }
+            if (log.__seenTimer) { clearTimeout(log.__seenTimer); log.__seenTimer = null; }
             if (!items.length) return;
-            const got = new Set(); let last = 0;
+            // ONE AT A TIME (2026-11-10, L: "the red dot ... just disappears when I click in that group instead of incrementally
+            // counting down"): landing at the bottom put every short unread on screen at once, so all of them counted in one frame.
+            // Seen lines now queue and are released oldest first, one per STEP ms - each blinks and the count drops by that one line.
+            const STEP = 650, got = new Set(), rel = new Set(); let last = 0;
+            const pump = () => {
+                log.__seenTimer = null;
+                const it = items.find(x => got.has(x.k) && !rel.has(x.k));
+                if (!it) return;
+                rel.add(it.k);
+                const el = log.querySelector(`[data-k="${CSS.escape(it.k)}"]`);
+                if (el) { el.classList.remove('dc-seen-blink'); void el.offsetWidth; el.classList.add('dc-seen-blink'); setTimeout(() => el.classList.remove('dc-seen-blink'), 850); }
+                let ts = 0;
+                for (const x of items) { if (!rel.has(x.k)) break; ts = x.ts; }
+                if (ts && ts !== last) { last = ts; onSeen(ts); }
+                if (items.some(x => got.has(x.k) && !rel.has(x.k))) log.__seenTimer = setTimeout(pump, STEP);
+            };
             const io = new IntersectionObserver(ents => {
                 if (document.hidden) return;
                 for (const e of ents) {
                     const rh = (e.rootBounds && e.rootBounds.height) || innerHeight;
-                    if (e.isIntersecting && (e.intersectionRatio >= 0.6 || e.intersectionRect.height >= rh * 0.5) && !got.has(e.target.dataset.k)) {
-                        got.add(e.target.dataset.k);
-                        // SEEN BLINK (2026-11-09, L): each unread message blinks faintly as it scrolls into view, one at a time, and the count drops by that line
-                        const el = e.target; el.classList.remove('dc-seen-blink'); void el.offsetWidth; el.classList.add('dc-seen-blink');
-                        setTimeout(() => el.classList.remove('dc-seen-blink'), 850);
-                    }
+                    if (e.isIntersecting && (e.intersectionRatio >= 0.6 || e.intersectionRect.height >= rh * 0.5)) got.add(e.target.dataset.k);
                 }
-                let ts = 0;
-                for (const it of items) { if (!got.has(it.k)) break; ts = it.ts; }
-                if (ts && ts !== last) { last = ts; onSeen(ts); }
+                if (!log.__seenTimer && items.some(x => got.has(x.k) && !rel.has(x.k))) log.__seenTimer = setTimeout(pump, 350);
                 if (got.size >= items.length) { io.disconnect(); log.__seenIO = null; }
             }, { threshold: [0, 0.6] });
             log.__seenIO = io;
