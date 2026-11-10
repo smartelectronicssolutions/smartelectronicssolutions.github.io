@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.156"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.157"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -5497,18 +5497,29 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
           cb.addEventListener('pointerdown', e => e.preventDefault()); cb.addEventListener('click', e => { if (e.target.closest('button')) setPeerReply(null); }); }
     }
 
-    function unread(tid) { const x = P.index[tid]; return !!(x && x.from !== P.me && x.ts > seen(tid) && tid !== P.open); }
+    // 2026-11-10 (L: "the read mailbox still is just removing the red dot as soon as I click into it"): the OPEN chat no longer hides its
+    // dot - it stays on the row and counts down as lines come on screen (watchSeen -> markSeen -> rowDot).
+    function unread(tid) { const x = P.index[tid]; return !!(x && x.from !== P.me && x.ts > seen(tid)); }
     // UNREAD COUNTS (2026-10-22, L: "show the number of messages ... each group or person"): the red dot carries a count. One read
     // per new last-message ts, only for unread conversations, over the same last-100 window the open conversation loads.
     P.unN = {};
-    function unreadN(tid) { const x = P.index[tid], c = P.unN[tid];
-        if (c && c.ts === x.ts) return c.n;
-        const since = seen(tid); P.unN[tid] = { ts: x.ts, n: 0 };
+    function unreadN(tid) { const x = P.index[tid], c = P.unN[tid], since = seen(tid);
+        if (c && c.ts === x.ts && c.since === since) return c.n;   // + since: a moved read mark must re-count (it was cached on ts alone)
+        let lm = null; try { lm = lastMsgs; } catch (_) {}   // declared further down - guard the module-eval TDZ (scar)
+        if (tid === P.open && lm) {   // the open chat: count off what is already loaded, no read
+            const n = Object.values(lm).filter(m => m && m.from !== P.me && +m.ts > since).length;
+            P.unN[tid] = { ts: x.ts, since, n }; return n; }
+        P.unN[tid] = { ts: x.ts, since, n: 0 };
         get(query(ref(database, `share/chat/${tid}/messages`), limitToLast(100))).then(s => {
             const n = Object.values(s.val() || {}).filter(m => m && m.from !== P.me && +m.ts > since).length;
-            P.unN[tid] = { ts: x.ts, n }; if (n && !P.open) renderHome(); }).catch(() => {});
+            P.unN[tid] = { ts: x.ts, since, n }; if (n && !P.open) renderHome(); }).catch(() => {});
         return 0; }
     const udot = t => { if (!unread(t)) return ''; const n = unreadN(t); return `<span class="dot${n ? ' n' : ''}">${n ? (n > 99 ? '99+' : n) : ''}</span>`; };
+    // ROW DOT IN PLACE (2026-11-10): refresh one row's count without redrawing the whole list (the list sits beside the open chat on wide screens)
+    function rowDot(tid) { const home = $('#dc-peer-home'); if (!home || home.hidden) return;
+        const row = home.querySelector(`.pswipe[data-conv="${CSS.escape(tid)}"] .dc-peer-row`); if (!row) return;
+        const old = row.querySelector('.dot'), html = udot(tid);
+        if (old && html) old.outerHTML = html; else if (old) old.remove(); else if (html) renderHome(); }
     // MUTE PER CHAT (2026-10-23): {me}/console/settings/mute/<chat_tid | dc_tab> = true. Read here + by ops/notify before any push.
     const muteKey = t => 'chat_' + String(t).replace(/[.#$\[\]\/]/g, '_');
     const mdot = t => P.mute && P.mute[muteKey(t)] ? ' <span title="muted">🔕</span>' : '';
@@ -5916,7 +5927,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const items = asc.filter(m => m.from !== P.me && (m.ts || 0) > was).map(m => ({ k: m.__k, ts: m.ts || 0 }));
             if (!items.length && asc.length && asc[asc.length - 1].from === P.me && asc[asc.length - 1].ts > was) markSeen(tid, asc[asc.length - 1].ts);
             const ws = (window.__dcShared || {}).watchSeen;
-            if (ws) ws(log, items, ts => { if (P.open === tid) { markSeen(tid, ts); dots(); } });
+            if (ws) ws(log, items, ts => { if (P.open === tid) { markSeen(tid, ts); dots(); rowDot(tid); } });
             else if (asc.length) markSeen(tid, asc[asc.length - 1].ts);   // old main module cached: fall back to read-on-open
             if (P.landTid !== tid && asc.length) {   // LAND ON THE FIRST UNREAD (2026-11-10) - once per open, on the first draw that HAS messages (the first draw is often empty)
                 P.landTid = tid;
