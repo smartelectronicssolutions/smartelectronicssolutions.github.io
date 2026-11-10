@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.154"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.155"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -2043,7 +2043,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (!ext) { if (DC.editKey) { const ta0 = $('#dc-chat-in'); if (ta0) ta0.value = ''; } setEditMode(''); }   // a triple-tap on the newest message had started an edit: drop it
             const box = document.createElement('div'); box.className = 'dc-del';
             const playing = DC.speakingKey === k;
-            box.innerHTML = `<div class="t">Message${t.topic ? ' <span class="tg"># ' + esc(t.topic) + '</span>' : ''}</div><div class="q">${esc(String(t.text || '').slice(0, 140))}</div><div class="r"><button type="button" class="play" title="Play - read it aloud with this device's voice - nothing is saved">${playing ? '■' : '▶'}</button><button type="button" class="rsvp" title="Read - speed read, a few words at a time, like the text app">⚡</button><button type="button" class="cpy" title="Copy - the whole message text to the clipboard">Copy</button>${ext ? '' : '<button type="button" class="tag" title="Tag - move this message (and its reply) to another topic tab, or untag it">#</button>'}${!ext || ext.onDelete ? '<button type="button" class="go">Delete</button>' : ''}</div>`;
+            box.innerHTML = `<div class="t">Message${t.topic ? ' <span class="tg"># ' + esc(t.topic) + '</span>' : ''}</div><div class="q">${esc(String(t.text || '').slice(0, 140))}</div><div class="r"><button type="button" class="play" title="Play - read it aloud with this device's voice - nothing is saved">${playing ? '■' : '▶'}</button><button type="button" class="rsvp" title="Read - speed read, a few words at a time, like the text app">⚡</button><button type="button" class="cpy" title="Copy - the whole message text to the clipboard">Copy</button>${(ext ? ext.onUnread : (t.s === 'D' && !t.pending && t.ts && DC.topic !== FAV_TAB && !DC.remote)) ? '<button type="button" class="unr" title="Unread - mark this message and everything after it unread again">Unread</button>' : ''}${ext ? '' : '<button type="button" class="tag" title="Tag - move this message (and its reply) to another topic tab, or untag it">#</button>'}${!ext || ext.onDelete ? '<button type="button" class="go">Delete</button>' : ''}</div>`;
             host.appendChild(box);
             // ARMING (2026-09-19, second pass): the box opens right under a finger that is often still tapping. The first fix only
             // ignored taps OUTSIDE the box for 550 ms - a 4th tap landing on Close (or Delete!) still fired at once, and a slow
@@ -2082,6 +2082,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // COPY (L 2026-11-02 "I can't copy text from my phone"): the whole message, synchronously inside the tap (iOS needs that)
             box.querySelector('.cpy').onclick = e => { if (quiet()) return; const b = e.currentTarget, ok = window.__dcCopyText(String(t.text || ''));
                 ok.then(r => { b.textContent = r ? 'Copied' : 'Failed'; setTimeout(close, 700); }); };
+            // MARK UNREAD (2026-11-10, L: "can I add a mark as unread maybe in the triple click"): the read mark moves back to just before
+            // this message, so it and everything after it count as unread again (People: the thread closes back to the list, like Mail).
+            const unb = box.querySelector('.unr');
+            if (unb) unb.onclick = () => { if (quiet()) return; close(); if (ext) ext.onUnread(); else markUnreadChat(t); };
             const gob = box.querySelector('.go');
             if (gob) gob.onclick = async () => { if (quiet()) return; close(); if (ext) await ext.onDelete(); else await deleteTurn(k); };
             if (ext) return;   // no tag row outside the Droplet chat
@@ -3671,7 +3675,20 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             log.__seenIO = io;
             for (const it of items) { const el = log.querySelector(`[data-k="${CSS.escape(it.k)}"]`); if (el) io.observe(el); }
         }
+        // MARK UNREAD for a console tab: move the topic's seen mark back (local + cloud, which markSeen never does - it only moves forward)
+        // and HOLD the seen watcher on this tab until you switch away, or the bubble still on screen would be counted read again at once.
+        function markUnreadChat(t) {
+            const k = t.topic || '', ts = Math.max(0, (t.ts || 0) - 1), loc = seenLocal();
+            loc[k] = ts; seenWrite(loc);
+            const ck = topicKey(k) || '_all';
+            DC.seenCloud = { ...(DC.seenCloud || {}), [ck]: { t: k, ts } };
+            if (DC.base) set(ref(database, `${DC.base}/seen/topics/${ck}`), { t: k, ts }).catch(() => {});
+            DC.holdUnread = k;
+            const st = $('#dc-chat-status'); if (st) st.textContent = '● marked unread' + (k ? ' in # ' + k : '');
+            renderChat(DC.chatTurns || {});
+        }
         function watchSeenChat(log, obj, cur) {
+            if (DC.holdUnread !== undefined && DC.holdUnread !== null) { if (DC.holdUnread === cur) { watchSeen(log, [], () => {}); return []; } DC.holdUnread = null; }
             const was = seenRead()[cur] || 0;
             const items = Object.entries(obj || {}).filter(([k, t]) => t && t.s === 'D' && !t.pending && (t.topic || '') === cur && (t.ts || 0) > was)
                 .sort((a, b) => (a[1].ts || 0) - (b[1].ts || 0)).map(([k, t]) => ({ k, ts: t.ts || 0 }));
@@ -5210,6 +5227,13 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     // read state follows the account, not the device (2026-09-28, L): share/chatIndex/<me>/<tid>/readAt, newest of cloud + local wins
     const seen = tid => { let loc = 0; try { loc = +localStorage.getItem('dc_peer_seen_' + tid) || 0; } catch (_) {}
         const x = (P && P.index || {})[tid]; return Math.max(loc, +(x && x.readAt) || 0); };
+    // MARK UNREAD (2026-11-10): read mark back to just before this message (local + account), then back to the list so the
+    // seen-on-screen watcher can't count it read again straight away. Their ✓✓ (seen/<me>) is left alone - un-reading is yours only.
+    const markUnreadPeer = (tid, mts) => { const ts = Math.max(0, (mts || 0) - 1);
+        try { localStorage.setItem('dc_peer_seen_' + tid, String(ts)); } catch (_) {}
+        const x = P.index[tid]; if (x) x.readAt = ts;
+        if (P.me) update(ref(database, `share/chatIndex/${P.me}/${tid}`), { readAt: ts }).catch(() => {});
+        closePeer(); renderHome(); dots(); };
     const markSeen = (tid, ts) => { ts = ts || Date.now();
         try { localStorage.setItem('dc_peer_seen_' + tid, String(ts)); } catch (_) {}
         const x = P.index[tid];
@@ -5857,6 +5881,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (tap.n >= 3 && window.__dcMsgSheet) { tap.n = 0;
                 window.__dcMsgSheet('peer:' + k, { host: $('#dc-peer'), text: m.text,
                     kit: { mine: ((P.reacts || {})[k] || {})[P.me], react: em => toggleReact(k, em), reply: () => setPeerReply({ k, from: m.from, text: m.text }) },
+                    onUnread: m.from !== P.me && m.ts ? () => markUnreadPeer(P.open, m.ts) : null,
                     onDelete: (m.from === P.me || P.me === OWNER) ? async () => { try { await set(ref(database, `share/chat/${P.open}/messages/${k}`), null); } catch (er) { alert('Could not delete: ' + (er.code || er.message)); } } : null }); }
         };
         P.swipeReply = k => { const m0 = msgs[k]; if (!m0) return; const m = m0.enc ? { ...m0, text: E2E.plain.get(k) ?? '' } : m0; setPeerReply({ k, from: m.from, text: m.text }); };   // bubble swipe (#10)
