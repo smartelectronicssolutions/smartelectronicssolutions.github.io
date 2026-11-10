@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.153"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.154"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -2533,7 +2533,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // SAME OPTIONS IN MEMBER CHATS (2026-09-27, L: "we should get all the same options and all that should work the same with
         // whoever I'm talking with"): the 👥 pane uses these instead of its own copies.
         window.__dcShared = { speak: (t, k, d) => speakText(t, k, d), stop: () => stopSpeak(), speakingKey: () => DC.speakingKey,
-                              linkify, richBody, fmtStamp, watchSeen, tidy: x => (window.__dcTidy ? window.__dcTidy(x) : x),
+                              linkify, richBody, fmtStamp, watchSeen, landOn, tidy: x => (window.__dcTidy ? window.__dcTidy(x) : x),
                               enhanceOn: () => !!($('#dc-chat-enhance') && $('#dc-chat-enhance').checked) };
         /* DRAG THE TAB STRIP (2026-09-21, L). It is overflow-x:auto with the scrollbar hidden,
            so a trackpad could swipe it and a plain mouse could not reach an off-screen tab at all.
@@ -2912,11 +2912,16 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 if (el !== want) log.insertBefore(el, want);
                 prev = el;
             }
-            if (!R && !favView) watchSeenChat(log, obj, DC.topic || '');   // SEEN ON SCREEN (2026-11-09)
+            const unseen = (!R && !favView) ? watchSeenChat(log, obj, DC.topic || '') : [];   // SEEN ON SCREEN (2026-11-09)
             // snap to the newest end only when the visible turns or the tab changed - a star toggle, an edit or a
             // reply landing in an existing bubble keeps your scroll position (2026-09-18)
             const rsig = (R ? R.owner + '/' + R.topic : DC.topic) + '|' + nf + '|' + order.join(',');
-            if (DC.renderSig !== rsig) { snapChatEnd(log, nf); DC.renderSig = rsig; }
+            if (DC.renderSig !== rsig) {
+                const tabKey = (R ? R.owner + '/' + R.topic : DC.topic || '') + '|' + nf;
+                const first = DC.landTab !== tabKey && unseen.length ? log.querySelector(`[data-k="${CSS.escape(unseen[0].k)}"]`) : null;
+                if (!(first && landOn(log, first, nf, () => updateLatestPill(log, nf)))) snapChatEnd(log, nf);   // a tab you just opened lands on its first unread
+                DC.landTab = tabKey; DC.renderSig = rsig;
+            }
             if (R) { fillSnaps(); return; }   // remote: pictures yes (from the owner); nothing else below is mine to update
             updateThreadSize(obj);
             fillSnaps();
@@ -3671,6 +3676,31 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const items = Object.entries(obj || {}).filter(([k, t]) => t && t.s === 'D' && !t.pending && (t.topic || '') === cur && (t.ts || 0) > was)
                 .sort((a, b) => (a[1].ts || 0) - (b[1].ts || 0)).map(([k, t]) => ({ k, ts: t.ts || 0 }));
             watchSeen(log, items, ts => { markSeen(cur, ts); const u = unreadTopics(DC.chatTurns || obj); DC._unread = u.unread; DC._unread[cur] = false; renderTopics(); });
+            return items;
+        }
+        // LAND ON THE FIRST UNREAD (2026-11-10, L: "open each chat at the first unread and count down as you read"): opening at the
+        // bottom left older unread lines above the fold, never seen, so the count came back on reload and skip-to-unread kept dragging
+        // to those tabs. Now a tab/thread OPENS with its oldest unread line at the top (newest-first: at the bottom) and you read
+        // toward the newest; each line is counted as it comes on screen. Re-asserted like snapChatEnd while the view is untouched.
+        function landOn(log, el, nf, after) {   // el = the bubble, or a function returning it (People redraws its log with innerHTML, so a held element goes stale)
+            const pick = typeof el === 'function' ? el : () => el;
+            if (!log || !pick()) return false;
+            const put = () => { const e = pick(); if (!e || !e.isConnected) return log.scrollTop;
+                const lr = log.getBoundingClientRect(), er = e.getBoundingClientRect();
+                log.scrollTop += nf ? (er.bottom - lr.bottom + 8) : (er.top - lr.top - 8); return log.scrollTop; };
+            // 'untouched' = no wheel/touch/key from you yet. Not a scrollTop compare: during boot the log is still laying out, the browser
+            // clamps scrollTop, and the compare read that clamp as you scrolling - so it gave up and the view sat at a random spot.
+            let touched = false; const touch = () => { touched = true; };
+            ['wheel', 'touchstart', 'pointerdown', 'keydown'].forEach(ev => log.addEventListener(ev, touch, { once: true, passive: true }));
+            put();
+            const again = () => { if (!touched) put(); };
+            if (log.id === 'dc-chat-log') DC.reSnap = again;
+            requestAnimationFrame(again); [90, 400, 900, 1500, 2500, 4000].forEach(ms => setTimeout(again, ms));
+            // bubbles keep growing after the first paint (markdown, pictures, the suggested-reply chip at the tail) and on newest-first that
+            // growth sits ABOVE the target, pushing it off screen - re-assert on every size change for 5 s while the view is untouched
+            if (window.ResizeObserver) { const ro = new ResizeObserver(again); Array.from(log.children).forEach(c => ro.observe(c)); setTimeout(() => ro.disconnect(), 5000); }
+            if (after) after();
+            return true;
         }
 
         function updateThreadSize(obj) {
@@ -5837,6 +5867,11 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const ws = (window.__dcShared || {}).watchSeen;
             if (ws) ws(log, items, ts => { if (P.open === tid) { markSeen(tid, ts); dots(); } });
             else if (asc.length) markSeen(tid, asc[asc.length - 1].ts);   // old main module cached: fall back to read-on-open
+            if (P.landTid !== tid && asc.length) {   // LAND ON THE FIRST UNREAD (2026-11-10) - once per open, on the first draw that HAS messages (the first draw is often empty)
+                P.landTid = tid;
+                const fk = items.length ? items[0].k : '';
+                if (fk && S.landOn) S.landOn(log, () => { const l = $('#dc-peer-log'); return l && l.querySelector(`[data-k="${CSS.escape(fk)}"]`); }, nf);
+            }
         }
         dots();
     }
@@ -6183,7 +6218,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     window.__dcClosePeer = () => closePeer();
     function closePeer() {
         if (P.unsub) { P.unsub(); P.unsub = null; } if (P.unsubX) { P.unsubX.forEach(f => f()); P.unsubX = null; }
-        P.open = null; P.other = null; muteBtn();
+        P.open = null; P.other = null; P.landTid = null; muteBtn();
         $('#dc-console .dc-body').classList.remove('dc-split', 'pfull', 'dc-conv');
         dots();
     }
