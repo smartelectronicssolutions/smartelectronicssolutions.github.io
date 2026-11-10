@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.24">
+    <meta name="version" content="1.0.31">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Control Hub</title>
     <link rel="stylesheet" href="assets/css/master.css">
@@ -650,6 +650,173 @@
                 });
             </script>
 
+            <!-- SYSTEMS (2026-11-10, L: "a pull of the system that tool is on into the hub card"): pick a machine, Pull = machine +
+                 adapters + apps checklist, Scan = the network it sits on. Card writes console/systems/req; svc-systems (se :3127,
+                 E:\Containers\ops\systems) runs the read-only sysinfo.ps1 there over se's SSH key and writes console/systems/hosts/<id>.
+                 Add a machine = download Add-To-Hub.bat (built here from the public key at console/systems/pubkey), run it, then + Add. -->
+            <section class="hub-section">
+                <div class="hcard" id="sys-card">
+                    <h3>Systems <span id="sy-age" style="float:right;font-size:0.65rem;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0"></span></h3>
+                    <div id="sy-hosts" class="cl-chips"></div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                        <button class="hbtn primary" id="sy-pull">Pull</button>
+                        <button class="hbtn" id="sy-scan">Scan network</button>
+                        <input id="sy-range" placeholder="range (blank = its own)" inputmode="decimal" style="flex:1;min-width:120px;max-width:200px;padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text);font-size:16px">
+                        <span id="sy-msg" style="font-size:0.75rem;color:var(--muted)"></span>
+                    </div>
+                    <div id="sy-out" style="margin-top:10px"></div>
+                    <details id="sy-add" style="margin-top:12px">
+                        <summary style="cursor:pointer;font-size:0.8rem">➕ Add a machine</summary>
+                        <ol style="font-size:0.8rem;line-height:1.5;padding-left:18px;margin:8px 0">
+                            <li>On the new PC (Windows; on your Tailscale to reach it anywhere, or just on the home network): <button class="hbtn" id="sy-dl">⬇ Download installer</button></li>
+                            <li>Run <b>Add-To-Hub.bat</b>, say Yes to the admin prompt. It turns on OpenSSH, adds se's key and <b>adds itself to this card</b> - no password, nothing left running.</li>
+                            <li>Only if it said it couldn't reach se: pick it here and type the account name it showed.</li>
+                        </ol>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                            <select id="sy-peer" style="padding:6px;border-radius:8px;font-size:16px"></select>
+                            <input id="sy-user" placeholder="account name" style="width:130px;padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text);font-size:16px">
+                            <button class="hbtn primary" id="sy-addgo">+ Add</button>
+                            <button class="hbtn" id="sy-refresh" title="re-read the Tailscale list">↻</button>
+                        </div>
+                        <div id="sy-addmsg" style="font-size:0.75rem;color:var(--muted);margin-top:6px"></div>
+                    </details>
+                </div>
+            </section>
+            <style>
+                .sy-h { font-size: 0.62rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; margin: 10px 0 4px; }
+                .sy-kv { display: grid; grid-template-columns: max-content 1fr; gap: 2px 10px; font-size: 0.8rem; }
+                .sy-kv span:nth-child(odd) { color: var(--muted); }
+                .sy-kv span { overflow-wrap: anywhere; }
+                .sy-tbl { width: 100%; border-collapse: collapse; font-size: 0.76rem; }
+                .sy-tbl td, .sy-tbl th { padding: 3px 4px; border-top: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+                .sy-tbl th { color: var(--muted); font-weight: 500; }
+                .sy-scroll { max-height: 360px; overflow: auto; }
+                .sy-ok { color: #2e9e5b; } .sy-no { color: #e05555; }
+            </style>
+            <script type="module">
+                import { auth, database, ref, onValue, push, set, onAuthStateChanged } from './assets/js/firebase-init.js?v=20261011b';
+                const $ = s => document.querySelector(s);
+                const esc = v => String(v ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+                const ago = t => { if (!t) return ''; const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago'; };
+                let base = null, list = {}, hosts = {}, peers = {}, pubkey = '', regUrl = '', regLan = '', cur = localStorage.getItem('sy-host') || 'se';
+                function paint() {
+                    const ids = Object.keys(list).sort((a, b) => (list[a].order || 9) - (list[b].order || 9) || a.localeCompare(b));
+                    if (ids.length && !list[cur]) cur = ids[0];
+                    $('#sy-hosts').innerHTML = ids.map(id => `<button class="cl-chip${id === cur ? ' on' : ''}" data-h="${esc(id)}" title="${esc(list[id].note || '')}">${esc(list[id].label || id)}</button>`).join('') || '<span style="font-size:0.8rem;color:var(--muted)">Sign in to see machines.</span>';
+                    const h = hosts[cur] || {}, r = h.run || {};
+                    let o = '';
+                    if (r.state === 'running') o += `<div class="cl-sum">⏳ ${r.mode === 'scan' ? 'Scanning' : 'Pulling'} ${esc(cur)}… (scan ~20 s)</div>`;
+                    if (r.state === 'error') o += `<div class="cl-sum" style="color:#f87171">Last try failed ${ago(r.at)}: ${esc(r.msg)}</div>`;
+                    const m = h.machine;
+                    if (m) {
+                        const ts = m.tailscale || {};
+                        o += `<div class="sy-h">Machine · ${ago(h.machineAt)}</div><div class="sy-kv">`
+                          + [['Name', m.name], ['Windows', `${m.os} ${m.release || ''} (${m.build})`], ['Model', `${m.maker || ''} ${m.model || ''}`], ['Serial', m.serial],
+                             ['CPU / RAM', `${m.cpu || ''} · ${m.ramGB} GB`], ['Signed in', `${m.user}${m.isAdmin ? ' (admin)' : ''}`], ['Accounts', (m.accounts || []).filter(a => a.enabled).map(a => a.name).join(', ')],
+                             ['Uptime', m.uptimeH + ' h'], ['Tailscale', ts.ip ? `${ts.name} · ${ts.ip}` : (ts.state || 'not installed')],
+                             ['Disks', (m.disks || []).map(d => `${d.drive} ${d.freeGB}/${d.sizeGB} GB free`).join(' · ')]]
+                            .map(([k, v]) => `<span>${k}</span><span>${esc(v)}</span>`).join('') + '</div>';
+                    }
+                    if (h.apps) o += `<div class="sy-h">Apps</div><div class="sy-kv">` + h.apps.map(a => `<span class="${a.installed ? 'sy-ok' : 'sy-no'}">${a.installed ? '✅' : '❌'} ${esc(a.want)}</span><span>${esc((a.items || []).map(i => (i.name + ' ' + i.version).trim()).filter((v, i, s) => s.indexOf(v) === i).join(' · ') || 'missing')}</span>`).join('') + '</div>';
+                    if (h.adapters) {
+                        const up = h.adapters.filter(a => a.status === 'Up');
+                        o += `<div class="sy-h">Adapters (${up.length} up)</div><table class="sy-tbl"><tr><th>Adapter</th><th>IPs</th><th>MAC</th></tr>`
+                          + up.map(a => `<tr><td>${esc(a.name)}<br><span style="color:var(--muted)">${esc(a.speed)}${a.dhcp ? ' · DHCP' : ''}${a.gateway?.length ? ' · gw ' + esc(a.gateway.join(',')) : ''}</span></td><td>${esc((a.ips || []).join(' '))}</td><td>${esc(a.mac)}</td></tr>`).join('') + '</table>';
+                    }
+                    const s = h.scan;
+                    if (s) {
+                        const dev = s.devices || [];
+                        o += `<div class="sy-h">Network scan · ${ago(h.scanAt)} · ${dev.length} devices · ${esc((s.ranges || []).join(', '))}</div><div class="sy-scroll"><table class="sy-tbl"><tr><th>Name</th><th>IP</th><th>MAC</th><th>Maker</th></tr>`
+                          + dev.map(d => `<tr${d.self ? ' style="opacity:.6"' : ''}><td>${esc(d.self ? '(this machine)' : d.name)}${d.services?.length ? `<br><span style="color:var(--muted)">${esc(d.services.join(' '))}</span>` : ''}</td><td>${esc(d.ip)}${d.ping >= 0 ? ` <span style="color:var(--muted)">${d.ping} ms</span>` : ''}</td><td>${esc(d.mac)}</td><td>${esc(d.maker)}</td></tr>`).join('') + '</table></div>';
+                    }
+                    if (!o) o = `<div class="cl-sum" style="color:var(--muted)">Nothing pulled from ${esc(cur)} yet - tap Pull.</div>`;
+                    $('#sy-out').innerHTML = o;
+                    $('#sy-age').textContent = ago(Math.max(h.machineAt || 0, h.scanAt || 0));
+                    const pk = Object.entries(peers.list || {}).filter(([id]) => !list[id]);
+                    $('#sy-peer').innerHTML = pk.length ? pk.map(([id, p]) => `<option value="${esc(id)}">${esc(id)}${p.online ? '' : ' (offline)'}</option>`).join('') : '<option value="">no new Windows PCs on your Tailscale</option>';
+                }
+                $('#sy-hosts').addEventListener('click', e => { const b = e.target.closest('[data-h]'); if (!b) return; cur = b.dataset.h; try { localStorage.setItem('sy-host', cur); } catch (_) {} paint(); });
+                async function req(obj, msg) {
+                    if (!base) { $('#sy-msg').textContent = 'Sign in first.'; return; }
+                    await set(push(ref(database, `${base}/req`)), Object.assign({ status: 'queued', createdAt: Date.now() }, obj));
+                    if (msg) { $('#sy-msg').textContent = msg; setTimeout(() => { $('#sy-msg').textContent = ''; }, 6000); }
+                }
+                $('#sy-pull').addEventListener('click', () => req({ host: cur, mode: 'machine' }, `Pulling ${cur}…`));
+                $('#sy-scan').addEventListener('click', () => req({ host: cur, mode: 'scan', range: $('#sy-range').value.trim() }, `Scanning from ${cur}…`));
+                $('#sy-refresh').addEventListener('click', () => req({ action: 'peers' }));
+                $('#sy-addgo').addEventListener('click', () => {
+                    const peer = $('#sy-peer').value, user = $('#sy-user').value.trim();
+                    if (!peer || !user) { $('#sy-addmsg').textContent = 'Pick the PC and type its account name.'; return; }
+                    $('#sy-addmsg').textContent = `se is trying ${peer}…`; req({ action: 'add', peer, user });
+                });
+                // the installer: built right here from the public key - a .bat that elevates, writes its PowerShell half to %TEMP% and runs it with -File
+                $('#sy-dl').addEventListener('click', () => {
+                    if (!pubkey) { $('#sy-addmsg').textContent = 'Sign in first (the installer carries se\'s key).'; return; }
+                    const bat = [
+                        '@echo off',
+                        'net session >nul 2>&1 || (powershell -NoProfile -Command "Start-Process -Verb RunAs -FilePath \'%~f0\'" & exit /b)',
+                        'set "PS1=%TEMP%\\add-to-hub.ps1"',
+                        'more +6 "%~f0" > "%PS1%"',
+                        'powershell -NoProfile -ExecutionPolicy Bypass -File "%PS1%"',
+                        'pause & exit /b',
+                        '$ErrorActionPreference = "Continue"',
+                        `$key = "${pubkey}"`,
+                        `$regs = @("${regUrl}", "${regLan}")`,
+                        '$sd = "$env:ProgramData\\AddToHub"; $sf = "$sd\\state.json"; $ak = "$env:ProgramData\\ssh\\administrators_authorized_keys"; $ts = "$env:ProgramFiles\\Tailscale\\tailscale.exe"',
+                        'function Call-Se($path) { $body = @{ user = $env:USERNAME; name = $env:COMPUTERNAME } | ConvertTo-Json; foreach ($i in 1..4) { foreach ($reg in $regs) { if (-not $reg) { continue }; try { return (Invoke-RestMethod -Method Post -Uri ($reg -replace "/register$", $path) -ContentType "application/json" -Body $body -TimeoutSec 45) } catch {} }; Start-Sleep 5 }; return $null }',
+                        'Write-Host "Add-To-Hub: connects this PC to the hub (se gets admin access over SSH)." -ForegroundColor Cyan',
+                        '$mode = Read-Host "Enter = INSTALL, U = UNINSTALL (undo everything this installer changed)"',
+                        'if ($mode -match "^(u|uninstall)$") {',
+                        '  $st = $null; if (Test-Path $sf) { $st = Get-Content $sf -Raw | ConvertFrom-Json }',
+                        '  if (-not $st) { Write-Host "No install record found - removing only the hub key and the netscan folder." -ForegroundColor Yellow; $st = [pscustomobject]@{ sshdInstalled = $false; sshdStartup = ""; fwCreated = $false; tsInstalled = $false } }',
+                        '  $r = Call-Se "/unregister"; if ($r) { Write-Host ("  hub: " + $r.msg) } else { Write-Host "  could not reach se - remove the chip from the card by hand" -ForegroundColor Yellow }',
+                        '  if (Test-Path $ak) { $keep = @(Get-Content $ak | Where-Object { $_ -and ($_ -notmatch "se-systems-card") }); if ($keep.Count) { Set-Content -Path $ak -Value $keep -Encoding ascii } else { Remove-Item $ak -Force }; Write-Host "  removed the hub key" }',
+                        '  Remove-Item "$env:USERPROFILE\\netscan" -Recurse -Force -ErrorAction SilentlyContinue',
+                        '  if ($st.fwCreated) { Remove-NetFirewallRule -Name "OpenSSH-Server-In-TCP" -ErrorAction SilentlyContinue; Write-Host "  removed the SSH firewall rule" }',
+                        '  if ($st.sshdInstalled) { Stop-Service sshd -ErrorAction SilentlyContinue; $cap = Get-WindowsCapability -Online -Name "OpenSSH.Server*" | Select-Object -First 1; Remove-WindowsCapability -Online -Name $cap.Name | Out-Null; Write-Host "  removed OpenSSH Server (it was not there before)" }',
+                        '  elseif ($st.sshdStartup) { Set-Service sshd -StartupType $st.sshdStartup; if ($st.sshdStartup -ne "Automatic") { Stop-Service sshd -ErrorAction SilentlyContinue }; Write-Host ("  OpenSSH Server back to " + $st.sshdStartup) }',
+                        '  if ($st.tsInstalled) { $a = Read-Host "This installer also installed Tailscale. Remove Tailscale too? [y/N]"; if ($a -match "^(y|yes)$") { winget uninstall --id Tailscale.Tailscale -e --silent | Out-Null; Write-Host "  removed Tailscale" } }',
+                        '  Remove-Item $sd -Recurse -Force -ErrorAction SilentlyContinue',
+                        '  Write-Host ""; Write-Host "UNINSTALLED - this PC is back the way it was." -ForegroundColor Green; return',
+                        '}',
+                        '$cap = Get-WindowsCapability -Online -Name "OpenSSH.Server*" | Select-Object -First 1',
+                        '$prev = $null; if (Test-Path $sf) { $prev = Get-Content $sf -Raw | ConvertFrom-Json }',
+                        '$st = [ordered]@{ at = (Get-Date).ToString("s"); sshdInstalled = [bool]$prev.sshdInstalled; sshdStartup = "" + $prev.sshdStartup; fwCreated = [bool]$prev.fwCreated; tsInstalled = [bool]$prev.tsInstalled }',
+                        'if ($cap.State -ne "Installed") { Write-Host "Installing OpenSSH Server (a minute or two)..."; Add-WindowsCapability -Online -Name $cap.Name | Out-Null; $st.sshdInstalled = $true } elseif (-not $prev) { $st.sshdStartup = "" + (Get-Service sshd).StartType }',
+                        'Set-Service sshd -StartupType Automatic; Start-Service sshd',
+                        'if (-not (Get-NetFirewallRule -Name "OpenSSH-Server-In-TCP" -ErrorAction SilentlyContinue)) { New-NetFirewallRule -Name "OpenSSH-Server-In-TCP" -DisplayName "OpenSSH Server (sshd)" -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 | Out-Null; $st.fwCreated = $true }',
+                        'if (-not (Test-Path $ak) -or -not (Select-String -Path $ak -SimpleMatch $key -Quiet)) { Add-Content -Path $ak -Value $key -Encoding ascii }',
+                        'icacls $ak /inheritance:r /grant "*S-1-5-32-544:F" /grant "SYSTEM:F" | Out-Null',
+                        'if (-not (Test-Path $ts)) { $a = Read-Host "Tailscale is not installed (needed to reach this PC away from home). Install it now? [y/N]"; if ($a -match "^(y|yes)$") { Write-Host "Installing Tailscale..."; winget install --id Tailscale.Tailscale -e --silent --accept-package-agreements --accept-source-agreements | Out-Null; Start-Sleep 5; if (Test-Path $ts) { $st.tsInstalled = $true } else { Write-Host "Tailscale did not install - carrying on with the home network only." -ForegroundColor Yellow } } }',
+                        'if ((Test-Path $ts) -and -not (& $ts ip -4 2>$null)) { $sk = Read-Host "Paste a Tailscale auth key to join without a browser (Enter = sign in normally)" -AsSecureString; $k = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($sk)); if ($k) { Write-Host "Joining Tailscale with the key..."; & $ts up --auth-key=$k 2>$null | Out-Null; $k = $null } else { Write-Host "Sign in to Tailscale with YOUR account in the browser window, then come back here." -ForegroundColor Cyan; & $ts up 2>$null | Out-Null }; Start-Sleep 3 }',
+                        'New-Item -ItemType Directory -Force $sd | Out-Null; $st | ConvertTo-Json | Set-Content -Path $sf -Encoding ascii',
+                        '$tip = ""; if (Test-Path $ts) { $tip = (& $ts ip -4 2>$null | Select-Object -First 1) }',
+                        'Write-Host "Adding this PC to the hub (Tailscale first, then the home network)..."',
+                        '$r = Call-Se "/register"; $ok = [bool]($r -and $r.ok); if ($r) { Write-Host ("  " + $r.msg) -ForegroundColor Green }',
+                        'Write-Host ""; Write-Host "DONE." -ForegroundColor Green',
+                        'Write-Host ("  PC name : " + $env:COMPUTERNAME)',
+                        'Write-Host ("  Account : " + $env:USERNAME)',
+                        'if ($tip) { Write-Host ("  Tailscale: " + $tip) } else { Write-Host "  Tailscale: not signed in - the hub can reach this PC only on the home network" -ForegroundColor Yellow }',
+                        'if ($ok) { Write-Host "It is on the hub Systems card now. To undo: run this file again and type U." } else { Write-Host "Could not reach se - in the hub: Systems > Add a machine > pick this PC > + Add." -ForegroundColor Yellow }'
+                    ].join('\r\n') + '\r\n';
+                    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([bat], { type: 'application/octet-stream' })); a.download = 'Add-To-Hub.bat'; a.click();
+                    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+                });
+                setInterval(() => { if (Object.keys(hosts).length) paint(); }, 60000);
+                paint();
+                onAuthStateChanged(auth, u => {
+                    if (!u) return;
+                    base = `${u.uid}/console/systems`;
+                    onValue(ref(database, `${base}/list`), s => { list = s.val() || {}; paint(); });
+                    onValue(ref(database, `${base}/hosts`), s => { hosts = s.val() || {}; paint(); });
+                    onValue(ref(database, `${base}/peers`), s => { peers = s.val() || {}; paint(); });
+                    onValue(ref(database, `${base}/pubkey`), s => { pubkey = s.val() || ''; });
+                    onValue(ref(database, `${base}/registerUrl`), s => { regUrl = s.val() || ''; });
+                    onValue(ref(database, `${base}/registerUrlLan`), s => { regLan = s.val() || ''; });
+                    onValue(ref(database, `${base}/add`), s => { const a = s.val(); if (a && Date.now() - a.at < 600000) $('#sy-addmsg').textContent = (a.state === 'done' ? '✅ ' : '⚠ ') + a.msg; });
+                });
+            </script>
+
             <section class="hub-section">
                 <div class="hcard"><h3>Quick Commands</h3><div id="cmd-list"></div></div>
             </section>
@@ -740,7 +907,7 @@
         const DC = { uid: null, base: null };
         const HUB_OWNER_UID = '7cIh8rrhVNOjjj5CBDgb3IlqzEh2';
         const OWNER_CARDS = ['Microsoft / OneDrive', 'Upcoming Work', 'Goings-On', 'Services', 'Claude Usage', 'Quick Commands',
-                             'MC Server', 'Open Service Tickets', 'Inventory', 'Network', 'Credentials', 'Server Drives', 'Site Statistics', 'Cleanup', 'Storage'];
+                             'MC Server', 'Open Service Tickets', 'Inventory', 'Network', 'Credentials', 'Server Drives', 'Site Statistics', 'Cleanup', 'Storage', 'Systems'];
         function applyGuest(isGuest) {
             document.documentElement.classList.toggle('hub-guest', isGuest);
             document.querySelectorAll('.hcard').forEach(card => {
