@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.31">
+    <meta name="version" content="1.0.40">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Control Hub</title>
     <link rel="stylesheet" href="assets/css/master.css">
@@ -528,16 +528,28 @@
 
 
             <section class="hub-section">
-                <div class="hcard">
-                    <h3>Claude Usage <span id="usage-age" style="float:right;font-size:0.65rem;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0"></span></h3>
-                    <div id="usage-body"><span style="color:var(--muted);font-style:italic">Loading...</span></div>
-                </div>
-                <!-- INTERNET DATA (2026-09-24, L: "Build it"): wan-meter reads the EdgeSwitch's router port over SNMP
-                     and publishes console/data every 2 min. Two stat tiles, a 7-day grouped bar, a per-device table. -->
+                <!-- 1.0.36 (L 2026-11-10): Claude Usage card removed from the hub - Usage lives in the console's settings. -->
+                <!-- NETWORK (1.0.38, L 2026-11-10: "merge Internet Data + Network into ONE Network card"): Internet on top =
+                     svc-wan-meter :3068 (EdgeSwitch router port over SNMP -> console/data every 2 min: tiles, 7-day bars, 30-day
+                     running total, per-device table); LAN devices below = the hand-kept host list + pi-hub live dots. Same element
+                     ids as the two old cards (data-age/data-body/net-table/net-rows) so every handler keeps working. A LAN row whose
+                     IP belongs to a Systems machine gets a button that opens that machine on the Systems card. -->
                 <div class="hcard" id="data-card">
-                    <h3>Internet Data <span id="data-age" style="float:right;font-size:0.65rem;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0"></span></h3>
+                    <h3>Network <span id="data-age" style="float:right;font-size:0.65rem;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0"></span></h3>
+                    <div class="net-sub">Internet</div>
                     <div id="data-body"><span style="color:var(--muted);font-style:italic">Loading...</span></div>
+                    <div class="net-sub" style="margin-top:14px">LAN devices <span style="text-transform:none;letter-spacing:0">· dot = pi-hub live · 🖥 = open on Systems</span></div>
+                    <div style="overflow-x:auto">
+                        <table class="htable" id="net-table">
+                            <thead><tr><th>Host</th><th>IP</th><th>OS / Type</th><th>Role</th></tr></thead>
+                            <tbody id="net-rows"></tbody>
+                        </table>
+                    </div>
                 </div>
+                <style>
+                    .net-sub { font-size: 0.62rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; margin: 8px 0 4px; }
+                    .net-sy { border: 1px solid var(--border); background: transparent; color: var(--text); border-radius: 999px; padding: 1px 8px; font-size: 0.7rem; cursor: pointer; margin-left: 4px; white-space: nowrap; }
+                </style>
             </section>
 
             <!-- CLEANUP (2026-10-13, L: "a cleanup card in the hub with different levels of cleanups that can be done on SE or any
@@ -545,13 +557,8 @@
                  ops-cleanup -> console/cleanup/<system>); the VMs and other PCs go to Droplet as a job (they need creds). -->
             <section class="hub-section">
                 <div class="hcard" id="cleanup-card">
-                    <h3>Storage <span id="cl-age" style="float:right;font-size:0.65rem;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0"></span></h3>
-                    <!-- STORAGE (2026-10-29, L: "combine cleanup, server drives, call it storage"): the Server Drives table now sits on top of Cleanup -->
-                    <div class="tiny" style="margin:10px 0 4px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;font-size:0.62rem">Server drives (se)</div>
-                    <table class="htable">
-                        <thead><tr><th>Drive</th><th>Label</th><th>Role</th></tr></thead>
-                        <tbody id="drive-rows"></tbody>
-                    </table>
+                    <h3>Cleanup <span id="cl-age" style="float:right;font-size:0.65rem;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0"></span></h3>
+                    <!-- 2026-11-10 (L: "like the drive info, can it be just part of this"): the Server drives table moved into the Systems card (se chip); this card is Cleanup again -->
                     <div class="tiny" style="margin:10px 0 4px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;font-size:0.62rem">Cleanup</div>
                     <div id="cl-sys" class="cl-chips"></div>
                     <div id="cl-levels"></div>
@@ -653,31 +660,67 @@
             <!-- SYSTEMS (2026-11-10, L: "a pull of the system that tool is on into the hub card"): pick a machine, Pull = machine +
                  adapters + apps checklist, Scan = the network it sits on. Card writes console/systems/req; svc-systems (se :3127,
                  E:\Containers\ops\systems) runs the read-only sysinfo.ps1 there over se's SSH key and writes console/systems/hosts/<id>.
-                 Add a machine = download Add-To-Hub.bat (built here from the public key at console/systems/pubkey), run it, then + Add. -->
-            <section class="hub-section">
-                <div class="hcard" id="sys-card">
+                 Add a machine (1.0.38, installer unification) = pick the OS -> the card writes a one-time PAIRING CODE
+                 console/systems/pairing/<CODE> {os, createdAt, exp +15 min, by: uid} -> ONE line with the code in it + Copy + QR.
+                 The generic scripts are served by svc-systems-checkin (se :3129, public as checkin.luissolutions.us via the tunnel):
+                 /i/win, /i/linux, /i/mac; /pair answers the code with the OWNER's hub key + register URLs (Windows/Linux) or a
+                 phone-home token (Mac). Downloads (/dl/...) are the same generic files - no key or uid in any of them.
+                 1.0.36 MEMBERS (assistant-console 0.4): the card shows for ANY login that has a console/systems node (hidden until
+                 then). Owner (no kdaemon) -> requests to console/systems/req (svc-systems on se). A member whose console/meta.daemonKind
+                 is 'kdaemon' -> the same request as a console/jobs entry {kind:'systems'} = their own PC's tools/systems.py, using
+                 THAT PC's key. Each login only ever reads/writes its own <uid>/console/systems. -->
+            <section class="hub-section" id="sy-section">
+                <div class="hcard" id="sys-card" style="display:none">
                     <h3>Systems <span id="sy-age" style="float:right;font-size:0.65rem;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0"></span></h3>
                     <div id="sy-hosts" class="cl-chips"></div>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
                         <button class="hbtn primary" id="sy-pull">Pull</button>
                         <button class="hbtn" id="sy-scan">Scan network</button>
+                        <button class="hbtn" id="sy-ping">Ping</button>
+                        <button class="hbtn" id="sy-gear" title="Settings for this machine">⚙</button>
                         <input id="sy-range" placeholder="range (blank = its own)" inputmode="decimal" style="flex:1;min-width:120px;max-width:200px;padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text);font-size:16px">
                         <span id="sy-msg" style="font-size:0.75rem;color:var(--muted)"></span>
                     </div>
+                    <div id="sy-set" hidden style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:10px"></div>
+                    <div id="sy-cat" hidden class="sy-set" style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:10px"></div>
                     <div id="sy-out" style="margin-top:10px"></div>
+                    <!-- se's drives (moved from the Storage card 2026-11-10): same ids, so drive_scan's pie / map handlers keep working; shown on the se chip -->
+                    <div id="sy-se-drives">
+                        <div class="sy-h">Drives (se) · tap a row for its map</div>
+                        <table class="htable">
+                            <thead><tr><th>Drive</th><th>Label</th><th>Role</th></tr></thead>
+                            <tbody id="drive-rows"></tbody>
+                        </table>
+                    </div>
                     <details id="sy-add" style="margin-top:12px">
                         <summary style="cursor:pointer;font-size:0.8rem">➕ Add a machine</summary>
-                        <ol style="font-size:0.8rem;line-height:1.5;padding-left:18px;margin:8px 0">
-                            <li>On the new PC (Windows; on your Tailscale to reach it anywhere, or just on the home network): <button class="hbtn" id="sy-dl">⬇ Download installer</button></li>
-                            <li>Run <b>Add-To-Hub.bat</b>, say Yes to the admin prompt. It turns on OpenSSH, adds se's key and <b>adds itself to this card</b> - no password, nothing left running.</li>
-                            <li>Only if it said it couldn't reach se: pick it here and type the account name it showed.</li>
-                        </ol>
-                        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-                            <select id="sy-peer" style="padding:6px;border-radius:8px;font-size:16px"></select>
-                            <input id="sy-user" placeholder="account name" style="width:130px;padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text);font-size:16px">
-                            <button class="hbtn primary" id="sy-addgo">+ Add</button>
-                            <button class="hbtn" id="sy-refresh" title="re-read the Tailscale list">↻</button>
+                        <div style="font-size:0.8rem;margin:8px 0 4px">What is the new machine?</div>
+                        <div class="sy-row" id="sy-os" style="margin-top:0">
+                            <button class="hbtn" data-os="win">🪟 Windows</button>
+                            <button class="hbtn" data-os="linux">🐧 Linux</button>
+                            <button class="hbtn" data-os="mac">🍎 Mac</button>
                         </div>
+                        <div id="sy-pair" hidden style="margin-top:8px">
+                            <div id="sy-pair-how" style="font-size:0.8rem;line-height:1.45"></div>
+                            <pre id="sy-line" class="sy-line"></pre>
+                            <div class="sy-row" style="margin-top:4px">
+                                <button class="hbtn primary" id="sy-copy">📋 Copy</button>
+                                <button class="hbtn" id="sy-newcode">↻ New code</button>
+                                <span id="sy-exp" style="font-size:0.72rem;color:var(--muted)"></span>
+                            </div>
+                            <div id="sy-qr" class="sy-qr" title="scan to copy the line on a phone"></div>
+                            <div id="sy-pair-foot" style="font-size:0.72rem;color:var(--muted);line-height:1.45"></div>
+                        </div>
+                        <details style="margin-top:10px">
+                            <summary style="cursor:pointer;font-size:0.75rem;color:var(--muted)">It installed but did not add itself?</summary>
+                            <div style="font-size:0.75rem;color:var(--muted);margin:6px 0">Windows on your Tailscale: pick it and type the account name the installer showed.</div>
+                            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                                <select id="sy-peer" style="padding:6px;border-radius:8px;font-size:16px"></select>
+                                <input id="sy-user" placeholder="account name" style="width:130px;padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text);font-size:16px">
+                                <button class="hbtn primary" id="sy-addgo">+ Add</button>
+                                <button class="hbtn" id="sy-refresh" title="re-read the Tailscale list">↻</button>
+                            </div>
+                        </details>
                         <div id="sy-addmsg" style="font-size:0.75rem;color:var(--muted);margin-top:6px"></div>
                     </details>
                 </div>
@@ -692,32 +735,81 @@
                 .sy-tbl th { color: var(--muted); font-weight: 500; }
                 .sy-scroll { max-height: 360px; overflow: auto; }
                 .sy-ok { color: #2e9e5b; } .sy-no { color: #e05555; }
+                .sy-set label { display: block; font-size: 0.72rem; color: var(--muted); margin: 8px 0 2px; }
+                .sy-set input[type=text], .sy-set input[type=number], .sy-set select, .sy-set textarea { width: 100%; box-sizing: border-box; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--text); font-size: 16px; }
+                .sy-set textarea { min-height: 60px; font-family: inherit; }
+                .sy-strip { display: grid; grid-template-columns: repeat(48, 1fr); gap: 1px; margin: 4px 0 2px; }
+                .sy-strip i { height: 14px; border-radius: 2px; background: var(--border); opacity: .5; }
+                .sy-strip i.u { background: #2e9e5b; opacity: 1; } .sy-strip i.d { background: #e05555; opacity: 1; }
+                .sy-strip-x { display: flex; justify-content: space-between; font-size: 0.62rem; color: var(--muted); }
+                .sy-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+                /* 1.0.37 catalog checkboxes + security strip */
+                .sy-apps { display: grid; grid-template-columns: 1fr; gap: 4px; font-size: 0.8rem; }
+                .sy-app { display: flex; gap: 8px; align-items: flex-start; }
+                .sy-app input { width: 20px; height: 20px; margin: 0; flex: none; accent-color: #2e9e5b; }
+                .sy-app .d { color: var(--muted); font-size: 0.72rem; overflow-wrap: anywhere; }
+                .sy-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+                .sy-chip { border: 1px solid var(--border); background: transparent; color: var(--text); border-radius: 999px; padding: 3px 10px; font-size: 0.74rem; cursor: pointer; }
+                .sy-chip.ok { border-color: #2e9e5b; } .sy-chip.warn { border-color: #d99a1e; color: #d99a1e; } .sy-chip.unk { opacity: .6; }
+                .sy-chip.on { box-shadow: 0 0 0 2px var(--border); }
+                .sy-appr { border: 1px solid #d99a1e; border-radius: 10px; padding: 8px; margin: 6px 0; font-size: 0.78rem; }
+                .sy-cat-row { display: flex; gap: 6px; align-items: center; padding: 4px 0; border-top: 1px solid var(--border); font-size: 0.78rem; }
+                .sy-cat-row .n { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+                .sy-cat-row button { padding: 2px 8px; font-size: 0.72rem; }
+                .sy-oschk { display: flex; gap: 14px; font-size: 0.8rem; }
+                /* 1.0.38 add-a-machine one-liner + QR */
+                .sy-line { white-space: pre-wrap; word-break: break-all; font-size: 0.76rem; line-height: 1.4; padding: 8px 10px; margin: 6px 0 0; border: 1px solid var(--border); border-radius: 8px; background: rgba(127,127,127,.08); user-select: all; }
+                .sy-qr { margin: 10px 0 6px; } .sy-qr svg { display: block; width: 180px; height: 180px; background: #fff; padding: 6px; border-radius: 8px; }
+                .sy-grp { color: var(--muted); font-size: 0.68rem; }
+                html.hub-guest .owner-only { display: none !important; }
             </style>
             <script type="module">
                 import { auth, database, ref, onValue, push, set, onAuthStateChanged } from './assets/js/firebase-init.js?v=20261011b';
                 const $ = s => document.querySelector(s);
                 const esc = v => String(v ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
                 const ago = t => { if (!t) return ''; const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago'; };
-                let base = null, list = {}, hosts = {}, peers = {}, pubkey = '', regUrl = '', regLan = '', cur = localStorage.getItem('sy-host') || 'se';
+                let approvals = {}, catV = 0, secOpen = '';
+                let base = null, jobsBase = null, myUid = '', member = false, metaHost = '', hubName = 'se', list = {}, hosts = {}, uptime = {}, catalog = {}, peers = {}, cur = localStorage.getItem('sy-host') || 'se';
                 function paint() {
+                    const card = $('#sys-card'); if (card) card.style.display = Object.keys(list).length ? '' : 'none';   // 1.0.36: only logins that have machines (the card itself - card order can move it out of its section)
+                    hubName = member ? (metaHost || 'your assistant PC') : 'se';
+                    document.querySelectorAll('.sy-hubname').forEach(e => { e.textContent = hubName; });
                     const ids = Object.keys(list).sort((a, b) => (list[a].order || 9) - (list[b].order || 9) || a.localeCompare(b));
                     if (ids.length && !list[cur]) cur = ids[0];
-                    $('#sy-hosts').innerHTML = ids.map(id => `<button class="cl-chip${id === cur ? ' on' : ''}" data-h="${esc(id)}" title="${esc(list[id].note || '')}">${esc(list[id].label || id)}</button>`).join('') || '<span style="font-size:0.8rem;color:var(--muted)">Sign in to see machines.</span>';
+                    $('#sy-hosts').innerHTML = ids.map(id => `<button class="cl-chip${id === cur ? ' on' : ''}" data-h="${esc(id)}" title="${esc(list[id].note || '')}">${esc(list[id].label || id)}${list[id].group ? ` <span class="sy-grp">· ${esc(list[id].group)}</span>` : ''}</button>`).join('') || '<span style="font-size:0.8rem;color:var(--muted)">Sign in to see machines.</span>';
                     const h = hosts[cur] || {}, r = h.run || {};
                     let o = '';
                     if (r.state === 'running') o += `<div class="cl-sum">⏳ ${r.mode === 'scan' ? 'Scanning' : 'Pulling'} ${esc(cur)}… (scan ~20 s)</div>`;
                     if (r.state === 'error') o += `<div class="cl-sum" style="color:#f87171">Last try failed ${ago(r.at)}: ${esc(r.msg)}</div>`;
+                    // 1.0.34 UPTIME (svc-systems 1.7 writes console/systems/uptime/<host> only when it changes)
+                    const u = uptime[cur];
+                    if (u && u.now) {
+                        const pc = v => v == null ? '-' : v + '%';
+                        const st = u.strip24 || {}, t0 = u.start || 0;
+                        const box = Array.from({ length: 48 }, (_, i) => { const v = st[i]; const at = new Date(t0 + i * 1800000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+                            return `<i class="${v === 1 ? 'u' : v === 0 ? 'd' : ''}" title="${at}: ${v === 1 ? 'up' : v === 0 ? 'down' : 'no data'}"></i>`; }).join('');
+                        const evs = (u.events || []).slice(0, 20);
+                        o += `<div class="sy-h">Uptime</div><div class="cl-sum">${u.now.up ? '🟢 Online' : '🔴 Offline'} · last check ${ago(u.now.at)}${u.now.ms != null && u.now.up ? ` · ${u.now.ms} ms` : ''} · 7 d ${pc(u.pct7)} · 30 d ${pc(u.pct30)}</div>`
+                          + `<div class="sy-strip">${box}</div><div class="sy-strip-x"><span>24 h ago</span><span>now</span></div>`
+                          + (evs.length ? `<table class="sy-tbl" style="margin-top:4px">${evs.map(e => `<tr><td>${e.kind === 'down' ? '🔴 went down' : e.kind === 'up' ? '🟢 came back' : '🔄 rebooted'}</td><td>${esc(new Date(e.ts).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}</td></tr>`).join('')}</table>` : '');
+                    } else if (list[cur] && !list[cur].local && !list[cur].checkEvery) o += `<div class="cl-sum" style="color:var(--muted)">Uptime checks are off for ${esc(cur)} (⚙ to turn on).</div>`;
+                    const pg = h.ping;
+                    if ((list[cur] || {}).mode === 'phonehome') o += `<div class="cl-sum">📡 phone-home · last check-in ${ago(h.lastCheckin || list[cur].lastCheckin) || 'never'}</div>`;
+                    else if (pg) o += `<div class="cl-sum">${pg.up ? '🟢' : '🔴'} Ping ${ago(pg.at)}: ${pg.up ? `${pg.ms ?? '?'} ms via ${esc(pg.via)} · SSH ${pg.port22 ? 'open' : 'closed'}` : 'no answer (Tailscale or LAN)'}</div>`;
                     const m = h.machine;
                     if (m) {
                         const ts = m.tailscale || {};
                         o += `<div class="sy-h">Machine · ${ago(h.machineAt)}</div><div class="sy-kv">`
-                          + [['Name', m.name], ['Windows', `${m.os} ${m.release || ''} (${m.build})`], ['Model', `${m.maker || ''} ${m.model || ''}`], ['Serial', m.serial],
+                          + [['Name', m.name], [(list[cur] || {}).os === 'mac' ? 'macOS' : (list[cur] || {}).os === 'linux' ? 'OS' : 'Windows', `${m.os} ${m.release || ''} (${m.build})`], ['Model', `${m.maker || ''} ${m.model || ''}`], ['Serial', m.serial],
                              ['CPU / RAM', `${m.cpu || ''} · ${m.ramGB} GB`], ['Signed in', `${m.user}${m.isAdmin ? ' (admin)' : ''}`], ['Accounts', (m.accounts || []).filter(a => a.enabled).map(a => a.name).join(', ')],
                              ['Uptime', m.uptimeH + ' h'], ['Tailscale', ts.ip ? `${ts.name} · ${ts.ip}` : (ts.state || 'not installed')],
-                             ['Disks', (m.disks || []).map(d => `${d.drive} ${d.freeGB}/${d.sizeGB} GB free`).join(' · ')]]
+                             ...(cur === 'se' ? [] : [['Disks', (m.disks || []).map(d => `${d.drive} ${d.freeGB}/${d.sizeGB} GB free`).join(' · ')]])]
                             .map(([k, v]) => `<span>${k}</span><span>${esc(v)}</span>`).join('') + '</div>';
                     }
-                    if (h.apps) o += `<div class="sy-h">Apps</div><div class="sy-kv">` + h.apps.map(a => `<span class="${a.installed ? 'sy-ok' : 'sy-no'}">${a.installed ? '✅' : '❌'} ${esc(a.want)}</span><span>${esc((a.items || []).map(i => (i.name + ' ' + i.version).trim()).filter((v, i, s) => s.indexOf(v) === i).join(' · ') || 'missing')}</span>`).join('') + '</div>';
+                    // 1.0.37 SECURITY strip (sysinfo.ps1 Get-Security -> hosts/<id>/security; the Mac build sends the same flags + its own)
+                    if (h.security && h.security.flags) o += secStrip(h.security);
+                    // 1.0.37 APPS = the editable catalog as CHECKBOXES (svc-systems 1.9 / member tool 1.1): checked = installed at the last pull
+                    o += appsBlock(h);
                     if (h.adapters) {
                         const up = h.adapters.filter(a => a.status === 'Up');
                         o += `<div class="sy-h">Adapters (${up.length} up)</div><table class="sy-tbl"><tr><th>Adapter</th><th>IPs</th><th>MAC</th></tr>`
@@ -731,14 +823,25 @@
                     }
                     if (!o) o = `<div class="cl-sum" style="color:var(--muted)">Nothing pulled from ${esc(cur)} yet - tap Pull.</div>`;
                     $('#sy-out').innerHTML = o;
+                    const sd = $('#sy-se-drives'); if (sd) sd.hidden = cur !== 'se';
                     $('#sy-age').textContent = ago(Math.max(h.machineAt || 0, h.scanAt || 0));
                     const pk = Object.entries(peers.list || {}).filter(([id]) => !list[id]);
                     $('#sy-peer').innerHTML = pk.length ? pk.map(([id, p]) => `<option value="${esc(id)}">${esc(id)}${p.online ? '' : ' (offline)'}</option>`).join('') : '<option value="">no new Windows PCs on your Tailscale</option>';
                 }
-                $('#sy-hosts').addEventListener('click', e => { const b = e.target.closest('[data-h]'); if (!b) return; cur = b.dataset.h; try { localStorage.setItem('sy-host', cur); } catch (_) {} paint(); });
+                $('#sy-hosts').addEventListener('click', e => { const b = e.target.closest('[data-h]'); if (!b) return; cur = b.dataset.h; try { localStorage.setItem('sy-host', cur); } catch (_) {} $('#sy-set').hidden = true; paint(); });
                 async function req(obj, msg) {
                     if (!base) { $('#sy-msg').textContent = 'Sign in first.'; return; }
-                    await set(push(ref(database, `${base}/req`)), Object.assign({ status: 'queued', createdAt: Date.now() }, obj));
+                    if (obj.host && (list[obj.host] || {}).mode === 'phonehome') {
+                        const kind = obj.action === 'install' || obj.action === 'uninstall' ? obj.action : (!obj.action ? (obj.mode === 'scan' ? 'scan' : 'pull') : '');
+                        if (!kind) { $('#sy-msg').textContent = `${obj.host} is a phone-home Mac - ${obj.action === 'ping' ? 'it checks in by itself every 10 min' : 'that is not available for it yet'}.`; setTimeout(() => { $('#sy-msg').textContent = ''; }, 6000); return; }
+                        await set(push(ref(database, `${base}/macq/${obj.host}`)), Object.assign({ kind, at: Date.now() }, obj.app ? { app: obj.app } : {}));
+                        await set(ref(database, `${base}/macqv/${obj.host}`), Date.now());
+                        if (msg) { $('#sy-msg').textContent = msg + ' (at its next check-in, up to 10 min)'; setTimeout(() => { $('#sy-msg').textContent = ''; }, 8000); }
+                        return;
+                    }
+                    // 1.0.36: a member's request is a kdaemon job (their PC's tools/systems.py); the owner's goes to svc-systems
+                    if (member) await set(push(ref(database, `${jobsBase}/jobs`)), Object.assign({ kind: 'systems', status: 'queued', createdAt: Date.now(), catalogV: catV || 0 }, obj));
+                    else await set(push(ref(database, `${base}/req`)), Object.assign({ status: 'queued', createdAt: Date.now() }, obj));
                     if (msg) { $('#sy-msg').textContent = msg; setTimeout(() => { $('#sy-msg').textContent = ''; }, 6000); }
                 }
                 $('#sy-pull').addEventListener('click', () => req({ host: cur, mode: 'machine' }, `Pulling ${cur}…`));
@@ -747,73 +850,295 @@
                 $('#sy-addgo').addEventListener('click', () => {
                     const peer = $('#sy-peer').value, user = $('#sy-user').value.trim();
                     if (!peer || !user) { $('#sy-addmsg').textContent = 'Pick the PC and type its account name.'; return; }
-                    $('#sy-addmsg').textContent = `se is trying ${peer}…`; req({ action: 'add', peer, user });
+                    $('#sy-addmsg').textContent = `${hubName} is trying ${peer}…`; req({ action: 'add', peer, user });
                 });
-                // the installer: built right here from the public key - a .bat that elevates, writes its PowerShell half to %TEMP% and runs it with -File
-                $('#sy-dl').addEventListener('click', () => {
-                    if (!pubkey) { $('#sy-addmsg').textContent = 'Sign in first (the installer carries se\'s key).'; return; }
-                    const bat = [
-                        '@echo off',
-                        'net session >nul 2>&1 || (powershell -NoProfile -Command "Start-Process -Verb RunAs -FilePath \'%~f0\'" & exit /b)',
-                        'set "PS1=%TEMP%\\add-to-hub.ps1"',
-                        'more +6 "%~f0" > "%PS1%"',
-                        'powershell -NoProfile -ExecutionPolicy Bypass -File "%PS1%"',
-                        'pause & exit /b',
-                        '$ErrorActionPreference = "Continue"',
-                        `$key = "${pubkey}"`,
-                        `$regs = @("${regUrl}", "${regLan}")`,
-                        '$sd = "$env:ProgramData\\AddToHub"; $sf = "$sd\\state.json"; $ak = "$env:ProgramData\\ssh\\administrators_authorized_keys"; $ts = "$env:ProgramFiles\\Tailscale\\tailscale.exe"',
-                        'function Call-Se($path) { $body = @{ user = $env:USERNAME; name = $env:COMPUTERNAME } | ConvertTo-Json; foreach ($i in 1..4) { foreach ($reg in $regs) { if (-not $reg) { continue }; try { return (Invoke-RestMethod -Method Post -Uri ($reg -replace "/register$", $path) -ContentType "application/json" -Body $body -TimeoutSec 45) } catch {} }; Start-Sleep 5 }; return $null }',
-                        'Write-Host "Add-To-Hub: connects this PC to the hub (se gets admin access over SSH)." -ForegroundColor Cyan',
-                        '$mode = Read-Host "Enter = INSTALL, U = UNINSTALL (undo everything this installer changed)"',
-                        'if ($mode -match "^(u|uninstall)$") {',
-                        '  $st = $null; if (Test-Path $sf) { $st = Get-Content $sf -Raw | ConvertFrom-Json }',
-                        '  if (-not $st) { Write-Host "No install record found - removing only the hub key and the netscan folder." -ForegroundColor Yellow; $st = [pscustomobject]@{ sshdInstalled = $false; sshdStartup = ""; fwCreated = $false; tsInstalled = $false } }',
-                        '  $r = Call-Se "/unregister"; if ($r) { Write-Host ("  hub: " + $r.msg) } else { Write-Host "  could not reach se - remove the chip from the card by hand" -ForegroundColor Yellow }',
-                        '  if (Test-Path $ak) { $keep = @(Get-Content $ak | Where-Object { $_ -and ($_ -notmatch "se-systems-card") }); if ($keep.Count) { Set-Content -Path $ak -Value $keep -Encoding ascii } else { Remove-Item $ak -Force }; Write-Host "  removed the hub key" }',
-                        '  Remove-Item "$env:USERPROFILE\\netscan" -Recurse -Force -ErrorAction SilentlyContinue',
-                        '  if ($st.fwCreated) { Remove-NetFirewallRule -Name "OpenSSH-Server-In-TCP" -ErrorAction SilentlyContinue; Write-Host "  removed the SSH firewall rule" }',
-                        '  if ($st.sshdInstalled) { Stop-Service sshd -ErrorAction SilentlyContinue; $cap = Get-WindowsCapability -Online -Name "OpenSSH.Server*" | Select-Object -First 1; Remove-WindowsCapability -Online -Name $cap.Name | Out-Null; Write-Host "  removed OpenSSH Server (it was not there before)" }',
-                        '  elseif ($st.sshdStartup) { Set-Service sshd -StartupType $st.sshdStartup; if ($st.sshdStartup -ne "Automatic") { Stop-Service sshd -ErrorAction SilentlyContinue }; Write-Host ("  OpenSSH Server back to " + $st.sshdStartup) }',
-                        '  if ($st.tsInstalled) { $a = Read-Host "This installer also installed Tailscale. Remove Tailscale too? [y/N]"; if ($a -match "^(y|yes)$") { winget uninstall --id Tailscale.Tailscale -e --silent | Out-Null; Write-Host "  removed Tailscale" } }',
-                        '  Remove-Item $sd -Recurse -Force -ErrorAction SilentlyContinue',
-                        '  Write-Host ""; Write-Host "UNINSTALLED - this PC is back the way it was." -ForegroundColor Green; return',
-                        '}',
-                        '$cap = Get-WindowsCapability -Online -Name "OpenSSH.Server*" | Select-Object -First 1',
-                        '$prev = $null; if (Test-Path $sf) { $prev = Get-Content $sf -Raw | ConvertFrom-Json }',
-                        '$st = [ordered]@{ at = (Get-Date).ToString("s"); sshdInstalled = [bool]$prev.sshdInstalled; sshdStartup = "" + $prev.sshdStartup; fwCreated = [bool]$prev.fwCreated; tsInstalled = [bool]$prev.tsInstalled }',
-                        'if ($cap.State -ne "Installed") { Write-Host "Installing OpenSSH Server (a minute or two)..."; Add-WindowsCapability -Online -Name $cap.Name | Out-Null; $st.sshdInstalled = $true } elseif (-not $prev) { $st.sshdStartup = "" + (Get-Service sshd).StartType }',
-                        'Set-Service sshd -StartupType Automatic; Start-Service sshd',
-                        'if (-not (Get-NetFirewallRule -Name "OpenSSH-Server-In-TCP" -ErrorAction SilentlyContinue)) { New-NetFirewallRule -Name "OpenSSH-Server-In-TCP" -DisplayName "OpenSSH Server (sshd)" -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 | Out-Null; $st.fwCreated = $true }',
-                        'if (-not (Test-Path $ak) -or -not (Select-String -Path $ak -SimpleMatch $key -Quiet)) { Add-Content -Path $ak -Value $key -Encoding ascii }',
-                        'icacls $ak /inheritance:r /grant "*S-1-5-32-544:F" /grant "SYSTEM:F" | Out-Null',
-                        'if (-not (Test-Path $ts)) { $a = Read-Host "Tailscale is not installed (needed to reach this PC away from home). Install it now? [y/N]"; if ($a -match "^(y|yes)$") { Write-Host "Installing Tailscale..."; winget install --id Tailscale.Tailscale -e --silent --accept-package-agreements --accept-source-agreements | Out-Null; Start-Sleep 5; if (Test-Path $ts) { $st.tsInstalled = $true } else { Write-Host "Tailscale did not install - carrying on with the home network only." -ForegroundColor Yellow } } }',
-                        'if ((Test-Path $ts) -and -not (& $ts ip -4 2>$null)) { $sk = Read-Host "Paste a Tailscale auth key to join without a browser (Enter = sign in normally)" -AsSecureString; $k = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($sk)); if ($k) { Write-Host "Joining Tailscale with the key..."; & $ts up --auth-key=$k 2>$null | Out-Null; $k = $null } else { Write-Host "Sign in to Tailscale with YOUR account in the browser window, then come back here." -ForegroundColor Cyan; & $ts up 2>$null | Out-Null }; Start-Sleep 3 }',
-                        'New-Item -ItemType Directory -Force $sd | Out-Null; $st | ConvertTo-Json | Set-Content -Path $sf -Encoding ascii',
-                        '$tip = ""; if (Test-Path $ts) { $tip = (& $ts ip -4 2>$null | Select-Object -First 1) }',
-                        'Write-Host "Adding this PC to the hub (Tailscale first, then the home network)..."',
-                        '$r = Call-Se "/register"; $ok = [bool]($r -and $r.ok); if ($r) { Write-Host ("  " + $r.msg) -ForegroundColor Green }',
-                        'Write-Host ""; Write-Host "DONE." -ForegroundColor Green',
-                        'Write-Host ("  PC name : " + $env:COMPUTERNAME)',
-                        'Write-Host ("  Account : " + $env:USERNAME)',
-                        'if ($tip) { Write-Host ("  Tailscale: " + $tip) } else { Write-Host "  Tailscale: not signed in - the hub can reach this PC only on the home network" -ForegroundColor Yellow }',
-                        'if ($ok) { Write-Host "It is on the hub Systems card now. To undo: run this file again and type U." } else { Write-Host "Could not reach se - in the hub: Systems > Add a machine > pick this PC > + Add." -ForegroundColor Yellow }'
-                    ].join('\r\n') + '\r\n';
-                    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([bat], { type: 'application/octet-stream' })); a.download = 'Add-To-Hub.bat'; a.click();
-                    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+                // 1.0.38 ADD A MACHINE = pairing code (L 11-10: "generic installers, NO per-person data" + "one line per OS on the card WITH QR").
+                // The code lives at <this login>/console/systems/pairing/<CODE>; whoever made it OWNS the machine. checkin.luissolutions.us
+                // (svc-systems-checkin) burns it on use; the card watches the node and says when it was used.
+                const CHECKIN = (() => { try { return localStorage.getItem('sy-checkin') || 'https://checkin.luissolutions.us'; } catch (_) { return 'https://checkin.luissolutions.us'; } })();
+                const PAIR_TTL = 15 * 60000, CODE_ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+                const PAIR_OS = {
+                    win: { line: c => `& ([scriptblock]::Create((irm ${CHECKIN}/i/win))) ${c}`, how: 'On the new PC: <b>Start</b> → type <b>PowerShell</b> → <b>Run as administrator</b> → paste this line → Enter.',
+                           dl: ['Add-To-Hub.bat', '/dl/Add-To-Hub.bat', 'double-click it, say Yes to the admin prompt, type the code'] },
+                    linux: { line: c => `curl -fsSL ${CHECKIN}/i/linux | sh -s -- ${c}`, how: 'On the machine: open a <b>terminal</b> → paste this line → Enter (it asks for your sudo password once if it must install OpenSSH).',
+                             dl: ['add-to-hub.sh', '/dl/add-to-hub.sh', 'run: sh add-to-hub.sh CODE'] },
+                    mac: { line: c => `curl -fsSL ${CHECKIN}/i/mac | zsh -s -- ${c}`, how: 'On the Mac: open <b>Terminal</b> → paste this line → Enter. No admin password needed; it checks in every 10 min (phone-home, no Tailscale).',
+                           dl: ['Add-To-Hub.zip', '/dl/Add-To-Hub.zip', 'unzip, right-click Add-To-Hub.command → Open, type the code'] },
+                };
+                let pairOs = '', pairCode = '', pairExp = 0, pairSeen = false, pairUnsub = null, pairTimer = null;
+                let qrLib = null;
+                function loadQr() {
+                    if (window.qrcode) return Promise.resolve(window.qrcode);
+                    if (qrLib) return qrLib;
+                    qrLib = new Promise((res, rej) => { const sc = document.createElement('script');
+                        sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js';
+                        sc.integrity = 'sha384-mZT2gIty7ZDdOGkxfP6joZcYdMW1Jvj9dRlfpTmaJAKKXTqzygtB22k7FLe+KZC1'; sc.crossOrigin = 'anonymous';
+                        sc.onload = () => window.qrcode ? res(window.qrcode) : rej(new Error('no qrcode')); sc.onerror = () => { qrLib = null; rej(new Error('QR library did not load')); };
+                        document.head.appendChild(sc); });
+                    return qrLib;
+                }
+                function pairPaint() {
+                    const box = $('#sy-pair'); if (!pairOs) { box.hidden = true; return; }
+                    const P = PAIR_OS[pairOs], left = pairExp - Date.now();
+                    document.querySelectorAll('#sy-os [data-os]').forEach(b => b.classList.toggle('primary', b.dataset.os === pairOs));
+                    box.hidden = false;
+                    $('#sy-pair-how').innerHTML = P.how;
+                    $('#sy-line').textContent = pairCode ? P.line(pairCode) : 'making a code…';
+                    $('#sy-exp').textContent = !pairCode ? '' : pairSeen === 'used' ? '✅ code used - the machine is pairing; its chip appears when it finishes'
+                        : left <= 0 ? '⌛ expired - tap New code' : `code ${pairCode.slice(0, 4)}-${pairCode.slice(4)} · one use · ${Math.ceil(left / 60000)} min left`;
+                    $('#sy-pair-foot').innerHTML = `Whoever is signed in here owns the machine it adds. No line handy? Download <a href="${CHECKIN}${P.dl[1]}" download>${esc(P.dl[0])}</a> (${esc(P.dl[2])}) - the same generic installer, nothing personal in it.`;
+                }
+                async function newPairCode() {
+                    if (!base || !myUid) { $('#sy-addmsg').textContent = 'Sign in first.'; return; }
+                    if (pairUnsub) { pairUnsub(); pairUnsub = null; }
+                    if (pairCode && pairSeen !== 'used') { try { await set(ref(database, `${base}/pairing/${pairCode}`), null); } catch (_) {} }   // the old unused code dies
+                    const rnd = crypto.getRandomValues(new Uint32Array(8));
+                    pairCode = Array.from(rnd, n => CODE_ABC[n % CODE_ABC.length]).join(''); pairSeen = false;
+                    const now = Date.now(); pairExp = now + PAIR_TTL;
+                    pairPaint(); $('#sy-qr').innerHTML = '';
+                    try {
+                        await set(ref(database, `${base}/pairing/${pairCode}`), { os: pairOs, createdAt: now, exp: pairExp, by: myUid });
+                    } catch (x) { $('#sy-exp').textContent = '⚠ could not save the code: ' + x.message; pairCode = ''; return; }
+                    pairUnsub = onValue(ref(database, `${base}/pairing/${pairCode}`), sn => { if (sn.exists()) pairSeen = true; else if (pairSeen === true) pairSeen = 'used'; pairPaint(); });
+                    const line = PAIR_OS[pairOs].line(pairCode);
+                    loadQr().then(qrcode => { const q = qrcode(0, 'M'); q.addData(line); q.make(); if (PAIR_OS[pairOs].line(pairCode) === line) $('#sy-qr').innerHTML = q.createSvgTag({ cellSize: 4, margin: 2, scalable: true }); })
+                        .catch(x => { $('#sy-qr').innerHTML = `<span style="font-size:0.72rem;color:var(--muted)">(QR unavailable: ${esc(x.message)})</span>`; });
+                    clearInterval(pairTimer); pairTimer = setInterval(() => { pairPaint(); if (Date.now() > pairExp + 60000) clearInterval(pairTimer); }, 20000);
+                }
+                $('#sy-os').addEventListener('click', e => { const b = e.target.closest('[data-os]'); if (!b) return; pairOs = b.dataset.os; newPairCode(); });
+                $('#sy-newcode').addEventListener('click', () => { if (pairOs) newPairCode(); });
+                $('#sy-copy').addEventListener('click', async () => {
+                    const t = $('#sy-line').textContent; if (!pairCode) return;
+                    try { await navigator.clipboard.writeText(t); $('#sy-copy').textContent = '✅ Copied'; }
+                    catch (_) { const r = document.createRange(); r.selectNodeContents($('#sy-line')); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); $('#sy-copy').textContent = 'Selected - copy it'; }
+                    setTimeout(() => { $('#sy-copy').textContent = '📋 Copy'; }, 2500);
                 });
+                // 1.0.38: the merged Network card asks which LAN IPs are Systems machines, and opens one here
+                window.__syIpMap = () => { const m = {};
+                    Object.entries(hosts).forEach(([id, h]) => { if (!list[id] || !h) return;
+                        (h.adapters || []).forEach(a => (a.ips || []).forEach(ip => { ip = String(ip).split('/')[0]; if (/^\d+\.\d+\.\d+\.\d+$/.test(ip) && !/^(127|169\.254)\./.test(ip)) m[ip] = id; }));
+                        const t = (h.machine || {}).tailscale || {}; if (t.ip) m[t.ip] = id; });
+                    return m; };
+                window.__syOpen = id => { if (!list[id]) return; cur = id; try { localStorage.setItem('sy-host', cur); } catch (_) {} $('#sy-set').hidden = true; paint();
+                    const c = $('#sys-card'); if (c) c.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+                const fbkey = n => String(n).replace(/[^A-Za-z0-9]/g, '_').slice(0, 60);
+                const okeyOf = l => l.os === 'linux' ? 'linux' : (l.os === 'mac' ? 'mac' : 'win');
+                const OSN = { win: 'Windows', linux: 'Linux', mac: 'Mac' };
+                function hasMethod(c, ok, action) {
+                    const i = c.install || {}, u = c.uninstall || {};
+                    if (ok === 'mac') return action === 'install' ? !!(i.brew || i.cask) : !!(u.brew || i.cask);   // phone-home Macs (brew)
+                    if (ok === 'linux') return action === 'install' ? !!(i.apt || i.pacman) : !!(u.apt || u.pacman || u.cmd);
+                    return action === 'install' ? !!(i.winget || i.url) : !!(u.winget || u.cmd);
+                }
+                const catSorted = () => Object.entries(catalog).filter(([, c]) => c && c.name).sort(([, a], [, b]) => (a.order ?? 50) - (b.order ?? 50) || a.name.localeCompare(b.name));
+                const SEC = { disk: '🔒 Disk', av: '🛡 AV', firewall: '🧱 Firewall', updates: '⬆ Updates', uac: '👤 UAC', filevault: '🔒 FileVault', gatekeeper: '🚪 Gatekeeper', sip: '🧬 SIP', defender: '🛡 XProtect', screenlock: '⏱ Screen lock', diskfree: '💾 Disk space' };
+                function secDetail(k, s) {
+                    const d = s.defender || {}, onoff = v => v === true ? 'on' : v === false ? 'off' : String(v ?? '?');
+                    if (k === 'disk') return (s.bitlocker || []).map(b => `BitLocker ${b.status} on ${b.drive}${b.pct ? ` (${b.pct}%)` : ''}`).join(' · ') + (s.secureBoot != null ? ` · Secure Boot ${onoff(s.secureBoot)}` : '') || 'no disk-encryption data';
+                    if (k === 'av') return s.defender ? `Defender ${onoff(d.enabled)}, real-time ${onoff(d.realtime)}, signatures ${d.sigAgeDays ?? '?'} d old, tamper protection ${onoff(d.tamper)}` : 'no antivirus data';
+                    if (k === 'firewall') return Object.entries(s.firewall || {}).map(([p, v]) => `${p} ${onoff(v)}`).join(' · ') || 'no firewall data';
+                    if (k === 'updates') return `last update ${s.lastUpdate || '?'}${s.lastUpdateDays != null ? ` (${s.lastUpdateDays} d ago)` : ''}, ${s.rebootPending ? 'REBOOT PENDING' : 'no reboot pending'}`;
+                    if (k === 'uac') return `UAC ${onoff(s.uac)}`;
+                    const v = s[k]; return v == null ? 'no detail' : (typeof v === 'object' ? JSON.stringify(v).slice(0, 200) : `${k}: ${v}`);
+                }
+                function secStrip(s) {
+                    const f = s.flags || {};
+                    const keys = [...Object.keys(SEC).filter(k => k in f), ...Object.keys(f).filter(k => !(k in SEC))];
+                    if (secOpen && !(secOpen in f)) secOpen = '';
+                    return `<div class="sy-h">Security</div><div class="sy-chips">` + keys.map(k => { const v = f[k];
+                        return `<button class="sy-chip ${v === 'ok' ? 'ok' : v === 'warn' ? 'warn' : 'unk'}${secOpen === k ? ' on' : ''}" data-sec="${esc(k)}">${esc(SEC[k] || k)} ${v === 'ok' ? '✅' : v === 'warn' ? '⚠' : '?'}</button>`; }).join('')
+                      + `</div>` + (secOpen ? `<div class="cl-sum" style="margin-top:4px">${esc(secDetail(secOpen, s))}</div>` : '');
+                }
+                function appsBlock(h) {
+                    const l = list[cur] || {}, ok = okeyOf(l), inst = h.install || {};
+                    const pulled = {}; (h.apps || []).forEach(a => { pulled[String(a.want).toLowerCase()] = a; });
+                    const ents = catSorted().filter(([, c]) => c.os && c.os[ok]);
+                    let o = `<div class="sy-h">Apps${l.local ? ` · installs on ${esc(hubName)} itself are done by hand` : ''}</div>`;
+                    const ap = Object.entries(approvals);
+                    if (ap.length) o += ap.map(([k, a]) => `<div class="sy-appr">🛡 <b>${esc(a.name)}</b> is new or changed in the catalog - ${esc(hubName)} will not run it until you OK it.<br><span style="color:var(--muted)">${esc(a.summary)}</span>`
+                        + (a.refused ? `<br><span style="color:#f87171">⚠ last approve refused: ${esc(a.refused)}</span>` : '')
+                        + `<div class="sy-row"><button class="hbtn primary" data-approve="${esc(k)}">Approve installer: ${esc(a.name)}</button><button class="hbtn" data-approve-x="${esc(k)}">Dismiss</button></div></div>`).join('');
+                    const seen = new Set();
+                    o += `<div class="sy-apps">` + ents.map(([k, c]) => {
+                        const m = String(c.match || c.name).toLowerCase(); seen.add(m);
+                        const a = pulled[m], j = inst[k], run = j && j.state === 'running' && Date.now() - j.at < 1500000;
+                        const installed = !!(a && a.installed), can = hasMethod(c, ok, installed ? 'uninstall' : 'install');
+                        const dis = l.local || run || !can || !h.apps;
+                        let d = a ? (installed ? (a.items || []).map(i => (i.name + ' ' + i.version).trim()).filter((v, i, s) => s.indexOf(v) === i).join(' · ') : 'not installed') : (h.apps ? 'not checked yet - tap Pull' : '');
+                        if (!can && !l.local) d += (d ? ' · ' : '') + `no ${installed ? 'uninstall' : 'install'} method${ok === 'mac' ? ' (brew/cask)' : ''} in the catalog` + (c[ok === 'linux' ? 'noteLinux' : 'note'] ? ' - ' + c[ok === 'linux' ? 'noteLinux' : 'note'] : '');
+                        if (j) {
+                            const verb = j.action === 'uninstall' ? 'uninstall' : 'install';
+                            if (run) d += ` · ⏳ ${verb}ing… (${ago(j.at)})`;
+                            else if (j.state === 'approval' && Date.now() - j.at < 86400000) d += ` · 🛡 waiting for your approval`;
+                            else if (j.state === 'error' && Date.now() - j.at < 86400000) d += ` · ⚠ ${verb} failed ${ago(j.at)}: ${j.msg}`;
+                            else if (j.state === 'done' && Date.now() - j.at < 3600000) d += ` · ✅ ${(j.msg || '').startsWith('already') ? 'already installed' : (j.msg || '').startsWith('was not') ? 'was not installed' : verb + 'ed'} ${ago(j.at)} (${j.secs} s)`;
+                        }
+                        return `<label class="sy-app"><input type="checkbox" data-app="${esc(c.name)}"${installed ? ' checked' : ''}${dis ? ' disabled' : ''}><span><span class="${installed ? 'sy-ok' : ''}">${esc(c.name)}</span>${c.group ? ` <span class="d">· ${esc(c.group)}</span>` : ''}<br><span class="d">${esc(d)}</span></span></label>`;
+                    }).join('') + `</div>`;
+                    const extra = (h.apps || []).filter(a => !seen.has(String(a.want).toLowerCase()));
+                    if (extra.length) o += `<div class="sy-h">Other checks (not in the catalog)</div><div class="sy-kv">` + extra.map(a => `<span class="${a.installed ? 'sy-ok' : 'sy-no'}">${a.installed ? '✅' : '❌'} ${esc(a.want)}</span><span>${esc((a.items || []).map(i => (i.name + ' ' + i.version).trim()).filter((v, i, s) => s.indexOf(v) === i).join(' · ') || 'missing')}</span>`).join('') + `</div>`;
+                    o += `<div class="sy-row"><button class="hbtn" data-cat-add>➕ Add app</button><button class="hbtn" data-cat-panel>📦 Catalog</button></div>`;
+                    return o;
+                }
+                $('#sy-out').addEventListener('change', e => {
+                    const cb = e.target.closest('input[data-app]'); if (!cb) return;
+                    const want = cb.checked; cb.checked = !want;              // the box flips only when the next pull says so
+                    const app = cb.dataset.app, host = cur;
+                    if (!confirm(want ? `Install ${app} on ${host}?` : `Uninstall ${app} from ${host}?`)) return;
+                    cb.disabled = true;
+                    req({ action: want ? 'install' : 'uninstall', host, app }, `${want ? 'Installing' : 'Uninstalling'} ${app} ${want ? 'on' : 'from'} ${host}…`);
+                });
+                $('#sy-out').addEventListener('click', e => {
+                    const t = e.target.closest('[data-sec],[data-approve],[data-approve-x],[data-cat-add],[data-cat-panel]'); if (!t) return;
+                    if (t.dataset.sec) { secOpen = secOpen === t.dataset.sec ? '' : t.dataset.sec; paint(); return; }
+                    if (t.dataset.approve) {
+                        const a = approvals[t.dataset.approve]; if (!a) return;
+                        if (!confirm(`Approve the installer for ${a.name}?\n\n${a.summary}\n\n${hubName} will run exactly this spec; any later edit needs a new OK.`)) return;
+                        t.disabled = true; req({ action: 'approve', name: a.name, specHash: a.specHash }, `Approving ${a.name}…`); return;
+                    }
+                    if (t.dataset.approveX) { set(ref(database, `${base}/approvals/${t.dataset.approveX}`), null); return; }
+                    if ('catAdd' in t.dataset) return openCatForm(null);
+                    if ('catPanel' in t.dataset) return openCatPanel();
+                });
+                // ---- catalog editor (writes <uid>/console/systems/catalog directly + bumps catalogV; the runner re-validates + needs an approval for any new spec)
+                const RX = { name: /^[A-Za-z0-9][A-Za-z0-9 .+_()-]{0,39}$/, pkg: /^[A-Za-z0-9][A-Za-z0-9.+_-]{0,80}$/, silent: /^[A-Za-z0-9 \/\\_=.:,"+-]{0,200}$/, sha: /^[0-9a-fA-F]{64}$/, group: /^[A-Za-z0-9 .+_()\/-]{0,30}$/ };
+                const CF = [['install', 'winget', 'winget id (Windows)'], ['install', 'url', 'direct https:// download (Windows .exe/.msi)'], ['install', 'silent', 'silent switches (with the url)'], ['install', 'sha256', 'SHA-256 of the download (required with a url)'],
+                            ['install', 'apt', 'apt package (Linux)'], ['install', 'pacman', 'pacman package (Linux)'], ['install', 'brew', 'brew formula (Mac)'], ['install', 'cask', 'brew cask (Mac)'],
+                            ['uninstall', 'winget', 'winget id to uninstall'], ['uninstall', 'cmd', 'uninstall command (one line)'], ['uninstall', 'apt', 'apt package to remove'], ['uninstall', 'pacman', 'pacman package to remove'], ['uninstall', 'brew', 'brew formula to remove']];
+                let catEdit = null;
+                function openCatForm(key) {
+                    if (!base) { $('#sy-msg').textContent = 'Sign in first.'; return; }
+                    catEdit = key; const c = key ? catalog[key] || {} : { os: { [okeyOf(list[cur] || {})]: true } };
+                    const v = (g, f) => esc(((c[g] || {})[f]) || '');
+                    $('#sy-cat').innerHTML = `<div class="sy-h" style="margin-top:0">${key ? 'Edit' : 'Add'} catalog app</div>
+                        <label>Name (what the card shows and sends)</label><input type="text" id="sy-c-name" maxlength="40" value="${esc(c.name || '')}">
+                        <label>Detection text (matched against installed programs / packages; blank = name)</label><input type="text" id="sy-c-match" maxlength="40" value="${esc(c.match || '')}">
+                        <label>Group (optional)</label><input type="text" id="sy-c-group" maxlength="30" value="${esc(c.group || '')}">
+                        <label>Note (optional)</label><input type="text" id="sy-c-note" maxlength="200" value="${esc(c.note || '')}">
+                        <label>For</label><div class="sy-oschk">${['win', 'linux', 'mac'].map(k => `<label style="display:flex;gap:4px;align-items:center;margin:0;color:var(--text)"><input type="checkbox" id="sy-c-os-${k}"${(c.os || {})[k] ? ' checked' : ''}> ${OSN[k]}</label>`).join('')}</div>
+                        ${CF.map(([g, f, t]) => `<label>${g === 'uninstall' ? 'Uninstall: ' : 'Install: '}${esc(t)}</label><input type="text" id="sy-c-${g}-${f}" value="${v(g, f)}" autocapitalize="off" spellcheck="false">`).join('')}
+                        <div id="sy-c-err" style="color:#f87171;font-size:0.75rem;margin-top:6px"></div>
+                        <div class="sy-row"><button class="hbtn primary" id="sy-c-save">Save</button><button class="hbtn" id="sy-c-cancel">Cancel</button></div>
+                        <div style="font-size:0.7rem;color:var(--muted);margin-top:6px">New or changed install/uninstall details need one Approve tap before ${esc(hubName)} runs them.</div>`;
+                    $('#sy-cat').hidden = false;
+                }
+                function readCatForm() {
+                    const g = id => ($('#' + id)?.value || '').trim(), err = [];
+                    const e = { name: g('sy-c-name'), match: g('sy-c-match') || g('sy-c-name'), os: {}, install: {}, uninstall: {} };
+                    if (g('sy-c-group')) e.group = g('sy-c-group');
+                    if (g('sy-c-note')) e.note = g('sy-c-note').slice(0, 200);
+                    ['win', 'linux', 'mac'].forEach(k => { if ($('#sy-c-os-' + k).checked) e.os[k] = true; });
+                    CF.forEach(([grp, f]) => { const x = g(`sy-c-${grp}-${f}`); if (x) e[grp][f] = x; });
+                    const i = e.install, u = e.uninstall;
+                    if (!RX.name.test(e.name)) err.push('Name: letters, digits, space . + _ ( ) - (max 40).');
+                    if (!RX.name.test(e.match)) err.push('Detection text: same characters as the name (no | or *).');
+                    if (e.group && !RX.group.test(e.group)) err.push('Group: plain text, max 30.');
+                    if (!Object.keys(e.os).length) err.push('Tick at least one OS.');
+                    ['winget', 'apt', 'pacman', 'brew', 'cask'].forEach(f => { if (i[f] && !RX.pkg.test(i[f])) err.push(`Install ${f}: not a valid package id.`); });
+                    ['winget', 'apt', 'pacman', 'brew'].forEach(f => { if (u[f] && !RX.pkg.test(u[f])) err.push(`Uninstall ${f}: not a valid package id.`); });
+                    if (i.url) {
+                        if (!/^https:\/\/[^\s"'<>`]+$/.test(i.url) || i.url.length > 500) err.push('Download link must be a plain https:// URL.');
+                        if (!RX.sha.test(i.sha256 || '')) err.push('A direct download needs its SHA-256 (64 hex characters).'); else i.sha256 = i.sha256.toLowerCase();
+                        if (i.winget) err.push('Use a winget id OR a download link, not both.');
+                    } else if (i.silent || i.sha256) err.push('Silent switches / SHA-256 only go with a download link.');
+                    if (i.silent && !RX.silent.test(i.silent)) err.push("Silent switches: plain switches only (no ' ; | & $ ` ( ) < >).");
+                    if (u.cmd && u.cmd.length > 300) err.push('Uninstall command: max 300 characters.');
+                    const k2 = fbkey(e.name);
+                    if (catalog[k2] && k2 !== catEdit) err.push(`${e.name} is already in the catalog.`);
+                    return { e, err, k2 };
+                }
+                async function bumpCat() { catV = Date.now(); await set(ref(database, `${base}/catalogV`), catV); }
+                function openCatPanel() {
+                    if (!base) { $('#sy-msg').textContent = 'Sign in first.'; return; }
+                    catEdit = null;
+                    const rows = catSorted();
+                    const sum = c => { const i = c.install || {}, u = c.uninstall || {}; return [i.winget && 'winget ' + i.winget, i.url && 'download ' + (i.url.split('/')[2] || ''), i.apt && 'apt ' + i.apt, i.pacman && 'pacman ' + i.pacman, i.brew && 'brew ' + i.brew, i.cask && 'cask ' + i.cask].filter(Boolean).join(', ') || 'no installer'
+                        + ((u.winget || u.cmd || u.apt || u.pacman || u.brew) ? '' : ' · no uninstall'); };
+                    $('#sy-cat').innerHTML = `<div class="sy-h" style="margin-top:0">📦 Catalog · ${rows.length} apps</div>`
+                        + rows.map(([k, c], n) => `<div class="sy-cat-row"><span class="n"><b>${esc(c.name)}</b> <span class="d" style="color:var(--muted)">${esc(Object.keys(c.os || {}).map(x => OSN[x] || x).join('/'))} · ${esc(sum(c))}</span></span>`
+                            + `<button class="hbtn" data-cm="up" data-k="${esc(k)}"${n ? '' : ' disabled'}>↑</button><button class="hbtn" data-cm="down" data-k="${esc(k)}"${n < rows.length - 1 ? '' : ' disabled'}>↓</button>`
+                            + `<button class="hbtn" data-cm="edit" data-k="${esc(k)}">✎</button><button class="hbtn" data-cm="del" data-k="${esc(k)}" style="color:#e05555">🗑</button></div>`).join('')
+                        + `<div class="sy-row"><button class="hbtn" data-cat-add2>➕ Add app</button><button class="hbtn" id="sy-c-cancel">Close</button></div>`;
+                    $('#sy-cat').hidden = false;
+                }
+                $('#sy-cat').addEventListener('click', async e => {
+                    const t = e.target.closest('button'); if (!t) return;
+                    if (t.id === 'sy-c-cancel') { $('#sy-cat').hidden = true; catEdit = null; return; }
+                    if ('catAdd2' in t.dataset) return openCatForm(null);
+                    if (t.id === 'sy-c-save') {
+                        const { e: ent, err, k2 } = readCatForm();
+                        if (err.length) { $('#sy-c-err').innerHTML = err.map(esc).join('<br>'); return; }
+                        const old = catEdit ? catalog[catEdit] || {} : null;
+                        ent.order = old ? (old.order ?? 50) : Math.max(0, ...Object.values(catalog).map(c => c.order || 0)) + 10;
+                        ent.updatedAt = Date.now();
+                        t.disabled = true;
+                        try {
+                            await set(ref(database, `${base}/catalog/${k2}`), ent);
+                            if (catEdit && catEdit !== k2) await set(ref(database, `${base}/catalog/${catEdit}`), null);
+                            await bumpCat();
+                            $('#sy-cat').hidden = true; catEdit = null;
+                            $('#sy-msg').textContent = `Saved ${ent.name} - Pull to check it.`; setTimeout(() => { $('#sy-msg').textContent = ''; }, 6000);
+                        } catch (x) { $('#sy-c-err').textContent = 'Save failed: ' + x.message; t.disabled = false; }
+                        return;
+                    }
+                    const k = t.dataset.k, cm = t.dataset.cm; if (!k || !cm) return;
+                    if (cm === 'edit') return openCatForm(k);
+                    if (cm === 'del') { if (!confirm(`Remove ${catalog[k]?.name || k} from the catalog? (Nothing is uninstalled anywhere.)`)) return; await set(ref(database, `${base}/catalog/${k}`), null); await bumpCat(); return openCatPanel(); }
+                    const rows = catSorted().map(([kk]) => kk), i = rows.indexOf(k), j = cm === 'up' ? i - 1 : i + 1;
+                    if (i < 0 || j < 0 || j >= rows.length) return;
+                    [rows[i], rows[j]] = [rows[j], rows[i]];
+                    for (let n = 0; n < rows.length; n++) if ((catalog[rows[n]].order ?? -1) !== (n + 1) * 10) await set(ref(database, `${base}/catalog/${rows[n]}/order`), (n + 1) * 10);
+                    await bumpCat(); openCatPanel();
+                });
+                // 1.0.33 SETTINGS (svc-systems 1.6): gear -> label/note/order/apps/checks/alerts/Remove -> req {action:'settings'} (svc whitelists every key)
+                const PRESETS = { 'field kit': 'PRAESENSA|Dante Controller|Bonjour|Tailscale|OpenSSH|Chrome|Edge|Firefox', 'server': 'Tailscale|OpenSSH|Docker Desktop|Python|Git|Chrome', 'linux': 'tailscale|openssh-server|python3|docker|git' };
+                function openSettings() {
+                    const box = $('#sy-set');
+                    if (!box.hidden) { box.hidden = true; return; }
+                    const l = list[cur]; if (!l) { $('#sy-msg').textContent = 'Sign in first.'; return; }
+                    box.className = 'sy-set';
+                    box.innerHTML = `<div class="sy-h" style="margin-top:0">Settings · ${esc(cur)}</div>
+                        <label>Label</label><input type="text" id="sy-s-label" maxlength="40" value="${esc(l.label || cur)}">
+                        <label>Note</label><input type="text" id="sy-s-note" maxlength="120" value="${esc(l.note || '')}">
+                        <label>Order (lower = first)</label><input type="number" id="sy-s-order" min="0" max="99" value="${esc(l.order ?? 9)}">
+                        <label>Apps to check (separate with |)</label><textarea id="sy-s-apps" maxlength="400">${esc(l.apps || '')}</textarea>
+                        <div class="sy-row">${Object.keys(PRESETS).map(k => `<button class="hbtn" data-preset="${esc(k)}">${esc(k)}</button>`).join('')}</div>
+                        <label>Uptime checks</label><select id="sy-s-every">${[[0, 'off'], [1, 'every 1 min'], [5, 'every 5 min'], [15, 'every 15 min'], [60, 'every 60 min']].map(([v, t]) => `<option value="${v}"${(l.checkEvery ?? 5) === v ? ' selected' : ''}>${t}</option>`).join('')}</select>
+                        ${(l.local || member) ? '' : `<label style="display:flex;gap:8px;align-items:center;font-size:0.8rem;color:var(--text)"><input type="checkbox" id="sy-s-alerts"${l.alerts ? ' checked' : ''}> Telegram alert when it goes down / comes back</label>`}
+                        <div class="sy-row"><button class="hbtn primary" id="sy-s-save">Save</button><button class="hbtn" id="sy-s-cancel">Cancel</button>${l.local ? '' : '<button class="hbtn" id="sy-s-remove" style="margin-left:auto;color:#e05555">Remove</button>'}</div>`;
+                    box.hidden = false;
+                }
+                $('#sy-gear').addEventListener('click', openSettings);
+                $('#sy-set').addEventListener('click', e => {
+                    const t = e.target;
+                    if (t.dataset.preset) { $('#sy-s-apps').value = PRESETS[t.dataset.preset]; return; }
+                    if (t.id === 'sy-s-cancel') { $('#sy-set').hidden = true; return; }
+                    if (t.id === 'sy-s-remove') { if (confirm(`Remove ${cur} from the card? (Nothing changes on the machine.)`)) { req({ action: 'remove', host: cur }, `Removing ${cur}…`); $('#sy-set').hidden = true; } return; }
+                    if (t.id === 'sy-s-save') {
+                        const st = { label: $('#sy-s-label').value.trim(), note: $('#sy-s-note').value.trim(), order: parseInt($('#sy-s-order').value, 10) || 0,
+                                     apps: $('#sy-s-apps').value.split('|').map(x => x.trim()).filter(Boolean).join('|'), checkEvery: parseInt($('#sy-s-every').value, 10) || 0 };
+                        if ($('#sy-s-alerts')) st.alerts = $('#sy-s-alerts').checked;
+                        req({ action: 'settings', host: cur, settings: st }, 'Saved - Pull to re-check the apps.');
+                        $('#sy-set').hidden = true;
+                    }
+                });
+                $('#sy-ping').addEventListener('click', () => req({ action: 'ping', host: cur }, `Pinging ${cur}…`));
                 setInterval(() => { if (Object.keys(hosts).length) paint(); }, 60000);
                 paint();
                 onAuthStateChanged(auth, u => {
                     if (!u) return;
-                    base = `${u.uid}/console/systems`;
-                    onValue(ref(database, `${base}/list`), s => { list = s.val() || {}; paint(); });
-                    onValue(ref(database, `${base}/hosts`), s => { hosts = s.val() || {}; paint(); });
+                    base = `${u.uid}/console/systems`; jobsBase = `${u.uid}/console`; myUid = u.uid;
+                    // 1.0.36: kdaemon = a member's assistant PC runs the requests (jobs); anything else = the owner's svc-systems (req)
+                    onValue(ref(database, `${u.uid}/console/meta/daemonKind`), s => { member = s.val() === 'kdaemon'; paint(); });
+                    onValue(ref(database, `${u.uid}/console/meta/host`), s => { metaHost = s.val() || ''; paint(); });
+                    onValue(ref(database, `${base}/list`), s => { list = s.val() || {}; paint(); window.__paintNet && window.__paintNet(); });
+                    onValue(ref(database, `${base}/hosts`), s => { hosts = s.val() || {}; paint(); window.__paintNet && window.__paintNet(); });
+                    onValue(ref(database, `${base}/uptime`), s => { uptime = s.val() || {}; paint(); });
+                    onValue(ref(database, `${base}/catalog`), s => { catalog = s.val() || {}; paint(); if (!$('#sy-cat').hidden && !catEdit) openCatPanel(); });
+                    onValue(ref(database, `${base}/catalogV`), s => { catV = s.val() || 0; });
+                    onValue(ref(database, `${base}/approvals`), s => { approvals = s.val() || {}; paint(); });
                     onValue(ref(database, `${base}/peers`), s => { peers = s.val() || {}; paint(); });
-                    onValue(ref(database, `${base}/pubkey`), s => { pubkey = s.val() || ''; });
-                    onValue(ref(database, `${base}/registerUrl`), s => { regUrl = s.val() || ''; });
-                    onValue(ref(database, `${base}/registerUrlLan`), s => { regLan = s.val() || ''; });
-                    onValue(ref(database, `${base}/add`), s => { const a = s.val(); if (a && Date.now() - a.at < 600000) $('#sy-addmsg').textContent = (a.state === 'done' ? '✅ ' : '⚠ ') + a.msg; });
+                    onValue(ref(database, `${base}/add`), s => { const a = s.val(); if (a && Date.now() - a.at < 600000) $('#sy-addmsg').textContent = (a.state === 'done' ? '✅ ' : a.state === 'paired' ? '⏳ ' : '⚠ ') + a.msg; });
                 });
             </script>
 
@@ -821,28 +1146,13 @@
                 <div class="hcard"><h3>Quick Commands</h3><div id="cmd-list"></div></div>
             </section>
 
-            <section class="hub-section">
-                <div class="grid-2">
-                    <div class="hcard">
-                        <h3>Quick Notes <a href="apps/online/onlinenotes.html" target="_blank" style="float:right;font-size:0.72rem;color:steelblue;font-weight:400;text-transform:none;letter-spacing:0;text-decoration:none">open ↗</a></h3>
-                        <div id="notes-list"><span style="color:var(--muted);font-style:italic">Loading...</span></div>
-                    </div>
-                </div>
-            </section>
+            <!-- 1.0.36 (L 2026-11-10): Quick Notes card removed from the hub (onlinenotes.html is still the notes app). -->
 
+            <!-- 1.0.38: the Network table moved into the merged Network card (Internet + LAN) above -->
             <section class="hub-section">
-                <div class="grid-2">
-                    <div class="hcard">
-                        <h3>Network</h3>
-                        <table class="htable" id="net-table">
-                            <thead><tr><th>Host</th><th>IP</th><th>OS / Type</th><th>Role</th></tr></thead>
-                            <tbody id="net-rows"></tbody>
-                        </table>
-                    </div>
-                    <div class="hcard">
-                        <h3>Credentials <span style="font-size:0.65rem;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">hover to reveal</span></h3>
-                        <div id="cred-rows"></div>
-                    </div>
+                <div class="hcard">
+                    <h3>Credentials <span style="font-size:0.65rem;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">hover to reveal</span></h3>
+                    <div id="cred-rows"></div>
                 </div>
             </section>
 
@@ -898,7 +1208,7 @@
     
     <script type="module">
         // HUB CARDS (2026-10-11 step 2): the Droplet Console moved to /console.html (the 💧 button opens it). These are the
-        // hub cards that used to ride inside the console module - Links, Claude Usage, Internet Data, the Server Drives scan,
+        // hub cards that used to ride inside the console module - Links, Internet Data, the Server Drives scan,
         // card order / size (hold-drag, triple-click), owner-only cards and the sign-in shortcut - unchanged, just standalone.
         // ?v= (2026-10-11): a browser that cached the short-lived switch version of firebase-init (top-level await) froze the
         // hub on iPad Safari; a fresh URL guarantees the plain one. Same Firebase app/auth either way (getApps() reuse).
@@ -906,8 +1216,8 @@
         const $ = s => document.querySelector(s);
         const DC = { uid: null, base: null };
         const HUB_OWNER_UID = '7cIh8rrhVNOjjj5CBDgb3IlqzEh2';
-        const OWNER_CARDS = ['Microsoft / OneDrive', 'Upcoming Work', 'Goings-On', 'Services', 'Claude Usage', 'Quick Commands',
-                             'MC Server', 'Open Service Tickets', 'Inventory', 'Network', 'Credentials', 'Server Drives', 'Site Statistics', 'Cleanup', 'Storage', 'Systems'];
+        const OWNER_CARDS = ['Microsoft / OneDrive', 'Upcoming Work', 'Goings-On', 'Services', 'Quick Commands',
+                             'MC Server', 'Open Service Tickets', 'Inventory', 'Network', 'Credentials', 'Server Drives', 'Site Statistics', 'Cleanup', 'Storage'];
         function applyGuest(isGuest) {
             document.documentElement.classList.toggle('hub-guest', isGuest);
             document.querySelectorAll('.hcard').forEach(card => {
@@ -998,11 +1308,6 @@
             window.addEventListener('pointerup', drop); window.addEventListener('pointercancel', drop);
             window.__hubCardOrder = { order: () => order.slice(), reset: async () => { order = base.slice(); wide = new Set(); half = new Set(); apply(order); paintWide(); try { localStorage.removeItem(LS); localStorage.removeItem(LS + '_wide'); localStorage.removeItem(LS + '_half'); } catch (_) {} await set(node, null); }, wide: () => [...wide] };
         }
-        function fmtTok(n) {
-            n = +n || 0;
-            return n >= 1e9 ? (n / 1e9).toFixed(2) + 'B' : n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(n);
-        }
-        function agoStr(ms){ if(!ms) return ''; let s=Math.max(0,Math.round((Date.now()-ms)/1000)); if(s<60) return s+'s ago'; let m=Math.round(s/60); if(m<60) return m+'m ago'; let h=Math.round(m/60); if(h<24) return h+'h ago'; return Math.round(h/24)+'d ago'; }
         function renderData(d) {
             const box = $('#data-body'), age = $('#data-age'); if (!box) return;
             if (!d || !d.days) { box.innerHTML = '<span style="color:var(--muted);font-size:0.82rem">No data yet - the meter publishes every 2 minutes.</span>'; return; }
@@ -1052,37 +1357,6 @@
                 <div style="font-size:0.66rem;color:var(--muted);margin-top:4px">${esc(d.wanName || 'the router port')} on the switch = the house's internet · alert at ${Number(d.alertGB) || 150} GB/day</div>`;
             if (age) { const m = Math.round((Date.now() - (Number(d.at) || 0)) / 60000); age.textContent = m < 1 ? 'live' : m < 60 ? m + ' min ago' : Math.round(m / 60) + ' h ago'; }
         }
-        function renderUsage(u) {
-            const box = $('#usage-body');
-            if (!box) return;   // owner-only card is hidden for guests; the input fill above still runs
-            if (!u || !u.today) { box.innerHTML = '<span style="color:var(--muted);font-size:0.82rem">No usage data yet.</span>'; return; }
-            const row = (label, c) => `<div style="display:flex;justify-content:space-between;font-size:0.92rem;padding:4px 0;border-bottom:1px solid var(--border)"><span style="color:var(--muted)">${label}</span><span><b>${fmtTok((c || {}).out || 0)}</b> tokens</span></div>`;
-            const lastAct = u.lastActivity ? Date.parse(u.lastActivity) : 0;
-            // Firebase egress (daemon 0.27). This card exists because a 3 s full-node poll ran up
-            // ~$197 in September and NOTHING showed the number until someone went looking. The
-            // headline is the run-rate, not the month total: month-to-date can only ever go up and
-            // says nothing about whether the leak is still leaking.
-            const f = u.firebase;
-            let fb = '';
-            if (f && typeof f.perDayGB === 'number') {
-                const over = f.runRateBill > (f.budget || 25);
-                const col = over ? 'var(--bad, #d9534f)' : 'var(--muted)';
-                fb = `<div style="display:flex;justify-content:space-between;font-size:0.92rem;padding:4px 0;border-bottom:1px solid var(--border)">
-                        <span style="color:var(--muted)">Firebase now</span>
-                        <span style="color:${col}"><b>${f.perDayGB.toFixed(2)} GB</b>/day${over ? ' &middot; $' + Math.round(f.runRateBill) + '/mo' : ''}</span>
-                      </div>
-                      <div style="font-size:0.66rem;color:${col};margin-top:3px">
-                        ${f.mtdGB.toFixed(0)} GB this month (${f.freeGB} free)${f.billedNow > 0 ? ' &middot; $' + Math.round(f.billedNow) + ' billed' : ''}${over ? ' &middot; over the $' + (f.budget || 25) + ' budget at this rate' : ''}
-                      </div>`;
-            }
-            box.innerHTML = `
-                ${row('Today', u.today)}
-                ${row('This week', u.week)}
-                ${row('This month', u.last30)}
-                ${fb}
-                <div style="font-size:0.66rem;color:var(--muted);margin-top:7px">${lastAct ? 'last active ' + agoStr(lastAct) + ' &middot; ' : ''}"tokens" = the work Claude generated</div>`;
-            $('#usage-age').textContent = u.updatedAt ? 'updated ' + agoStr(u.updatedAt) : '';
-        }
         // SIGN-IN SHORTCUT (2026-09-19, L: "if it says signed out can I click that to show the login").
         // Both messages were inert text pointing at a control elsewhere on the page. They now
         // forward the click to the header's account link. Delegated, so it survives re-render.
@@ -1118,7 +1392,6 @@
             applyGuest(u.uid !== HUB_OWNER_UID);
             DC.uid = u.uid; DC.base = `${u.uid}/console`;
             wireCardOrder();
-            onValue(ref(database, `${DC.base}/usage`), s => renderUsage(s.val() || {}));
             onValue(ref(database, `${DC.base}/data`), s => renderData(s.val() || null));
             onValue(ref(database, `${DC.base}/drives`), s => { window.__drivesScan = s.val() || {}; window.__paintDrives && window.__paintDrives(); });
             // Map view tree (data_map_scan.py, nightly): ONE read when a drive's panel opens - never a listener (poll-cost rule)
@@ -1378,11 +1651,6 @@
             window.__hubData = data;
             revealDropletToggle();
 
-            // Quick Notes
-            get(ref(database, `${user.uid}/notes`))
-                .then(s => renderNotes(s.exists() ? Object.values(s.val()) : []))
-                .catch(() => renderNotes([]));
-
             // Overview band: todos / upcoming work / recent topics / goings-on
             get(ref(database, `${user.uid}/todos`))
                 .then(s => renderOvTodos(s.exists() ? s.val() : {}))
@@ -1473,7 +1741,6 @@
         document.getElementById('stat-ip-filter')?.addEventListener('input',  renderStatTimeline);
         document.getElementById('stat-sort')?.addEventListener('change', renderStatTimeline);
 
-        /* ── Quick Notes ── */
         /* ── Overview cards (todos / work / topics / goings-on) ── */
         const TELAID_UID = 'SDN0vKPQ1qfN5vxkvhR3auVhDYq1';
         const RTDB_URL = 'https://persinfo-df93f-default-rtdb.firebaseio.com';
@@ -1564,19 +1831,6 @@
                 }
             } catch { }
             el.innerHTML = bits.join('') || ovEmpty('Quiet');
-        }
-
-        function renderNotes(items) {
-            const el = document.getElementById('notes-list');
-            if (!el) return;
-            if (!items.length) { el.innerHTML = '<span style="color:var(--muted);font-style:italic">No notes</span>'; return; }
-            const sorted = items.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)).slice(0, 6);
-            el.innerHTML = sorted.map(n => `
-                <div style="padding:5px 0;border-bottom:1px solid #15273d;line-height:1.5">
-                    <span style="color:steelblue;font-size:0.82rem">${escH(n.name)}</span>
-                    <span style="color:var(--muted);font-size:0.7rem;margin-left:8px">${n.timestamp ? new Date(n.timestamp).toLocaleDateString() : ''}</span><br>
-                    <span style="color:var(--muted);font-size:0.75rem">${escH((n.note || '').slice(0, 90))}${(n.note||'').length > 90 ? '…' : ''}</span>
-                </div>`).join('');
         }
 
         /* ── MC Status ── */
@@ -1728,8 +1982,10 @@
                 ${ev || `<span style="${mut};font-style:italic;font-size:0.78rem">None</span>`}`;
         }
         // Network table: the saved list (renderAll keeps it in window.__netRows) + the pi-hub's live state per IP
+        // 1.0.38: + a 🖥 button on rows whose IP is a Systems machine (Systems card exposes __syIpMap / __syOpen)
         function paintNet() {
             const tb = document.getElementById('net-rows'); if (!tb) return;
+            const sy = (window.__syIpMap && window.__syIpMap()) || {};
             const saved = window.__netRows || [], live = ((window.__piShared || {}).devices) || [];
             const byIp = new Map(live.map(x => [x.ip, x]));
             const rows = saved.map(r => ({ ...r })), have = new Set(rows.map(r => r.ip));
@@ -1738,9 +1994,15 @@
             tb.innerHTML = rows.map(r => {
                 const x = byIp.get(r.ip);
                 const dot = x ? `<span title="${x.up ? 'online' : 'offline'} · ${x.pct}% up (pi-hub)" style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;background:${x.up ? '#4ade80' : '#64748b'}"></span>` : '<span style="display:inline-block;width:8px;margin-right:6px"></span>';
-                return `<tr><td class="click-copy" title="Click to copy">${dot}${escH(String(r.host ?? ''))}</td><td class="click-copy" title="Click to copy">${escH(String(r.ip ?? ''))}</td><td>${escH(String(r.os ?? ''))}</td><td>${escH(String(r.role ?? ''))}${x ? ` <span style="color:var(--muted);font-size:0.7rem">${x.pct}%</span>` : ''}</td></tr>`;
+                const sid = sy[r.ip];
+                return `<tr><td class="click-copy" title="Click to copy">${dot}${escH(String(r.host ?? ''))}</td><td class="click-copy" title="Click to copy">${escH(String(r.ip ?? ''))}</td><td>${escH(String(r.os ?? ''))}</td><td>${escH(String(r.role ?? ''))}${x ? ` <span style="color:var(--muted);font-size:0.7rem">${x.pct}%</span>` : ''}${sid ? `<button class="net-sy" data-sy="${escH(sid)}" title="Open ${escH(sid)} on the Systems card">🖥 ${escH(sid)}</button>` : ''}</td></tr>`;
             }).join('');
         }
+        window.__paintNet = paintNet;
+        document.getElementById('net-rows') && document.getElementById('net-rows').addEventListener('click', e => {
+            const b = e.target.closest('[data-sy]'); if (!b) return;
+            e.stopPropagation(); window.__syOpen && window.__syOpen(b.dataset.sy);
+        });
         loadHouseWatch().then(() => { if (!window.__piShared) paintNetHealth(null); });
         setInterval(loadHouseWatch, 30000);
         // help card removed 2026-10-29 (L: 'get rid of how this hub works') - guarded, no-op now
