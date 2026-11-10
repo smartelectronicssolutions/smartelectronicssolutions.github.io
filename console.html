@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.157"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.158"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -982,6 +982,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     <label class="dc-chk lk-chip" title="show the 🙂 emoji button in the message box (remembered on this device)"><input type="checkbox" id="dc-show-emoji" checked> 🙂 Show emoji button</label>
                     <label class="dc-chk lk-chip" title="show the 🎙 voice-note (rec) button in the message box (remembered on this device)"><input type="checkbox" id="dc-show-rec" checked> 🎙 Show rec button</label>
                     <label class="dc-chk lk-chip" title="show the 🏠 Nabu home-mic button in the message box (remembered on this device)"><input type="checkbox" id="dc-show-nabu" checked> 🏠 Show home mic button</label>
+                    <label class="dc-chk lk-chip" title="unticked (default): every page load starts on Droplet, or the next best brain if Droplet can't answer. Ticked: the brain you picked last is kept."><input type="checkbox" id="dc-brain-keep"> 🧠 Remember my brain pick</label>
                 </div>
                 <div class="lk-row"><button type="button" class="lk-x" id="lk-reset">reset device defaults</button></div>
             </div>
@@ -5109,9 +5110,16 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const el = document.getElementById(id); if (!el) continue;
             let v = null; try { v = localStorage.getItem(key); } catch (_) {}
             if (key === 'dc_target' && v === 'yuki') v = 'local';   // the old "Yuki on duty" pick = the one Yuki now
+            // BEST BRAIN ON LOAD (2026-11-10, L: "default to always use Droplet ... a checkbox in settings if they want to keep what they selected"):
+            // unless 🧠 Remember is ticked, a page load ignores the stored pick and starts on Droplet; syncTarget() then steps down to the next
+            // best (option order = rank) when Droplet is not offered or, for a guest, has no live daemon.
+            if (key === 'dc_target') { let keep = null; try { keep = localStorage.getItem('dc_brain_keep'); } catch (_) {} if (keep !== '1') v = null; }
             if (v !== null) { if (el.type === 'checkbox') el.checked = v === '1'; else el.value = v; }
             el.addEventListener('change', () => { try { localStorage.setItem(key, el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value); } catch (_) {} });
         }
+        { const bk = document.getElementById('dc-brain-keep');
+            if (bk) { try { bk.checked = localStorage.getItem('dc_brain_keep') === '1'; } catch (_) {}
+                bk.addEventListener('change', () => { try { localStorage.setItem('dc_brain_keep', bk.checked ? '1' : '0'); } catch (_) {} }); } }
         // 2026-09-19: a restored target that this page does not offer (e.g. 'command', or 'compman' on a friend's login) used to leave
         // the title select blank; syncTarget() puts it back on Droplet. A target the person picks BY HAND is respected for the rest of
         // the page's life (no auto Droplet <-> Local flipping under their finger); the 30 s timer catches a daemon heartbeat that stopped.
@@ -6353,9 +6361,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     window.__dcAside = v => { openDrawer(); asideView(v); };
     function drawerBrains() { const sel = $('#dc-chat-target'), b = $('#dc-brains'); if (!sel || !b) return;
         b.innerHTML = [...sel.options].filter(o => !o.hidden && !o.disabled).map(o => `<button type="button" class="dc-peer-row${o.value === sel.value ? ' on' : ''}" data-brain="${esc(o.value)}">${BRAIN_ICON[o.value] || '🤖'} ${esc(o.textContent.trim())}</button>`).join('');
-        // show 2 brains, swipe/scroll for the rest (L 2026-10-29)
-        requestAnimationFrame(() => { const rows = b.children; if (rows.length < 3) { b.style.maxHeight = ''; return; }
-            const h = rows[2].offsetTop; if (!h) return;   // drawer hidden: no layout yet, keep the last height
+        // show ONE brain, swipe/scroll for the rest (L 2026-11-10: "squish the brains window to show only 1 instead of 2"; was 2 since 10-29)
+        requestAnimationFrame(() => { const rows = b.children; if (rows.length < 2) { b.style.maxHeight = ''; return; }
+            const h = rows[1].offsetTop - rows[0].offsetTop; if (!h) return;   // drawer hidden: no layout yet, keep the last height
             b.style.maxHeight = h + 'px'; const on = b.querySelector('.on'); if (on) b.scrollTop = on.offsetTop; }); }
     function openDrawer(mode) { const d = $('#dc-drawer'), home = $('#dc-peer-home'); if (!d || !home) return;
         if (!d.dataset.view || d.dataset.view === 'list') { home.hidden = false; drawerBrains(); renderHome(mode); }
