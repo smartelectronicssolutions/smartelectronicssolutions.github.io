@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.160"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.162"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1616,7 +1616,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 const waiting = name === '' ? pendAny : !!pend[name];
                 b.className = 'dc-topic' + (!DC.remote && DC.topic === name ? ' on' : '') + (waiting ? ' thinking' : '');
                 if (waiting) b.title = 'a reply is on its way in this tab';
-                b.innerHTML = esc(label) + `<span class="n">${n}</span>`;
+                const un = name === '' ? Object.values(DC._unreadN || {}).reduce((a, b) => a + b, 0) : ((DC._unreadN || {})[name] || 0);
+                b.innerHTML = esc(label) + (un ? `<span class="n">${un}</span>` : '');
+                b.title = (b.title ? b.title + ' · ' : '') + (un ? un + ' unread · ' : '') + n + ' messages';
                 if (DC._unread && DC._unread[name || ''] && name !== DC.topic) b.classList.add('unread');
                 if (name && name !== FAV_TAB) b.dataset.name = name;
                 b.onclick = () => { if (DC._tabSwallow) return; setTopic(name); }; return b; };
@@ -2893,7 +2895,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const sb = $('#dc-chat-send'); if (sb) { sb.classList.toggle('thinking', thinking); sb.title = thinking ? 'a reply is on its way - you can still send' : ''; }
             if (!R) {   // unread state is computed from the FULL turn set before the bar is drawn
                 const u = unreadTopics(obj);
-                DC._unread = u.unread;
+                DC._unread = u.unread; DC._unreadN = u.counts;
                 const cur = DC.topic || '';
                 // SEEN ON SCREEN (2026-11-09, L: "the unread numbers only go away once the message has been seen ... scroll to see"):
                 // opening a tab no longer marks it read - watchSeenChat() after the bubbles are drawn marks each new reply once it is in view.
@@ -3663,17 +3665,20 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         }
         // newest Droplet turn per topic -> compare against what this device has seen
         function unreadTopics(turns) {
-            const newest = {}, seen = seenRead(), out = {};
+            const newest = {}, seen = seenRead(), out = {}, counts = {};
             for (const t of Object.values(turns || {})) {
                 if (!t || t.s !== 'D' || t.pending) continue;      // only landed replies
                 const k = t.topic || '';
                 const ts = t.ts || 0;
                 if (ts > (newest[k] || 0)) newest[k] = ts;
+                // UNREAD COUNT (2026-11-10, L: "like Teams ... how many unread is left based on what you've seen and scrolled over"):
+                // the chip number = replies still unread in that tab, counting down as each one is seen on screen - not the tab's total
+                if (ts > (seen[k] || 0)) counts[k] = (counts[k] || 0) + 1;
             }
             for (const [k, ts] of Object.entries(newest)) {
                 if (ts > (seen[k] || 0)) out[k] = true;
             }
-            return { unread: out, newest };
+            return { unread: out, newest, counts };
         }
         // SEEN ON SCREEN (2026-11-09, L): a message counts as read when its bubble has actually been on screen, not when the chat
         // opened. CONTIGUOUS watermark: it only moves past an unread message once it AND every unread message before it were
@@ -3719,7 +3724,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const was = seenRead()[cur] || 0;
             const items = Object.entries(obj || {}).filter(([k, t]) => t && t.s === 'D' && !t.pending && (t.topic || '') === cur && (t.ts || 0) > was)
                 .sort((a, b) => (a[1].ts || 0) - (b[1].ts || 0)).map(([k, t]) => ({ k, ts: t.ts || 0 }));
-            watchSeen(log, items, ts => { markSeen(cur, ts); const u = unreadTopics(DC.chatTurns || obj); DC._unread = u.unread; DC._unread[cur] = false; renderTopics(); });
+            watchSeen(log, items, ts => { markSeen(cur, ts); const u = unreadTopics(DC.chatTurns || obj); DC._unread = u.unread; DC._unreadN = u.counts; DC._unread[cur] = false; renderTopics(); });
             return items;
         }
         // LAND ON THE FIRST UNREAD (2026-11-10, L: "open each chat at the first unread and count down as you read"): opening at the
