@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.40">
+    <meta name="version" content="1.0.42">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Control Hub</title>
     <link rel="stylesheet" href="assets/css/master.css">
@@ -357,6 +357,21 @@
         .dv-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
         .dv-table th { text-align: left; font-weight: 500; color: var(--muted); font-size: 0.66rem; text-transform: uppercase; letter-spacing: 1px; padding: 2px 0; }
         .dv-table td { padding: 3px 0; border-top: 1px solid var(--border); color: var(--text); }
+        /* SKELETON BLOCKS (1.0.41, L: "add skeleton blocks to the hub cards next (Systems, drives, network)"): same look as the
+           console's .dc-skel (1.0.169) - grey shapes in theme colours + a sweeping sheen - shaped like each card's real content.
+           Shown only until a card's FIRST data lands; the first real render replaces them, live updates never bring them back. */
+        .hb-sk { display: flex; flex-direction: column; gap: 9px; padding: 2px 0; }
+        .hb-sk-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-end; }
+        .hb-sk-l, .hb-sk-c, .hb-sk-t, .hb-sk-wb, .hb-sk-bar { display: block; position: relative; overflow: hidden; border-radius: 6px; background: color-mix(in srgb, var(--text, #ddd) 10%, transparent); }
+        .hb-sk-l { height: 10px; }
+        .hb-sk-c { width: 62px; height: 26px; border-radius: 14px; }
+        .hb-sk-t { flex: 1; min-width: 130px; height: 58px; border-radius: 10px; }
+        .hb-sk-week { display: flex; gap: 8px; align-items: flex-end; height: 64px; }
+        .hb-sk-wb { flex: 1; border-radius: 4px 4px 0 0; }
+        .hb-sk-bar { height: 6px; border-radius: 3px; margin-top: 4px; }
+        .hb-sk-l::after, .hb-sk-c::after, .hb-sk-t::after, .hb-sk-wb::after, .hb-sk-bar::after { content: ''; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--text, #fff) 14%, transparent), transparent); animation: hb-sheen 1.3s ease-in-out infinite; }
+        @keyframes hb-sheen { to { transform: translateX(100%); } }
+        @media (prefers-reduced-motion: reduce) { .hb-sk-l::after, .hb-sk-c::after, .hb-sk-t::after, .hb-sk-wb::after, .hb-sk-bar::after { animation: none; } }
     </style>
 </head>
 <body>
@@ -537,7 +552,7 @@
                 <div class="hcard" id="data-card">
                     <h3>Network <span id="data-age" style="float:right;font-size:0.65rem;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0"></span></h3>
                     <div class="net-sub">Internet</div>
-                    <div id="data-body"><span style="color:var(--muted);font-style:italic">Loading...</span></div>
+                    <div id="data-body"><div class="hb-sk" aria-label="Loading"><div class="hb-sk-row" style="gap:14px"><i class="hb-sk-t"></i><i class="hb-sk-t"></i><i class="hb-sk-t"></i></div><div class="hb-sk-week"><i class="hb-sk-wb" style="height:40%"></i><i class="hb-sk-wb" style="height:70%"></i><i class="hb-sk-wb" style="height:55%"></i><i class="hb-sk-wb" style="height:85%"></i><i class="hb-sk-wb" style="height:35%"></i><i class="hb-sk-wb" style="height:60%"></i><i class="hb-sk-wb" style="height:75%"></i></div><i class="hb-sk-l" style="width:90%"></i><i class="hb-sk-l" style="width:60%"></i></div></div>
                     <div class="net-sub" style="margin-top:14px">LAN devices <span style="text-transform:none;letter-spacing:0">· dot = pi-hub live · 🖥 = open on Systems</span></div>
                     <div style="overflow-x:auto">
                         <table class="htable" id="net-table">
@@ -769,9 +784,15 @@
                 const esc = v => String(v ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
                 const ago = t => { if (!t) return ''; const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago'; };
                 let approvals = {}, catV = 0, secOpen = '';
+                let syWait = false;   // 1.0.41 skeleton: true from sign-in until the machine list's FIRST snapshot (then never again)
                 let base = null, jobsBase = null, myUid = '', member = false, metaHost = '', hubName = 'se', list = {}, hosts = {}, uptime = {}, catalog = {}, peers = {}, cur = localStorage.getItem('sy-host') || 'se';
                 function paint() {
-                    const card = $('#sys-card'); if (card) card.style.display = Object.keys(list).length ? '' : 'none';   // 1.0.36: only logins that have machines (the card itself - card order can move it out of its section)
+                    const card = $('#sys-card'); if (card) card.style.display = (Object.keys(list).length || syWait) ? '' : 'none';   // 1.0.36: only logins that have machines (the card itself - card order can move it out of its section)
+                    if (syWait) {   // 1.0.41: host chips + machine lines as skeleton until the list lands
+                        $('#sy-hosts').innerHTML = '<span class="hb-sk-row" aria-label="Loading"><i class="hb-sk-c"></i><i class="hb-sk-c" style="width:84px"></i><i class="hb-sk-c" style="width:54px"></i><i class="hb-sk-c" style="width:72px"></i></span>';
+                        $('#sy-out').innerHTML = '<div class="hb-sk"><i class="hb-sk-l" style="width:38%"></i><i class="hb-sk-l" style="width:88%"></i><i class="hb-sk-l" style="width:72%"></i><i class="hb-sk-l" style="width:80%"></i><i class="hb-sk-l" style="width:55%"></i></div>';
+                        return;
+                    }
                     hubName = member ? (metaHost || 'your assistant PC') : 'se';
                     document.querySelectorAll('.sy-hubname').forEach(e => { e.textContent = hubName; });
                     const ids = Object.keys(list).sort((a, b) => (list[a].order || 9) - (list[b].order || 9) || a.localeCompare(b));
@@ -1128,10 +1149,11 @@
                 onAuthStateChanged(auth, u => {
                     if (!u) return;
                     base = `${u.uid}/console/systems`; jobsBase = `${u.uid}/console`; myUid = u.uid;
+                    if (!Object.keys(list).length) { syWait = true; paint(); }
                     // 1.0.36: kdaemon = a member's assistant PC runs the requests (jobs); anything else = the owner's svc-systems (req)
                     onValue(ref(database, `${u.uid}/console/meta/daemonKind`), s => { member = s.val() === 'kdaemon'; paint(); });
                     onValue(ref(database, `${u.uid}/console/meta/host`), s => { metaHost = s.val() || ''; paint(); });
-                    onValue(ref(database, `${base}/list`), s => { list = s.val() || {}; paint(); window.__paintNet && window.__paintNet(); });
+                    onValue(ref(database, `${base}/list`), s => { syWait = false; list = s.val() || {}; paint(); window.__paintNet && window.__paintNet(); }, () => { syWait = false; paint(); });
                     onValue(ref(database, `${base}/hosts`), s => { hosts = s.val() || {}; paint(); window.__paintNet && window.__paintNet(); });
                     onValue(ref(database, `${base}/uptime`), s => { uptime = s.val() || {}; paint(); });
                     onValue(ref(database, `${base}/catalog`), s => { catalog = s.val() || {}; paint(); if (!$('#sy-cat').hidden && !catEdit) openCatPanel(); });
@@ -1393,7 +1415,7 @@
             DC.uid = u.uid; DC.base = `${u.uid}/console`;
             wireCardOrder();
             onValue(ref(database, `${DC.base}/data`), s => renderData(s.val() || null));
-            onValue(ref(database, `${DC.base}/drives`), s => { window.__drivesScan = s.val() || {}; window.__paintDrives && window.__paintDrives(); });
+            onValue(ref(database, `${DC.base}/drives`), s => { window.__drivesScan = s.val() || {}; window.__paintDrives && window.__paintDrives(); }, () => { window.__drivesScan = {}; window.__paintDrives && window.__paintDrives(); });
             // Map view tree (data_map_scan.py, nightly): ONE read when a drive's panel opens - never a listener (poll-cost rule)
             window.__dvMapGet = L => get(ref(database, `${DC.base}/datamap/${L}`)).then(s => s.val());
         });
@@ -2414,6 +2436,8 @@
             tb.querySelectorAll('tr:not(.dv-detail)').forEach(tr => {
                 const r = scan[letterOf(tr)], role = tr.cells[2]; if (!role) return;
                 role.querySelector('.dv-bar') && role.querySelector('.dv-bar').remove();
+                role.querySelector('.hb-sk-bar') && role.querySelector('.hb-sk-bar').remove();
+                if (!window.__drivesScan) { const k = document.createElement('i'); k.className = 'hb-sk-bar'; role.appendChild(k); }   // 1.0.41: usage bar skeleton until the first scan snapshot
                 tr.classList.toggle('dv-scanned', !!r);
                 if (r) { const b = document.createElement('div'); b.className = 'dv-bar'; b.title = `${gb(r.used)} of ${gb(r.total)} used`;
                          b.innerHTML = `<i style="width:${(r.used / r.total * 100).toFixed(1)}%"></i>`; role.appendChild(b); tr.title = 'Hover: usage by type · click: details'; }
