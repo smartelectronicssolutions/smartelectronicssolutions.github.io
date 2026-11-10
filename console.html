@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.150"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.151"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -817,6 +817,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         #dc-peer-pres { font-size: .7rem; opacity: .7; white-space: nowrap; }
         #dc-peer-back { font-size: 1.3rem !important; line-height: 1; padding: 0 4px; }
         #dc-peer-head .sp { flex: 1; } #dc-peer-head button { background: none; border: 0; color: inherit; cursor: pointer; font-size: 1rem; }
+        #dc-peer-find.on { color: var(--dc-amber); } #dc-peer-findbox { padding: 0 0 4px; }
         /* the pane's log IS a .dc-chat-log now (L 2026-09-27: "the text boxes render differently in the pane 2 chat") - same gaps,
            padding, bubble width and phone rules as the Droplet chat; nothing pane-specific left here */
         #dc-peer .dc-bub.dp { background: rgba(56, 132, 220, .18); border: 1px solid rgba(96, 165, 250, .35); }   /* Droplet's lines in a shared tab */
@@ -5239,7 +5240,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // and a conversation view with ‹ back to the home.
         btn.onclick = e => { e.stopPropagation(); const b = $('#dc-console .dc-body'), split = b.classList.contains('dc-split') && !b.classList.contains('sysopen'); if (split && !P.open) closePeer(); else showHome(); };
         const pane = document.createElement('div'); pane.id = 'dc-peer';
-        pane.innerHTML = `<div id="dc-peer-head"><button type="button" id="dc-peer-back" title="back to People" hidden>‹</button><span id="dc-peer-name"></span><div id="dc-peer-bar" hidden></div><span class="sp"></span><button type="button" id="dc-peer-mute" title="mute / unmute this chat" hidden>🔔</button><button type="button" id="dc-peer-x" title="close the pane">✕</button></div>
+        pane.innerHTML = `<div id="dc-peer-head"><button type="button" id="dc-peer-back" title="back to People" hidden>‹</button><span id="dc-peer-name"></span><div id="dc-peer-bar" hidden></div><span class="sp"></span><button type="button" id="dc-peer-find" title="search this chat" hidden>🔍</button><button type="button" id="dc-peer-mute" title="mute / unmute this chat" hidden>🔔</button><button type="button" id="dc-peer-x" title="close the pane">✕</button></div>
             <div id="dc-peer-home"></div>
             <div id="dc-peer-web" hidden><form id="dc-web-bar"><button type="button" id="dc-web-back" class="dc-web-nav" title="back" disabled>‹</button><button type="button" id="dc-web-fwd" class="dc-web-nav" title="forward" disabled>›</button><button type="button" id="dc-web-reload" class="dc-web-nav" title="reload">⟳</button><button type="button" id="dc-web-home" class="dc-web-nav" title="home (the hub)">⌂</button><input id="dc-web-url" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="site address…"><button type="submit" title="go">Go</button><button type="button" id="dc-web-out" title="open in a new tab (for sites that refuse to load in here)">↗</button></form><iframe id="dc-web-frame" title="browser" referrerpolicy="no-referrer"></iframe><div class="dc-web-note">Some sites (Google, banks, Amazon…) refuse to load inside another page - use ↗ for those.</div></div>
             <div id="dc-peer-log" class="dc-chat-log" hidden></div>
@@ -5287,6 +5288,27 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const place = () => { if (pane.classList.contains('nf')) form.after(h); else log.after(h); h.hidden = form.hidden; };
             place(); new MutationObserver(place).observe(pane, { attributes: true, attributeFilter: ['class'] }); new MutationObserver(place).observe(form, { attributes: true, attributeFilter: ['hidden'] });
             window.dcAttachResizer && window.dcAttachResizer(h, pane.querySelector('#dc-peer-in'), 'dc-peer-input-h');
+        }
+        {   // 🔍 SEARCH IN THE CHAT (2026-11-09, L: "search in the group chat itself also"): the same box as the Droplet tab's search, above the
+            // messages of the open conversation or group; typing hides the bubbles that don't match (.dc-miss), a redraw re-applies it, Esc / ✕ close.
+            const log = pane.querySelector('#dc-peer-log'), fb = pane.querySelector('#dc-peer-find');
+            const box = document.createElement('div'); box.className = 'dc-find'; box.id = 'dc-peer-findbox'; box.hidden = true;
+            box.innerHTML = '<input type="search" placeholder="search this chat…" autocomplete="off" data-1p-ignore><span class="n"></span><button type="button" title="close search">✕</button>';
+            log.before(box);
+            const fin = box.querySelector('input'), fn = box.querySelector('.n'); let q = '';
+            const apply = () => { const t = q.trim().toLowerCase(); let n = 0;
+                for (const el of log.querySelectorAll('.dc-bub[data-k]')) { const hit = !t || el.textContent.toLowerCase().includes(t); el.classList.toggle('dc-miss', !hit); if (t && hit) n++; }
+                fn.textContent = t ? n + ' found' : ''; };
+            const close = () => { q = ''; fin.value = ''; box.hidden = true; fb.classList.remove('on'); apply(); };
+            fb.onclick = () => { if (box.hidden) { box.hidden = false; fb.classList.add('on'); fin.focus(); } else close(); };
+            fin.addEventListener('input', () => { q = fin.value; apply(); });
+            fin.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); close(); } });
+            fin.addEventListener('pointerdown', e => e.stopPropagation());
+            box.querySelector('button[title="close search"]').onclick = close;
+            new MutationObserver(() => { if (q) apply(); }).observe(log, { childList: true });
+            // the 🔍 lives with the conversation: shown while the message log is, gone (and the box closed) on People / the browser
+            const sync = () => { fb.hidden = log.hidden; if (log.hidden && !box.hidden) close(); };
+            sync(); new MutationObserver(sync).observe(log, { attributes: true, attributeFilter: ['hidden'] });
         }
         const body0 = () => $('#dc-console .dc-body');
         $('#dc-peer-x').onclick = () => { if (body0().classList.contains('pfull')) body0().classList.remove('pfull'); else closePeer(); };   // full cover: X = back to the split
