@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.182"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.183"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -3806,10 +3806,13 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (log.__seenIO) { log.__seenIO.disconnect(); log.__seenIO = null; }
             if (!items.length) return;
             const got = new Set(); let last = 0;
+            // READ MAIL FIX (2026-11-11, L: "the read mail isn't counting down"): observe against the LOG (not the window) with fine
+            // thresholds. A bubble taller than the log (mail notice + photo) never reached 60% visible, and with only [0, 0.6] the observer
+            // never re-checked it mid-scroll - it stayed unseen and froze the contiguous watermark (and the count) for every line after it.
             const io = new IntersectionObserver(ents => {
                 if (document.hidden) return;
                 for (const e of ents) {
-                    const rh = (e.rootBounds && e.rootBounds.height) || innerHeight;
+                    const rh = (e.rootBounds && e.rootBounds.height) || log.clientHeight || innerHeight;
                     if (e.isIntersecting && (e.intersectionRatio >= 0.6 || e.intersectionRect.height >= rh * 0.5) && !got.has(e.target.dataset.k)) {
                         got.add(e.target.dataset.k);
                         // SEEN BLINK (2026-11-09, L): each unread message blinks faintly as it scrolls into view, one at a time, and the count drops by that line
@@ -3821,7 +3824,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 for (const it of items) { if (!got.has(it.k)) break; ts = it.ts; }
                 if (ts && ts !== last) { last = ts; onSeen(ts); }
                 if (got.size >= items.length) { io.disconnect(); log.__seenIO = null; }
-            }, { threshold: [0, 0.6] });
+            }, { root: log, threshold: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1] });
             log.__seenIO = io;
             for (const it of items) { const el = log.querySelector(`[data-k="${CSS.escape(it.k)}"]`); if (el) io.observe(el); }
         }
