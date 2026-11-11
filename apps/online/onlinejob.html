@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="version" content="1.0.17">
+  <meta name="version" content="1.0.18">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>Jobs</title>
   <link rel="stylesheet" href="../assets/css/online.css" />
@@ -1979,13 +1979,17 @@
       renderDailyTasks();
     }
 
+    // {id: task} from the live tasks listener (allTasks); null until it has delivered once
+    function liveTaskMap() { if (!allTasks || !allTasks.length) return null; const m = {}; allTasks.forEach(t => { if (t && t.id) m[t.id] = t; }); return m; }
     function bestTime(task, id) { return Math.max(Number(task.updatedAt) || 0, Number(task.createdAt) || 0, Number(task.startTime) || 0, Number(task.timestamp) || 0, Number(id) || 0); }
     async function resolveMetaOwnerTaskId() {
       metaOwnerTaskId = currentProject;
       const projKey = normKey(currentProjectName);
       if (!projKey) return metaOwnerTaskId;
-      const snap = await get(dbRef(database, `${DB}/tasks`)); if (!snap.exists()) return metaOwnerTaskId;
-      const tasks = snap.val();
+      // EGRESS (2026-11-11): the live onValue listener already holds every task in allTasks - reuse it instead of a
+      // full GET of the whole tasks node (~250 kB) on every job open; GET only if the listener hasn't delivered yet.
+      const tasks = liveTaskMap() || (await get(dbRef(database, `${DB}/tasks`))).val();
+      if (!tasks) return metaOwnerTaskId;
       const matches = Object.entries(tasks).filter(([, t]) => normKey(t.project) === projKey);
       if (!matches.length) return metaOwnerTaskId;
       // Prefer oldest task that owns lists; fall back to oldest any match
@@ -2139,7 +2143,7 @@
     async function buildJobReport() {
       if (!window.jspdf) throw new Error("PDF library still loading - try again in a moment");
       if (!currentProject) throw new Error("Select or load a job first");
-      const all = (await get(dbRef(database, `${DB}/tasks`))).val() || {};
+      const all = liveTaskMap() || (await get(dbRef(database, `${DB}/tasks`))).val() || {};   // EGRESS 2026-11-11: reuse the live list
       const recs = projectRecords(all).map(([id, t]) => ({ id, ...t })).sort((a, b) => (Date.parse(a.startTime) || +a.id) - (Date.parse(b.startTime) || +b.id));
       if (!recs.length) throw new Error("No records for this job");
       const meta = all[metaOwnerTaskId] || recs[0];
