@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="version" content="1.0.16">
+  <meta name="version" content="1.0.17">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>Jobs</title>
   <link rel="stylesheet" href="../assets/css/online.css" />
@@ -13,6 +13,23 @@
       font-size: 12px;
       color: var(--muted);
     }
+    /* 2026-11-10 task contacts (PM, store staff, network team) - contacts[] on the task; customerPhone stays the main number */
+    .contacts-block { margin: 6px 0 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+    #sec-task-select > .contacts-block { grid-column: 1 / -1; }   /* full row of the task-select grid */
+    .contacts-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .contacts-head b { font-size: 14px; }
+    .contacts-empty { font-size: 12px; color: var(--muted); padding: 4px 0; }
+    .contact-row { display: flex; align-items: center; gap: 6px; padding: 6px 0; border-top: 1px solid var(--border); font-size: 14px; }
+    .contact-row:first-child { border-top: none; }
+    .contact-row .ct-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+    .contact-row .ct-role, .contact-row .ct-sep { color: var(--muted); }
+    .contact-row button { padding: 4px 8px; margin: 0; white-space: nowrap; flex: none; }
+    .contact-row .ct-del.armed { background: var(--danger); border-color: var(--danger); color: var(--on-primary); }
+    .contact-form { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; }
+    .contact-form input { margin: 0; width: 100%; box-sizing: border-box; }
+    .contact-form[hidden] { display: none; }
+    .contact-form .cf-actions { grid-column: 1 / -1; display: flex; gap: 6px; }
+    @media (max-width: 480px) { .contact-form { grid-template-columns: 1fr; } }
   </style>
   <script>
     (function () {
@@ -72,6 +89,18 @@
       <div><input type="text" id="taskName" placeholder="Name" maxlength="40" /></div>
       <div class="project-column-input"><input type="text" id="project" placeholder="Project" maxlength="40" /></div>
       <div class="phone-column-input"><input type="text" id="customerPhone" placeholder="Phone" maxlength="40" /></div>
+      <div id="contactsBlock" class="contacts-block" hidden>
+        <div class="contacts-head"><b>Contacts</b><button type="button" id="addContactBtn">+ Add contact</button></div>
+        <div id="contactsList"></div>
+        <div id="contactForm" class="contact-form" hidden>
+          <input type="text" id="cfName" list="contactNameList" placeholder="Name" maxlength="60" autocomplete="off" />
+          <input type="text" id="cfRole" placeholder="Role" maxlength="60" />
+          <input type="tel" id="cfPhone" placeholder="Phone" maxlength="40" />
+          <input type="email" id="cfEmail" placeholder="Email" maxlength="80" />
+          <div class="cf-actions"><button type="button" id="cfSave">Save</button><button type="button" id="cfCancel">Cancel</button></div>
+        </div>
+        <datalist id="contactNameList"></datalist>
+      </div>
       <div class="email-column-input"><input type="email" id="customerEmail" placeholder="Email" maxlength="80" /></div>
       <div class="address-column-input"><input type="text" id="customerAddress" placeholder="Address" maxlength="60" />
       </div>
@@ -339,6 +368,13 @@
     const timerLoadingIndicator = document.getElementById("timerLoadingIndicator");
     const imgGallery = document.getElementById("imgGallery");
     const searchTaskInput = document.getElementById("searchTask");
+    const contactsBlock = document.getElementById("contactsBlock");
+    const contactsList = document.getElementById("contactsList");
+    const contactForm = document.getElementById("contactForm");
+    const contactNameList = document.getElementById("contactNameList");
+    const cfName = document.getElementById("cfName"), cfRole = document.getElementById("cfRole");
+    const cfPhone = document.getElementById("cfPhone"), cfEmail = document.getElementById("cfEmail");
+    let contactEditIdx = -1;   // -1 = adding a new contact, else the row being edited
     const CALC_DEADLINE_MS = 60_000;
 
     const taskSearchHelper = window.SearchEngine?.attachAuto
@@ -671,7 +707,7 @@
           endTime: null, segments: [],
         };
         if (initType) currentTask.segments.push({ type: initType, startTime: getSegNow(), endTime: null });
-        saveTask(currentTask);
+        saveTask(currentTask); renderContacts(currentTask);
         timerInterval = setInterval(tickTimer, 1000);
         endOdometerInput.disabled = false;
         endTaskBtn.style.display = "inline-block";
@@ -712,6 +748,7 @@
       endOdometerInput.disabled = true;
       endTaskBtn.style.display = "none";
       currentTaskTimeDisplay.innerText = "00:00:00";
+      closeContactForm(); renderContacts(null);
     }
 
     function clearTimerImages() {
@@ -816,6 +853,83 @@
       taskNotesTextarea.value = t.notes || ""; customerAddressInput.value = t.customerAddress || "";
       customerPhoneInput.value = t.customerPhone || ""; customerEmailInput.value = t.customerEmail || "";
       startOdometerInput.value = t.startOdometer || ""; endOdometerInput.value = t.endOdometer || "";
+      closeContactForm(); renderContacts(t);
+    }
+
+    // -- Task contacts (2026-11-10): contacts[] = {name, role, phone, email}. customerPhone stays the main number
+    // (onlineinvoice/contacts/schedule/analytics read it). Saves go through saveTask (merge update, changed keys only).
+    function taskContacts(t) {
+      const c = t && t.contacts;
+      const arr = Array.isArray(c) ? c : (c && typeof c === "object" ? Object.values(c) : []);
+      return arr.filter(x => x && typeof x === "object").map(x => ({
+        name: String(x.name || "").trim(), role: String(x.role || "").trim(),
+        phone: String(x.phone || "").trim(), email: String(x.email || "").trim(),
+      }));
+    }
+    function telHref(p) { const s = String(p || "").trim(); return "tel:" + (s.startsWith("+") ? "+" : "") + s.replace(/\D/g, ""); }
+    function normContactName(n) { return String(n || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); }
+    function renderContacts(t) {
+      if (!contactsBlock) return;
+      t = t || null;
+      contactsBlock.hidden = !t;
+      contactsList.innerHTML = "";
+      if (!t) return;
+      const list = taskContacts(t);
+      if (!list.length) { const e = document.createElement("div"); e.className = "contacts-empty"; e.textContent = "No contacts yet."; contactsList.appendChild(e); return; }
+      list.forEach((c, idx) => {
+        const row = document.createElement("div"); row.className = "contact-row";
+        const txt = document.createElement("div"); txt.className = "ct-text";
+        const parts = [];
+        if (c.name) { const b = document.createElement("b"); b.textContent = c.name; parts.push(b); }
+        if (c.role) { const r = document.createElement("span"); r.className = "ct-role"; r.textContent = c.role; parts.push(r); }
+        if (c.phone) { const a = document.createElement("a"); a.href = telHref(c.phone); a.textContent = c.phone; parts.push(a); }
+        if (c.email) { const a = document.createElement("a"); a.href = "mailto:" + encodeURIComponent(c.email).replace(/%40/g, "@"); a.textContent = c.email; parts.push(a); }
+        parts.forEach((el, i) => { if (i) { const s = document.createElement("span"); s.className = "ct-sep"; s.textContent = " - "; txt.appendChild(s); } txt.appendChild(el); });
+        const edit = document.createElement("button"); edit.type = "button"; edit.textContent = "\u270E"; edit.title = "Edit contact";
+        edit.onclick = () => openContactForm(idx);
+        const del = document.createElement("button"); del.type = "button"; del.className = "ct-del"; del.textContent = "\uD83D\uDDD1"; del.title = "Remove contact";
+        let armT = null;
+        del.onclick = () => {   // two taps: the first only arms it (house rule)
+          if (!del.classList.contains("armed")) {
+            del.classList.add("armed"); del.textContent = "Tap again";
+            armT = setTimeout(() => { del.classList.remove("armed"); del.textContent = "\uD83D\uDDD1"; }, 4000);
+            return;
+          }
+          clearTimeout(armT);
+          const cur = taskContacts(currentTask); cur.splice(idx, 1); closeContactForm(); saveContacts(cur);
+        };
+        row.append(txt, edit, del);
+        contactsList.appendChild(row);
+      });
+    }
+    function saveContacts(list) {
+      if (!currentTask) return;
+      currentTask.contacts = list.length ? list : null;   // null (not delete) so saveTask's changed-key diff sends the removal
+      saveTask(currentTask);
+      renderContacts(currentTask);
+    }
+    // Everyone already on any loaded task's contacts[] (no extra reads) - newest task wins per name.
+    function knownContacts() {
+      const map = new Map();
+      [...allTasks].sort((a, b) => (Date.parse(a.startTime) || 0) - (Date.parse(b.startTime) || 0))
+        .concat(currentTask ? [currentTask] : [])
+        .forEach(t => taskContacts(t).forEach(c => { const k = normContactName(c.name); if (k) map.set(k, c); }));
+      return map;
+    }
+    function openContactForm(idx) {
+      contactEditIdx = idx;
+      const c = idx >= 0 ? (taskContacts(currentTask)[idx] || {}) : {};
+      cfName.value = c.name || ""; cfRole.value = c.role || ""; cfPhone.value = c.phone || ""; cfEmail.value = c.email || "";
+      contactNameList.innerHTML = "";
+      knownContacts().forEach(k => { const o = document.createElement("option"); o.value = k.name; if (k.role) o.label = k.role; contactNameList.appendChild(o); });
+      contactForm.hidden = false; cfName.focus();
+    }
+    function closeContactForm() { if (contactForm) { contactForm.hidden = true; contactEditIdx = -1; } }
+    function pickKnownContact() {   // a picked/typed name that matches someone known fills the EMPTY fields (still editable)
+      const k = knownContacts().get(normContactName(cfName.value)); if (!k) return;
+      if (!cfRole.value.trim()) cfRole.value = k.role;
+      if (!cfPhone.value.trim()) cfPhone.value = k.phone;
+      if (!cfEmail.value.trim()) cfEmail.value = k.email;
     }
 
     function checkOngoingTask(tasks) {
@@ -1452,6 +1566,18 @@
       loadProject(id);
     });
     searchTaskInput.addEventListener("input", applySearchFilter);
+    document.getElementById("addContactBtn").addEventListener("click", () => { if (currentTask) openContactForm(-1); });
+    document.getElementById("cfCancel").addEventListener("click", closeContactForm);
+    cfName.addEventListener("change", pickKnownContact);
+    cfName.addEventListener("input", () => { if (knownContacts().has(normContactName(cfName.value))) pickKnownContact(); });
+    document.getElementById("cfSave").addEventListener("click", () => {
+      if (!currentTask) return;
+      const c = { name: cfName.value.trim(), role: cfRole.value.trim(), phone: cfPhone.value.trim(), email: cfEmail.value.trim() };
+      if (!c.name && !c.phone && !c.email) { cfName.focus(); return; }
+      const list = taskContacts(currentTask);
+      if (contactEditIdx >= 0 && contactEditIdx < list.length) list[contactEditIdx] = c; else list.push(c);
+      closeContactForm(); saveContacts(list);
+    });
     document.getElementById("calculateHoursBtn").addEventListener("click", calcHoursBetweenDates);
     document.querySelectorAll(".toggle-column").forEach(cb => cb.addEventListener("change", () => { saveColVis(); applyColVis(); }));
     document.querySelector("#task-log th.start-time-column").addEventListener("click", () => {

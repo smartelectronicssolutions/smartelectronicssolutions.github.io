@@ -4,7 +4,7 @@
 <head>
   <title>Contact Information Management</title>
   <meta charset="UTF-8" />
-  <meta name="version" content="1.0.0">
+  <meta name="version" content="1.0.1">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="../assets/css/online.css" />
   <script>(function () { var t = localStorage.getItem("ss-theme"); if (t === "light") document.documentElement.classList.add("light"); }());</script>
@@ -241,6 +241,39 @@
     .project-card h4 {
       margin: 0 0 6px;
     }
+
+    /* 2026-11-10 People view: everyone on any task's contacts[] (PM, store staff, network team) */
+    .view-toggle {
+      display: inline-flex;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .view-toggle button {
+      padding: 8px 12px;
+      border: none;
+      border-radius: 0;
+      margin: 0;
+      background: var(--surface2);
+      color: inherit;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .view-toggle button.on {
+      background: var(--accent);
+      color: var(--on-primary);
+    }
+
+    table.contacts td a {
+      color: inherit;
+    }
+
+    table.contacts .jobs {
+      font-size: 13px;
+      color: var(--muted);
+    }
   </style>
 </head>
 
@@ -260,13 +293,17 @@
 
   <main>
     <div class="toolbar">
+      <div class="view-toggle" role="group" aria-label="View">
+        <button type="button" id="view-customers" class="on">Customers</button>
+        <button type="button" id="view-people">People</button>
+      </div>
       <input type="text" id="searchContacts" placeholder="Search name, email, phone, company…" />
-      <label class="chk"><input type="checkbox" id="incompleteOnly" /> Incomplete only</label>
+      <label class="chk" id="incompleteWrap"><input type="checkbox" id="incompleteOnly" /> Incomplete only</label>
       <button class="btn primary" id="open-add">+ Add</button>
       <span class="count" id="count"></span>
     </div>
 
-    <div class="table-wrap">
+    <div class="table-wrap" id="customers-wrap">
       <table class="contacts">
         <thead>
           <tr>
@@ -278,6 +315,21 @@
           </tr>
         </thead>
         <tbody id="contacts-body"></tbody>
+      </table>
+    </div>
+
+    <div class="table-wrap" id="people-wrap" hidden>
+      <table class="contacts">
+        <thead>
+          <tr>
+            <th data-psort="name">Name <span class="arrow"></span></th>
+            <th data-psort="role">Role <span class="arrow"></span></th>
+            <th data-psort="phone">Phone <span class="arrow"></span></th>
+            <th data-psort="email">Email <span class="arrow"></span></th>
+            <th data-psort="jobs">Jobs <span class="arrow"></span></th>
+          </tr>
+        </thead>
+        <tbody id="people-body"></tbody>
       </table>
     </div>
   </main>
@@ -312,6 +364,31 @@
       <div id="contact-extra" class="contact-subtle" style="margin-top:12px"></div>
       <h3>Projects</h3>
       <div id="projects-list"></div>
+    </div>
+  </div>
+
+  <!-- Person modal (read-only: people live on each job's contacts[], edited in onlinejob) -->
+  <div id="person-modal" class="modal-overlay">
+    <div class="modal-card">
+      <button class="modal-close" data-close>×</button>
+      <h2 id="person-name"></h2>
+      <div class="contact-summary">
+        <div>
+          <div class="contact-subtle">Roles</div>
+          <div id="person-role-list" class="field-list"></div>
+        </div>
+        <div>
+          <div class="contact-subtle">Phones</div>
+          <div id="person-phone-list" class="field-list"></div>
+        </div>
+        <div>
+          <div class="contact-subtle">Emails</div>
+          <div id="person-email-list" class="field-list"></div>
+        </div>
+      </div>
+      <div class="contact-subtle">Edit a person on the job itself (Jobs app &gt; Contacts).</div>
+      <h3>Jobs</h3>
+      <div id="person-jobs"></div>
     </div>
   </div>
 
@@ -375,6 +452,12 @@
     let allRows = [];
     let sortField = "name";
     let sortDir = 1;
+    let allPeople = [];
+    let view = "customers";
+    let pSortField = "name";
+    let pSortDir = 1;
+    const peopleBody = document.getElementById("people-body");
+    const personModal = document.getElementById("person-modal");
 
     function canWrite() {
       return !!(authReady && currentUser);
@@ -395,6 +478,7 @@
       const tasksRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
       const snapshot = await get(tasksRef);
       allRows = snapshot.exists() ? aggregate(snapshot.val()) : [];
+      allPeople = snapshot.exists() ? aggregatePeople(snapshot.val()) : [];
       renderTable();
     }
 
@@ -429,6 +513,151 @@
         });
       }
       return rows;
+    }
+
+    // People = each task's contacts[] {name, role, phone, email}, deduped by normalized name
+    // (a nameless entry folds into the person with the same phone digits). Same tasks read, no extra fetch.
+    const normName = (n) => String(n || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const digits = (p) => String(p || "").replace(/\D/g, "");
+    const telHref = (p) => { const v = String(p || "").trim(); return "tel:" + (v.startsWith("+") ? "+" : "") + digits(v); };
+    function aggregatePeople(tasks) {
+      const map = new Map();
+      const byPhone = new Map();
+      const loose = [];
+      for (const taskId in tasks) {
+        const task = tasks[taskId] || {};
+        const c = task.contacts;
+        const list = Array.isArray(c) ? c : (c && typeof c === "object" ? Object.values(c) : []);
+        list.forEach((x) => {
+          if (!x || typeof x !== "object") return;
+          const name = String(x.name || "").trim();
+          const entry = { name, role: String(x.role || "").trim(), phone: String(x.phone || "").trim(), email: String(x.email || "").trim(), taskId, task };
+          if (!normName(name)) { if (digits(entry.phone) || entry.email) loose.push(entry); return; }
+          const k = normName(name);
+          if (!map.has(k)) map.set(k, []);
+          map.get(k).push(entry);
+          if (digits(entry.phone)) byPhone.set(digits(entry.phone), k);
+        });
+      }
+      loose.forEach((e) => {
+        const k = byPhone.get(digits(e.phone)) || ("#" + (digits(e.phone) || e.email.toLowerCase()));
+        if (!map.has(k)) map.set(k, []);
+        map.get(k).push(e);
+      });
+      const rows = [];
+      map.forEach((entries) => {
+        const name = (entries.find((e) => e.name) || {}).name || entries[0].phone || entries[0].email;
+        const roles = uniqueValues(entries.map((e) => e.role));
+        const phones = uniqueValues(entries.map((e) => e.phone));
+        const emails = uniqueValues(entries.map((e) => e.email));
+        const jobs = [];
+        const seen = new Set();
+        entries.forEach((e) => { if (!seen.has(e.taskId)) { seen.add(e.taskId); jobs.push({ taskId: e.taskId, task: e.task }); } });
+        jobs.sort((a, b) => (Date.parse(b.task.startTime) || 0) - (Date.parse(a.task.startTime) || 0));
+        const jobNames = uniqueValues(jobs.map((j) => j.task.customerName));
+        rows.push({
+          name, roles, phones, emails, jobs, jobNames,
+          search: [name, roles.join(" "), phones.join(" "), emails.join(" "), jobNames.join(" ")].join(" ").toLowerCase(),
+        });
+      });
+      return rows;
+    }
+
+    function pSortVal(r) {
+      switch (pSortField) {
+        case "role": return (r.roles[0] || "~").toLowerCase();
+        case "phone": return r.phones[0] || "~";
+        case "email": return (r.emails[0] || "~").toLowerCase();
+        case "jobs": return -r.jobs.length;
+        default: return r.name.toLowerCase();
+      }
+    }
+
+    function renderPeople() {
+      const q = String(searchContacts.value || "").trim().toLowerCase();
+      const rows = allPeople.filter((r) => !q || r.search.includes(q));
+      rows.sort((a, b) => { const av = pSortVal(a), bv = pSortVal(b); return av < bv ? -pSortDir : av > bv ? pSortDir : 0; });
+      peopleBody.innerHTML = "";
+      const frag = document.createDocumentFragment();
+      rows.forEach((r) => {
+        const tr = document.createElement("tr");
+        tr.className = "row";
+        const nameTd = document.createElement("td");
+        nameTd.className = "name";
+        nameTd.textContent = r.name;
+        tr.appendChild(nameTd);
+        tr.appendChild(cell(r.roles.join(", "), !r.roles.length));
+        const phTd = document.createElement("td");
+        if (r.phones.length) {
+          r.phones.forEach((ph, i) => {
+            if (i) phTd.appendChild(document.createTextNode(", "));
+            const a = document.createElement("a"); a.href = telHref(ph); a.textContent = ph;
+            a.addEventListener("click", (e) => e.stopPropagation());
+            phTd.appendChild(a);
+          });
+        } else phTd.innerHTML = '<span class="missing">—</span>';
+        tr.appendChild(phTd);
+        const emTd = document.createElement("td");
+        if (r.emails.length) {
+          r.emails.forEach((em, i) => {
+            if (i) emTd.appendChild(document.createTextNode(", "));
+            const a = document.createElement("a"); a.href = "mailto:" + encodeURIComponent(em).replace(/%40/g, "@"); a.textContent = em;
+            a.addEventListener("click", (e) => e.stopPropagation());
+            emTd.appendChild(a);
+          });
+        } else emTd.innerHTML = '<span class="missing">—</span>';
+        tr.appendChild(emTd);
+        const jTd = document.createElement("td");
+        jTd.className = "jobs trunc";
+        const jt = `${r.jobs.length} job${r.jobs.length === 1 ? "" : "s"}` + (r.jobNames.length ? ` · ${r.jobNames.join(", ")}` : "");
+        jTd.textContent = jt;
+        jTd.title = jt;
+        tr.appendChild(jTd);
+        tr.onclick = () => openPerson(r);
+        frag.appendChild(tr);
+      });
+      peopleBody.appendChild(frag);
+      countEl.textContent = `${rows.length} of ${allPeople.length} people`;
+      document.querySelectorAll("th[data-psort] .arrow").forEach((a) => (a.textContent = ""));
+      const active = document.querySelector(`th[data-psort="${pSortField}"] .arrow`);
+      if (active) active.textContent = pSortDir > 0 ? "▲" : "▼";
+    }
+
+    function openPerson(r) {
+      document.getElementById("person-name").textContent = r.name;
+      renderChips(document.getElementById("person-role-list"), r.roles);
+      renderChips(document.getElementById("person-phone-list"), r.phones);
+      renderChips(document.getElementById("person-email-list"), r.emails);
+      const box = document.getElementById("person-jobs");
+      box.innerHTML = "";
+      r.jobs.forEach(({ taskId, task }) => {
+        const card = document.createElement("div");
+        card.className = "project-card";
+        const h4 = document.createElement("h4");
+        const a = document.createElement("a");
+        a.href = `onlinejob.html?task=${encodeURIComponent(taskId)}`;
+        a.textContent = [task.customerName, task.project].filter(Boolean).join(" - ") || "Untitled job";
+        h4.appendChild(a);
+        card.appendChild(h4);
+        const info = document.createElement("div");
+        info.className = "contact-subtle";
+        info.textContent = task.startTime ? new Date(task.startTime).toLocaleString() : "No start time";
+        card.appendChild(info);
+        box.appendChild(card);
+      });
+      personModal.classList.add("open");
+    }
+
+    function setView(v) {
+      view = v;
+      document.getElementById("view-customers").classList.toggle("on", v === "customers");
+      document.getElementById("view-people").classList.toggle("on", v === "people");
+      document.getElementById("customers-wrap").hidden = v !== "customers";
+      document.getElementById("people-wrap").hidden = v !== "people";
+      document.getElementById("incompleteWrap").style.display = v === "people" ? "none" : "";
+      document.getElementById("open-add").style.display = v === "people" ? "none" : "";
+      try { localStorage.setItem("contacts-view", v); } catch (e) { }
+      renderTable();
     }
 
     function sortVal(r) {
@@ -474,6 +703,7 @@
     }
 
     function renderTable() {
+      if (view === "people") { renderPeople(); return; }
       const rows = currentView();
       body.innerHTML = "";
       const frag = document.createDocumentFragment();
@@ -580,6 +810,18 @@
       });
     });
 
+    document.querySelectorAll("th[data-psort]").forEach((th) => {
+      th.addEventListener("click", () => {
+        const f = th.dataset.psort;
+        if (pSortField === f) pSortDir = -pSortDir;
+        else { pSortField = f; pSortDir = 1; }
+        renderPeople();
+      });
+    });
+    document.getElementById("view-customers").addEventListener("click", () => setView("customers"));
+    document.getElementById("view-people").addEventListener("click", () => setView("people"));
+    try { if (localStorage.getItem("contacts-view") === "people") setView("people"); } catch (e) { }
+
     searchContacts.addEventListener("input", renderTable);
     incompleteOnly.addEventListener("change", renderTable);
 
@@ -588,13 +830,14 @@
       b.addEventListener("click", () => {
         contactModal.classList.remove("open");
         addModal.classList.remove("open");
+        personModal.classList.remove("open");
       })
     );
-    [contactModal, addModal].forEach((m) =>
+    [contactModal, addModal, personModal].forEach((m) =>
       m.addEventListener("click", (e) => { if (e.target === m) m.classList.remove("open"); })
     );
     document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") { contactModal.classList.remove("open"); addModal.classList.remove("open"); }
+      if (e.key === "Escape") { contactModal.classList.remove("open"); addModal.classList.remove("open"); personModal.classList.remove("open"); }
     });
 
     document.getElementById("open-add").addEventListener("click", () => {
