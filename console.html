@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.174"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.177"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -866,7 +866,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     <button class="dc-btn ghost sm" id="dc-chat-clear" title="Archive this thread to Droplet's memory (with an ollama summary) and start fresh">📎 Start a new thread</button>
                     <!-- the theme rows moved to System > Look (2026-09-27); no gear shortcut (L: "get rid of the looks button, just go to System") -->
                     <label class="dc-chk" id="dc-model-lbl" title="switch the model of Droplet's running session. Sends /model to its terminal on its own line and posts back whatever the terminal says - including 'not found'. Use it when replies come back as 'you have reached your limit'.">🧠 Model<select id="dc-model" style="margin-left:6px;font:inherit;max-width:120px"><option value="">switch to…</option><option value="opus">Opus</option><option value="sonnet">Sonnet</option><option value="haiku">Haiku</option><option value="fable">Fable</option><option value="default">default</option></select></label>
-                    <button class="dc-tab" id="dc-sys-tab" data-tab="sys" title="advanced: profile · look/theme · conversation · routines · your local bot">🎛<span class="dc-lbl"> Settings</span></button>   <!-- was "Full system & theme" (L 2026-10-04: "change to advanced") -->
+                    <button class="dc-tab" id="dc-sys-tab" data-tab="sys" title="advanced: profile · look/theme · conversation · routines · onlinechat bot">🎛<span class="dc-lbl"> Settings</span></button>   <!-- was "Full system & theme" (L 2026-10-04: "change to advanced") -->
                     <span class="dc-size" id="dc-thread-size" title="size of the live thread"></span>
                     <!-- the "wake Droplet" button left the menu 2026-09-25 (L): the droplet pill in the bar IS the wake control whenever it is not up -->
                 </div>
@@ -921,6 +921,14 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 <div id="dc-kd-update" class="meta" hidden style="margin:2px 0 12px">
                     <span id="dc-kd-ver"></span>
                     <button type="button" class="dc-btn ghost sm" id="dc-kd-update-btn" title="send this console's mind the steps to update its daemon">⬆ Update daemon</button>
+                </div>
+                <!-- ASSISTANT NAME (L 2026-11-11, from Pulsar's report): the name the take-home assistant goes by (console label, Campfire
+                     signature). Save queues {kind:'rename'} -> kdaemon 0.2.24+ writes botName into kdaemon.json and restarts itself.
+                     NOT the onlinechat bot's name - that is the "onlinechat bot" panel. kdaemon logins only. -->
+                <div id="dc-kd-name" class="meta" hidden style="margin:2px 0 12px">
+                    <label>Assistant name <input id="dc-kd-name-in" maxlength="24" autocomplete="off" spellcheck="false" placeholder="e.g. Pulsar" style="width:12em"></label>
+                    <button type="button" class="dc-btn ghost sm" id="dc-kd-name-btn" title="renames your assistant: saved on its PC (kdaemon.json), then the daemon restarts">Save name</button>
+                    <span id="dc-kd-name-st"></span>
                 </div>
             </div>
             <div class="dc-panel" id="dc-look-panel">
@@ -985,7 +993,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                  onlinechat uses - bot/name, bot/personality, bot/memory, bot/memory_summary - so Local and onlinechat change
                  together. Every signed-in person sees their own; the consolidate button runs on the ollama proxy (works off-LAN). -->
             <div class="dc-panel" id="dc-bot-panel">
-                <h4>Your local bot</h4>
+                <h4>onlinechat bot</h4>
                 <div class="dc-bot">
                     <label>name <input id="dc-bot-name" maxlength="40" placeholder="Local (no name yet)"></label>
                     <label>personality <textarea id="dc-bot-pers" rows="9" placeholder="who she is, tone, speech patterns, rules"></textarea></label>
@@ -1026,7 +1034,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             </div>
             <script>
                 (function () {   // ADVANCED FOLDS (L 2026-10-04 "make the other large areas retractable like Yuki and such"): every panel's heading toggles its body
-                    const panels = [['dc-prof-panel', 'Profile'], ['dc-look-panel', 'Look'], ['dc-notif-panel', 'Notifications'], ['dc-chats-panel', 'Chats'], ['dc-bot-panel', 'Your local bot'], ['dc-rt-panel', 'Routines'], ['dc-in-panel', 'Conversation'], ['dc-use-panel', 'Usage']];
+                    const panels = [['dc-prof-panel', 'Profile'], ['dc-look-panel', 'Look'], ['dc-notif-panel', 'Notifications'], ['dc-chats-panel', 'Chats'], ['dc-bot-panel', 'onlinechat bot'], ['dc-rt-panel', 'Routines'], ['dc-in-panel', 'Conversation'], ['dc-use-panel', 'Usage']];
                     for (const [id, label] of panels) {
                         const p = document.getElementById(id); if (!p) continue;
                         let h = p.querySelector(':scope > h4');
@@ -2331,15 +2339,16 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
 
         // DAEMON UPDATE (2026-10-10). The latest portable daemon lives in Storage (public/kdaemon/, readable without a
         // login, so a mind in another house can fetch it). Bump these three lines + upload the file for each release.
-        const KDAEMON_LATEST = { version: '0.2.21', size: 69540,
-            sha256: '25c6d8e00e4e78b74c74cf1431be83b4da1233a7eace04a125b3284f7c3778f6',
-            url: 'https://firebasestorage.googleapis.com/v0/b/persinfo-df93f.appspot.com/o/assistant-console%2Fkdaemon-0.2.21.py?alt=media&token=dfa74fc2-45b1-4107-a7cc-638e93fbdefb',
-            notes: 'Double-tap the daemon-online light to restart the daemon; plus 0.2.19: one daemon per folder, lock freed before restart, Campfire retry on the 10 s limit, single log lines' };
+        const KDAEMON_LATEST = { version: '0.2.23', size: 70150,
+            sha256: 'e823b72c968e4eb3af23154ee32ee84e6266b7de907bf50291b472e2e903d1cc',
+            url: 'https://firebasestorage.googleapis.com/v0/b/persinfo-df93f.appspot.com/o/assistant-console%2Fkdaemon-0.2.23.py?alt=media&token=a49f8043-4058-4d81-87ae-06c97f301079',
+            notes: '0.2.23: your message reaches Claude intact - no more lost quote marks, and characters like & | can never be read as commands; plus 0.2.22 Chrome fix' };
         const _vnum = v => String(v || '').split('.').map(n => parseInt(n, 10) || 0);
         const _volder = (a, b) => { const x = _vnum(a), y = _vnum(b); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) < (y[i] || 0); } return false; };
         function paintKdUpdate(m) {
             const box = document.getElementById('dc-kd-update'); if (!box) return;
-            if (!m || m.daemonKind !== 'kdaemon') { box.hidden = true; return; }
+            if (!m || m.daemonKind !== 'kdaemon') { box.hidden = true; paintKdName(null); return; }
+            paintKdName(m);
             const cur = ((String(m.version || '').match(/kdaemon\s+([\d.]+)/) || [])[1]) || '?';
             const old = cur === '?' || _volder(cur, KDAEMON_LATEST.version);
             box.hidden = false;
@@ -2347,6 +2356,35 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const b = document.getElementById('dc-kd-update-btn'); b.disabled = !old; b.dataset.cur = cur; b.dataset.self = m.selfReload ? '1' : '';
             b.textContent = old ? `⬆ Update to ${KDAEMON_LATEST.version}` : `✓ Up to date (${cur})`;   // the label says the version: a grey bare 'Update' read as broken (Kev pressed it, L 2026-11-09)
         }
+        // ASSISTANT NAME (L 2026-11-11, from Pulsar's Campfire report: the name only changed by editing kdaemon.json + restart + F5).
+        // The field shows meta.name live; Save validates and queues {kind:'rename', name} for kdaemon 0.2.24+, which writes botName,
+        // patches meta.name at once and restarts. renderMeta() repaints on every meta change, so the label updates without F5.
+        function paintKdName(m) {
+            const box = document.getElementById('dc-kd-name'); if (!box) return;
+            if (!m || m.daemonKind !== 'kdaemon') { box.hidden = true; return; }
+            box.hidden = false;
+            const inp = document.getElementById('dc-kd-name-in'), nm = String(m.name || '').trim();
+            if (inp && document.activeElement !== inp && !inp.dataset.dirty) inp.value = nm;
+            const st = document.getElementById('dc-kd-name-st');
+            if (st && st.dataset.want && nm === st.dataset.want) { st.textContent = '✓ renamed'; delete st.dataset.want; }
+        }
+        { const inp = document.getElementById('dc-kd-name-in'), btn = document.getElementById('dc-kd-name-btn');
+          if (inp) inp.addEventListener('input', () => { inp.dataset.dirty = '1'; });
+          if (btn) btn.addEventListener('click', () => {
+            const st = document.getElementById('dc-kd-name-st'), say = t => { if (st) st.textContent = t; };
+            const m = DC.lastMeta || {}, cur = ((String(m.version || '').match(/kdaemon\s+([\d.]+)/) || [])[1]) || '';
+            const name = String(inp.value || '').replace(/\s+/g, ' ').trim();
+            if (!/^[A-Za-z0-9 _-]{1,24}$/.test(name)) { say('1-24 letters, digits, spaces, - or _'); return; }
+            if (name === String(m.name || '').trim()) { say('that is already the name'); return; }
+            if (m.daemonKind !== 'kdaemon') { say('only for a take-home assistant'); return; }
+            if (!DC.daemonOn) { say('daemon offline - it cannot hear a rename. Start it on that PC first'); return; }
+            if (!cur || _volder(cur, '0.2.24')) { say(`renaming needs daemon 0.2.24+ (this one is ${cur || '?'}) - press Update first, or set "botName" in kdaemon.json and restart`); return; }
+            import('./assets/js/firebase-init.js?v=20261011b').then(async fm => {
+                const j = fm.push(fm.ref(database, `${DC.base}/jobs`));
+                await fm.set(j, { kind: 'rename', name, status: 'queued', createdAt: Date.now(), chat: true });
+                delete inp.dataset.dirty; if (st) st.dataset.want = name; say('renaming… (the daemon restarts, a few seconds)');
+            }).catch(err => say('could not queue the rename: ' + (err.code || err.message)));
+          }); }
         // DAEMON RESTART (L 2026-11-09 "reset daemon from double click on daemon online indicator"): two taps on the green
         // pill within 400 ms queue {kind:'restart'} - kdaemon 0.2.20+ only, and only while it beats (a dead daemon reads no jobs).
         // Hand-rolled double-tap: iOS Safari's dblclick is unreliable.
@@ -6670,8 +6708,16 @@ window.addEventListener('pageshow', () => openC());
   const check = async () => {
     if (busy || document.hidden || !RUN) return; busy = true;
     try {
-      const html = await (await fetch(location.pathname + '?vcheck=' + Date.now(), { cache: 'no-store' })).text();
-      const live = (html.match(/<meta name="version" content="([^"]+)"/) || [])[1];
+      // AUDIT 11-10: only the head is needed (the version meta is on line 4) - ask for the first 2 KB and stop reading once it is
+      // found, instead of pulling the whole ~700 KB page on every return to the tab (cell data on the phone)
+      const res = await fetch(location.pathname + '?vcheck=' + Date.now(), { cache: 'no-store', headers: { Range: 'bytes=0-2047' } });
+      let head = '', live;
+      const rd = res.body?.getReader(), dec = new TextDecoder();
+      if (rd) {
+        while (head.length < 8192) { const { done, value } = await rd.read(); if (done) break; head += dec.decode(value, { stream: true });
+          if ((live = (head.match(/<meta name="version" content="([^"]+)"/) || [])[1])) break; }
+        rd.cancel().catch(() => {});
+      } else { head = await res.text(); live = (head.match(/<meta name="version" content="([^"]+)"/) || [])[1]; }
       const typing = ['dc-chat-in', 'dc-peer-in'].some(id => (document.getElementById(id)?.value || '').trim());
       if (live && live !== RUN && !typing) location.reload();
     } catch (_) {} finally { busy = false; }
