@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.179"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.180"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -481,6 +481,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         .dc-latest.show { opacity: .85; pointer-events: auto; transform: translate(-50%, 0); }   /* same light see-through as the status pill (L 2026-09-29) */
         .dc-chat.newest-first .dc-latest { bottom: auto; top: 58px; transform: translate(-50%, -12px); }
         .dc-chat.newest-first .dc-latest.show { transform: translate(-50%, 0); }
+        .dc-latest.dc-unr { bottom: 114px; }   /* N UNREAD pill (2026-11-11): same look as the latest pill, one step above it (newest-first: top set in JS, below it) */
         .dc-chat-input.editing textarea { border-color: var(--dc-amber); }
         .dc-chat-input.editing .dc-btn.push { background: var(--dc-amber); }
         /* THINKING (2026-09-19, L: "make the click button a different color or pulsate when thinking is happening"): purple + a slow
@@ -1406,7 +1407,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         DC.deepTab = (() => { try { const q = new URLSearchParams(location.search); return q.has('dc') ? q.get('dc') : null; } catch (_) { return null; } })();
         if (DC.deepTab !== null) { DC.topic = DC.deepTab; try { localStorage.setItem('dc_topic', DC.topic); } catch (_) {} }
         const topicKey = n => String(n || '').replace(/[.#$\[\]\/]/g, '_');
-        function setTopic(n) { exitRemote(); const bar0 = $('#dc-topics'); if (bar0) bar0.classList.remove('open'); DC.topic = n || ''; try { localStorage.setItem('dc_topic', DC.topic); } catch (_) {} DC.bubbleSig = {}; const l = $('#dc-chat-log'); if (l) l.innerHTML = ''; renderChat(DC.ownTurns || DC.chatTurns || {});
+        function setTopic(n) { saveTabSpot(); exitRemote(); const bar0 = $('#dc-topics'); if (bar0) bar0.classList.remove('open'); DC.topic = n || ''; try { localStorage.setItem('dc_topic', DC.topic); } catch (_) {} DC.bubbleSig = {}; const l = $('#dc-chat-log'); if (l) l.innerHTML = ''; renderChat(DC.ownTurns || DC.chatTurns || {});
             window.dispatchEvent(new CustomEvent('dc-topic', { detail: DC.topic })); }   // the 👥 pane's Share bar follows the tab you are on (L 2026-09-27: swiping tabs did not change it)
         // SHARED TABS, ONE SHARE (2026-09-27, L: "share = bring Kev into my tab chat; unshare takes him out; he shares and I see his
         // tab"): the owner's {owner}/console/guests/<topic>/<me> lets me read THAT tab (rules: a query pinned to the one topic) and
@@ -1414,7 +1415,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         DC.remote = null;
         function enterRemote(r) {
             if (!r || !r.owner || !r.topic) return;
-            exitRemote();
+            saveTabSpot(); exitRemote();
             DC.remote = r; DC.bubbleSig = {};
             // VIEW-ONLY (L 2026-09-27: "he sees it as an uneditable tab... the talking stays in the other panel"): the box locks
             { const ta = $('#dc-chat-in'); if (ta) { ta.disabled = true; ta.dataset.ph = ta.placeholder; ta.placeholder = `👀 ${r.name || 'their'} · # ${r.topic} - view only. Talk to ${r.name || 'them'} in 👥`; }
@@ -1427,6 +1428,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         }
         function exitRemote() {
             if (!DC.remote) return;
+            saveTabSpot();
             try { DC.remoteUnsub && DC.remoteUnsub(); } catch (_) {}
             DC.remote = null; DC.remoteUnsub = null; DC.bubbleSig = {}; const l = $('#dc-chat-log'); if (l) l.innerHTML = '';
             { const ta = $('#dc-chat-in'); if (ta) { ta.disabled = false; if (ta.dataset.ph) ta.placeholder = ta.dataset.ph; }
@@ -2969,9 +2971,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             else if (DC.renderSig !== rsig) {
                 DC.landWait = false;
                 const tabKey = (R ? R.owner + '/' + R.topic : DC.topic || '') + '|' + nf;
-                const first = DC.landTab !== tabKey && unseen.length ? log.querySelector(`[data-k="${CSS.escape(unseen[0].k)}"]`) : null;
-                if (!(first && landOn(log, first, nf, () => updateLatestPill(log, nf)))) snapChatEnd(log, nf);   // a tab you just opened lands on its first unread
+                if (DC.landTab !== tabKey) landTabEntry(log, nf, tabKey, keys, unseen);   // entering a tab: its own spot, its first new line, or the latest + N unread
+                else snapChatEnd(log, nf);   // same tab, the turns changed (a reply landed): newest end, as before
                 DC.landTab = tabKey; DC.renderSig = rsig;
+                (DC.tabLastK = DC.tabLastK || {})[tabKey] = keys[keys.length - 1] || '';
             }
             if (R) { fillSnaps(); return; }   // remote: pictures yes (from the owner); nothing else below is mine to update
             updateThreadSize(obj);
@@ -3021,10 +3024,86 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         (function wireLatestPill() {
             const log = document.getElementById('dc-chat-log'); if (!log) return;
             let t = 0;
-            log.addEventListener('scroll', () => { clearTimeout(t); t = setTimeout(() => updateLatestPill(log, newestFirst()), 120); }, { passive: true });
+            log.addEventListener('scroll', () => { clearTimeout(t); t = setTimeout(() => { updateLatestPill(log, newestFirst()); saveTabSpot(); checkUnreadPill(log); }, 120); }, { passive: true });
             // the log just got a size (thread closed, console opened) after a render that had to skip its landing -> land now
             if (window.ResizeObserver) new ResizeObserver(() => { if (DC.landWait && log.clientHeight) { DC.landWait = false; renderChat(DC.chatTurns || {}); } }).observe(log);
         })();
+        // TAB SPOTS (2026-11-11, L: "when I swipe it always seems to take me down a lot in the chat. Should it not be where it was or
+        // at the latest?" / "the messages sort of load in the middle of the thread when I load into a tab"). The 11-10 rule landed EVERY
+        // tab entry on its OLDEST unseen line, so a busy tab (Walmart hand-offs) opened mid-thread on every swipe. Now each tab remembers
+        // where you were (top-visible bubble + its offset, + the newest turn you had): back with nothing new = exactly that spot; up to 5
+        // new = the first new line; more = the latest, with an "N unread" pill that jumps to the first one. First open this session: same
+        // rule on its unseen lines. Saved on scroll + before every tab change; per device (sessionStorage), in memory if that is blocked.
+        function tabKeyNow() { const R = DC.remote; return (R ? R.owner + '/' + R.topic : DC.topic || '') + '|' + newestFirst(); }
+        function tabSpots() {
+            if (!DC.tabSpots) { let s = {}; try { s = JSON.parse(sessionStorage.getItem('dc_tab_spots') || '{}') || {}; } catch (_) {} DC.tabSpots = s; }
+            return DC.tabSpots;
+        }
+        function saveTabSpot() {
+            const log = $('#dc-chat-log'); if (!log || !log.clientHeight) return;
+            const tk = tabKeyNow(); if (DC.landTab !== tk || DC.landWait) return;   // not landed in this tab yet (cleared / redrawing / hidden)
+            const kids = Array.from(log.children).filter(el => el.dataset && el.dataset.k); if (!kids.length) return;
+            const nf = newestFirst(), lt = log.getBoundingClientRect().top;
+            const end = nf ? log.scrollTop < 40 : (log.scrollHeight - log.scrollTop - log.clientHeight) < 40;
+            const a = kids.find(el => el.getBoundingClientRect().bottom > lt + 2) || kids[0];
+            const sp = tabSpots();
+            sp[tk] = { k: a.dataset.k, off: Math.round(a.getBoundingClientRect().top - lt), end, last: (DC.tabLastK || {})[tk] || '' };
+            try { sessionStorage.setItem('dc_tab_spots', JSON.stringify(sp)); } catch (_) {}
+        }
+        function restoreSpot(log, sp) {   // the anchor bubble back at the same offset; re-asserted while the view is untouched (like landOn)
+            const pick = () => log.querySelector(`[data-k="${CSS.escape(sp.k)}"]`);
+            if (!pick()) return false;
+            const put = () => { const e = pick(); if (!e || !e.isConnected || !log.clientHeight) return;
+                log.scrollTop += e.getBoundingClientRect().top - log.getBoundingClientRect().top - (sp.off || 0); };
+            let touched = false; const touch = () => { touched = true; };
+            ['wheel', 'touchstart', 'pointerdown', 'keydown'].forEach(ev => log.addEventListener(ev, touch, { once: true, passive: true }));
+            put();
+            const again = () => { if (!touched) put(); };
+            DC.reSnap = again;
+            requestAnimationFrame(again); [90, 400, 900, 1500].forEach(ms => setTimeout(again, ms));
+            return true;
+        }
+        function landTabEntry(log, nf, tabKey, keys, unseen) {
+            hideUnreadPill();
+            const sp = tabSpots()[tabKey];
+            const ix = sp && sp.last ? keys.indexOf(sp.last) : -1;
+            let list;
+            if (sp && ix >= 0) {   // been here this session and the turn we last had is still loaded: what came in since?
+                const fresh = keys.slice(ix + 1), fs = new Set(fresh);
+                const nu = unseen.filter(u => fs.has(u.k)).map(u => u.k);
+                list = nu.length ? nu : fresh;
+                if (!list.length) { if (sp.end || !restoreSpot(log, sp)) snapChatEnd(log, nf); else updateLatestPill(log, nf); return; }
+            } else list = unseen.map(u => u.k);   // first open (or so much came in the old spot scrolled out): go by the unseen lines
+            if (!list.length) { snapChatEnd(log, nf); return; }
+            if (list.length <= 5) {
+                const el = log.querySelector(`[data-k="${CSS.escape(list[0])}"]`);
+                if (el && landOn(log, el, nf, () => updateLatestPill(log, nf))) return;
+                snapChatEnd(log, nf); return;
+            }
+            snapChatEnd(log, nf); showUnreadPill(log, nf, list.length, list[0]);
+        }
+        function showUnreadPill(log, nf, n, k) {
+            const host = $('.dc-chat'); if (!host || !log) return;
+            let p = host.querySelector('.dc-unr');
+            if (!p) {
+                p = document.createElement('button'); p.type = 'button'; p.className = 'dc-latest dc-unr';
+                p.onclick = () => { const k2 = p.dataset.k, nf2 = newestFirst(); hideUnreadPill();
+                    landOn(log, () => log.querySelector(`[data-k="${CSS.escape(k2)}"]`), nf2, () => updateLatestPill(log, nf2)); };
+                host.appendChild(p);
+            }
+            p.dataset.k = k; p.dataset.tab = tabKeyNow(); p.textContent = n + ' unread ' + (nf ? '↓' : '↑');
+            p.title = 'jump to the first of the ' + n + ' unread messages';
+            p.style.top = nf ? (log.offsetTop + 52) + 'px' : '';
+            p.classList.add('show');
+        }
+        function hideUnreadPill() { const p = document.querySelector('.dc-chat .dc-unr'); if (p) p.classList.remove('show'); }
+        function checkUnreadPill(log) {   // hide once its first unread line is on screen, or when you are on another tab
+            const p = document.querySelector('.dc-chat .dc-unr.show'); if (!p) return;
+            if (p.dataset.tab !== tabKeyNow()) { hideUnreadPill(); return; }
+            const el = log.querySelector(`[data-k="${CSS.escape(p.dataset.k || '')}"]`); if (!el) return;
+            const r = el.getBoundingClientRect(), lr = log.getBoundingClientRect();
+            if (r.bottom > lr.top + 20 && r.top < lr.bottom - 20) hideUnreadPill();
+        }
         function snapChatEnd(log, nf) {
             if (!log) return;
             const put = () => { log.scrollTop = nf ? 0 : log.scrollHeight; return log.scrollTop; };
