@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.181"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.182"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -650,6 +650,22 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         .dc-bub .dc-code pre { margin: 0; padding: 7px 10px 9px; overflow-x: auto; -webkit-overflow-scrolling: touch; white-space: pre; overflow-wrap: normal; word-break: normal; font-family: var(--font-mono); font-size: calc(0.78rem * var(--dc-fs, 1)); line-height: 1.4; }
         .dc-bub .dc-code code { font: inherit; }
         .dc-bub .dc-ic { padding: 1px 4px; border-radius: 4px; background: var(--dc-inset); font-family: var(--font-mono); font-size: .92em; overflow-wrap: anywhere; cursor: copy; }
+        /* RICH TEXT (L 2026-11-11: "links ... shortened with the …", "grid or spreadsheet style", nicer formatting): tables, headings,
+           lists, quotes and bold drawn from the reply's markdown; a table scrolls sideways inside its own box so the page never does */
+        .dc-bub .dc-tbl-wrap { display: block; max-width: 100%; overflow-x: auto; margin: 6px 0; white-space: normal; border: 1px solid var(--border); border-radius: var(--dc-r-md); -webkit-overflow-scrolling: touch; }
+        .dc-bub .dc-tbl { border-collapse: collapse; font-size: .9em; line-height: 1.35; min-width: 100%; }
+        .dc-bub .dc-tbl th, .dc-bub .dc-tbl td { padding: 4px 8px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); overflow-wrap: normal; word-break: normal; max-width: 22em; }
+        .dc-bub .dc-tbl th { background: var(--dc-inset); font-weight: 600; white-space: nowrap; }
+        .dc-bub .dc-tbl tr:nth-child(even) td { background: color-mix(in srgb, var(--dc-inset) 55%, transparent); }
+        .dc-bub .dc-tbl tr:last-child td { border-bottom: 0; }
+        .dc-bub .dc-h { display: block; font-weight: 700; margin: 6px 0 1px; line-height: 1.3; }
+        .dc-bub .dc-h1 { font-size: 1.12em; } .dc-bub .dc-h2 { font-size: 1.05em; } .dc-bub .dc-h3 { font-size: 1em; }
+        .dc-bub .dc-li { display: block; padding-left: 1.15em; position: relative; }
+        .dc-bub .dc-li::before { content: '•'; position: absolute; left: .25em; opacity: .7; }
+        .dc-bub .dc-li.d1 { margin-left: 1.15em; }
+        .dc-bub .dc-li.d1::before { content: '◦'; }
+        .dc-bub .dc-bq { display: block; border-left: 3px solid var(--border); padding-left: 8px; color: var(--muted); }
+        .dc-bub a.dc-short { text-decoration-style: dotted; }
         .dc-bub .dc-ic.copied { outline: 2px solid var(--dc-green); }   /* tap = copied (2026-11-02) */
         .dc-bub .dc-ic.copyfail { outline: 2px solid #d1434b; }
         /* THEME SETS (2026-11-01, L: Look > Theme): same selector weight as html.light #dc-console and later in the file, so they win in both modes.
@@ -4601,6 +4617,19 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             return (h || '').replace(/(^|\n)([ \t]*(?:[-*•][ \t]+)?(?:\*\*)?)([A-Z]\d{1,2}|\d{1,2})([.)]?)(?=(?:\*\*)?\s)/g,
                 (m, pre, lead, n, dot) => (/^\d/.test(n) && !dot) ? m : `${pre}${lead}<span class="dc-num" data-n="${n}" role="button" tabindex="0" title="tap to answer with ${n}">${n}${dot}</span>`);
         }
+        // SHORT LINKS (L 2026-11-11): a long bare URL shows as host/…/last-part (query dropped from the LABEL only - the href and the
+        // hover title keep the full address). Works on already-escaped text, so the label is escaped too.
+        function shortUrl(url) {
+            if (url.length <= 44) return url;
+            const m = /^https?:\/\/([^/?#]+)([^?#]*)/.exec(url); if (!m) return url;
+            const host = m[1].replace(/^www\./, ''), segs = m[2].split('/').filter(Boolean);
+            // a search link: show what it searches for ("amazon.com/s" alone says nothing)
+            const q = /[?&](?:amp;)?(?:k|q|query|search|search_query)=([^&#]+)/.exec(url);
+            if (q) { let w = q[1]; try { w = decodeURIComponent(w.replace(/\+/g, ' ')); } catch (_) {} w = w.trim(); if (w.length > 30) w = w.slice(0, 28) + '…'; if (w) return host + ' “' + esc(w) + '”'; }
+            if (!segs.length) return host;
+            let last = segs[segs.length - 1]; if (last.length > 28) last = last.slice(0, 26) + '…';
+            return segs.length === 1 ? host + '/' + last : host + '/…/' + last;
+        }
         function linkify(h) {
             // The URL must be a plain http(s) URL and nothing else. Quotes, angle brackets and
             // backticks are REJECTED rather than stripped - they are not legal in a URL unencoded,
@@ -4625,7 +4654,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 .replace(/(^|[\s(*_~])(https?:\/\/[^\s<]+[^\s<.,;:!?)\]*_~])/g, (m, pre, url) => {   // * _ ~ are markdown emphasis, not URL characters: allowed before, trimmed after.
                     // Without this, a bolded **https://...** produced NO link at all, because the
                     // leading guard only accepted start-of-line, whitespace or an open paren.
-                    const link = a(url, url);
+                    const short = shortUrl(url);
+                    const link = short === url ? a(url, url) : (SAFE.test(url) ? `<a href="${url}" class="dc-short" title="${url}" target="_blank" rel="noopener noreferrer">${short}</a>` : null);
                     return link ? pre + link : m;
                 });
         }
@@ -4636,9 +4666,55 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // run on the rest, so a URL or a '3.' inside code stays plain text. A token starts with a raw < - esc() removes every raw < from
         // the text, so only ours exist, and linkify rejects a URL that touches one. The box is a <div>, which is also where the
         // tappable-number line reader stops. An unclosed fence runs to the end of the text, so a half-written reply still boxes.
+        // RICH TEXT helpers (2026-11-11). Both run on ALREADY-ESCAPED, already-linkified text and only add tags of our own - nothing is
+        // passed through, so a reply still cannot inject HTML. Text inside our tags' attributes is skipped (split on <...>).
+        function emph(h) {
+            return String(h || '').split(/(<[^>]*>)/).map(p => p.startsWith('<') ? p : p
+                .replace(/\*\*(?=\S)((?:[^*\n]|\*(?!\*))+?)(?<=\S)\*\*/g, '<b>$1</b>')
+                .replace(/(^|[\s(])\*(?=[^\s*])([^*\n]+?)(?<=[^\s*])\*(?=$|[\s).,;:!?])/g, '$1<i>$2</i>')).join('')
+                // bold wrapped around one of our own tags (**<a>link</a>**, **<span>3.</span>**): the split saw ** in two pieces
+                .replace(/\*\*(<(a|span|code)\b[^>]*>[^<]*<\/\2>)\*\*/g, '<b>$1</b>');
+        }
+        // line blocks: # headings, - / * bullets (one nesting level), > quotes. A block line carries its own line break (pre-wrap would
+        // otherwise paint a blank line under it). Numbered lines stay text so the tappable-number buttons keep working.
+        function blocks(h) {
+            const lines = String(h || '').split('\n'); const out = [];
+            for (const l of lines) {
+                let m, blk = null;
+                if ((m = /^(#{1,3})[ \t]+(.+)$/.exec(l))) blk = `<span class="dc-h dc-h${m[1].length}">${m[2].replace(/[ \t]+#+[ \t]*$/, '')}</span>`;
+                else if ((m = /^([ \t]*)[-*•][ \t]+(.*)$/.exec(l))) blk = `<span class="dc-li${m[1].replace(/\t/g, '  ').length >= 2 ? ' d1' : ''}">${m[2]}</span>`;
+                else if ((m = /^&gt;[ \t]?(.*)$/.exec(l))) blk = `<span class="dc-bq">${m[1]}</span>`;
+                out.push(blk ? { h: blk, b: true } : { h: l, b: false });
+            }
+            let res = '';
+            out.forEach((x, k) => { res += x.h; const nx = out[k + 1]; if (nx && !x.b && (!nx.b || x.h === '')) res += '\n'; });
+            return res;
+        }
         function richBody(raw, me, tidy) {
             let s = String(raw || '').replace(/[\uE000\uE001]/g, '').replace(/\r\n/g, '\n'); if (tidy) s = s.trim();
-            const prose = x => esc(tidy ? x.replace(/\n{3,}/g, '\n\n') : x);   // what enhance's cleanReply did for prose; never inside code, Copy must stay exact
+            const prose0 = x => esc(tidy ? x.replace(/\n{3,}/g, '\n\n') : x);   // what enhance's cleanReply did for prose; never inside code, Copy must stay exact
+            // one table cell: escaped text + inline code + links + bold/italic (no block structure inside a cell)
+            const inlineFmt = c => emph(linkify(esc(c).replace(/(`{1,3})([^`\n]+?)\1(?!`)/g, (m, t, x) => `<code class="dc-ic">${x}</code>`)));
+            // PIPE TABLES (2026-11-11): a header row + |---| separator becomes a real grid, parked behind a token like a code box
+            const prose = x => {
+                const lines = x.split('\n'); let buf = [], res = '';
+                const isRow = l => /^\s*\|.*\|\s*$/.test(l);
+                const isSep = l => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/.test(l);
+                const cells = l => { let t = l.trim(); if (t.startsWith('|')) t = t.slice(1); if (t.endsWith('|')) t = t.slice(0, -1); return t.split('|').map(c => c.trim()); };
+                for (let i = 0; i < lines.length; i++) {
+                    if (isRow(lines[i]) && i + 1 < lines.length && isSep(lines[i + 1])) {
+                        if (buf.length) { res += prose0(buf.join('\n') + '\n'); buf = []; }
+                        const head = cells(lines[i]); const rows = []; i += 2;
+                        while (i < lines.length && isRow(lines[i]) && !isSep(lines[i])) { rows.push(cells(lines[i])); i++; }
+                        res += hold(`<div class="dc-tbl-wrap"><table class="dc-tbl"><thead><tr>${head.map(c => `<th>${inlineFmt(c)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${head.map((_, k) => `<td>${inlineFmt(r[k] || '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`, true);
+                        if (i < lines.length) res += '\n';
+                        i--; continue;
+                    }
+                    buf.push(lines[i]);
+                }
+                if (buf.length) res += prose0(buf.join('\n'));
+                return res;
+            };
             const held = [], hold = (h, block) => { held.push({ h, block }); return `<\uE000${held.length - 1}\uE001>`; };
             let out = '', last = 0;
             for (const m of s.matchAll(/^[ \t]*```[ \t]*([^\s`]*)[^\n`]*\n([\s\S]*?)(?:^[ \t]*```[ \t]*$|(?![\s\S]))/gm)) {
@@ -4649,6 +4725,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             out += prose(s.slice(last));
             out = out.replace(/(`{1,3})([^`\n]+?)\1(?!`)/g, (m, t, c) => hold(`<code class="dc-ic">${c}</code>`, false));
             out = linkify(out); if (!me) out = numify(out);
+            out = blocks(emph(out));   // RICH TEXT 2026-11-11: bold/italic, then # headings / bullets / quotes
             // a box is a block: it takes the line breaks around it, or pre-wrap paints them as blank lines
             return out.replace(/(\n?)<\uE000(\d+)\uE001>(\n?)/g, (m, a, i, b) => { const x = held[+i]; return !x ? '' : x.block ? x.h : a + x.h + b; });
         }
