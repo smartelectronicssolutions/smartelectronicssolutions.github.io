@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.193"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.194"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -4498,15 +4498,38 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 + row('Context re-read, 30 days', fmtTok(m.rd), 'cheap')
                 + mods.map(([k, v]) => row(esc(k.replace('claude-', '')), Math.round(100 * v / mt) + '%', fmtTok(v))).join('')
                 + `</details>`;
-            box.innerHTML = big('Today', fmtTok(td), vs)
-                + big('A usual day', fmtTok(Math.round(typ)), Math.round(m.msgs / (m.act || 1)) + ' messages')
-                + big('This month', fmtTok(m.out), m.msgs.toLocaleString() + ' messages')
+            // EASY READ (L 2026-11-12 "show me how to read the data, make the card in settings easy to understand"):
+            // one plain sentence first, a today-vs-usual meter, plain sub-labels, and a "how to read this" fold.
+            const words = n => { n = Math.round((+n || 0) * 0.75); return n >= 1e6 ? '~' + (n / 1e6).toFixed(1) + 'M words' : n >= 1e3 ? '~' + Math.round(n / 1e3) + 'k words' : '~' + n + ' words'; };
+            const pctUsual = typ ? Math.round(100 * td / typ) : 0;
+            const meterW = Math.min(100, typ ? Math.round(50 * td / typ) : 0);   // middle line = a usual day, right edge = 2x usual
+            const meter = `<div style="margin:6px 0 2px"><div style="position:relative;height:12px;border-radius:6px;background:var(--border);overflow:hidden">
+                    <div style="position:absolute;left:0;top:0;bottom:0;width:${meterW}%;background:var(--accent, #8b2240)"></div>
+                    <div style="position:absolute;left:50%;top:0;bottom:0;width:2px;background:var(--text, #fff);opacity:.6"></div></div>
+                <div style="display:flex;justify-content:space-between;font-size:0.62rem;color:var(--muted)"><span>quiet</span><span>a usual day</span><span>2× usual</span></div></div>`;
+            const lead = `<div style="font-size:0.95rem;line-height:1.4;margin-bottom:4px">Today Claude has written <b>${fmtTok(td)}</b> tokens (${words(td)}). That's <b>${typ ? (td >= typ ? pctUsual + '%, busier than usual' : pctUsual + '% of a usual day') : 'n/a'}</b>.</div>`;
+            const how = `<details style="margin-top:10px"><summary class="meta" style="cursor:pointer">how to read this</summary>
+                <ul style="margin:6px 0 0 18px;padding:0;font-size:0.82rem;line-height:1.45;color:var(--muted)">
+                <li><b>Token</b> = a piece of a word (about 3/4 of a word). These count only what Claude <i>wrote</i>, which is the work. Re-reading the conversation is cheap and isn't counted here.</li>
+                <li><b>The meter</b>: the line in the middle is a usual day (your 30-day average on days you used it). Past the line = busier than normal.</li>
+                <li><b>The bars</b> are the last 14 days, one per day. The bright one is today.</li>
+                <li><b>What it counts</b>: the top rows, meter and bars are Droplet on se${DC.pilet && DC.pilet.today ? ' (plus a Pilet line for the Pi)' : ''}. <b>Bots (agent-vm)</b> = CompMan, Tutor and Analyst, counted on that VM every 5 min. Your claude.ai, desktop and phone chats can't be counted (no feed).</li>
+                <li><b>It is NOT your plan limit.</b> Max is one shared pool (5-hour window + weekly cap) across Claude Code, the bots and the apps. The real % left is in Claude Code <code>/usage</code> or claude.ai Settings → Usage.</li>
+                </ul></details>`;
+            box.innerHTML = lead + meter
+                + big('Today', fmtTok(td), words(td) + (vs ? ' · ' + vs : ''))
+                + big('A usual day', fmtTok(Math.round(typ)), 'average of active days · ' + Math.round(m.msgs / (m.act || 1)) + ' messages')
+                + big('This month', fmtTok(m.out), 'last 30 days · ' + m.msgs.toLocaleString() + ' messages')
                 + (DC.pilet && DC.pilet.today ? big('Pilet (on the Pi)', fmtTok(DC.pilet.today.out || 0) + ' today', fmtTok((DC.pilet.last30 || {}).out || 0) + ' this month') : '')
-                + big('Busiest day', fmtTok(u.peakDayOut || 0), pk)
-                + (top ? big('Mostly on', esc(top[0].replace('claude-', '')), Math.round(100 * top[1] / mt) + '% of all use') : '')
+                + (u.bots ? big('Bots (agent-vm)', fmtTok((u.bots.today || {}).out || 0) + ' today',
+                    fmtTok((u.bots.last30 || {}).out || 0) + ' this month · ' + Object.entries(u.bots.byBot || {}).filter(([, v]) => v.last30 > 0).sort((a, b) => b[1].last30 - a[1].last30).map(([k, v]) => esc(k[0].toUpperCase() + k.slice(1)) + ' ' + fmtTok(v.last30)).join(', ')) : '')
+                + (u.bots ? big('All together', fmtTok(td + ((u.bots.today || {}).out || 0)) + ' today', fmtTok(m.out + ((u.bots.last30 || {}).out || 0)) + ' this month (Droplet + bots)') : '')
+                + big('Busiest day', fmtTok(u.peakDayOut || 0), pk ? 'record, ' + pk : '')
+                + (top ? big('Mostly on', esc(top[0].replace('claude-', '')), Math.round(100 * top[1] / mt) + '% of the last 30 days') : '')
                 + head('Last 2 weeks') + bars
+                + how
                 + more
-                + `<div class="meta" style="margin-top:8px">Numbers are tokens Claude wrote (a token is about 3/4 of a word). Updated ${u.updatedAt ? agoStr(u.updatedAt) : '?'}. Plan limits only show in Claude Code's /usage.</div>`;
+                + `<div class="meta" style="margin-top:8px">Updated ${u.updatedAt ? agoStr(u.updatedAt) : '?'}.</div>`;
         }
         function renderUsage(u) {
             DC.usage = u || null;   // the pending-bubble wait line reads today's tokens + the Firebase rate from here
@@ -4544,6 +4567,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 ${row('Today', u.today)}
                 ${row('This week', u.week)}
                 ${row('This month', u.last30)}
+                ${u.bots ? `<div style="display:flex;justify-content:space-between;font-size:0.92rem;padding:4px 0;border-bottom:1px solid var(--border)"><span style="color:var(--muted)">Bots (agent-vm)</span><span><b>${fmtTok((u.bots.today || {}).out || 0)}</b> today &middot; ${fmtTok((u.bots.last30 || {}).out || 0)} month</span></div>` : ''}
                 ${fb}
                 <div style="font-size:0.66rem;color:var(--muted);margin-top:7px">${lastAct ? 'last active ' + agoStr(lastAct) + ' &middot; ' : ''}"tokens" = the work Claude generated</div>`;
             $('#usage-age').textContent = u.updatedAt ? 'updated ' + agoStr(u.updatedAt) : '';
