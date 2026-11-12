@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.192"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.193"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1168,7 +1168,27 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // L 2026-10-11 "I want to see it" (Pilet's usage): the owner's card adds a Pilet line - only its today + last30 totals are read
             if (DC.uid === HUB_OWNER_UID) ['today', 'last30'].forEach(k => onValue(ref(database, `${PILET_UID}/console/usage/${k}`), s => { DC.pilet = Object.assign(DC.pilet || {}, { [k]: s.val() || null }); if (DC.usage) renderUsageAdv(DC.usage); }));
             onValue(ref(database, `${DC.base}/settings/autoArchiveChars`), s => { DC.autoArchiveChars = Number(s.val() || 0); const b = $('#dc-auto-arch'); if (b && document.activeElement !== b) b.value = Math.round(DC.autoArchiveChars / 1000); updateThreadSize(DC.chatTurns || {}); });
-            onValue(query(ref(database, `${DC.base}/chat/turns`), limitToLast(120)), s => { DC.ownTurns = s.val() || {}; if (!DC.remote) renderChat(DC.ownTurns); });
+            // FREEZE FIX (L 2026-11-12: "the screen froze, didn't redraw" with 4 tabs working - fixed only by closing the app):
+            // (1) BATCHED REDRAW: a burst of turn updates (several busy tabs) used to run renderChat once per update, back to back;
+            //     now updates within ~120 ms collapse into ONE redraw on the next animation frame.
+            // (2) REDRAW ON RETURN: iPhone can suspend the page (and its live listener) in the background; coming back to the app
+            //     (visibility / pageshow / focus) re-reads the latest turns once and redraws, so a stale or frozen view heals itself.
+            const scheduleChatRender = () => { if (DC.renderPend) return; DC.renderPend = setTimeout(() => { DC.renderPend = null; requestAnimationFrame(() => { if (!DC.remote) renderChat(DC.ownTurns || {}); }); }, 120); };
+            DC.scheduleChatRender = scheduleChatRender;
+            onValue(query(ref(database, `${DC.base}/chat/turns`), limitToLast(120)), s => { DC.ownTurns = s.val() || {}; if (!DC.remote) scheduleChatRender(); });
+            if (!DC.wakeWired) {
+                DC.wakeWired = true;
+                const chatWake = () => {
+                    if (document.hidden || !DC.base || DC.remote) return;
+                    if (Date.now() - (DC.lastWake || 0) < 1500) return;   // visibility + focus + pageshow fire together: one re-read
+                    DC.lastWake = Date.now();
+                    get(query(ref(database, `${DC.base}/chat/turns`), limitToLast(120)))
+                        .then(s => { DC.ownTurns = s.val() || {}; scheduleChatRender(); }).catch(() => scheduleChatRender());
+                };
+                document.addEventListener('visibilitychange', chatWake);
+                window.addEventListener('pageshow', chatWake);
+                window.addEventListener('focus', chatWake);
+            }
             onValue(ref(database, `${DC.base}/settings/tabModel`), s => { DC.tabModels = s.val() || {}; });
             onValue(ref(database, `${DC.base}/chat/topics`), s => { DC.topicList = s.val() || {}; renderTopics(); });
             onValue(ref(database, `${DC.base}/chat/favorites`), s => { DC.favs = s.val() || {}; renderChat(DC.chatTurns || {}); });
@@ -3038,8 +3058,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 const t = obj[k]; const b = bubbleHtml(t, clean);
                 const sig = b.cls + '|' + b.html;
                 let el = log.querySelector(`[data-k="${k}"]`);
-                if (!el) { el = document.createElement('div'); el.dataset.k = k; }
-                if (DC.bubbleSig[k] !== sig) { el.className = b.cls; el.innerHTML = b.html; DC.bubbleSig[k] = sig; }
+                let fresh = false;
+                if (!el) { el = document.createElement('div'); el.dataset.k = k; fresh = true; }
+                if (fresh || DC.bubbleSig[k] !== sig) { el.className = b.cls; el.innerHTML = b.html; DC.bubbleSig[k] = sig; }   // fresh = re-created (e.g. healed after a freeze): always fill it
                 const want = prev ? prev.nextSibling : log.firstChild;
                 if (el !== want) log.insertBefore(el, want);
                 prev = el;
