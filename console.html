@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.185"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.186"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -959,6 +959,15 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     <label>Assistant name <input id="dc-kd-name-in" maxlength="24" autocomplete="off" spellcheck="false" placeholder="e.g. Pulsar" style="width:12em"></label>
                     <button type="button" class="dc-btn ghost sm" id="dc-kd-name-btn" title="renames your assistant: saved on its PC (kdaemon.json), then the daemon restarts">Save name</button>
                     <span id="dc-kd-name-st"></span>
+                    <!-- ASSISTANT ICON + COLOUR (L 2026-11-12, Pulsar's Campfire post 0372): a short emoji/symbol + #RRGGBB shown on the
+                         assistant's name. Save queues {kind:'look', icon, color} -> kdaemon 0.2.26+ writes kdaemon.json, no restart. -->
+                    <div style="margin-top:6px">
+                        <label>Icon <input id="dc-kd-icon-in" maxlength="8" autocomplete="off" spellcheck="false" placeholder="e.g. ✴︎" style="width:4em"></label>
+                        <label>Colour <input id="dc-kd-col-in" maxlength="7" autocomplete="off" spellcheck="false" placeholder="#9FD8FF" style="width:6em"></label>
+                        <input type="color" id="dc-kd-col-pick" title="pick a colour" style="width:2.2em;height:1.6em;padding:0;border:0;vertical-align:middle">
+                        <button type="button" class="dc-btn ghost sm" id="dc-kd-look-btn" title="saves the icon + colour on your assistant's PC (kdaemon.json) - blank both to clear">Save icon</button>
+                        <span id="dc-kd-look-st"></span>
+                    </div>
                 </div>
             </div>
             <div class="dc-panel" id="dc-look-panel">
@@ -1356,7 +1365,12 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         function bubbleHtml(t, clean) {
             const R = DC.remote;
             const me = R ? (t.s === 'G' && t.guest === DC.uid) : t.s === 'L';
-            const who = me ? 'You' : t.s === 'G' ? esc(t.who || 'guest') : (t.s === 'L' && R) ? esc(R.name || 'owner') : (t.who || 'Droplet');
+            let who = me ? 'You' : t.s === 'G' ? esc(t.who || 'guest') : (t.s === 'L' && R) ? esc(R.name || 'owner') : (t.who || 'Droplet');
+            // ASSISTANT ICON + COLOUR (2026-11-12): my own assistant's replies carry its icon, name in its colour
+            if (!me && !R && t.s === 'D' && (DC.instIcon || DC.instColor) && (t.who || 'Droplet') === (DC.instName || 'Droplet')) {
+                const cs = DC.instColor ? ` style="color:${DC.instColor}"` : '';
+                who = `<span class="dc-ai-who"${cs}>${DC.instIcon ? esc(DC.instIcon) + ' ' : ''}${esc(t.who || 'Droplet')}</span>`;
+            }
             const time = t.ts ? fmtStamp(t.ts) : '';
             const pend = (!me && t.pending) ? ' pending' : '';
             const body = t.text || '';   // cleanReply no longer runs here, it would strip the fences: richBody keeps them as boxes. Read-aloud still uses it.
@@ -2370,10 +2384,13 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
 
         // DAEMON UPDATE (2026-10-10). The latest portable daemon lives in Storage (public/kdaemon/, readable without a
         // login, so a mind in another house can fetch it). Bump these three lines + upload the file for each release.
-        const KDAEMON_LATEST = { version: '0.2.24', size: 84198,
-            sha256: 'bae1f921f157133aa914cdeb204ea20a619fc07a9dec18f59f24f05cf0719659',
-            url: 'https://firebasestorage.googleapis.com/v0/b/persinfo-df93f.appspot.com/o/assistant-console%2Fkdaemon-0.2.24.py?alt=media&token=0ee273e9-d486-4b0d-810e-809519f001e7',
-            notes: '0.2.24: safer updates and attachments, handed Campfire posts treated as outside text, stuck processes cleaned up, new Settings > Assistant name, and the APPS.md guide' };
+        const KDAEMON_LATEST = { version: '0.2.26', size: 100795,
+            sha256: '09ccf3c1064d0821d64db28d38e011915adabd79ca262706ccf3d74926fbd7f7',
+            url: 'https://firebasestorage.googleapis.com/v0/b/persinfo-df93f.appspot.com/o/assistant-console%2Fkdaemon-0.2.26.py?alt=media&token=0dd670bb-91ec-4fb6-9862-662ff1c82ed5',
+            // 0.2.25+ refreshes the program-owned guides from this manifest (a daemon already on 0.2.25+ does it in the same update job)
+            guides: 'https://firebasestorage.googleapis.com/v0/b/persinfo-df93f.appspot.com/o/assistant-console%2Fguides-0.2.26%2Fmanifest.json?alt=media&token=715d6bb8-c108-48e3-b53d-1cb82d16d19a',
+            guidesSha256: '318d1afe8a59c899b37770f6fb1f6fcd7a973ca79c95886eddf8dde075fa5db6',
+            notes: '0.2.26: Settings > Assistant name > Icon + Colour; 0.2.25: Update can refresh the guides (how to write replies, console tips)' };
         const _vnum = v => String(v || '').split('.').map(n => parseInt(n, 10) || 0);
         const _volder = (a, b) => { const x = _vnum(a), y = _vnum(b); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) < (y[i] || 0); } return false; };
         function paintKdUpdate(m) {
@@ -2382,6 +2399,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             paintKdName(m);
             const cur = ((String(m.version || '').match(/kdaemon\s+([\d.]+)/) || [])[1]) || '?';
             const old = cur === '?' || _volder(cur, KDAEMON_LATEST.version);
+            // GUIDES AFTER UPDATE (2026-11-12): an Update pressed on a pre-0.2.25 daemon is followed by one guides job once it reports the new version
+            if (DC.kdGuidesAfter && cur === DC.kdGuidesAfter.version) { const g = DC.kdGuidesAfter; DC.kdGuidesAfter = null;
+                import('./assets/js/firebase-init.js?v=20261011b').then(async fm => { const j = fm.push(fm.ref(database, `${DC.base}/jobs`));
+                    await fm.set(j, { kind: 'guides', url: g.url, sha256: g.sha256, status: 'queued', createdAt: Date.now(), chat: true }); }).catch(() => {}); }
             box.hidden = false;
             document.getElementById('dc-kd-ver').textContent = `daemon ${cur} · latest ${KDAEMON_LATEST.version}` + (old ? '' : ' · up to date') + (m.updateError ? ' · ⚠ last update did not compile' : '');
             const b = document.getElementById('dc-kd-update-btn'); b.disabled = !old; b.dataset.cur = cur; b.dataset.self = m.selfReload ? '1' : '';
@@ -2398,7 +2419,39 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (inp && document.activeElement !== inp && !inp.dataset.dirty) inp.value = nm;
             const st = document.getElementById('dc-kd-name-st');
             if (st && st.dataset.want && nm === st.dataset.want) { st.textContent = '✓ renamed'; delete st.dataset.want; }
+            // 0.2.26 icon + colour: live from meta.icon / meta.color unless the person is mid-edit
+            const ii = document.getElementById('dc-kd-icon-in'), ci = document.getElementById('dc-kd-col-in'), cp = document.getElementById('dc-kd-col-pick');
+            if (ii && document.activeElement !== ii && !ii.dataset.dirty) ii.value = String(m.icon || '');
+            if (ci && document.activeElement !== ci && !ci.dataset.dirty) ci.value = String(m.color || '');
+            if (cp && /^#[0-9A-Fa-f]{6}$/.test(String(m.color || '')) && !(ci && ci.dataset.dirty)) cp.value = String(m.color).toLowerCase();
+            const ls = document.getElementById('dc-kd-look-st');
+            if (ls && ls.dataset.want && ls.dataset.want === (String(m.icon || '') + '|' + String(m.color || ''))) { ls.textContent = '✓ saved'; delete ls.dataset.want; }
         }
+        // ASSISTANT ICON + COLOUR (2026-11-12): same rules as kdaemon 0.2.26 clean_icon / clean_color.
+        const kdCleanIcon = raw => { const s = String(raw || '').normalize('NFC').trim(); if (!s) return ''; if ([...s].length > 8 || /[\s<>"'`&\\\p{Cc}\p{Cs}\p{Co}\p{Cn}]/u.test(s)) return null; return s; };
+        const kdCleanColor = raw => { const s = String(raw || '').trim(); if (!s) return ''; return /^#[0-9A-Fa-f]{6}$/.test(s) ? s.toUpperCase() : null; };
+        { const ii = document.getElementById('dc-kd-icon-in'), ci = document.getElementById('dc-kd-col-in'), cp = document.getElementById('dc-kd-col-pick'), btn = document.getElementById('dc-kd-look-btn');
+          if (ii) ii.addEventListener('input', () => { ii.dataset.dirty = '1'; });
+          if (ci) ci.addEventListener('input', () => { ci.dataset.dirty = '1'; if (cp && /^#[0-9A-Fa-f]{6}$/.test(ci.value.trim())) cp.value = ci.value.trim().toLowerCase(); });
+          if (cp) cp.addEventListener('input', () => { if (ci) { ci.value = cp.value.toUpperCase(); ci.dataset.dirty = '1'; } });
+          if (btn) btn.addEventListener('click', () => {
+            const st = document.getElementById('dc-kd-look-st'), say = t => { if (st) st.textContent = t; };
+            const m = DC.lastMeta || {}, cur = ((String(m.version || '').match(/kdaemon\s+([\d.]+)/) || [])[1]) || '';
+            const icon = kdCleanIcon(ii && ii.value), color = kdCleanColor(ci && ci.value);
+            if (icon === null) { say('icon: 1-8 characters (an emoji or symbol), no spaces'); return; }
+            if (color === null) { say('colour: #RRGGBB, for example #9FD8FF (or blank)'); return; }
+            if (icon === String(m.icon || '') && color === String(m.color || '')) { say('that is already the look'); return; }
+            if (m.daemonKind !== 'kdaemon') { say('only for a take-home assistant'); return; }
+            if (!DC.daemonOn) { say('daemon offline - start it on that PC first'); return; }
+            // 0.2.26+ on the 0.2 line only: the 0.3/0.4 Pi forks (Pilet) are numbered higher but do not carry the look job yet
+            const vv = _vnum(cur), lineOk = vv[0] === 0 && vv[1] === 2 && (vv[2] || 0) >= 26;
+            if (!lineOk) { say(cur && !(vv[0] === 0 && vv[1] === 2) ? `this daemon line (${cur}) has no icon setting yet - set "assistantIcon" / "assistantColor" in kdaemon.json` : `icon + colour need daemon 0.2.26+ (this one is ${cur || '?'}) - press Update first`); return; }
+            import('./assets/js/firebase-init.js?v=20261011b').then(async fm => {
+                const j = fm.push(fm.ref(database, `${DC.base}/jobs`));
+                await fm.set(j, { kind: 'look', icon, color, status: 'queued', createdAt: Date.now(), chat: true });
+                if (ii) delete ii.dataset.dirty; if (ci) delete ci.dataset.dirty; if (st) st.dataset.want = icon + '|' + color; say('saving…');
+            }).catch(err => say('could not queue it: ' + (err.code || err.message)));
+          }); }
         { const inp = document.getElementById('dc-kd-name-in'), btn = document.getElementById('dc-kd-name-btn');
           if (inp) inp.addEventListener('input', () => { inp.dataset.dirty = '1'; });
           if (btn) btn.addEventListener('click', () => {
@@ -2441,7 +2494,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (cur !== '?' && !_volder(cur, '0.2.18')) {
                 import('./assets/js/firebase-init.js?v=20261011b').then(async m => {
                     const j = m.push(m.ref(database, `${DC.base}/jobs`));
-                    await m.set(j, { kind: 'update', url: L.url, version: L.version, sha256: L.sha256, status: 'queued', createdAt: Date.now(), chat: true });   // 0.2.24+ verifies sha256; older daemons ignore it
+                    await m.set(j, { kind: 'update', url: L.url, version: L.version, sha256: L.sha256, guides: L.guides, guidesSha256: L.guidesSha256, status: 'queued', createdAt: Date.now(), chat: true });   // 0.2.24+ verifies sha256; 0.2.25+ also refreshes the guides; older daemons ignore both
+                    // a daemon below 0.2.25 cannot read the guides fields: once it reports the new version, send it a guides job
+                    if (_volder(cur, '0.2.25') && L.guides) DC.kdGuidesAfter = { version: L.version, url: L.guides, sha256: L.guidesSha256 };
                     const st = document.getElementById('dc-chat-status'); if (st) st.textContent = `updating daemon to ${L.version}…`;
                 }).catch(err => alert('Could not queue the update: ' + (err.code || err.message)));
                 return;
@@ -4419,6 +4474,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // Droplet-shaped mind serves this login names itself in meta.name; the dropdown + reply bubbles use it
             const nm = String(m.name || '').replace(/[^\p{L}\p{N} '-]/gu, '').trim().slice(0, 24) || 'Droplet';
             if (nm !== DC.instName) { DC.instName = nm; try { relabelTargets(); } catch (_) {} }
+            // ASSISTANT ICON + COLOUR (2026-11-12, kdaemon 0.2.26 meta.icon / meta.color): repaint the bubbles when it changes
+            { const ic = DC.kdaemon ? (kdCleanIcon(m.icon) || '') : '', co = DC.kdaemon ? (kdCleanColor(m.color) || '') : '';
+              if (ic !== (DC.instIcon || '') || co !== (DC.instColor || '')) { DC.instIcon = ic; DC.instColor = co;
+                if (!DC.remote) { DC.bubbleSig = {}; try { renderChat(DC.ownTurns || DC.chatTurns || {}); } catch (_) {} } } }
             DC.ollamaUp = !!(m.ollama && m.ollama.up);
             // VERSION, NOT CHANGELOG (2026-09-20). The daemon's version string carries its
             // release notes - ~900 chars of them - and this line used to print the lot. Show the
