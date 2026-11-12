@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.186"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.188"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1172,7 +1172,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             onValue(ref(database, `${DC.base}/settings/tabModel`), s => { DC.tabModels = s.val() || {}; });
             onValue(ref(database, `${DC.base}/chat/topics`), s => { DC.topicList = s.val() || {}; renderTopics(); });
             onValue(ref(database, `${DC.base}/chat/favorites`), s => { DC.favs = s.val() || {}; renderChat(DC.chatTurns || {}); });
-            onValue(ref(database, `${DC.base}/seen/topics`), s => { const v = s.val() || {}; const norm = o => JSON.stringify(Object.keys(o || {}).sort().map(k => [k, o[k] && o[k].t, o[k] && +o[k].ts])); const same = norm(v) === norm(DC.seenCloud) && DC.seenLoaded; DC.seenLoaded = true; DC.seenCloud = v; if (!same && !DC.remote) renderChat(DC.ownTurns || DC.chatTurns || {}); },
+            onValue(ref(database, `${DC.base}/seen/topics`), s => { const v = s.val() || {}; const norm = o => JSON.stringify(Object.keys(o || {}).sort().map(k => [k, o[k] && o[k].t, o[k] && +o[k].ts, o[k] && o[k].k ? Object.keys(o[k].k).sort().join(',') : ''])); const same = norm(v) === norm(DC.seenCloud) && DC.seenLoaded; DC.seenLoaded = true; DC.seenCloud = v; if (!same && !DC.remote) renderChat(DC.ownTurns || DC.chatTurns || {}); },
                 e => { DC.seenLoaded = true; dcWarn('seen/topics')(e); if (!DC.remote) renderChat(DC.ownTurns || DC.chatTurns || {}); });   // read on another device -> clear here. 2026-11-10 (L: 'the top bubble shakes'): our OWN seen write echoes back here - markSeen already set DC.seenCloud, so an identical echo no longer re-draws (and re-lands) the whole chat
             onValue(query(ref(database, `${DC.uid}/todos`), limitToLast(80)), s => renderIdeas(s.val() || {}));
         });
@@ -3035,6 +3035,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 if (el !== want) log.insertBefore(el, want);
                 prev = el;
             }
+            if (R || favView) DC.unseenLeft = null;   // no seen tracking here -> no unread pill aim
             const unseen = (!R && !favView) ? watchSeenChat(log, obj, DC.topic || '') : [];   // SEEN ON SCREEN (2026-11-09)
             // snap to the newest end only when the visible turns or the tab changed - a star toggle, an edit or a
             // reply landing in an existing bubble keeps your scroll position (2026-09-18)
@@ -3047,7 +3048,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             else if (DC.renderSig !== rsig) {
                 DC.landWait = false;
                 const tabKey = (R ? R.owner + '/' + R.topic : DC.topic || '') + '|' + nf;
-                if (DC.landTab !== tabKey) landTabEntry(log, nf, tabKey, keys, unseen);   // entering a tab: its own spot, its first new line, or the latest + N unread
+                if (DC.landTab !== tabKey) { landTabEntry(log, nf, tabKey, keys, unseen); clearTimeout(DC.aimT); DC.aimT = setTimeout(() => aimUnreadPill(log, DC.unseenLeft), 1700); }   // entering a tab: its own spot, its first new line, or the latest + N unread (aimed once the landing settles)
                 else snapChatEnd(log, nf);   // same tab, the turns changed (a reply landed): newest end, as before
                 DC.landTab = tabKey; DC.renderSig = rsig;
                 (DC.tabLastK = DC.tabLastK || {})[tabKey] = keys[keys.length - 1] || '';
@@ -3100,7 +3101,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         (function wireLatestPill() {
             const log = document.getElementById('dc-chat-log'); if (!log) return;
             let t = 0;
-            log.addEventListener('scroll', () => { clearTimeout(t); t = setTimeout(() => { updateLatestPill(log, newestFirst()); saveTabSpot(); checkUnreadPill(log); }, 120); }, { passive: true });
+            log.addEventListener('scroll', () => { clearTimeout(t); t = setTimeout(() => { updateLatestPill(log, newestFirst()); saveTabSpot(); if (DC.unseenLeft) aimUnreadPill(log, DC.unseenLeft); else checkUnreadPill(log); }, 120); }, { passive: true });
             // the log just got a size (thread closed, console opened) after a render that had to skip its landing -> land now
             if (window.ResizeObserver) new ResizeObserver(() => { if (DC.landWait && log.clientHeight) { DC.landWait = false; renderChat(DC.chatTurns || {}); } }).observe(log);
         })();
@@ -3173,6 +3174,22 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             p.classList.add('show');
         }
         function hideUnreadPill() { const p = document.querySelector('.dc-chat .dc-unr'); if (p) p.classList.remove('show'); }
+        // AIM AT THE OLDEST UNSEEN (2026-11-12, L: "point the pill at the oldest unseen reply"): the pill used to show only on entering
+        // a tab with 5+ new lines and never pointed at a reply that filled in up-thread. Now, whenever replies in this tab are still
+        // unseen and off screen, the pill shows "N unread" with the arrow toward the oldest of them (reading order), and one tap lands
+        // there. All unseen on screen (they are being counted) or none left = no pill.
+        function aimUnreadPill(log, left) {
+            if (!log || !log.clientHeight || !left || !left.size) { hideUnreadPill(); return; }
+            const nf = newestFirst(), lr = log.getBoundingClientRect();
+            let els = Array.from(log.children).filter(el => el.dataset && left.has(el.dataset.k));
+            if (!els.length) { hideUnreadPill(); return; }
+            if (nf) els = els.reverse();   // newest on top: the oldest is lowest in the list
+            const off = els.filter(el => { const r = el.getBoundingClientRect(); return !(r.bottom > lr.top + 20 && r.top < lr.bottom - 20); });
+            if (!off.length) { hideUnreadPill(); return; }
+            const tgt = off[0], up = tgt.getBoundingClientRect().top < lr.top;
+            showUnreadPill(log, nf, left.size, tgt.dataset.k);
+            const p = document.querySelector('.dc-chat .dc-unr'); if (p) p.textContent = left.size + ' unread ' + (up ? '↑' : '↓');
+        }
         function checkUnreadPill(log) {   // hide once its first unread line is on screen, or when you are on another tab
             const p = document.querySelector('.dc-chat .dc-unr.show'); if (!p) return;
             if (p.dataset.tab !== tabKeyNow()) { hideUnreadPill(); return; }
@@ -3827,29 +3844,60 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             return o;
         }
         function seenWrite(o) { try { localStorage.setItem(SEEN_KEY, JSON.stringify(o)); } catch (_) {} }
+        // EACH MESSAGE ON ITS OWN (2026-11-12, L: swiping kept "skipping to unread" between All and Chat). A reply fills in at the
+        // spot of the job that asked for it, often ABOVE where you are; the contiguous watermark could not pass it, so every later
+        // reply - read or not - stayed unread. Now a reply seen on screen counts by its own key: {t, ts, k: {turnKey: ts}} in the
+        // same cloud node (+ localStorage 'dc_seen_keys'). The watermark still moves when everything before it is seen, and
+        // keys at or under it are pruned so the list stays short.
+        const SEEN_KEYS = 'dc_seen_keys';
+        function seenKeysLocal() { try { return JSON.parse(localStorage.getItem(SEEN_KEYS) || '{}') || {}; } catch (_) { return {}; } }
+        function seenKeys(topic) {   // topic -> {turnKey: ts}, this device + the cloud
+            const t = topic || '', out = { ...((seenKeysLocal())[t] || {}) };
+            for (const v of Object.values(DC.seenCloud || {})) if (v && v.t === t && v.k && typeof v.k === 'object') Object.assign(out, v.k);
+            return out;
+        }
+        function markSeenKey(topic, key, ts) {
+            const t = topic || '', wm = seenRead()[t] || 0; if (!key || ts <= wm) return;
+            const all = seenKeysLocal(), mine = all[t] || (all[t] = {});
+            if (mine[key]) return;
+            mine[key] = ts; for (const [kk, v] of Object.entries(mine)) if (v <= wm) delete mine[kk];
+            try { localStorage.setItem(SEEN_KEYS, JSON.stringify(all)); } catch (_) {}
+            const ck = topicKey(t) || '_all', cur = (DC.seenCloud || {})[ck] || { t, ts: wm };
+            DC.seenCloud = { ...(DC.seenCloud || {}), [ck]: { ...cur, t, k: { ...(cur.k || {}), [key]: ts } } };
+            if (DC.base) update(ref(database, `${DC.base}/seen/topics/${ck}`), { t, ['k/' + key]: ts }).catch(() => {});   // t too: a node with keys but no t yet must still be readable
+        }
+        function pruneSeenKeys(topic, wm) {   // the watermark moved: drop the keys it now covers (local + cloud)
+            const t = topic || '', all = seenKeysLocal(), mine = all[t] || {}, gone = {};
+            for (const [kk, v] of Object.entries(mine)) if (v <= wm) { delete mine[kk]; gone[kk] = null; }
+            const ck = topicKey(t) || '_all', cur = (DC.seenCloud || {})[ck];
+            if (cur && cur.k) for (const [kk, v] of Object.entries(cur.k)) if (+v <= wm) gone[kk] = null;
+            try { localStorage.setItem(SEEN_KEYS, JSON.stringify(all)); } catch (_) {}
+            if (!Object.keys(gone).length) return;
+            if (cur && cur.k) { const nk = { ...cur.k }; for (const kk of Object.keys(gone)) delete nk[kk]; DC.seenCloud = { ...DC.seenCloud, [ck]: { ...cur, k: nk } }; }
+            if (DC.base) update(ref(database, `${DC.base}/seen/topics/${ck}/k`), gone).catch(() => {});
+        }
         function markSeen(topic, ts) {
             const k = topic || '', loc = seenLocal();
             if (!(loc[k] >= ts)) { loc[k] = ts; seenWrite(loc); }
             const ck = topicKey(k) || '_all', cur = (DC.seenCloud || {})[ck];
             if (DC.base && !(cur && +cur.ts >= ts)) {   // write only when it moves forward - one tiny write per newly read reply
-                DC.seenCloud = { ...(DC.seenCloud || {}), [ck]: { t: k, ts } };
+                DC.seenCloud = { ...(DC.seenCloud || {}), [ck]: { ...(cur || {}), t: k, ts } };
                 update(ref(database, `${DC.base}/seen/topics/${ck}`), { t: k, ts }).catch(() => {});
             }
+            pruneSeenKeys(k, ts);
         }
         // newest Droplet turn per topic -> compare against what this device has seen
         function unreadTopics(turns) {
-            const newest = {}, seen = seenRead(), out = {}, counts = {};
-            for (const t of Object.values(turns || {})) {
+            const newest = {}, seen = seenRead(), out = {}, counts = {}, sk = {};
+            for (const [key, t] of Object.entries(turns || {})) {
                 if (!t || t.s !== 'D' || t.pending) continue;      // only landed replies
                 const k = t.topic || '';
                 const ts = t.ts || 0;
                 if (ts > (newest[k] || 0)) newest[k] = ts;
                 // UNREAD COUNT (2026-11-10, L: "like Teams ... how many unread is left based on what you've seen and scrolled over"):
                 // the chip number = replies still unread in that tab, counting down as each one is seen on screen - not the tab's total
-                if (ts > (seen[k] || 0)) counts[k] = (counts[k] || 0) + 1;
-            }
-            for (const [k, ts] of Object.entries(newest)) {
-                if (ts > (seen[k] || 0)) out[k] = true;
+                // (2026-11-12) a reply seen on its own (seen key) is read even while an older one above it is not
+                if (ts > (seen[k] || 0) && !(sk[k] || (sk[k] = seenKeys(k)))[key]) { counts[k] = (counts[k] || 0) + 1; out[k] = true; }
             }
             return { unread: out, newest, counts };
         }
@@ -3857,15 +3905,16 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // opened. CONTIGUOUS watermark: it only moves past an unread message once it AND every unread message before it were
         // seen - so one left above the fold keeps the badge until you scroll up to it, while landing at the bottom clears what is
         // in view. A bubble taller than the viewport counts once more than half the viewport is covered by it. Hidden tab = no marks.
-        function watchSeen(log, items, onSeen) {   // items = [{k, ts}] oldest first, unread only; onSeen(ts) when the watermark moves
+        function watchSeen(log, items, onSeen, onKey) {   // items = [{k, ts}] oldest first, unread only; onSeen(ts) when the watermark moves; onKey(k, ts) per message seen
             if (log.__seenIO) { log.__seenIO.disconnect(); log.__seenIO = null; }
             if (!items.length) return;
-            const got = new Set(); let last = 0;
+            const got = new Set(); let last = 0; const tsOf = Object.fromEntries(items.map(it => [it.k, it.ts]));
             // READ MAIL FIX (2026-11-11, L: "the read mail isn't counting down"): observe against the LOG (not the window) with fine
             // thresholds. A bubble taller than the log (mail notice + photo) never reached 60% visible, and with only [0, 0.6] the observer
             // never re-checked it mid-scroll - it stayed unseen and froze the contiguous watermark (and the count) for every line after it.
             const io = new IntersectionObserver(ents => {
                 if (document.hidden) return;
+                let newly = false;
                 for (const e of ents) {
                     const rh = (e.rootBounds && e.rootBounds.height) || log.clientHeight || innerHeight;
                     if (e.isIntersecting && (e.intersectionRatio >= 0.6 || e.intersectionRect.height >= rh * 0.5) && !got.has(e.target.dataset.k)) {
@@ -3873,11 +3922,14 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                         // SEEN BLINK (2026-11-09, L): each unread message blinks faintly as it scrolls into view, one at a time, and the count drops by that line
                         const el = e.target; el.classList.remove('dc-seen-blink'); void el.offsetWidth; el.classList.add('dc-seen-blink');
                         setTimeout(() => el.classList.remove('dc-seen-blink'), 850);
+                        if (onKey) onKey(el.dataset.k, tsOf[el.dataset.k] || 0);
+                        newly = true;
                     }
                 }
                 let ts = 0;
                 for (const it of items) { if (!got.has(it.k)) break; ts = it.ts; }
                 if (ts && ts !== last) { last = ts; onSeen(ts); }
+                else if (newly) onSeen(0);   // watermark held by an older unseen line: the ones just seen still count (refresh only)
                 if (got.size >= items.length) { io.disconnect(); log.__seenIO = null; }
             }, { root: log, threshold: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1] });
             log.__seenIO = io;
@@ -3888,6 +3940,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         function markUnreadChat(t) {
             const k = t.topic || '', ts = Math.max(0, (t.ts || 0) - 1), loc = seenLocal();
             loc[k] = ts; seenWrite(loc);
+            { const all = seenKeysLocal(); delete all[k]; try { localStorage.setItem(SEEN_KEYS, JSON.stringify(all)); } catch (_) {} }   // set() below wipes the cloud keys too: from here on is unread again
             const ck = topicKey(k) || '_all';
             DC.seenCloud = { ...(DC.seenCloud || {}), [ck]: { t: k, ts } };
             if (DC.base) set(ref(database, `${DC.base}/seen/topics/${ck}`), { t: k, ts }).catch(() => {});
@@ -3897,10 +3950,13 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         }
         function watchSeenChat(log, obj, cur) {
             if (DC.holdUnread !== undefined && DC.holdUnread !== null) { if (DC.holdUnread === cur) { watchSeen(log, [], () => {}); return []; } DC.holdUnread = null; }
-            const was = seenRead()[cur] || 0;
-            const items = Object.entries(obj || {}).filter(([k, t]) => t && t.s === 'D' && !t.pending && (t.topic || '') === cur && (t.ts || 0) > was)
+            const was = seenRead()[cur] || 0, sk = seenKeys(cur);
+            const items = Object.entries(obj || {}).filter(([k, t]) => t && t.s === 'D' && !t.pending && (t.topic || '') === cur && (t.ts || 0) > was && !sk[k])
                 .sort((a, b) => (a[1].ts || 0) - (b[1].ts || 0)).map(([k, t]) => ({ k, ts: t.ts || 0 }));
-            watchSeen(log, items, ts => { markSeen(cur, ts); const u = unreadTopics(DC.chatTurns || obj); DC._unread = u.unread; DC._unreadN = u.counts; DC._unread[cur] = false; renderTopics(); });
+            const left = new Set(items.map(it => it.k));
+            watchSeen(log, items, ts => { if (ts) markSeen(cur, ts); const u = unreadTopics(DC.chatTurns || obj); DC._unread = u.unread; DC._unreadN = u.counts; DC._unread[cur] = false; renderTopics(); aimUnreadPill(log, left); },
+                (k, ts) => { left.delete(k); markSeenKey(cur, k, ts); });
+            DC.unseenLeft = left;
             return items;
         }
         // LAND ON THE FIRST UNREAD (2026-11-10, L: "open each chat at the first unread and count down as you read"): opening at the
