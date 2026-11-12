@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.42">
+    <meta name="version" content="1.0.44">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Control Hub</title>
     <link rel="stylesheet" href="assets/css/master.css">
@@ -785,9 +785,14 @@
                 const ago = t => { if (!t) return ''; const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago'; };
                 let approvals = {}, catV = 0, secOpen = '';
                 let syWait = false;   // 1.0.41 skeleton: true from sign-in until the machine list's FIRST snapshot (then never again)
+                // 1.0.43 (L 11-11): the card shows for ANY login that has an AGENT and at least one machine. Agent = the owner's
+                // svc-systems (owner login) or a kdaemon whose capabilities list the 'systems' tool. No agent = no card, even with stale machines.
+                const SY_OWNER_UID = '7cIh8rrhVNOjjj5CBDgb3IlqzEh2';   // same value as HUB_OWNER_UID below (separate module)
+                let sysAgent = false;
                 let base = null, jobsBase = null, myUid = '', member = false, metaHost = '', hubName = 'se', list = {}, hosts = {}, uptime = {}, catalog = {}, peers = {}, cur = localStorage.getItem('sy-host') || 'se';
                 function paint() {
-                    const card = $('#sys-card'); if (card) card.style.display = (Object.keys(list).length || syWait) ? '' : 'none';   // 1.0.36: only logins that have machines (the card itself - card order can move it out of its section)
+                    const agent = member ? sysAgent : myUid === SY_OWNER_UID;   // 1.0.43: agent AND machines (see SY_OWNER_UID)
+                    const card = $('#sys-card'); if (card) card.style.display = (agent && (Object.keys(list).length || syWait)) ? '' : 'none';   // 1.0.36: the card itself - card order can move it out of its section
                     if (syWait) {   // 1.0.41: host chips + machine lines as skeleton until the list lands
                         $('#sy-hosts').innerHTML = '<span class="hb-sk-row" aria-label="Loading"><i class="hb-sk-c"></i><i class="hb-sk-c" style="width:84px"></i><i class="hb-sk-c" style="width:54px"></i><i class="hb-sk-c" style="width:72px"></i></span>';
                         $('#sy-out').innerHTML = '<div class="hb-sk"><i class="hb-sk-l" style="width:38%"></i><i class="hb-sk-l" style="width:88%"></i><i class="hb-sk-l" style="width:72%"></i><i class="hb-sk-l" style="width:80%"></i><i class="hb-sk-l" style="width:55%"></i></div>';
@@ -1153,6 +1158,7 @@
                     // 1.0.36: kdaemon = a member's assistant PC runs the requests (jobs); anything else = the owner's svc-systems (req)
                     onValue(ref(database, `${u.uid}/console/meta/daemonKind`), s => { member = s.val() === 'kdaemon'; paint(); });
                     onValue(ref(database, `${u.uid}/console/meta/host`), s => { metaHost = s.val() || ''; paint(); });
+                    onValue(ref(database, `${u.uid}/console/meta/capabilities/kinds`), s => { const k = s.val(); sysAgent = Object.values(k || {}).includes('systems'); paint(); });   // 1.0.43
                     onValue(ref(database, `${base}/list`), s => { syWait = false; list = s.val() || {}; paint(); window.__paintNet && window.__paintNet(); }, () => { syWait = false; paint(); });
                     onValue(ref(database, `${base}/hosts`), s => { hosts = s.val() || {}; paint(); window.__paintNet && window.__paintNet(); });
                     onValue(ref(database, `${base}/uptime`), s => { uptime = s.val() || {}; paint(); });
