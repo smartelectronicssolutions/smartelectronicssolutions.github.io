@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.45">
+    <meta name="version" content="1.0.46">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Control Hub</title>
     <link rel="stylesheet" href="assets/css/master.css">
@@ -1253,8 +1253,16 @@
                 const h = card.querySelector('h3'); const title = h ? h.childNodes[0].textContent.trim() : '';
                 if (OWNER_CARDS.some(n => title.startsWith(n))) card.classList.add('owner-only');
             });
+            hubGuest = isGuest; markGuestSections();
+        }
+        // 1.0.46 (L 11-11 'no Systems card as SES'): a section is hidden only if EVERY card in it RIGHT NOW is owner-only.
+        // Card order moves cards between sections, so this re-runs after every reorder - before, a guest's Systems/Client Info
+        // card moved into a section already marked owner-only and vanished with it.
+        let hubGuest = false;
+        function markGuestSections() {
             document.querySelectorAll('.hub-section').forEach(sec => {
-                const cards = sec.querySelectorAll('.hcard'); if (cards.length && Array.from(cards).every(c => c.classList.contains('owner-only'))) sec.classList.add('owner-only');
+                const cards = sec.querySelectorAll('.hcard');
+                sec.classList.toggle('owner-only', hubGuest && cards.length > 0 && Array.from(cards).every(c => c.classList.contains('owner-only')));
             });
         }
         window.__hubGuest = applyGuest;   // test hook
@@ -1275,9 +1283,10 @@
                 base.forEach(k => { if (!seen.has(k)) next.push(k); });   // cards added since the save keep their home spot at the end
                 order = next.slice(0, slots.length);
                 order.forEach((k, i) => slots[i].after(byKey.get(k)));
+                markGuestSections();   // 1.0.46
                 window.dispatchEvent(new Event('resize'));   // charts measure their width on draw
             };
-            const LS = 'hub_card_order';
+            const LS = DC.uid && DC.uid !== HUB_OWNER_UID ? 'hub_card_order_' + DC.uid : 'hub_card_order';   // 1.0.46: each login keeps its own layout in this browser (the owner keeps the old key)
             try { apply(JSON.parse(localStorage.getItem(LS) || 'null')); } catch (_) {}
             try { wide = new Set(JSON.parse(localStorage.getItem(LS + '_wide') || '[]')); half = new Set(JSON.parse(localStorage.getItem(LS + '_half') || '[]')); paintWide(); } catch (_) {}
             const save = async () => {
