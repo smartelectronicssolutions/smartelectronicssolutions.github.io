@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.190"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.191"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -3797,7 +3797,21 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     else { con.style.removeProperty(bgv); con.style.removeProperty(fgv); }
                 }
                 { const n = Number(themeGet('op')); for (const v of [...OP_VARS.bubbles, ...OP_VARS.text]) con.style.removeProperty(v);
-                  const raw = themeGet('op'); if (raw !== null && raw !== '' && n >= 0 && n < 100) for (const v of OP_VARS[opTarget()]) con.style.setProperty(v, n + '%'); }   // 100 or unset = solid; 0 = no box
+                  const raw = themeGet('op'); if (raw !== null && raw !== '' && n >= 0 && n < 100) for (const v of OP_VARS[opTarget()]) con.style.setProperty(v, n + '%');   // 100 or unset = solid; 0 = no box
+                  // NO BOX = THE COLOUR MOVES TO THE TEXT (L 2026-11-12: "if the bubble % is at [0] make the color for the bubble change to the
+                  // color for the text"): with the box at 0% the bubble colour had nowhere to show, so it tints the words instead. Mixed 30% with
+                  // the theme's text colour so a dark pick stays readable on a dark page (same idea as the old Terminal look).
+                  if (raw !== null && raw !== '' && n === 0 && opTarget() === 'bubbles') {
+                      const cs0 = getComputedStyle(con);
+                      const lum = h => { const n = parseInt(h.slice(1), 16); return (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255; };
+                      const darkPage = !document.documentElement.classList.contains('light');   // the site's light theme = html.light
+                      for (const [k, bgv, fgv] of [['me', '--dc-me-bg', '--dc-me-fg'], ['dp', '--dc-dp-bg', '--dc-dp-fg']]) {
+                          const col = /^#[0-9a-f]{6}$/i.test(themeGet(k)) ? themeGet(k) : String(cs0.getPropertyValue(bgv) || '').trim();
+                          if (!/^#[0-9a-f]{6}$/i.test(col)) continue;   // no colour of its own (Droplet's default box) = keep the normal text colour
+                          const clash = darkPage ? lum(col) < 0.45 : lum(col) > 0.6;   // a pick close to the page's own shade gets lifted toward the text colour
+                          con.style.setProperty(fgv, `color-mix(in srgb, ${col} ${clash ? 45 : 80}%, var(--text))`);
+                      }
+                  } }
                 // MAIN is also the theme colour: the accent token (--dc-purple is the lead token's historical name) + what sits on it
                 const mv = themeGet('me');
                 if (/^#[0-9a-f]{6}$/i.test(mv)) { con.style.setProperty('--dc-purple', mv); con.style.setProperty('--dc-on-purple', ink(mv)); con.style.setProperty('--dc-purple-soft', mv + '2e'); }
