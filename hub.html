@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.44">
+    <meta name="version" content="1.0.45">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Control Hub</title>
     <link rel="stylesheet" href="assets/css/master.css">
@@ -857,10 +857,11 @@
                 $('#sy-hosts').addEventListener('click', e => { const b = e.target.closest('[data-h]'); if (!b) return; cur = b.dataset.h; try { localStorage.setItem('sy-host', cur); } catch (_) {} $('#sy-set').hidden = true; paint(); });
                 async function req(obj, msg) {
                     if (!base) { $('#sy-msg').textContent = 'Sign in first.'; return; }
-                    if (obj.host && (list[obj.host] || {}).mode === 'phonehome') {
-                        const kind = obj.action === 'install' || obj.action === 'uninstall' ? obj.action : (!obj.action ? (obj.mode === 'scan' ? 'scan' : 'pull') : '');
+                    if (obj.host && (list[obj.host] || {}).mode === 'phonehome' && !(obj.action === 'approve' && !member)) {   // 1.0.45: the owner's approvals stay with svc-systems
+                        const kind = obj.action === 'install' || obj.action === 'uninstall' || obj.action === 'approve' ? obj.action : (!obj.action ? (obj.mode === 'scan' ? 'scan' : 'pull') : '');
+                        if (kind === 'approve') obj = { host: obj.host, app: obj.name, specHash: obj.specHash };
                         if (!kind) { $('#sy-msg').textContent = `${obj.host} is a phone-home Mac - ${obj.action === 'ping' ? 'it checks in by itself every 10 min' : 'that is not available for it yet'}.`; setTimeout(() => { $('#sy-msg').textContent = ''; }, 6000); return; }
-                        await set(push(ref(database, `${base}/macq/${obj.host}`)), Object.assign({ kind, at: Date.now() }, obj.app ? { app: obj.app } : {}));
+                        await set(push(ref(database, `${base}/macq/${obj.host}`)), Object.assign({ kind, at: Date.now() }, obj.app ? { app: obj.app } : {}, obj.specHash ? { specHash: obj.specHash } : {}));
                         await set(ref(database, `${base}/macqv/${obj.host}`), Date.now());
                         if (msg) { $('#sy-msg').textContent = msg + ' (at its next check-in, up to 10 min)'; setTimeout(() => { $('#sy-msg').textContent = ''; }, 8000); }
                         return;
@@ -1020,7 +1021,7 @@
                     if (t.dataset.approve) {
                         const a = approvals[t.dataset.approve]; if (!a) return;
                         if (!confirm(`Approve the installer for ${a.name}?\n\n${a.summary}\n\n${hubName} will run exactly this spec; any later edit needs a new OK.`)) return;
-                        t.disabled = true; req({ action: 'approve', name: a.name, specHash: a.specHash }, `Approving ${a.name}…`); return;
+                        t.disabled = true; req(Object.assign({ action: 'approve', name: a.name, specHash: a.specHash }, a.host ? { host: a.host } : {}), `Approving ${a.name}…`); return;   // 1.0.45: host -> a member's phone-home Mac approval rides that Mac's queue to se
                     }
                     if (t.dataset.approveX) { set(ref(database, `${base}/approvals/${t.dataset.approveX}`), null); return; }
                     if ('catAdd' in t.dataset) return openCatForm(null);
