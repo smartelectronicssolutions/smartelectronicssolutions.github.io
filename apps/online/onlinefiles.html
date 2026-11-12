@@ -1,0 +1,268 @@
+<!doctype html>
+<!-- onlinefiles - file explorer for the hub's machines (2026-11-12, L: "an explorer type thing that I can see all the
+     files but maybe filter them in a few ways" + "all this same functionality across all the systems"). READ-ONLY view of
+     a file LIST: the machine's agent (Mac phone-home agent / svc-systems over SSH) writes date, size and path of each
+     file; the list stays on se (E:\Containers\ops\systems\files\<machine>\) and this page reads it through
+     checkin.luissolutions.us/files with the signed-in login's Firebase ID token (only machines that login owns; L sees
+     all). Nothing on any machine is opened, moved or changed from here. "Compare" = the same file name + size found in a
+     reference list (Ferguson's iMac -> the business VM's list). -->
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="version" content="1.0.1">
+  <title>Files</title>
+  <link rel="stylesheet" href="../assets/css/online.css" />
+  <link rel="icon" href="../../favicon.ico" />
+  <script>
+    (function () { const t = localStorage.getItem("ss-theme"); if (t === "light") document.documentElement.classList.add("light"); })();
+  </script>
+  <script type="module" src="../assets/js/auth.js"></script>
+  <style>
+    .app-shell { max-width: 1200px; margin: auto; padding: 12px; }
+    .hidden { display: none !important; }
+    .note { color: var(--muted); font-size: .88rem; margin: 6px 0; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 8px 0; }
+    .row select, .row input { padding: 7px 9px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 16px; }
+    .row input[type=search] { flex: 1; min-width: 160px; }
+    .row input[type=number] { width: 90px; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+    .chip { border: 1px solid var(--border); background: transparent; color: var(--text); border-radius: 999px; padding: 4px 11px; font-size: .82rem; cursor: pointer; }
+    .chip.on { background: var(--accent, #2f6fd6); border-color: transparent; color: #fff; }
+    .layout { display: grid; grid-template-columns: 280px 1fr; gap: 12px; align-items: start; }
+    @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } }
+    .tree { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius, 10px); padding: 8px; max-height: 70vh; overflow: auto; font-size: .84rem; }
+    @media (max-width: 760px) { .tree { max-height: 40vh; } }
+    .tree details { margin-left: 10px; }
+    .tree summary { cursor: pointer; padding: 2px 0; list-style: none; display: flex; gap: 6px; align-items: baseline; }
+    .tree summary::-webkit-details-marker { display: none; }
+    .tree summary::before { content: "▸"; color: var(--muted); width: 10px; flex: none; }
+    .tree details[open] > summary::before { content: "▾"; }
+    .tree .leaf::before { content: ""; }
+    .tree .nm { overflow-wrap: anywhere; }
+    .tree .ct { color: var(--muted); font-size: .74rem; margin-left: auto; white-space: nowrap; }
+    .tree .sel > .nm { font-weight: 700; color: var(--accent, #2f6fd6); }
+    .tbl-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius, 10px); }
+    table.ft { width: 100%; border-collapse: collapse; font-size: .84rem; }
+    table.ft th { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); cursor: pointer; white-space: nowrap; user-select: none; position: sticky; top: 0; background: var(--surface); }
+    table.ft td { padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    table.ft td.n { overflow-wrap: anywhere; min-width: 160px; }
+    table.ft td.f { color: var(--muted); font-size: .76rem; overflow-wrap: anywhere; min-width: 140px; }
+    table.ft td.d, table.ft td.s { white-space: nowrap; }
+    table.ft td.s { text-align: right; }
+    .cmp { font-size: .74rem; padding: 2px 7px; border-radius: 999px; white-space: nowrap; }
+    .cmp.new { background: rgba(217,72,95,.15); color: #e0566c; }
+    .cmp.same { background: rgba(46,158,91,.15); color: #2e9e5b; }
+    .cmp.name { background: rgba(217,154,30,.15); color: #d99a1e; }
+    .sum { font-size: .84rem; color: var(--muted); margin: 6px 0; }
+    .more { margin: 10px auto; display: block; }
+    .crumb { font-size: .84rem; margin: 4px 0; overflow-wrap: anywhere; }
+    .crumb button { border: 0; background: transparent; color: var(--accent, #2f6fd6); cursor: pointer; padding: 0 2px; font: inherit; }
+  </style>
+</head>
+
+<body>
+  <header style="position:relative;">
+    <div class="logo-box"><a href="../../index.html"><img src="../../assets/img/android-chrome-192x192.png" alt="Luis Solutions"></a></div>
+    <h1>Files</h1>
+    <div class="auth-bar"><span id="auth-label">Not signed in</span><button id="auth-btn">Sign In</button></div>
+    <button id="theme-toggle" title="Toggle theme">☀️</button>
+    <script src="../assets/js/theme-toggle.js"></script>
+    <div id="login-inline">
+      <h3>Sign In</h3>
+      <input type="email" id="email-in" placeholder="Email" />
+      <input type="password" id="pass-in" placeholder="Password" />
+      <button id="do-login">Sign In</button>
+      <p id="auth-err"></p>
+    </div>
+  </header>
+
+  <main>
+    <div class="app-shell">
+      <p id="signed-out" class="note">Sign in to browse your machines' file lists.</p>
+      <div id="app" class="hidden">
+        <div class="row">
+          <select id="m-pick" aria-label="Machine"></select>
+          <select id="l-pick" aria-label="List"></select>
+          <button id="b-reload" title="Reload the list from se">↻</button>
+          <button id="b-index" title="Ask the machine for a fresh full file list (read-only)">Refresh from the machine</button>
+        </div>
+        <p id="m-note" class="note"></p>
+        <div id="has-list" class="hidden">
+          <div class="row">
+            <input id="q" type="search" placeholder="Search name or folder" autocomplete="off" />
+            <label class="note" for="d-from" style="margin:0">Changed since</label>
+            <input id="d-from" type="date" title="Changed on or after" />
+            <input id="d-to" type="date" title="Modified on or before" />
+            <input id="mb-min" type="number" min="0" step="0.1" placeholder="min MB" title="Smallest size in MB" />
+          </div>
+          <div id="types" class="chips"></div>
+          <div id="cmps" class="chips hidden"></div>
+          <div class="layout">
+            <div id="tree" class="tree"></div>
+            <div>
+              <div id="crumb" class="crumb"></div>
+              <div class="row" style="margin:4px 0">
+                <span id="sum" class="sum" style="flex:1"></span>
+                <button id="b-copy" title="Copy the full paths of the files shown (all pages)">Copy paths</button>
+              </div>
+              <div class="tbl-wrap">
+                <table class="ft">
+                  <thead><tr><th data-k="n">Name</th><th data-k="f">Folder</th><th data-k="d">Modified</th><th data-k="s">Size</th><th data-k="c" id="th-c" class="hidden">Compare</th></tr></thead>
+                  <tbody id="rows"></tbody>
+                </table>
+              </div>
+              <button id="b-more" class="more hidden">Show more</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script type="module">
+    import { auth, database, ref, push, set, onValue, onAuthStateChanged } from "../assets/js/firebase-init.js";
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    const API = (() => { try { return localStorage.getItem("sy-checkin") || "https://checkin.luissolutions.us"; } catch (_) { return "https://checkin.luissolutions.us"; } })();
+    const TYPES = [
+      ["all", "All"], ["pdf", "PDF", /\.pdf$/i], ["xls", "Excel", /\.(xlsx?|xlsm|csv|numbers)$/i], ["doc", "Word", /\.(docx?|rtf|pages|txt)$/i],
+      ["cad", "CAD", /\.(dwg|dxf|rvt|skp|pln|vwx)$/i], ["img", "Photos", /\.(jpe?g|png|heic|tiff?|gif|webp|raw|cr2|nef|psd)$/i],
+      ["vid", "Video", /\.(mov|mp4|m4v|avi|mkv)$/i], ["zip", "Zip", /\.(zip|rar|7z|tar|gz|dmg)$/i], ["other", "Other"]];
+    const CMPS = [["all", "All"], ["new", "🆕 Not on it"], ["name", "⚠️ Same name, other size"], ["same", "✅ Already there"]];
+    const PAGE = 500;
+    let M = [], ROWS = [], HOME = "", F = { type: "all", cmp: "all", folder: "" }, SORT = { k: "d", dir: -1 }, shown = PAGE, compareLabel = null;
+    const fmtMB = (b) => b >= 1073741824 ? (b / 1073741824).toFixed(2) + " GB" : b >= 1048576 ? (b / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(b / 1024)) + " KB";
+
+    async function api(path) {
+      const tok = await auth.currentUser.getIdToken();
+      const r = await fetch(API + path, { headers: { Authorization: "Bearer " + tok } });
+      const j = await r.json().catch(() => ({ ok: false, error: "bad reply (" + r.status + ")" }));
+      if (!r.ok || !j.ok) throw new Error(j.error || ("HTTP " + r.status));
+      return j;
+    }
+
+    onAuthStateChanged(auth, async (user) => {
+      $("app").classList.toggle("hidden", !user); $("signed-out").classList.toggle("hidden", !!user);
+      if (!user) return;
+      try {
+        M = (await api("/files")).machines || [];
+        const want = new URLSearchParams(location.search).get("m") || (() => { try { return localStorage.getItem("files-m"); } catch (_) { return ""; } })();
+        $("m-pick").innerHTML = M.map((m) => `<option value="${esc(m.id)}">${esc(m.label)} (${esc(m.os)})${m.lists ? "" : " - no list yet"}</option>`).join("") || '<option value="">no machines for this login</option>';
+        if (want && M.some((m) => m.id === want)) $("m-pick").value = want;
+        else { const firstWith = M.find((m) => m.lists); if (firstWith) $("m-pick").value = firstWith.id; }
+        load();
+      } catch (e) { $("m-note").textContent = "Couldn't reach the file service: " + e.message; }
+    });
+
+    async function load(list) {
+      const id = $("m-pick").value; if (!id) return;
+      try { localStorage.setItem("files-m", id); } catch (_) {}
+      $("m-note").textContent = "Loading…";
+      try {
+        const j = await api(`/files/${encodeURIComponent(id)}${list ? "?list=" + encodeURIComponent(list) : ""}`);
+        ROWS = (j.rows || []).map(([d, s, p, c]) => ({ d, s, p, c }));
+        compareLabel = j.compare || null;
+        $("l-pick").innerHTML = (j.lists || []).map((n) => `<option value="${esc(n)}">${esc(n.replace(/^newfiles-since-/, "since ").replace(/\.tsv$/, ""))}</option>`).join("");
+        if (j.list) $("l-pick").value = j.list;
+        HOME = commonHome(ROWS);
+        ROWS.forEach((r) => { r.rel = rel(r.p); const i = r.rel.lastIndexOf("/"); r.name = r.rel.slice(i + 1); r.dir = i > 0 ? r.rel.slice(0, i) : ""; r.ty = typeOf(r.name); });
+        F.folder = "";
+        $("has-list").classList.toggle("hidden", !ROWS.length);
+        $("m-note").textContent = ROWS.length ? `${ROWS.length.toLocaleString()} files in this list${compareLabel ? " · compared against " + compareLabel : ""}` : "No file list for this machine yet - on the hub's Systems card pick it and tap “New files since” (use 2000-01-01 for everything).";
+        $("cmps").classList.toggle("hidden", !compareLabel); $("th-c").classList.toggle("hidden", !compareLabel);
+        drawChips(); drawTree(); render();
+      } catch (e) { $("m-note").textContent = "Couldn't load: " + e.message; }
+    }
+    function commonHome(rows) {   // strip /Users/<name>/ or C:\Users\<name>\ (whichever the list uses)
+      const p = (rows[0] || {}).p || ""; const m = p.match(/^(\/Users\/[^/]+\/|\/home\/[^/]+\/|[A-Za-z]:\\Users\\[^\\]+\\)/); return m ? m[1] : "";
+    }
+    function rel(p) { let r = HOME && p.startsWith(HOME) ? p.slice(HOME.length) : p; r = r.replace(/\\/g, "/").replace(/^Library\/CloudStorage\//, "☁ "); return r; }
+    function typeOf(n) { for (const [k, , re] of TYPES) if (re && re.test(n)) return k; return "other"; }
+
+    function drawChips() {
+      const cnt = {}; ROWS.forEach((r) => { cnt[r.ty] = (cnt[r.ty] || 0) + 1; });
+      $("types").innerHTML = TYPES.map(([k, l]) => `<button class="chip${F.type === k ? " on" : ""}" data-t="${k}">${l}${k === "all" ? "" : ` <small>${cnt[k] || 0}</small>`}</button>`).join("");
+      const cc = {}; ROWS.forEach((r) => { cc[r.c] = (cc[r.c] || 0) + 1; });
+      $("cmps").innerHTML = CMPS.map(([k, l]) => `<button class="chip${F.cmp === k ? " on" : ""}" data-c="${k}">${l}${k === "all" ? "" : ` <small>${cc[k] || 0}</small>`}</button>`).join("");
+    }
+    $("types").addEventListener("click", (e) => { const b = e.target.closest("[data-t]"); if (!b) return; F.type = b.dataset.t; drawChips(); shown = PAGE; render(); });
+    $("cmps").addEventListener("click", (e) => { const b = e.target.closest("[data-c]"); if (!b) return; F.cmp = b.dataset.c; drawChips(); shown = PAGE; render(); });
+
+    function drawTree() {   // folder tree with file counts; top level open
+      const root = { k: {}, n: 0, b: 0 };
+      for (const r of ROWS) { let node = root; node.n++; node.b += r.s; for (const part of (r.dir ? r.dir.split("/") : [])) { node = node.k[part] || (node.k[part] = { k: {}, n: 0, b: 0 }); node.n++; node.b += r.s; } }
+      const html = (node, path, depth) => Object.keys(node.k).sort((a, b) => node.k[b].n - node.k[a].n).map((name) => {
+        const c = node.k[name], p = path ? path + "/" + name : name, kids = Object.keys(c.k).length;
+        const lab = `<span class="nm">${esc(name)}</span><span class="ct">${c.n.toLocaleString()} · ${fmtMB(c.b)}</span>`;
+        return kids ? `<details${depth < 1 ? " open" : ""}><summary data-p="${esc(p)}">${lab}</summary>${html(c, p, depth + 1)}</details>`
+          : `<details><summary class="leaf" data-p="${esc(p)}">${lab}</summary></details>`;
+      }).join("");
+      $("tree").innerHTML = `<details open><summary data-p="" class="sel"><span class="nm">All folders</span><span class="ct">${root.n.toLocaleString()} · ${fmtMB(root.b)}</span></summary>${html(root, "", 0)}</details>`;
+    }
+    $("tree").addEventListener("click", (e) => {
+      const s = e.target.closest("summary"); if (!s) return;
+      if (e.target.closest(".nm") || s.classList.contains("leaf")) e.preventDefault();   // name = choose the folder; arrow = open/close
+      F.folder = s.dataset.p; $("tree").querySelectorAll("summary.sel").forEach((x) => x.classList.remove("sel")); s.classList.add("sel"); shown = PAGE; render();
+    });
+    $("crumb").addEventListener("click", (e) => { const b = e.target.closest("[data-p]"); if (!b) return; F.folder = b.dataset.p; shown = PAGE; render(); });
+
+    function filtered() {
+      const q = $("q").value.trim().toLowerCase(), from = $("d-from").value, to = $("d-to").value, mb = parseFloat($("mb-min").value) || 0;
+      return ROWS.filter((r) => (F.type === "all" || r.ty === F.type) && (F.cmp === "all" || r.c === F.cmp)
+        && (!F.folder || r.dir === F.folder || r.dir.startsWith(F.folder + "/"))
+        && (!q || r.rel.toLowerCase().includes(q)) && (!from || r.d.slice(0, 10) >= from) && (!to || r.d.slice(0, 10) <= to)
+        && (!mb || r.s >= mb * 1048576));
+    }
+    function render() {
+      const list = filtered();
+      const k = SORT.k, dir = SORT.dir;
+      list.sort((a, b) => { const va = k === "n" ? a.name.toLowerCase() : k === "f" ? a.dir.toLowerCase() : k === "s" ? a.s : k === "c" ? a.c : a.d;
+        const vb = k === "n" ? b.name.toLowerCase() : k === "f" ? b.dir.toLowerCase() : k === "s" ? b.s : k === "c" ? b.c : b.d; return va < vb ? -dir : va > vb ? dir : 0; });
+      const bytes = list.reduce((t, r) => t + r.s, 0);
+      $("sum").textContent = `${list.length.toLocaleString()} of ${ROWS.length.toLocaleString()} files · ${fmtMB(bytes)}`;
+      const parts = F.folder ? F.folder.split("/") : [];
+      $("crumb").innerHTML = `<button data-p="">All</button>` + parts.map((p, i) => ` / <button data-p="${esc(parts.slice(0, i + 1).join("/"))}">${esc(p)}</button>`).join("");
+      const badge = { new: '<span class="cmp new">🆕 not on it</span>', same: '<span class="cmp same">✅ there</span>', name: '<span class="cmp name">⚠️ other size</span>' };
+      $("rows").innerHTML = list.slice(0, shown).map((r) => `<tr title="${esc(r.p)}"><td class="n">${esc(r.name)}</td><td class="f">${esc(r.dir)}</td><td class="d">${esc(r.d)}</td><td class="s">${fmtMB(r.s)}</td>${compareLabel ? `<td>${badge[r.c] || ""}</td>` : ""}</tr>`).join("")
+        || `<tr><td colspan="5" class="note">No files match.</td></tr>`;
+      $("b-more").classList.toggle("hidden", list.length <= shown);
+      $("b-more").textContent = `Show more (${(list.length - shown).toLocaleString()} left)`;
+      document.querySelectorAll("table.ft th").forEach((th) => { th.textContent = th.textContent.replace(/ [▲▼]$/, "") + (th.dataset.k === k ? (dir > 0 ? " ▲" : " ▼") : ""); });
+      render.last = list;
+    }
+    document.querySelector("table.ft thead").addEventListener("click", (e) => { const th = e.target.closest("th[data-k]"); if (!th) return; SORT = { k: th.dataset.k, dir: SORT.k === th.dataset.k ? -SORT.dir : (th.dataset.k === "d" || th.dataset.k === "s" ? -1 : 1) }; render(); });
+    $("b-more").addEventListener("click", () => { shown += PAGE; render(); });
+    ["q", "d-from", "d-to", "mb-min"].forEach((id) => $(id).addEventListener("input", () => { shown = PAGE; clearTimeout(render.t); render.t = setTimeout(render, 150); }));
+    $("m-pick").addEventListener("change", () => load());
+    $("l-pick").addEventListener("change", () => load($("l-pick").value));
+    $("b-reload").addEventListener("click", () => load($("l-pick").value));
+    // REFRESH FROM THE MACHINE (L 2026-11-12: "we're putting the new files since in the explorer"): the machine always sends its FULL
+    // list (date 2000-01-01); "Changed since" above filters it here. Queued like the Systems card does: phone-home Mac -> owner's macq,
+    // SSH machine -> owner's systems/req. The page watches hosts/<id>/tools/newfiles and reloads when it lands.
+    let watchOff = null;
+    $("b-index").addEventListener("click", async () => {
+      const id = $("m-pick").value, m = M.find((x) => x.id === id); if (!m || !m.owner) return;
+      const B = `${m.owner}/console/systems`;
+      if (m.via === "phonehome") { await set(push(ref(database, `${B}/macq/${id}`)), { kind: "newfiles", app: "2000-01-01", at: Date.now() }); await set(ref(database, `${B}/macqv/${id}`), Date.now()); }
+      else await set(push(ref(database, `${B}/req`)), { host: id, action: "newfiles", app: "2000-01-01", status: "queued", createdAt: Date.now() });
+      $("m-note").textContent = m.via === "phonehome" ? "Asked the Mac for a fresh list - it runs at its next check-in (up to 10 min). This page reloads when it lands." : "Asked for a fresh list - usually under a minute. This page reloads when it lands.";
+      if (watchOff) watchOff();
+      const t0 = Date.now();
+      watchOff = onValue(ref(database, `${B}/hosts/${id}/tools/newfiles`), (snap) => {
+        const v = snap.val() || {};
+        if ((v.at || 0) < t0) return;
+        if (v.state === "done") { watchOff(); watchOff = null; load(); }
+        else if (v.state === "error") { $("m-note").textContent = "The machine said: " + (v.msg || "error"); }
+        else if (v.msg) $("m-note").textContent = v.msg;
+      });
+    });
+    $("b-copy").addEventListener("click", async () => {
+      const list = render.last || []; const txt = list.map((r) => r.p).join("\n");
+      try { await navigator.clipboard.writeText(txt); $("sum").textContent = `Copied ${list.length.toLocaleString()} paths.`; } catch (_) { $("sum").textContent = "Copy blocked by the browser."; }
+    });
+  </script>
+</body>
+
+</html>

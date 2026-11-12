@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.47">
+    <meta name="version" content="1.0.48">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Control Hub</title>
     <link rel="stylesheet" href="assets/css/master.css">
@@ -696,11 +696,11 @@
                         <input id="sy-range" placeholder="range (blank = its own)" inputmode="decimal" style="flex:1;min-width:120px;max-width:200px;padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text);font-size:16px">
                         <span id="sy-msg" style="font-size:0.75rem;color:var(--muted)"></span>
                     </div>
-                    <!-- 1.0.47 MAC TOOLS (L 2026-11-12): read-only actions for a phone-home Mac (agent 1.2+) -->
+                    <!-- 1.0.47 MAC TOOLS -> 1.0.48 every machine (L 2026-11-12: "same functionality across all the systems"): read-only tools -->
                     <div id="sy-mactools" style="display:none;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px">
                         <button class="hbtn" id="sy-speed" title="macOS networkQuality on that Mac">Speed test</button>
-                        <button class="hbtn" id="sy-newf" title="read-only list of files changed since the date">New files since</button>
-                        <input id="sy-since" type="date" style="padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text);font-size:16px">
+                        <button class="hbtn" id="sy-newf" title="ask the machine for a fresh read-only list of its files">Refresh file list</button>
+                        <a class="hbtn" id="sy-files" href="apps/online/onlinefiles.html" target="_blank" rel="noopener">Open Files</a>
                     </div>
                     <div id="sy-set" hidden style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:10px"></div>
                     <div id="sy-cat" hidden class="sy-set" style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:10px"></div>
@@ -841,14 +841,17 @@
                     // 1.0.37 SECURITY strip (sysinfo.ps1 Get-Security -> hosts/<id>/security; the Mac build sends the same flags + its own)
                     // 1.0.47 MAC TOOLS results (checkin_svc 1.4 -> hosts/<id>/tools/{speedtest,newfiles})
                     const isPh = (list[cur] || {}).mode === 'phonehome';
-                    { const mt = $('#sy-mactools'); if (mt) mt.style.display = isPh ? 'flex' : 'none'; }
-                    if (isPh && h.tools) {
+                    const toolsOk = isPh || !member;   // 1.0.48: phone-home Macs + the owner's SSH machines (svc-systems 1.11); members' kdaemon has no tools yet
+                    { const mt = $('#sy-mactools'); if (mt) mt.style.display = toolsOk ? 'flex' : 'none'; }
+                    { const fl = $('#sy-files'); if (fl) fl.href = 'apps/online/onlinefiles.html?m=' + encodeURIComponent(cur); }
+                    if (toolsOk && h.tools) {
                         const st = { sent: '⏳', waiting: '⏳', done: '✅', error: '⚠️' };
-                        const tl = (k, label) => { const t = h.tools[k]; if (!t) return ''; return `<div class="cl-sum">${st[t.state] || ''} <b>${label}</b>${t.since ? ` since ${esc(t.since)}` : ''} · ${ago(t.at)}${t.secs ? ` · ${t.secs} s` : ''}<br>${esc(t.msg || '')}</div>`; };
-                        let tb = tl('speedtest', 'Speed test') + tl('newfiles', 'New files');
+                        st.running = '⏳';
+                        const tl = (k, label) => { const t = h.tools[k]; if (!t) return ''; return `<div class="cl-sum">${st[t.state] || ''} <b>${label}</b>${t.since && t.since !== '2000-01-01' ? ` since ${esc(t.since)}` : ''} · ${ago(t.at)}${t.secs ? ` · ${t.secs} s` : ''}<br>${esc(t.msg || '')}</div>`; };
+                        let tb = tl('speedtest', 'Speed test') + tl('newfiles', 'File list');
                         const sm = (h.tools.newfiles || {}).summary;
                         if (sm && sm.folders && sm.folders.length) tb += `<table class="sy-tbl"><tr><th>Folder</th><th>Files</th><th>MB</th></tr>${sm.folders.map(f => `<tr><td>${esc(f.f)}</td><td>${f.n}</td><td>${f.mb}</td></tr>`).join('')}</table><div class="cl-sum" style="color:var(--muted)">${sm.files} files · ${sm.mb} MB · newest ${esc(sm.newest)} · full list kept on ${esc(hubName)}</div>`;
-                        if (tb) o += `<div class="sy-h">Mac tools</div>` + tb;
+                        if (tb) o += `<div class="sy-h">Tools</div>` + tb;
                     }
                     if (h.security && h.security.flags) o += secStrip(h.security);
                     // 1.0.37 APPS = the editable catalog as CHECKBOXES (svc-systems 1.9 / member tool 1.1): checked = installed at the last pull
@@ -892,10 +895,8 @@
                 $('#sy-scan').addEventListener('click', () => req({ host: cur, mode: 'scan', range: $('#sy-range').value.trim() }, `Scanning from ${cur}…`));
                 $('#sy-refresh').addEventListener('click', () => req({ action: 'peers' }));
                 // 1.0.47 Mac tools: queued like scan/pull; the date rides in `app` (checkin_svc + agent both regex-check it)
-                { const si = $('#sy-since'); if (si && !si.value) { let v = ''; try { v = localStorage.getItem('sy-since') || ''; } catch (_) {} si.value = v || new Date(Date.now() - 90 * 864e5).toISOString().slice(0, 10); }
-                  si && si.addEventListener('change', () => { try { localStorage.setItem('sy-since', si.value); } catch (_) {} }); }
                 $('#sy-speed').addEventListener('click', () => req({ host: cur, action: 'speedtest' }, `Speed test queued on ${cur}`));
-                $('#sy-newf').addEventListener('click', () => { const d = $('#sy-since').value; if (!/^20\d\d-\d\d-\d\d$/.test(d)) { $('#sy-msg').textContent = 'Pick a date first.'; return; } req({ host: cur, action: 'newfiles', app: d }, `New-files list (since ${d}) queued on ${cur}`); });
+                $('#sy-newf').addEventListener('click', () => req({ host: cur, action: 'newfiles', app: '2000-01-01' }, `Fresh file list asked from ${cur} - filter by date in Files`));
                 $('#sy-addgo').addEventListener('click', () => {
                     const peer = $('#sy-peer').value, user = $('#sy-user').value.trim();
                     if (!peer || !user) { $('#sy-addmsg').textContent = 'Pick the PC and type its account name.'; return; }
