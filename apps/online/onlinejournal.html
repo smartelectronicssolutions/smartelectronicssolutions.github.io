@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="version" content="1.0.5">
+  <meta name="version" content="1.0.6">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Online Journal</title>
   <link rel="stylesheet" href="../assets/css/online.css" />
@@ -939,13 +939,34 @@
         // what silently wiped article covers on save/rename).
         if (existing && existing.imageUrl) payload.imageUrl = existing.imageUrl;
         await set(ref(database, sourcePath + "/" + realId), payload);
+        // COPIES FOLLOW THE MASTER (L 2026-11-13: "when I save a shared article, update the shared copy too, and the public copy
+        // if it's published"): the private article is the master; its share/journal snapshot keeps sharedBy/Name/At, the public
+        // copy is replaced whole. A failed copy never fails the save - it is reported in the status line.
+        var copyNote = "";
+        if (existing && existing.__scope === "private") {
+          var done = [], failed = [];
+          if (existing.__shared) {
+            try {
+              var shPath = "share/journal/" + realId, shSnap = await get(ref(database, shPath)), sh = shSnap.exists() ? shSnap.val() : {};
+              await set(ref(database, shPath), Object.assign({}, payload, {
+                sharedBy: sh.sharedBy || currentUser.uid, sharedByName: sh.sharedByName || "", sharedAt: sh.sharedAt || Date.now() }));
+              done.push("shared");
+            } catch (e) { console.warn("journal: shared copy not updated", e); failed.push("shared"); }
+          }
+          if (existing.__alsoPublic) {
+            try { await set(ref(database, "public/journal/" + realId), payload); done.push("public"); }
+            catch (e) { console.warn("journal: public copy not updated", e); failed.push("public"); }
+          }
+          if (done.length) copyNote += " (" + done.join(" + ") + " cop" + (done.length > 1 ? "ies" : "y") + " updated)";
+          if (failed.length) copyNote += " - " + failed.join(" + ") + " copy NOT updated, Unshare/Share to refresh";
+        }
         var scope = sourcePath === "public/journal" ? "public" : "private";
         var savedCompositeId = scope + "__" + realId;
         editingId = null;
         currentArticleId = null;
         await loadArticles();
         renderArticle(savedCompositeId);
-        setStatus("Saved ✓");
+        setStatus("Saved ✓" + copyNote, /fail|NOT/.test(copyNote));
       } catch (e) {
         console.error(e);
         setStatus("Save failed", true);
@@ -1389,7 +1410,7 @@
           var name = "";
           try { var d = await get(ref(database, "share/directory/" + currentUser.uid + "/name")); name = d.val() || ""; } catch (e) { }
           await set(ref(database, path), Object.assign(copy, { sharedBy: currentUser.uid, sharedByName: name || currentUser.email || "", sharedAt: Date.now() }));
-          a.__shared = true; st.textContent = "Shared - every signed-in user can read it now. After edits, Unshare + Share to refresh their copy.";
+          a.__shared = true; st.textContent = "Shared - every signed-in user can read it now. Your saves update their copy automatically.";
         }
         shareArticleBtn.textContent = a.__shared ? "Unshare" : "Share";
         renderList();
