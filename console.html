@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.194"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.195"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -4332,6 +4332,43 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             p.finally(() => { clearTimeout(release); if (sendChatBusy === p) sendChatBusy = null; }).catch(() => {});
             return p;
         }
+        // DUPLICATE DICTATION (L 2026-11-13, job -P6K6qFoa3uww2h8p_cb): iOS voice-to-text sent the whole paragraph twice, glued with
+        // no space ("...of laborCan you open up..."), with enhance OFF. At send: if the text is (nearly) the same words twice in a row,
+        // keep the first copy (that's where L's own edits land). Needs 10+ words and >=85% word match so a real repeat ("ha ha") survives.
+        function dedupeDictation(text) {
+            const s = String(text || '');
+            const norm = s.replace(/([a-z0-9.,?!])([A-Z])/g, '$1 $2');   // split glued junctions for the comparison only
+            const w = norm.split(/\s+/).filter(Boolean), n = w.length;
+            if (n < 20) return { text: s, removed: false };
+            const key = x => x.toLowerCase().replace(/[^a-z0-9']/g, '');
+            // the second copy can carry a few extra words at the end (L kept talking: "...Let's go over it.") - try split points around
+            // the middle, compare the first copy against the start of the second, keep the best; extra tail words of copy 2 are kept
+            const mid = Math.floor(n / 2), span = Math.max(3, Math.ceil(n * 0.08));
+            let best = null;
+            for (let i = mid - span; i <= mid + span; i++) {
+                if (i < 10 || n - i < 10) continue;
+                const a = w.slice(0, i).map(key), b = w.slice(i).map(key);
+                if (b.length < a.length * 0.9 || b.length > a.length * 1.2) continue;
+                let same = 0;
+                for (let j = 0; j < a.length; j++) if (a[j] === b[j]) same++;
+                const r = same / a.length;
+                if (r >= 0.85 && (!best || r > best.r)) best = { i, r, extra: w.slice(i + a.length) };
+            }
+            if (best) {
+                // cut the ORIGINAL text where the second copy starts: find its first 4 words (glue allowed) after the 40% mark
+                const esc = w.slice(best.i, best.i + 4).map(x => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s*');
+                const re = new RegExp(esc, 'g'); let hit = -1, mm;
+                while ((mm = re.exec(s))) { if (mm.index > s.length * 0.4) { hit = mm.index; break; } }
+                if (hit > 0) {
+                    let first = s.slice(0, hit).trim();
+                    if (best.extra.length) first = first.replace(/[\s.]*$/, '. ') + best.extra.join(' ');
+                    return { text: first.trim(), removed: true };
+                }
+            }
+            return { text: s, removed: false };
+        }
+        window.__dcDedupeDictation = dedupeDictation;   // test hook
+
         async function sendChatOnce() {
             // CARD ANSWERS STAY WITH THE CARD (L 2026-11-02 "why not just in the All tab"): a tap on a card sends into the card's own
             // tab (untagged card = All), not whatever tab happened to be open. Read synchronously, before the first await.
@@ -4349,6 +4386,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // send up to 1.5 s for the tail's pass (was 3.5, it read as a missed tap - L 2026-10-30), then the local tidy: spaces, first capital, a final period (2026-09-25)
             if (enhOn && window.__dcLiveFlush) { const st = $('#dc-chat-status'); if (st) st.textContent = '✨ finishing…'; try { await window.__dcLiveFlush(1500); } catch (_) {} raw = ta.value.trim() || ((KIT && KIT.hasAtt()) ? raw : ''); if (st && st.textContent === '✨ finishing…') st.textContent = ''; if (!raw) return; }
             if (enhOn && window.__dcTidy) { raw = window.__dcTidy(raw); ta.value = raw; }
+            if (target !== 'command' && !raw.startsWith('/')) { const dd = dedupeDictation(raw); if (dd.removed) { raw = dd.text; ta.value = raw; const stD = $('#dc-chat-status'); if (stD) stD.textContent = '✂ duplicate dictation removed'; } }
             const wantPing = !!($('#dc-chat-ping') && $('#dc-chat-ping').checked);
             const who = target === 'local' ? (DC.botWho || 'Local') : target === 'droplet' ? (DC.instName || 'Droplet') : (CHAT_WHO[target] || 'Droplet');
             // ⌘ Command (2026-09-16, pick D): every run needs a live YubiKey code; the daemon verifies it, one use per code
