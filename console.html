@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.195"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.196"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -2681,6 +2681,25 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             };
             window.addEventListener('pointerup', drop); window.addEventListener('pointercancel', drop);
         })();
+        /* SCROLL-LOCK SAFETY NET (2026-11-13, L: "glitching on iPad, I can't scroll down, closing and reopening the app fixes it").
+           Card and tab drags block ALL touch scrolling while DC._cardDrag / DC._tabDrag is true (window touchmove preventDefault).
+           If iOS never delivers the pointerup (system gesture, callout, app backgrounded mid-hold), or the card drop is still
+           awaiting a slow Firebase save, the flag stays true and the page cannot scroll until a reload. Clear both flags shortly
+           after the last finger lifts, on touchcancel, and whenever the page is hidden / blurred. */
+        (function wireDragReset() {
+            const reset = () => {
+                if (!DC._cardDrag && !DC._tabDrag) return;
+                DC._cardDrag = false; DC._tabDrag = false;
+                document.documentElement.classList.remove('card-dragging');
+                document.querySelectorAll('.lift, .swap-target').forEach(x => x.classList.remove('lift', 'swap-target'));
+            };
+            window.addEventListener('touchend', e => { if (!e.touches || e.touches.length === 0) setTimeout(reset, 400); }, { passive: true });
+            window.addEventListener('touchcancel', () => setTimeout(reset, 400), { passive: true });
+            document.addEventListener('visibilitychange', () => { if (document.hidden) reset();
+                else { const lg = document.getElementById('dc-chat-log'); if (lg && lg.style.overflow === 'hidden') lg.style.overflow = ''; } });
+            window.addEventListener('pagehide', reset); window.addEventListener('blur', reset);
+            window.__dcResetDrags = reset;   // test hook
+        })();
         // SAME OPTIONS IN MEMBER CHATS (2026-09-27, L: "we should get all the same options and all that should work the same with
         // whoever I'm talking with"): the 👥 pane uses these instead of its own copies.
         window.__dcShared = { speak: (t, k, d) => speakText(t, k, d), stop: () => stopSpeak(), speakingKey: () => DC.speakingKey,
@@ -3113,10 +3132,13 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     const stop = () => { quit = true; };
                     log.addEventListener('touchstart', stop, { once: true, passive: true });
                     log.addEventListener('wheel', stop, { once: true, passive: true });
-                    const prev = log.style.overflow; log.style.overflow = 'hidden';
+                    // 2026-11-13 (L: iPad "can't get into that pane to scroll, the top bar moves"): this used to save and restore
+                    // `prev`. A second tap inside the same frame read prev = 'hidden' and restored THAT - the log was stuck
+                    // overflow:hidden for good, so finger drags fell through to the page. Always clear back to the stylesheet value.
+                    log.style.overflow = 'hidden';
                     const force = () => { if (!quit) log.scrollTop = nf ? 0 : log.scrollHeight; };
                     force();
-                    requestAnimationFrame(() => { log.style.overflow = prev; force(); snapChatEnd(log, nf); });
+                    requestAnimationFrame(() => { log.style.overflow = ''; force(); snapChatEnd(log, nf); });
                     [120, 300, 600, 1000, 1500].forEach(ms => setTimeout(force, ms));
                     setTimeout(() => { log.removeEventListener('touchstart', stop); log.removeEventListener('wheel', stop); updateLatestPill(log, nf); }, 1600);
                 };
