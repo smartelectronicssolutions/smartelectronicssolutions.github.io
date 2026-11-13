@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.196"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.197"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -5915,6 +5915,22 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
               if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1 || a.hasAttribute('download')) return;
               const href = a.href; if (!/^https?:/i.test(href)) return;
               e.preventDefault(); e.stopPropagation(); go(href);
+          }, true);
+          // HOME-SCREEN APP TRAP (2026-11-13, L: "when I open a link in the console app it doesn't let me close out of it"): in the
+          // iOS standalone app a target=_blank link to OUR OWN site (luissolutions.us - journals, hub, apps) opens INSIDE the app
+          // window with no back button and no history, so there is no way back to the console. Other sites open in iOS's own
+          // sheet (with Done) and are fine. So, in standalone mode only, same-origin chat links load in the 🌐 Browser pane,
+          // which has ‹ › and the People back button. Ctrl/Cmd, downloads, tel:/mailto: untouched.
+          document.addEventListener('click', e => {
+              const a = e.target.closest && e.target.closest('#dc-chat-log a[href], #dc-peer-log a[href]'); if (!a) return;
+              const sa = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true; if (!sa) return;
+              if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1 || a.hasAttribute('download')) return;
+              let u; try { u = new URL(a.href, location.href); } catch (_) { return; }
+              if (u.origin !== location.origin) return;
+              const web = $('#dc-peer-web'); if (web && !web.hidden && web.getClientRects().length) return;   // the handler above already took it
+              e.preventDefault(); e.stopPropagation();
+              try { if (window.__dcAside) window.__dcAside('web'); else { peerSplit(); openWeb(); } } catch (_) { openWeb(); }
+              go(u.href);
           }, true); }
         $('#dc-peer-form').onsubmit = e => { e.preventDefault(); send(); };
         $('#dc-peer-in').addEventListener('keydown', e => {
