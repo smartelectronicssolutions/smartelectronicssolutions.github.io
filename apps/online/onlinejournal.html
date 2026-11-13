@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="version" content="1.0.4">
+  <meta name="version" content="1.0.5">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Online Journal</title>
   <link rel="stylesheet" href="../assets/css/online.css" />
@@ -1025,6 +1025,8 @@
         if (initial) {
           var params = new URLSearchParams(location.search);
           var id = params.get("id");
+          // links copied before 2026-11-13 carry the row key ("private__<id>"): use the exact key if this reader has it, else strip the tag
+          if (id && !allArticles[id]) id = id.replace(/^(private|public|shared)__/, "");
           if (id) {
             // resolve a raw article id against the prefixed keys (private first, then public)
             var key = allArticles[id] ? id
@@ -1313,7 +1315,11 @@
     document.getElementById("journalHomeLink").addEventListener("click", showList);
     document.getElementById("shareLinkBtn").onclick = function () {
       if (!currentArticleId) { setStatus("Open an article first", true); return; }
-      var url = location.origin + location.pathname + "?id=" + encodeURIComponent(currentArticleId);
+      // the PLAIN article id (2026-11-13): currentArticleId is the internal row key ("private__<id>"), which only resolves on the
+      // sharer's own device - a friend opening it got the list. The plain id resolves for anyone (their private -> public -> shared).
+      var cur = allArticles[currentArticleId];
+      var plainId = (cur && cur.__id) || String(currentArticleId).replace(/^(private|public|shared)__/, "");
+      var url = location.origin + location.pathname + "?id=" + encodeURIComponent(plainId);
       var btn = this;
       function ok() {
         btn.textContent = "Copied!";
