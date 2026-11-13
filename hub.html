@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.48">
+    <meta name="version" content="1.0.50">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Control Hub</title>
     <link rel="stylesheet" href="assets/css/master.css">
@@ -702,6 +702,12 @@
                         <button class="hbtn" id="sy-newf" title="ask the machine for a fresh read-only list of its files">Refresh file list</button>
                         <a class="hbtn" id="sy-files" href="apps/online/onlinefiles.html" target="_blank" rel="noopener">Open Files</a>
                     </div>
+                    <!-- 1.0.49 FPI field controls (svc-systems 1.12, hosts.json "fieldpi": true): status + scan of the eth0 wire, kill switch (2 taps) -->
+                    <div id="sy-fpitools" style="display:none;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px">
+                        <button class="hbtn" id="sy-fpiscan" title="fieldpi status + ARP scan of the device wire (eth0)">Field scan</button>
+                        <button class="hbtn sy-arm" id="sy-fpikill" data-act="fpikill" data-label="Kill switch" data-ask="Tap again: eth0 DOWN" title="eth0 down - off the field wire. Wi-Fi + Tailscale stay up">Kill switch</button>
+                        <button class="hbtn sy-arm" id="sy-fpirest" data-act="fpirestore" data-label="Restore wire" data-ask="Tap again: eth0 UP" title="eth0 back up in its current mode (field = link-local)">Restore wire</button>
+                    </div>
                     <div id="sy-set" hidden style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:10px"></div>
                     <div id="sy-cat" hidden class="sy-set" style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:10px"></div>
                     <div id="sy-out" style="margin-top:10px"></div>
@@ -782,6 +788,7 @@
                 .sy-line { white-space: pre-wrap; word-break: break-all; font-size: 0.76rem; line-height: 1.4; padding: 8px 10px; margin: 6px 0 0; border: 1px solid var(--border); border-radius: 8px; background: rgba(127,127,127,.08); user-select: all; }
                 .sy-qr { margin: 10px 0 6px; } .sy-qr svg { display: block; width: 180px; height: 180px; background: #fff; padding: 6px; border-radius: 8px; }
                 .sy-grp { color: var(--muted); font-size: 0.68rem; }
+                .sy-arm.armed { border-color: #e05555; color: #e05555; font-weight: 600; }
                 html.hub-guest .owner-only { display: none !important; }
             </style>
             <script type="module">
@@ -853,6 +860,23 @@
                         if (sm && sm.folders && sm.folders.length) tb += `<table class="sy-tbl"><tr><th>Folder</th><th>Files</th><th>MB</th></tr>${sm.folders.map(f => `<tr><td>${esc(f.f)}</td><td>${f.n}</td><td>${f.mb}</td></tr>`).join('')}</table><div class="cl-sum" style="color:var(--muted)">${sm.files} files · ${sm.mb} MB · newest ${esc(sm.newest)} · full list kept on ${esc(hubName)}</div>`;
                         if (tb) o += `<div class="sy-h">Tools</div>` + tb;
                     }
+                    // 1.0.49 FPI (svc-systems 1.12 -> hosts/<id>/fpi {run, status, devices, scanNote, scanAt})
+                    const isFpi = !!(list[cur] || {}).fieldpi && !member;
+                    { const ft = $('#sy-fpitools'); if (ft) ft.style.display = isFpi ? 'flex' : 'none'; }
+                    if (isFpi && h.fpi) {
+                        const f = h.fpi, fr = f.run || {};
+                        const nm = { fpiscan: 'Field scan', fpikill: 'Kill switch', fpirestore: 'Restore wire' }[fr.action] || 'fieldpi';
+                        o += `<div class="sy-h">Field Pi</div>`;
+                        if (fr.state) o += `<div class="cl-sum"${fr.state === 'error' ? ' style="color:#f87171"' : ''}>${fr.state === 'running' ? '⏳' : fr.state === 'done' ? '✅' : '⚠️'} <b>${nm}</b> · ${ago(fr.at)}${fr.secs ? ` · ${fr.secs} s` : ''}${fr.msg ? `<br>${esc(fr.msg)}` : ''}</div>`;
+                        const stt = f.status || [];
+                        const mode = (stt.find(x => x[0] === 'mode') || [])[1] || '';
+                        if (/KILLED/.test(mode)) o += `<div class="cl-sum" style="color:#e05555"><b>eth0 is DOWN</b> (killed) - tap Restore wire to put it back.</div>`;
+                        if (stt.length) o += `<div class="sy-kv">${stt.map(([k, v]) => `<span>${esc(k)}</span><span>${esc(v)}</span>`).join('')}</div>`;
+                        const dv = f.devices || [];
+                        if (f.scanAt) o += `<div class="sy-h">Wire scan · ${ago(f.scanAt)} · ${dv.length} devices</div>`
+                          + (dv.length ? `<div class="sy-scroll"><table class="sy-tbl"><tr><th>IP</th><th>MAC</th><th>Maker</th></tr>${dv.map(d => `<tr><td>${esc(d.ip)}</td><td>${esc(d.mac)}</td><td>${esc(d.vendor)}</td></tr>`).join('')}</table></div>` : '')
+                          + (f.scanNote ? `<div class="cl-sum" style="color:var(--muted)">${esc(f.scanNote)}</div>` : '');
+                    }
                     if (h.security && h.security.flags) o += secStrip(h.security);
                     // 1.0.37 APPS = the editable catalog as CHECKBOXES (svc-systems 1.9 / member tool 1.1): checked = installed at the last pull
                     o += appsBlock(h);
@@ -896,6 +920,17 @@
                 $('#sy-refresh').addEventListener('click', () => req({ action: 'peers' }));
                 // 1.0.47 Mac tools: queued like scan/pull; the date rides in `app` (checkin_svc + agent both regex-check it)
                 $('#sy-speed').addEventListener('click', () => req({ host: cur, action: 'speedtest' }, `Speed test queued on ${cur}`));
+                // 1.0.49 FPI: scan = one tap; kill/restore = TWO taps within 4 s (no confirm() dialog)
+                $('#sy-fpiscan').addEventListener('click', () => req({ host: cur, action: 'fpiscan' }, `Field scan queued on ${cur} (~5-15 s)`));
+                document.querySelectorAll('#sy-fpitools .sy-arm').forEach(b => b.addEventListener('click', () => {
+                    if (b.classList.contains('armed')) {
+                        clearTimeout(b._t); b.classList.remove('armed'); b.textContent = b.dataset.label;
+                        req({ host: cur, action: b.dataset.act }, `${b.dataset.label} sent to ${cur}`);
+                        return;
+                    }
+                    b.classList.add('armed'); b.textContent = b.dataset.ask;
+                    b._t = setTimeout(() => { b.classList.remove('armed'); b.textContent = b.dataset.label; }, 4000);
+                }));
                 $('#sy-newf').addEventListener('click', () => req({ host: cur, action: 'newfiles', app: '2000-01-01' }, `Fresh file list asked from ${cur} - filter by date in Files`));
                 $('#sy-addgo').addEventListener('click', () => {
                     const peer = $('#sy-peer').value, user = $('#sy-user').value.trim();
