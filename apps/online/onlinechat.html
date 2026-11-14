@@ -4,7 +4,7 @@
 <head>
   <script>(function(){try{if(localStorage.getItem("ss-theme")==="light")document.documentElement.classList.add("light")}catch(e){}})();</script>  <!-- saved light/dark before first paint (2026-10-01) -->
     <meta charset="UTF-8">
-    <meta name="version" content="1.2.3">
+    <meta name="version" content="1.2.4">
     <title>Live Chat</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <link rel="stylesheet" href="../assets/css/online.css">
@@ -2687,11 +2687,20 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
         // Front itself is never saved (always OFF after a reload). Gestures only exist while Front is ON (the box has
         // pointer-events none otherwise), and touch-action none applies only to the avatar box in Front mode.
         const frontBtn = $v('front-toggle'), avFloatEl = document.querySelector('.av-float');
-        VS.front = false; VS.xf = { x: 0, y: 0, s: 1 }; VS.ptrs = new Map(); VS.lastTap = 0;
-        function xfKey() { return 'vc_avxf_' + (VS.avatarKey || 'male'); }
+        VS.front = false; VS.xf = { x: 0, y: 0, s: 1 }; VS.ptrs = new Map(); VS.lastTap = 0; VS.resetT = null;
+        // START VIEW: every full-body avatar opens zoomed in (about head-to-waist, face in the upper third) instead of the head-to-toe
+        // fit. AV_START_ZOOM = scale, AV_START_TOP = how far the top of the figure is pulled to the top of the box (1 = flush).
+        // Double-tap goes back to this view. Manual zoom / move is saved per avatar on this device.
+        const AV_START_ZOOM = 1.7, AV_START_TOP = 0.92;
+        function defaultXf() {
+            if (!avPane.classList.contains('fullbody')) return { x: 0, y: 0, s: 1 };   // bust rigs already fill the box
+            const h = avStage.offsetHeight || 0;
+            return { x: 0, y: Math.round((AV_START_ZOOM - 1) * h / 2 * AV_START_TOP), s: AV_START_ZOOM };
+        }
+        function xfKey() { return 'vc_avxf2_' + (VS.avatarKey || 'male'); }   // v2 key: everyone starts at the new start view
         function loadXf() {
             let v = null; try { v = JSON.parse(localStorage.getItem(xfKey()) || 'null'); } catch { }
-            VS.xf = (v && isFinite(v.x) && isFinite(v.y) && isFinite(v.s)) ? { x: +v.x, y: +v.y, s: +v.s } : { x: 0, y: 0, s: 1 };
+            VS.xf = (v && isFinite(v.x) && isFinite(v.y) && isFinite(v.s)) ? { x: +v.x, y: +v.y, s: +v.s } : defaultXf();
             applyXf(false);
         }
         function saveXf() { try { localStorage.setItem(xfKey(), JSON.stringify(VS.xf)); } catch { } }
@@ -2714,7 +2723,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             frontBtn.classList.toggle('on', VS.front);
             frontBtn.textContent = VS.front ? '⬇ Back' : '⬆ Front';
             if (VS.front && VS.collapsed) { VS.collapsed = false; lsSet('vc_collapsed', '0'); paintToggles(); if (VS.av) { fitAvatar(); VS.av.start(); } }
-            if (VS.front) vStatus('Front: drag to move, pinch or wheel to zoom, double-tap to reset.', false, 5000);
+            if (VS.front) vStatus('Front: drag to move, pinch or wheel to zoom, double-tap to reset, triple-tap to send back.', false, 5000);
         }
         frontBtn.addEventListener('click', () => setFront(!VS.front));
         // Click around the avatar when it is up front: the layer stays pointer-events:none even in
@@ -2722,8 +2731,9 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
         // within ~8 css px). Hit -> her drag/pinch (that touch's default + propagation stopped, so the chat never sees it);
         // miss -> nothing, the chat underneath gets the tap/click/scroll as usual. Once a gesture is on her, a second finger
         // anywhere joins the pinch. Wheel zooms only with the cursor over her; 'grab' cursor only over her pixels.
-        function hitHer(cx, cy) {
-            if (!VS.front || !VS.av) return false;
+        function hitHer(cx, cy) { return VS.front && hitAvatarPx(cx, cy); }
+        function hitAvatarPx(cx, cy) {                                       // opaque avatar pixel under (cx, cy), Front or Back
+            if (!VS.av || VS.collapsed) return false;
             const c = $v('av-canvas'), r = c.getBoundingClientRect();
             if (cx < r.left || cx > r.right || cy < r.top || cy > r.bottom || !r.width) return false;
             const k = c.width / r.width;                                     // canvas px per css px (includes the zoom)
@@ -2772,9 +2782,12 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             VS.ptrs.delete(e.pointerId);
             if (VS.ptrs.size) { gestureStart(); return; }                    // a finger lifted mid-pinch: carry on with the rest
             avFloatEl.classList.remove('dragging'); document.documentElement.style.cursor = '';
-            if (!moved && e.type === 'pointerup') {                          // double-tap on her = back to the default fit
-                const now = Date.now();
-                if (now - VS.lastTap < 320) { VS.xf = { x: 0, y: 0, s: 1 }; applyXf(false); VS.lastTap = 0; } else VS.lastTap = now;
+            if (!moved && e.type === 'pointerup') {                          // double-tap on her = back to the start view
+                const now = Date.now();                                      // (held 330 ms: a third tap = triple-tap instead)
+                if (now - VS.lastTap < 320) {
+                    VS.lastTap = 0; clearTimeout(VS.resetT);
+                    VS.resetT = setTimeout(() => { VS.xf = defaultXf(); applyXf(false); xfSettle(); }, 330);
+                } else VS.lastTap = now;
             }
             xfSettle();
         }
@@ -2785,6 +2798,27 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             e.preventDefault(); e.stopPropagation();
             VS.xf.s *= Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)); applyXf(); xfSettle();
         }, { capture: true, passive: false });
+        // TRIPLE-TAP on the avatar = Front <-> Back (same as the Front button), in either mode. Only short, still taps on her
+        // opaque pixels count, 3 within 600 ms. In Back mode a tap on a bubble or any control is the chat's, never hers.
+        const AV_TAP = { down: null, times: [] };
+        const TAP_NOT_HERS_FRONT = 'header, .chat-header-area, .input-bar, .drop-menu, #login-inline';
+        const TAP_NOT_HERS_BACK = TAP_NOT_HERS_FRONT + ', button, input, textarea, select, a, label, .msg-wrap, .bubble, #persona-panel, #msg-sheet, .msg-sheet';
+        document.addEventListener('pointerdown', e => {
+            AV_TAP.down = e.isPrimary ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: Date.now() } : null;
+        }, true);
+        document.addEventListener('pointerup', e => {
+            const d = AV_TAP.down; AV_TAP.down = null;
+            if (!d || d.id !== e.pointerId || Date.now() - d.t > 400 || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 10) return;
+            const tgt = e.target && e.target.closest ? e.target : null;
+            if (tgt && tgt.closest(VS.front ? TAP_NOT_HERS_FRONT : TAP_NOT_HERS_BACK)) return;
+            if (!hitAvatarPx(e.clientX, e.clientY)) { AV_TAP.times = []; return; }
+            const now = Date.now();
+            AV_TAP.times = AV_TAP.times.filter(t => now - t < 600); AV_TAP.times.push(now);
+            if (AV_TAP.times.length >= 3) {
+                AV_TAP.times = []; clearTimeout(VS.resetT); VS.lastTap = 0;
+                setFront(!VS.front);
+            }
+        }, true);
         // The avatar is NOT a pick in the menu - it is what the signed-in account's settings say
         // ({uid}/chat/bot/avatar, edited on the Persona panel). No setting / signed out = the default.
         function fillPrsAvatar() {
