@@ -337,9 +337,9 @@
       if (B.phase < 0 && B.next <= 0) { B.phase = 0; B.double = R() < 0.18; }
       let bo = 1;
       if (B.phase >= 0) {
-        B.phase += dt / 0.24; const ph = B.phase;
+        B.phase += dt / 0.34; const ph = B.phase;   // 340 ms blink: ~60-110 ms per state
         bo = ph < 0.4 ? 1 - ph / 0.4 : clamp((ph - 0.4) / 0.6, 0, 1);
-        if (ph >= 1) { if (B.double) { B.double = false; B.phase = 0; } else { B.phase = -1; B.next = 2 + R() * 3.5; } }
+        if (ph >= 1) { if (B.double) { B.double = false; B.phase = 0; } else { B.phase = -1; B.next = 2 + R() * 4; } }
       }
       P.eyeOpen = clamp(Math.min(bo, 1 + xv('eye')), 0, 1);
       P.eyeScale = xv('eyeScale');
@@ -475,7 +475,9 @@
       gl.uniform4f(L.uView, sc, sc, ox, oy);
       // eye state crossfade weights
       const o = P.eyeOpen;
-      const eyeA = { open: clamp((o - 0.5) * 2, 0, 1), half: o >= 0.5 ? 1 : clamp(o * 2, 0, 1), closed: o >= 0.5 ? 0 : 1 };
+      // 2026-11-14 blink fix (L: "eyebrow still shows when blinking"): a clean SWAP, one state at a time (half/closed layers now
+      // cover the whole open-eye footprint, fix_blink.py) - the old crossfade drew open over half, so two lash lines showed
+      const eyeA = { open: o > 0.7 ? 1 : 0, half: o > 0.3 && o <= 0.7 ? 1 : 0, closed: o <= 0.3 ? 1 : 0 };
       for (const p of this.parts) {
         let alpha = 1, mask = 0, shx = 0, shy = 0;
         if (p.group) {
