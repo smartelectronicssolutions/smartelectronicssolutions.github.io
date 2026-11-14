@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.201"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.202"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -2442,7 +2442,11 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // patches meta.name at once and restarts. renderMeta() repaints on every meta change, so the label updates without F5.
         function paintKdName(m) {
             const box = document.getElementById('dc-kd-name'); if (!box) return;
-            if (!m || m.daemonKind !== 'kdaemon') { box.hidden = true; return; }
+            // 1.0.202 (L: 'can it be under profile?'): se-daemon logins get the icon + colour too, stored at {base}/settings/look
+            const own = !m || m.daemonKind !== 'kdaemon';
+            { const ni = document.getElementById('dc-kd-name-in'), nb = document.getElementById('dc-kd-name-btn'), ns = document.getElementById('dc-kd-name-st');
+              if (ni && ni.closest('label')) ni.closest('label').hidden = own; if (nb) nb.hidden = own; if (ns) ns.hidden = own; }
+            if (own) { const L = DC.ownLook || {}; m = Object.assign({}, m || {}, { icon: L.icon || '', color: L.color || '' }); }
             box.hidden = false;
             const inp = document.getElementById('dc-kd-name-in'), nm = String(m.name || '').trim();
             if (inp && document.activeElement !== inp && !inp.dataset.dirty) inp.value = nm;
@@ -2469,8 +2473,15 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const icon = kdCleanIcon(ii && ii.value), color = kdCleanColor(ci && ci.value);
             if (icon === null) { say('icon: 1-8 characters (an emoji or symbol), no spaces'); return; }
             if (color === null) { say('colour: #RRGGBB, for example #9FD8FF (or blank)'); return; }
-            if (icon === String(m.icon || '') && color === String(m.color || '')) { say('that is already the look'); return; }
-            if (m.daemonKind !== 'kdaemon') { say('only for a take-home assistant'); return; }
+            const L0 = m.daemonKind === 'kdaemon' ? m : (DC.ownLook || {});
+            if (icon === String(L0.icon || '') && color === String(L0.color || '')) { say('that is already the look'); return; }
+            if (m.daemonKind !== 'kdaemon') {   // se-daemon login: no daemon job - the look lives on the account
+                import('./assets/js/firebase-init.js?v=20261011b').then(async fm => {
+                    await fm.set(fm.ref(database, `${DC.base}/settings/look`), { icon, color, at: Date.now() });
+                    if (ii) delete ii.dataset.dirty; if (ci) delete ci.dataset.dirty; say('✓ saved');
+                }).catch(err => say('could not save it: ' + (err.code || err.message)));
+                return;
+            }
             if (!DC.daemonOn) { say('daemon offline - start it on that PC first'); return; }
             // 0.2.26+ on the 0.2 line only: the 0.3/0.4 Pi forks (Pilet) are numbered higher but do not carry the look job yet
             const vv = _vnum(cur), lineOk = vv[0] === 0 && vv[1] === 2 && (vv[2] || 0) >= 26;
@@ -4664,7 +4675,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const nm = String(m.name || '').replace(/[^\p{L}\p{N} '-]/gu, '').trim().slice(0, 24) || 'Droplet';
             if (nm !== DC.instName) { DC.instName = nm; try { relabelTargets(); } catch (_) {} }
             // ASSISTANT ICON + COLOUR (2026-11-12, kdaemon 0.2.26 meta.icon / meta.color): repaint the bubbles when it changes
-            { const ic = DC.kdaemon ? (kdCleanIcon(m.icon) || '') : '', co = DC.kdaemon ? (kdCleanColor(m.color) || '') : '';
+            if (!DC.kdaemon && !DC._lookSub && DC.base && !DC.remote) { DC._lookSub = 1;   // 1.0.202: se-daemon login's own look
+                onValue(ref(database, `${DC.base}/settings/look`), s => { DC.ownLook = s.val() || {}; try { renderMeta(DC.lastMeta || {}); } catch (_) {} }); }
+            { const src = DC.kdaemon ? m : (DC.ownLook || {}), ic = kdCleanIcon(src.icon) || '', co = kdCleanColor(src.color) || '';
               if (ic !== (DC.instIcon || '') || co !== (DC.instColor || '')) { DC.instIcon = ic; DC.instColor = co;
                 window.__dcInstIcon = ic;
                 try { document.dispatchEvent(new Event('dc-look')); } catch (_) {}
