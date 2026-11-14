@@ -141,7 +141,11 @@
                    uShift: gl.getUniformLocation(prog, 'uShift'), uMask: gl.getUniformLocation(prog, 'uMask') };
       gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
       gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-      const imgs = await Promise.all(rig.parts.map(async p => loadImg(await url(p.file))));
+      // cache-bust the layers by the rig's own geometry: rig.json is no-cache but PNGs are cached a day, so a rebuilt rig
+      // (e.g. bust -> full body, 2026-11-14) used to draw new geometry over OLD cached pictures = torn, floating-head avatar
+      let hv = 0; for (const ch of JSON.stringify(rig.parts)) hv = (Math.imul(hv, 31) + ch.charCodeAt(0)) | 0;
+      const bust = u => u + (u.indexOf('?') < 0 ? '?' : '&') + 'rv=' + (hv >>> 0).toString(36);
+      const imgs = await Promise.all(rig.parts.map(async p => loadImg(bust(await url(p.file)))));
       const so = { closed: 0, half: 1, open: 2 };
       this.parts = rig.parts.map((p, i) => this._mkPart(p, imgs[i]))
         .sort((a, b) => (a.z - b.z) || ((so[a.name.split('_')[2]] || 0) - (so[b.name.split('_')[2]] || 0)));
