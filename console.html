@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.203"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.204"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -2990,7 +2990,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 const last = String(t.text || '').replace(/```[\s\S]*?```/g, ' ').replace(/[*_`#>|]/g, '').replace(/\s+/g, ' ').trim().slice(-1500);
                 const ctx = prevL ? 'Luis had said: ' + String(prevL).slice(0, 300) + '\n' : '';
                 const res = await fetch(OLLAMA, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ model: LIVE_MODEL, stream: false, keep_alive: '30m', options: { temperature: 0.2, num_predict: 40 },
+                    body: JSON.stringify({ model: LIVE_MODEL, stream: false, keep_alive: '30m', options: { temperature: 0.2, num_ctx: 4096, num_predict: 40 },
                         messages: [{ role: 'system', content: REPLY_SYS }, { role: 'user', content: ctx + "Droplet's last message:\n<<<\n" + last + '\n>>>\nLuis replies:' }] }) });
                 if (!res.ok) return;
                 const j = await res.json();
@@ -5408,7 +5408,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     // gemma2:9b, not the 14b chat model: 2.4 s warm / 4.7 s cold on his real sample and it fixed everything;
                     // qwen3:14b took 96 s cold. keep_alive holds it in memory between pauses (measured 2026-09-25).
                     const res = await fetch(OLLAMA, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: mine.signal,
-                        body: JSON.stringify({ model: LIVE_MODEL, stream: false, keep_alive: '30m', options: { temperature: 0, num_predict: Math.min(512, Math.ceil(text.length / 2) + 24) }, messages: [{ role: 'system', content: PROOF_SYS + (/qwen/i.test(LIVE_MODEL) ? ' /no_think' : '') }, { role: 'user', content: 'Proofread the message between the markers. It may be a piece that starts mid-sentence and is not finished yet: do not capitalize its first word unless it already is, and do not add a question mark or any other end punctuation to unfinished text. Output only the corrected message, nothing else.\n<<<\n' + text + '\n>>>' }] }) });   // mid-sentence rules: 2026-10-07 audit
+                        body: JSON.stringify({ model: LIVE_MODEL, stream: false, keep_alive: '30m', options: { temperature: 0, num_ctx: 4096, num_predict: Math.min(512, Math.ceil(text.length / 2) + 24) }, messages: [{ role: 'system', content: PROOF_SYS + (/qwen/i.test(LIVE_MODEL) ? ' /no_think' : '') }, { role: 'user', content: 'Proofread the message between the markers. It may be a piece that starts mid-sentence and is not finished yet: do not capitalize its first word unless it already is, and do not add a question mark or any other end punctuation to unfinished text. Output only the corrected message, nothing else.\n<<<\n' + text + '\n>>>' }] }) });   // mid-sentence rules: 2026-10-07 audit
                     // num_predict: a proofread is as long as its input - a runaway answer must not hold the model. MARKERS: with the bare text as the
                     // user turn, gemma2 read a short fragment ("Then I keep typin the secnd one…") as a cue and WROTE a new sloppy message instead
                     // ("i think its a good idea to start with the basics tho"), and on long ones expanded "gonna" and dropped a clause. Between markers
@@ -5496,7 +5496,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // and the Send hold is 3.5 s - L's next message went out half-fixed because the model had gone cold
             let warmedAt = 0;
             const warm = () => { const now = Date.now(); if (now - warmedAt < 600000) return; warmedAt = now;
-                fetch(OLLAMA, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: LIVE_MODEL, stream: false, keep_alive: '30m', options: { num_predict: 1 }, messages: [{ role: 'user', content: 'ok' }] }) }).catch(() => {}); };
+                fetch(OLLAMA, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: LIVE_MODEL, stream: false, keep_alive: '30m', options: { num_ctx: 4096, num_predict: 1 }, messages: [{ role: 'user', content: 'ok' }] }) }).catch(() => {}); };
             ta.addEventListener('focus', () => { if (on()) warm(); });
             ta.addEventListener('input', e => {
                 clearTimeout(timer);
