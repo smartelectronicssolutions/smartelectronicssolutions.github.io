@@ -4,7 +4,7 @@
 <head>
   <script>(function(){try{if(localStorage.getItem("ss-theme")==="light")document.documentElement.classList.add("light")}catch(e){}})();</script>  <!-- saved light/dark before first paint (2026-10-01) -->
     <meta charset="UTF-8">
-    <meta name="version" content="1.2.4">
+    <meta name="version" content="1.2.5">
     <title>Live Chat</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <link rel="stylesheet" href="../assets/css/online.css">
@@ -37,6 +37,7 @@
 
         /* ── Top bar ── */
         .chat-header-area {
+            position: relative;
             padding: 8px 14px 6px;
             border-bottom: 1px solid var(--border);
             flex-shrink: 0;
@@ -44,8 +45,9 @@
 
         .chat-tabs {
             display: flex;
+            align-items: center;
             gap: 6px;
-            margin-bottom: 4px;
+            margin-bottom: 0;
         }
 
         .chat-tab {
@@ -444,7 +446,7 @@
         .prs-row { display: flex; gap: 8px; align-items: flex-start; }
         .prs-row .prs-section { flex: 1; }
 
-        /* ── VOICE MODE + AVATAR (2026-11-13) ──────────────────────────────────────────
+        /* ── VOICE MODE + AVATAR ──────────────────────────────────────────
            The avatar is a BACKDROP layer: absolutely positioned behind the chat log, bottom-left, large, slow bob, faded edges,
            the rig's room plate hidden so the character floats on the page. pointer-events:none -> never blocks taps/scroll.
            Bubbles go translucent + blurred so she shows through but text stays legible. Phone = lower + dimmer;
@@ -586,8 +588,6 @@
         /* MENUS: options live in a hamburger + dropdowns to save space.
            ☰ = avatar + voice options (chat header, right); ⋯ = account / quick links / theme on phones. Overlays: nothing
            pushes the chat down. Tap outside or Esc closes. Both sit above the avatar in Front mode. */
-        .chat-header-area { position: relative; }
-        .chat-tabs { align-items: center; margin-bottom: 0; }
         .menu-btn {
             margin-left: auto;
             background: var(--surface2); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius);
@@ -730,7 +730,6 @@
                 </div>
                 <div id="user-badge"></div>
                 <div class="av-bar drop-menu" id="av-menu" role="menu" hidden>
-                    <select id="av-pick" title="Avatar (saved to your account when signed in)" hidden></select>
                     <div class="menu-label">Voice &amp; view</div>
                     <button type="button" id="speak-toggle" class="tgl" title="Read replies out loud">🔈 Speak</button>
                     <button type="button" id="handsfree-toggle" class="tgl" title="After a reply is read, listen again automatically">🔁 Hands-free</button>
@@ -1042,9 +1041,8 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                 .trim();
         }
 
-        // ONE pass (2026-09-19). Two sequential replaces meant the second rescanned the HTML the
-        // first had just built, so `[click](https://e.com)` came out as an anchor nested inside its
-        // own href. Alternation walks the original string once, so that cannot happen. esc() runs
+        // ONE pass: alternation walks the original string once, so a markdown link can never end up
+        // as an anchor nested inside its own href. esc() runs
         // first and escapes both quote characters, so nothing here can break out of the attribute;
         // javascript:/data: never match https?:// and stay plain text.
         function linkify(s) {
@@ -1055,8 +1053,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             );
         }
 
-        // ── Private-chat encryption + 30-day retention (2026-10-09; same uid
-        //    encryption method as member chat) ──────────────────────────────────────────────────
+        // ── Private-chat encryption + 30-day retention (same uid encryption method as member chat) ──────────────────────────────────────────────────
         // SAME scheme as the hub's member chat (enc 1): AES-256-GCM, key = PBKDF2(sender uid, salt 'louverse-chat-v1', 150k,
         // SHA-256); stored {text:<b64 iv+ct>, enc:1, from:<uid>}. Firebase holds blobs, not text. Like member chat it proves the
         // mechanism, not secrecy (the key is derived from the uid). Only the signed-in Internal chat is encrypted: the Public
@@ -1521,8 +1518,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             return `hsl(${hue}, 45%, 38%)`;
         }
 
-        // QUEUE, NOT DROP (2026-10-01):
-        // messages sent while the bot was busy used to be silently DROPPED (`if (botBusy) return`). Now they wait in
+        // QUEUE, NOT DROP: messages sent while the bot is busy wait in
         // line and run in order as soon as the current answer is done - ollama serves one request at a time anyway.
         const botQueue = [];
         async function askBot(username, question) {
@@ -2324,7 +2320,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             listenForMessages();
         });
 
-        // ══ VOICE MODE + AVATAR (2026-11-13) ══════════════
+        // ══ VOICE MODE + AVATAR ══════════════
         // Mic -> Web Speech STT -> the normal send path (messageForm submit) -> the bot reply lands via the listener ->
         // voiceOnBotReply() -> Kokoro TTS (svc-tts via mc-api /tts, Firebase-token gated server-side) -> ONE <audio>
         // routed through a WebAudio analyser -> the avatar's mouth follows the audio, it blinks on its own.
@@ -2338,8 +2334,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
         const AVATARS = {
             male:   { label: 'Male',   base: 'avatar/mario/',  voice: 'am_michael', expr: true, focus: [560, 520],
                       deviceVoice: /\b(male|david|guy|daniel|alex|fred|aaron|mark|james|tom)\b/i },
-            // FEMALE (built 11-13): avatar/female/ = rig.json + parts/ from ops\mario\live2d (female_gen.py img2img off the male
-            // source -> build_parts.py with RIG_CFG=work_f/rig_cfg.json -> refine_mouth.py). Same room/light/line weight = a pair.
+            // FEMALE: avatar/female/ = rig.json + parts/, drawn as a pair with the male rig (same room / light / line weight).
             female: { label: 'Female', base: 'avatar/female/', voice: 'af_heart', expr: true, focus: [620, 500],
                       deviceVoice: /\b(female|zira|samantha|aria|jenny|karen|victoria|susan|moira|tessa|ava|allison)\b/i,
                       missing: 'The female avatar could not load - chat and voice still work.' },
@@ -2384,7 +2379,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
         };
         const $v = id => document.getElementById(id);
         const micBtn = $v('mic-btn'), interimEl = $v('voice-interim'), avStage = $v('av-stage'), avPane = $v('avatar-bg'), mainEl = document.querySelector('main.voice-main');
-        const avStatusEl = $v('av-status'), avPick = $v('av-pick');
+        const avStatusEl = $v('av-status');
         let avStatusTimer = null;
         function vStatus(t, warn, ms) {
             avStatusEl.textContent = t || ''; avStatusEl.classList.toggle('warn', !!warn);
@@ -2649,11 +2644,9 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
         }
         if (window.ResizeObserver) { const ro = new ResizeObserver(() => fitBackdrop()); ro.observe(document.querySelector('.chat-header-area')); ro.observe(document.querySelector('.input-bar')); ro.observe(mainEl); }
         addEventListener('resize', fitBackdrop);
-        function fillAvPick() { avPick.innerHTML = ''; for (const k of avChoices()) { if (!avAllowed(k)) continue; const o = document.createElement('option'); o.value = k; o.textContent = avDef(k).label; avPick.appendChild(o); } if (VS.avatarKey) avPick.value = VS.avatarKey; }
-        fillAvPick();
         async function loadAvatar(key) {
             if (!avAllowed(key)) key = DEFAULT_AVATAR;
-            VS.avatarKey = key; avPick.value = key; const myLoad = ++VS.loadId;
+            VS.avatarKey = key; const myLoad = ++VS.loadId;
             const def = avDef(key);
             const resolve = def.storage ? storageResolver(currentUser.uid, key) : undefined;
             if (VS.av) { VS.av.destroy(); VS.av = null; }
@@ -2829,7 +2822,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
         }
         onUserReady(async user => {
             await listAcctAvatars(user);   // this account's own Storage rigs (owner-only by Storage rules)
-            fillAvPick(); if (typeof fillPrsAvatar === 'function') fillPrsAvatar();
+            if (typeof fillPrsAvatar === 'function') fillPrsAvatar();
             let key = DEFAULT_AVATAR;
             if (user) {
                 try { const s = await get(ref(database, `${user.uid}/chat/bot/avatar`)); if (s.exists() && avAllowed(s.val())) key = s.val(); } catch { }
@@ -3056,7 +3049,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
         $v('auth-btn').addEventListener('click', () => setTimeout(closeMenus, 0));   // Sign In opens the login box under the header
     </script>
     <script>
-    // SWIPE TABS (2026-10-01): swipe left / right to move between tabs:
+    // SWIPE TABS: swipe left / right to move between tabs:
     // a sideways swipe on the chat (or the Persona panel) steps to the next/previous VISIBLE tab - same feel as the hub.
     // Guards (copied from the console): a mostly-horizontal, quick swipe only; ignored while you're typing a message
     // (so a message can't land in another tab); ignored when the swipe starts on a horizontally scrollable thing
