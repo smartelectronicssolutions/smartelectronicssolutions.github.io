@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.197"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.199"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -4664,6 +4664,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // ASSISTANT ICON + COLOUR (2026-11-12, kdaemon 0.2.26 meta.icon / meta.color): repaint the bubbles when it changes
             { const ic = DC.kdaemon ? (kdCleanIcon(m.icon) || '') : '', co = DC.kdaemon ? (kdCleanColor(m.color) || '') : '';
               if (ic !== (DC.instIcon || '') || co !== (DC.instColor || '')) { DC.instIcon = ic; DC.instColor = co;
+                try { document.dispatchEvent(new Event('dc-look')); } catch (_) {}
                 if (!DC.remote) { DC.bubbleSig = {}; try { renderChat(DC.ownTurns || DC.chatTurns || {}); } catch (_) {} } } }
             DC.ollamaUp = !!(m.ollama && m.ollama.up);
             // VERSION, NOT CHANGELOG (2026-09-20). The daemon's version string carries its
@@ -6787,6 +6788,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     // target; a chat opens in the secondary panel (the old 👥 pane, same split bar) - left of the chat on a wide screen, stacked on the
     // phone (below when newest is on top, above when newest is at the bottom). The 👥 button is retired.
     const BRAIN_ICON = { droplet: '💧', local: '🦙', compman: '🛠', command: '⌘' };
+    // the assistant's own icon (kdaemon 0.2.26 meta.icon, Settings > Icon) replaces the 💧 top-left + in the drawer (L 2026-11-13: Erik's icon only reached the chat bubbles)
+    const brainIcon = v => (v === 'droplet' && DC.instIcon) || BRAIN_ICON[v] || '🤖';
     // TWO PANES (2026-10-23, L: "no 3rd pane just a main one with chats and info, the aside one basically settings and other things
     // like lists or browser"): MAIN = the Droplet chat or the open conversation (one at a time, .dc-conv); ASIDE = #dc-drawer docked on
     // the left (drag its edge, width remembered) with three views - list (brains + chats), ⚙ settings (#dc-sys-col moved in), 🌐 browser
@@ -6819,7 +6822,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         const bk = d.querySelector('.dback'); if (bk) bk.hidden = v === 'list'; }
     window.__dcAside = v => { openDrawer(); asideView(v); };
     function drawerBrains() { const sel = $('#dc-chat-target'), b = $('#dc-brains'); if (!sel || !b) return;
-        b.innerHTML = [...sel.options].filter(o => !o.hidden && !o.disabled).map(o => `<button type="button" class="dc-peer-row${o.value === sel.value ? ' on' : ''}" data-brain="${esc(o.value)}">${BRAIN_ICON[o.value] || '🤖'} ${esc(o.textContent.trim())}</button>`).join('');
+        b.innerHTML = [...sel.options].filter(o => !o.hidden && !o.disabled).map(o => `<button type="button" class="dc-peer-row${o.value === sel.value ? ' on' : ''}" data-brain="${esc(o.value)}">${esc(brainIcon(o.value))} ${esc(o.textContent.trim())}</button>`).join('');
         // show ONE brain, swipe/scroll for the rest (L 2026-11-10: "squish the brains window to show only 1 instead of 2"; was 2 since 10-29)
         requestAnimationFrame(() => { const rows = b.children; if (rows.length < 2) { b.style.maxHeight = ''; return; }
             const h = rows[1].offsetTop - rows[0].offsetTop; if (!h) return;   // drawer hidden: no layout yet, keep the last height
@@ -6832,8 +6835,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         const con = $('#dc-console'), sel = $('#dc-chat-target'), home = $('#dc-peer-home'); if (!con || !sel || !home || $('#dc-drawer')) return;
         const brand = document.createElement('button'); brand.type = 'button'; brand.id = 'dc-brand-btn'; brand.title = 'chats, brains, browser, settings';
         sel.style.display = 'none'; sel.after(brand);
-        const paint = () => { const o = sel.selectedOptions[0]; brand.innerHTML = `${BRAIN_ICON[sel.value] || '🤖'} ${esc(o ? o.textContent.trim() : 'Droplet')}<span class="caret">▾</span><span class="dot" hidden></span>`; dots(); };
+        const paint = () => { const o = sel.selectedOptions[0]; brand.innerHTML = `${esc(brainIcon(sel.value))} ${esc(o ? o.textContent.trim() : 'Droplet')}<span class="caret">▾</span><span class="dot" hidden></span>`; dots(); };
         sel.addEventListener('change', paint);
+        document.addEventListener('dc-look', paint);   // icon saved in Settings -> top-left follows at once
         const dr = document.createElement('div'); dr.id = 'dc-drawer'; dr.dataset.view = 'list';
         dr.innerHTML = '<div class="dh"><button type="button" class="dback" title="back to the chat list" hidden>‹</button><b title="triple-tap: browser">Chats</b><span class="sp"></span><button type="button" class="dbot" title="dock this pane at the bottom / back to the side (or drag its bar down / up)">⬓</button><button type="button" class="dx" title="hide this pane">✕</button></div><div class="ph drw-list">Brains</div><div id="dc-brains"></div>';
         dr.appendChild(home);
