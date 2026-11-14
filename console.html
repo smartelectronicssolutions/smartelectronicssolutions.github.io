@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.205"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.206"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -6214,8 +6214,18 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         const tid = `tab-${s}-${[P.me, uid].sort().join('_')}`, now = Date.now(), name = P.dir[uid] || uid.slice(0, 6);
         try {
             await set(ref(database, `${P.me}/console/guests/${topic}/${uid}`), { name, since: now });
-            await set(ref(database, `share/chat/${tid}`), { members: { [P.me]: true, [uid]: true }, names: { [P.me]: P.myName, [uid]: name },
-                kind: 'tab', topic, owner: P.me, createdAt: now });
+            // 2026-11-14 (Erik: "Could not share: PERMISSION_DENIED"): a set() on the whole share/chat/<tid> node needs a
+            // $thread-level write, which only the owner account has. Members may only create each child once
+            // (members/names/kind/createdAt/topic/owner rules, !data.exists()), so write the children in one multi-path
+            // update - and only when the thread is new (a re-share of the same tab reuses the existing thread).
+            const ex = await get(ref(database, `share/chat/${tid}/members`)).catch(() => null);
+            if (!ex || !ex.exists()) {
+                await update(ref(database), {
+                    [`share/chat/${tid}/members`]: { [P.me]: true, [uid]: true },
+                    [`share/chat/${tid}/names`]: { [P.me]: P.myName, [uid]: name },
+                    [`share/chat/${tid}/kind`]: 'tab', [`share/chat/${tid}/topic`]: topic,
+                    [`share/chat/${tid}/owner`]: P.me, [`share/chat/${tid}/createdAt`]: now });
+            }
             await set(ref(database, `${P.me}/console/shares/${s}`), { tid, with: uid, name, topic, since: now, mode: 'guest' });
             await set(ref(database, `share/chatIndex/${uid}/${tid}`), { with: P.me, name: `${P.myName} · # ${topic}`, last: `${P.myName} shared # ${topic} with you`, ts: now, from: P.me, kind: 'tab', topic, owner: P.me });
             renderBar(); renderHome();
