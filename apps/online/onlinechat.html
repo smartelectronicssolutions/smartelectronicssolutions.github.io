@@ -4,7 +4,7 @@
 <head>
   <script>(function(){try{if(localStorage.getItem("ss-theme")==="light")document.documentElement.classList.add("light")}catch(e){}})();</script>  <!-- saved light/dark before first paint (2026-10-01) -->
     <meta charset="UTF-8">
-    <meta name="version" content="1.2.1">
+    <meta name="version" content="1.2.2">
     <title>Live Chat</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <link rel="stylesheet" href="../assets/css/online.css">
@@ -2010,6 +2010,13 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
         const usernameRow = document.getElementById('username-row');
         const userBadge = document.getElementById('user-badge');
         const botHint = document.getElementById('bot-hint');
+        // L 11-14 'the public and ai chat windows are different sizes': the hint line took ~21 px in AI Chat only, so the chat box
+        // shrank there. The hint now rides in the input placeholder - the line stays hidden, both tabs get the same box.
+        function setAiHint(on) {
+            botHint.style.display = 'none';
+            const mi = document.getElementById('message-input');
+            if (mi) mi.placeholder = on ? 'Message the AI…' : 'Type a message...';
+        }
         const internalTab = document.querySelector('.chat-tab[data-mode="internal"]');
         const personaTab  = document.querySelector('.chat-tab[data-mode="persona"]');
         const personaPanel = document.getElementById('persona-panel');
@@ -2073,7 +2080,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                 if (chatMode === 'internal' || chatMode === 'persona') {
                     chatMode = 'public';
                     document.querySelectorAll('.chat-tab').forEach(b => b.classList.toggle('active', b.dataset.mode === 'public'));
-                    botHint.style.display = 'none';
+                    setAiHint(false);
                     listenForMessages();
                 }
             }
@@ -2091,7 +2098,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                 if (chatMode !== 'public') {
                     chatMode = 'public';
                     document.querySelectorAll('.chat-tab').forEach(b => b.classList.toggle('active', b.dataset.mode === 'public'));
-                    if (botHint) botHint.style.display = 'none';
+                    setAiHint(false);
                     listenForMessages();
                 }
             }
@@ -2108,7 +2115,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                 botTyping.style.display    = isPersona ? 'none' : '';
                 document.querySelector('.input-bar').style.display = isPersona ? 'none' : '';
                 personaPanel.classList.toggle('active', isPersona);
-                botHint.style.display = chatMode === 'internal' ? '' : 'none';
+                setAiHint(chatMode === 'internal');
                 if (!isPersona) {
                     if (chatMode !== prevMode) listenForMessages();
                 } else {
@@ -2415,8 +2422,20 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
         ['pointerdown', 'keydown'].forEach(ev => document.addEventListener(ev, ensureAudio, { passive: true }));
 
         // ---- text -> speakable chunks ----
-        function speakable(t) {
+        // L 11-14 'still saying ahh and stuff': SPOKEN text only (the bubble keeps it) - stuttered/drawn-out interjections
+        // (A-ah, Ahh, Mmm~, Ehh, Hmm, Uhh, Ooh) dropped; 'H-hey' -> 'hey'; '...' -> comma pause; 'sooooo' -> 'soo'. 'Oh'/'Ah'/'um' stay.
+        function unstutter(t) {
             return String(t || '')
+                .replace(/(?<![\p{L}'\u2019-])(?:(?:\p{L}-)+a+h+|(?:\p{L}-)*(?:a{2,}h+|ah{2,}|e{2,}h+|eh{2,}|m{2,}|hm{2,}|u{2,}h+|uh{2,}|o{2,}h+))(?![\p{L}'\u2019-])[~.!?\u2026,]*/giu, ' ')
+                .replace(/(?<![\p{L}'\u2019-])(?:(\p{L})-(?=\1))+/giu, '')
+                .replace(/~+/g, '')
+                .replace(/\s*(?:\.{3,}|\u2026)+\s*/g, ', ')
+                .replace(/(\p{L})\1{2,}/gu, '$1$1')
+                .replace(/\s+([,.!?])/g, '$1').replace(/([,.!?])(?:\s*,)+/g, '$1').replace(/^[\s,.!?]+|[\s,]+$/g, '')
+                .replace(/\s+/g, ' ').trim();
+        }
+        function speakable(t) {
+            return unstutter(String(t || '')
                 .replace(/https?:\/\/\S+/g, ' link ')
                 // stage directions are shown but never spoken (L 11-13: 'she speaks the actions'): *...* / **...** / _..._ any length,
                 // and SHORT (...) / [...] asides that read like actions (no digits, <= 7 words) - longer parentheses are real content
@@ -2424,7 +2443,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                 .replace(/(^|\s)_[^_]{1,200}_(?=\s|[.,!?]|$)/g, ' ')
                 .replace(/[(\[]\s*([^()\[\]\d]{1,60})\s*[)\]]/g, (m, inner) => inner.trim().split(/\s+/).length <= 7 ? ' ' : m)
                 .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]/gu, '')
-                .replace(/~+/g, '').replace(/\s+/g, ' ').trim();
+                .replace(/~+/g, '').replace(/\s+/g, ' ').trim());
         }
         function chunks(t, max = 280) {
             const out = []; let cur = '';
@@ -2821,6 +2840,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                 if (st.state === 'generating' || st.state === 'extracting') { outfitNote('changing outfit\u2026'); pollOutfitJob(); return; }
                 if (st.state === 'done') { outfitNote('new outfit: ' + (st.outfit || ''), false, 8000); if (VS.avatarKey === 'yuki') loadAvatar('yuki'); }
                 else if (st.state === 'failed') outfitNote('outfit change failed - outfit unchanged', true, 12000);
+                else if (st.state === 'unchanged') outfitNote('outfit: ' + (st.note || 'no change'), false, 6000);   // 3.2: no clothing in the prompt
                 else outfitNote('');
             }, 4000);
         }
