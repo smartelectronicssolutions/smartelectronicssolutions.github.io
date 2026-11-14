@@ -77,6 +77,7 @@ class Avatar3D {
             this.B[n] = vrm.humanoid.getNormalizedBoneNode(n);
         this._pose(0);
         vrm.update(0); vrm.scene.updateMatrixWorld(true);
+        for (let i = 0; i < 60; i++) vrm.update(1 / 60);   // settle hair/cloth springs before the first frame (no sleeve flare on load)
         const wp = n => { const b = vrm.humanoid.getRawBoneNode(n); const v = new THREE.Vector3(); if (b) b.getWorldPosition(v); return v; };
         let feet = 0; try { feet = Math.min(wp('leftFoot').y, wp('rightFoot').y) - 0.08; } catch { }
         this.fr = { top: wp('head').y + 0.24, bot: feet - 0.04 };
