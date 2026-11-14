@@ -44,7 +44,9 @@ export function mountShell(header) {
         // ONE control (L 2026-10-05 "combine them, it will show who's logged in in the dropdown anyway"): the signed-in line is
         // replaced by the dropdown, whose first choice is you (your email)
         sel.innerHTML = ACCOUNTS.map(([id, label]) => `<option value="${id}">${id === LUIS_UID ? (u.email || "Luis") + " (signed in)" : label}</option>`).join("");
-        sel.addEventListener("change", () => { try { localStorage.setItem("telaidOwner", sel.value); } catch (_) {} location.reload(); });
+        sel.addEventListener("change", () => { try { localStorage.setItem("telaidOwner", sel.value); } catch (_) {}
+          const nu = new URL(location.href);   // a ?base would override the new pick on reload
+          if (nu.searchParams.has("base")) { ["base", "task", "id"].forEach(k => nu.searchParams.delete(k)); location.replace(nu.toString()); } else location.reload(); });
         // in the sign-in block next to Logout (L 2026-10-05 "put it in the login section")
         const row = (host || header).querySelector(".auth-row") || header; row.appendChild(sel); }
       sel.value = pickedOwner(u); if (st) st.hidden = true;

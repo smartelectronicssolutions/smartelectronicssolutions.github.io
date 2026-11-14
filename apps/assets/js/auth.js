@@ -195,7 +195,11 @@ async function mountAccountPicker(user) {
   try { dir = (await get(ref(database, "share/directory"))).val() || {}; } catch (_) {}
   let emails = {};   // 2026-10-11 (L: "add the emails of things that have names"): uid -> email, kept in the OWNER's private profile, never in share/
   try { emails = (await get(ref(database, `${MAIN_UID}/profile/accountEmails`))).val() || {}; } catch (_) {}
-  const cur = pickedAccount(user) || MAIN_UID;
+  // A link carrying ?base=<uid> opens that account's tree: show it in the dropdown and remember it as the pick.
+  let urlBase = ""; try { urlBase = new URLSearchParams(location.search).get("base") || ""; } catch (_) {}
+  if (!/^[A-Za-z0-9_-]{6,64}$/.test(urlBase)) urlBase = "";
+  if (urlBase) { try { urlBase === MAIN_UID ? localStorage.removeItem(ACCOUNT_KEY) : localStorage.setItem(ACCOUNT_KEY, urlBase); } catch (_) {} }
+  const cur = urlBase || pickedAccount(user) || MAIN_UID;
   // ONE control, like the Telaid pages (L 2026-10-11 "just has the info in the dropdown"): the signed-in email line is
   // replaced by the dropdown, whose first choice is you (your email)
   const opts = [[MAIN_UID, (user.email || "Luis") + " (you)"], ...Object.entries(dir).filter(([u]) => u !== MAIN_UID).map(([u, d]) => { const n = (d && d.name) || u.slice(0, 6), e = emails[u]; return [u, e && e !== n ? n + " · " + e : n]; })]
@@ -207,7 +211,13 @@ async function mountAccountPicker(user) {
   wrap.style.cssText = "width:auto;max-width:min(440px,72vw);margin:0 8px;padding:4px 8px;font-size:14px;border-radius:8px";   // 2026-10-11: 220px cut long emails off
   const sel = wrap;
   for (const [u, n] of opts) { const o = document.createElement("option"); o.value = u; o.textContent = n; if (u === cur) o.selected = true; sel.appendChild(o); }
-  sel.onchange = () => { try { sel.value === MAIN_UID ? localStorage.removeItem(ACCOUNT_KEY) : localStorage.setItem(ACCOUNT_KEY, sel.value); } catch (_) {} location.reload(); };
+  sel.onchange = () => {
+    try { sel.value === MAIN_UID ? localStorage.removeItem(ACCOUNT_KEY) : localStorage.setItem(ACCOUNT_KEY, sel.value); } catch (_) {}
+    // a ?base (and the task/id it pointed at) would override the new pick on reload - drop them
+    const u = new URL(location.href);
+    if (u.searchParams.has("base")) { ["base", "task", "id"].forEach(k => u.searchParams.delete(k)); location.replace(u.toString()); }
+    else location.reload();
+  };
   const anchor = document.getElementById("auth-label") || document.getElementById("logout") || document.getElementById("auth-btn");
   if (anchor && anchor.parentNode) { anchor.parentNode.insertBefore(wrap, anchor); const lbl = document.getElementById("auth-label"); if (lbl) lbl.style.setProperty("display", "none", "important"); }   // the dropdown already shows the email
   else { wrap.style.cssText += ";position:fixed;top:8px;right:8px;z-index:9999"; document.body.appendChild(wrap); }

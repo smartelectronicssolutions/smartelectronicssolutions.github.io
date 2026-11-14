@@ -63,6 +63,8 @@ export const ACCOUNTS = [[LUIS_UID, "Luis (signed in)"], [TELAID_UID, "Telaid - 
 export function pickedOwner(user) {
   if (!user || user.uid !== LUIS_UID) return null;
   // no "default" (L 2026-10-05): nothing picked = the account you are signed in as; the browser keeps the last pick
+  // a link with ?base=<uid> (one of ACCOUNTS) wins and becomes the remembered pick
+  try { const b = new URLSearchParams(location.search).get("base"); if (b && ACCOUNTS.some(a => a[0] === b)) { localStorage.setItem("telaidOwner", b); return b; } } catch (_) {}
   try { const v = localStorage.getItem("telaidOwner"); return ACCOUNTS.some(a => a[0] === v) ? v : LUIS_UID; } catch (_) { return LUIS_UID; }
 }
 export const treeFor = user => pickedOwner(user) || (user ? user.uid : "public");
