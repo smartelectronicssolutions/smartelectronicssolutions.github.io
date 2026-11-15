@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.209"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.211"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -3140,6 +3140,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 // gave up. The pill is an explicit ask: stop the coast (overflow:hidden for a frame), then force the snap
                 // on every retry for ~1.5 s unless a finger goes down on the log.
                 pill.onclick = () => {
+                    DC.jumpGen = (DC.jumpGen || 0) + 1; hideUnreadPill();   // 1.0.210: kill any tab-landing / unread re-assert still in flight
                     const nf = newestFirst(); let quit = false;
                     const stop = () => { quit = true; };
                     log.addEventListener('touchstart', stop, { once: true, passive: true });
@@ -3199,7 +3200,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             let touched = false; const touch = () => { touched = true; };
             ['wheel', 'touchstart', 'pointerdown', 'keydown'].forEach(ev => log.addEventListener(ev, touch, { once: true, passive: true }));
             put();
-            const again = () => { if (!touched) put(); };
+            const gen = DC.jumpGen || 0;   // 1.0.210: a later explicit jump (latest pill / send) retires this re-assert
+            const again = () => { if (!touched && (DC.jumpGen || 0) === gen) put(); };
             DC.reSnap = again;
             requestAnimationFrame(again); [90, 400, 900, 1500].forEach(ms => setTimeout(again, ms));
             return true;
@@ -4056,7 +4058,11 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             let touched = false; const touch = () => { touched = true; };
             ['wheel', 'touchstart', 'pointerdown', 'keydown'].forEach(ev => log.addEventListener(ev, touch, { once: true, passive: true }));
             put();
-            const again = () => { if (!touched) put(); };
+            // JUMP GENERATION (1.0.210, L: "sometimes it will back scroll after pressing latest so you have to latest again"): this
+            // re-assert ran for 4 s + on every resize, and the pill / the message box are outside the log so a tap there never set
+            // `touched` - a landing still in flight dragged you back up-thread. Any explicit jump bumps DC.jumpGen and retires it.
+            const gen = DC.jumpGen || 0;
+            const again = () => { if (!touched && (DC.jumpGen || 0) === gen) put(); };
             if (log.id === 'dc-chat-log') DC.reSnap = again;
             requestAnimationFrame(again); [90, 400, 900, 1500, 2500, 4000].forEach(ms => setTimeout(again, ms));
             // bubbles keep growing after the first paint (markdown, pictures, the suggested-reply chip at the tail) and on newest-first that
@@ -4445,6 +4451,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     ta.value = ''; setEditMode(''); send.disabled = false; return; }
                 const tpc = editTurn ? (editTurn.topic ? { topic: editTurn.topic } : {}) : forcedTopic !== undefined ? (forcedTopic ? { topic: forcedTopic } : {}) : ((DC.topic && DC.topic !== FAV_TAB) ? { topic: DC.topic } : {});   // an edit keeps its turn's topic; else the active tab (★ view sends untagged)
                 const kx = (!editTurn && KIT) ? KIT.take() : { turn: {}, pre: '', post: '' };
+                // SEND = GO TO LATEST (1.0.210, L: "when you type it, should bring you to the latest showing unless doing a reply"):
+                // a new message (not an edit, not a reply) retires any landing still in flight and snaps to the newest end now,
+                // before the write - the render that follows snaps again when the turn lands.
+                if (!editTurn && !(kx.turn && kx.turn.replyTo) && !DC.remote) { const lg = $('#dc-chat-log'); if (lg) { DC.jumpGen = (DC.jumpGen || 0) + 1; hideUnreadPill(); snapChatEnd(lg, newestFirst()); } }
                 const lref = editTurn ? ref(database, `${turns}/${editKey}`) : push(ref(database, turns));
                 if (editTurn) await update(lref, { text: raw, edited: true, editedAt: Date.now(), enhanced: null, enhNote: null });
                 else await set(lref, { s: 'L', text: raw, ts: Date.now(), target, ...tpc, ...kx.turn });
