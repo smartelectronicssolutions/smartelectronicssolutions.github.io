@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.216"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.217"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -396,6 +396,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             .dc-bar #dc-daemon { display: none; }        /* droplet pill is the one that matters */
             .dc-bar #dc-droplet { font-size: 0; padding: 5px; gap: 0; }   /* just the status dot while up */
             .dc-bar #dc-droplet .d { margin: 0; }
+            .dc-bar #dc-droplet.peek { font-size: calc(0.68rem * var(--dc-fs, 1)); padding: 3px 9px; gap: 6px; }   /* tapped while up: the % shows for 3 s (1.0.217) */
             .dc-bar #dc-droplet.clk { font-size: calc(0.68rem * var(--dc-fs, 1)); padding: 3px 9px; gap: 6px; }   /* not up: the pill is the wake button, so it says so */
             .dc-topic-close { display: inline-block; }   /* phone: the dropped-down strip carries a console close */
             .dc-pop { left: auto; right: -60px; min-width: 220px; }
@@ -5091,7 +5092,14 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 const cs = $('#dc-chat-status'); if (cs && msg) { cs.textContent = msg; setTimeout(() => { if (cs.textContent === msg) cs.textContent = ''; }, 8000); }
             });
         }
-        $('#dc-droplet').onclick = () => { if (DC.dropletState && DC.dropletState !== 'up') dcWake(); };   // the pill is the wake button (L, 2026-09-25)
+        // the pill is the wake button when not up (L, 2026-09-25). UP: on a phone the pill is just the dot (font-size 0), so the context %
+        // was invisible - a tap now opens it for 3 s, "up · 37% · 370K of 1M" (1.0.217, L 2026-11-15: "show up momentarily when I click there")
+        $('#dc-droplet').onclick = () => { const p = $('#dc-droplet');
+            if (DC.dropletState && DC.dropletState !== 'up') { dcWake(); return; }
+            const cx = Number((DC.lastMeta || {}).contextTokens) || 0;
+            const st = $('#dc-chat-status'); const msg = cx ? `context ${Math.round(cx / 10000)}% · ${Math.round(cx / 1000)}K of 1M` + (cx >= 300000 ? ' - a fresh start is due' : cx >= 200000 ? ' - fresh start on the next 10-min break' : '') : 'up - no context reading yet';
+            p.classList.add('peek'); clearTimeout(p._peekT); p._peekT = setTimeout(() => p.classList.remove('peek'), 3000);
+            if (st) { st.textContent = msg; clearTimeout(st._peekT); st._peekT = setTimeout(() => { if (st.textContent === msg) st.textContent = ''; }, 3000); } };
         // Workbench tab retired 2026-09-11 — its enhance lives inline in the Chat now (computeEnhance).
         $('#dc-pg-enabled').onchange = e => { paintPingRow(e.target.checked); set(ref(database, `${DC.base}/pings/settings`), { channel: 'telegram_dm', enabled: e.target.checked }); };
         // FULL SYSTEM AS A SIDE PANE (L 2026-10-04): on a wide screen System opens beside the chat like 👥 - one side pane at a time
