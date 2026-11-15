@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.211"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.213"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -5262,7 +5262,14 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 if (apos(out) < apos(text)) return { why: 'rewrite dropped an apostrophe, kept yours' };
                 if (atEnd) { const endp = /([?!]+)\s*$/.exec(text); if (endp && !/[?!]\s*$/.test(out)) out = out.replace(/[\s.]*$/, '') + endp[1] + (text.match(/\s*$/) || [''])[0]; }
                 if (/’/.test(text) && !/’/.test(out)) out = out.replace(/([A-Za-z])'([A-Za-z])/g, '$1’$2');   // keep his apostrophe style
-                if (norm(out) === norm(text)) return { why: 'no change (quote style only)' };
+                // NEVER DOWNCASE (1.0.212, 2026-11-15 enhanceLog: "I finished" -> "i finished", "I'll" -> "i'll", "Campfire" -> "campfire"):
+                // the pronoun I is always capital, and a word he capitalized (a name, a product) keeps his capital when the model
+                // hands it back all-lowercase and he never wrote it lowercase himself. Other fixes in the answer are kept.
+                out = out.replace(/(^|[^A-Za-z'’])i(?=([’'](m|ll|ve|d))?(?![A-Za-z]))/g, '$1I');
+                { const caps = new Map(), lows = new Set();
+                  for (const w of qn(text).match(/[A-Za-z][A-Za-z']*/g) || []) { const l = w.toLowerCase(); if (w === l) lows.add(l); else if (!caps.has(l)) caps.set(l, w); }
+                  out = out.replace(/[A-Za-z][A-Za-z'’]*/g, w => { const l = qn(w).toLowerCase(); return (w === w.toLowerCase() && caps.has(l) && !lows.has(l)) ? caps.get(l).replace(/'/g, w.includes('’') ? '’' : "'") : w; }); }
+                if (norm(out) === norm(text)) return { why: 'no change (case only)' };
                 return { out };
             }
             if (hooks) window.__dcAcceptGuards = acceptGuards;   // test hook
@@ -5353,6 +5360,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 const chunk = e.inputType === 'insertReplacementText' || e.inputType === 'insertFromComposition' || (e.inputType === 'insertText' && !!e.data && /\S\s+\S/.test(e.data));
                 if (chunk || dictating()) {
                     if (chunk) { if (!dictating()) enhLog('dictation hold'); dictUntil = Date.now() + 1200; const st = Math.max(0, caret - ((e.data && e.data.length) || 0) - 1); dictFrom = dictFrom < 0 ? st : Math.min(dictFrom, st); }
+                    clearTimeout(timer);   // 1.0.212: a new phrase cancels a rewrite still waiting from the last one
                     clearTimeout(dictTimer); dictTimer = setTimeout(dictQuiet, 1250); return;
                 }
                 // a rewrite held back mid-word lands now that a separator arrived (before the instant fixes look at the new word)
@@ -5389,7 +5397,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 scanWords(from);
                 if (atEnd) ta.setSelectionRange(ta.value.length, ta.value.length);
                 enhLog('dictation pass', ta.value.slice(from, ta.selectionStart).trim().slice(0, 60));
-                clearTimeout(timer); timer = setTimeout(() => suggest(5), 300);
+                // 1.0.212 (L: "the enhance just added before I finished typing"): 300 ms after the catch-up pass = ~1.5 s after his last
+                // dictated phrase, i.e. mid-thought. Wait 2.5 s more; a new phrase in that window cancels it (input clears/reschedules).
+                clearTimeout(timer); timer = setTimeout(() => suggest(5), 2500);
             }
             // the last local pass at send: single spaces, a first capital, a period on a sentence left hanging
             window.__dcTidy = s => { s = String(s || '').replace(/[ \t]{2,}/g, ' ').replace(/\s+([.,!?;:])/g, '$1').trim();
