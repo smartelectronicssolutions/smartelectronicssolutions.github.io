@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.215"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.216"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -4174,6 +4174,13 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 if (!t || t.s !== 'D' || !t.pending || !t.jobId || DC.pendWatch[k]) continue;
                 DC.pendWatch[k] = true;
                 const jr = ref(database, `${DC.base}/jobs/${t.jobId}`), tr = ref(database, `${DC.base}/chat/turns/${k}`);
+                // ORPHAN BUBBLE (1.0.216, 2026-11-15: Erik's "/model opus" sat "…thinking" 80+ min with NO job behind it - the bubble is
+                // written first, then the job, and the job write never landed (signal drop / page closed mid-send). A pending bubble whose
+                // job still doesn't exist 90 s after it was made says so, instead of spinning forever. A job that shows up later still fills it.
+                const orphanCheck = async () => { if (!(DC.chatTurns || {})[k] || !DC.pendWatch[k] || DC.pendJob[k]) return;
+                    try { const s0 = await get(jr); if (s0.exists()) return; } catch (_) { return; }
+                    await update(tr, { text: "⚠ This message didn't reach your assistant (the connection dropped while it was sending), so nothing ran. Send it again.", pending: null, ts: Date.now() }); };
+                setTimeout(orphanCheck, Math.max(5000, 90000 - (Date.now() - (t.ts || Date.now()))));
                 const unwatch = onValue(jr, async s => {
                     const j = s.val(); if (!j) return;
                     DC.pendJob[k] = j; paintWait(); paintNow();   // the wait line + the status strip: startedAt + the daemon's progress note
