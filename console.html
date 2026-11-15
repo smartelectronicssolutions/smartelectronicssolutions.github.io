@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.218"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.224"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -220,6 +220,17 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         .dc-topics { display: flex; gap: 6px; align-items: center; overflow-x: auto; padding: 6px 2px; border-bottom: 1px solid var(--border); scrollbar-width: none; flex: 0 0 auto; cursor: grab; }   /* grab: draggable left/right with the mouse */
         .dc-topics::-webkit-scrollbar { display: none; }
         .dc-topics.dragging { cursor: grabbing; }
+        /* MORE TABS THIS WAY (1.0.221, L 2026-11-15: "when there are too many tabs to see on the top add an arrow on the left and
+           right to indicate there is more there"). The strip scrolls sideways with its scrollbar hidden, so nothing said that tabs
+           were off the edge. Two arrows, pinned to the strip's own edges (sticky pseudo-elements: no extra elements, so the code
+           that renders and reorders the chips is untouched). Each shows ONLY while tabs are hidden on that side (.more-l / .more-r,
+           set by syncTopicArrows on scroll, resize and every re-render). Tapping an arrow slides the strip most of a screen that way.
+           Negative margins = the arrows take no room, so the chips do not shift when one appears. */
+        .dc-topics::before, .dc-topics::after { display: none; position: sticky; z-index: 3; flex: 0 0 22px; width: 22px; align-self: stretch;
+            align-items: center; justify-content: center; font-size: 1.05rem; font-weight: 700; line-height: 1; color: var(--dc-purple); cursor: pointer; }
+        .dc-topics::before { content: "\2039"; left: -2px; margin-right: -28px; background: linear-gradient(90deg, var(--bg) 60%, transparent); }
+        .dc-topics::after { content: "\203A"; right: -2px; margin-left: -28px; background: linear-gradient(270deg, var(--bg) 60%, transparent); }
+        .dc-topics.more-l::before, .dc-topics.more-r::after { display: flex; }
         /* REORDER (2026-10-09, L: "tabs movable via long press, drag. Don't make them longer"): the lifted chip only gets a
            glow + dashed outline - no handle, no extra text, so nothing gets wider. */
         .dc-topic.lift { box-shadow: 0 6px 16px -6px var(--dc-purple); outline: 1px dashed var(--dc-purple); outline-offset: 1px; opacity: 0.92; }
@@ -490,16 +501,22 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         .dc-chat-input.editing .dc-btn.push { background: var(--dc-amber); }
         /* THINKING (2026-09-19, L: "make the click button a different color or pulsate when thinking is happening"): purple + a slow
            breathing ring while a reply is pending. It is a light, not a lock - sending still works. Reduced motion = colour only. */
-        .dc-chat-input .dc-btn.push.thinking { background: var(--dc-purple); border-color: var(--dc-purple); animation: dcThink 1.4s ease-in-out infinite; }
+        .dc-chat-input .dc-btn.push.thinking { background: var(--dc-purple); border-color: var(--dc-purple); animation: dcWait 1.4s ease-in-out infinite; }   /* 1.0.223: the SAME fade as a waiting tab chip, and in step with it (see dcPulseSync) */
         @keyframes dcThink { 0%,100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--dc-purple) 60%, transparent); opacity: 1; } 50% { box-shadow: 0 0 0 7px transparent; opacity: .7; } }
         @media (prefers-reduced-motion: reduce) { .dc-chat-input .dc-btn.push.thinking { animation: none; } }
         /* a topic tab with a reply still coming (2026-09-19): amber outline, STATIC. It pulsed like the
            send button until 2026-09-24, when L moved the pulse to .unread ("make the pulsing happen only
            if it has new messages, have it static outlined when thinking") - motion now means "look
            here", never "wait here". */
-        .dc-topic.thinking { color: var(--dc-amber); border-color: var(--dc-amber); }
+        /* 1.0.220 (L 2026-11-15: "instead of having it yellow the chip when thinking, have it pulse or blink"): the amber is
+           gone - a waiting tab now BLINKS (a slow fade of the whole chip) in the console's own accent. It is a different motion
+           from .unread on purpose: unread = a ring that spreads outward + a dot ("look here"), waiting = the chip itself
+           fading in and out ("working"). When a tab is both, the blink wins until the reply lands. Reduced motion = outline only. */
+        .dc-topic.thinking { color: var(--dc-purple); border-color: var(--dc-purple); animation: dcWait 1.4s ease-in-out infinite; }
+        @keyframes dcWait { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+        @media (prefers-reduced-motion: reduce) { .dc-topic.thinking { animation: none; } }
         /* light mode: a faint amber fill + weight, so the waiting tab reads by shape as well as hue */
-        html.light .dc-topic.thinking { background: color-mix(in srgb, var(--dc-amber) 14%, transparent); font-weight: 600; }
+        html.light .dc-topic.thinking { background: color-mix(in srgb, var(--dc-purple) 12%, transparent); font-weight: 600; }
         /* THREE STATES, THREE LOOKS (2026-09-20, L: "the current tab should be a different colour
            than loading or finished"). They used to differ by hue alone - and two of them SHARED it:
            .on and .thinking were both --dc-purple outlines, identical but for the pulse, and nearly
@@ -1714,6 +1731,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const chip = (label, name, n) => { const b = document.createElement('button'); b.type = 'button';
                 const waiting = name === '' ? pendAny : !!pend[name];
                 b.className = 'dc-topic' + (!DC.remote && DC.topic === name ? ' on' : '') + (waiting ? ' thinking' : '');
+                if (waiting) dcPulseSync(b);   // 1.0.223: every waiting thing fades on one shared beat
                 if (waiting) b.title = 'a reply is on its way in this tab';
                 const un = name === '' ? Object.values(DC._unreadN || {}).reduce((a, b) => a + b, 0) : ((DC._unreadN || {})[name] || 0);
                 b.innerHTML = esc(label) + (un ? `<span class="n">${un}</span>` : '');
@@ -2777,6 +2795,21 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
            the trailing click is only swallowed once the pointer has travelled >6px - above click
            jitter, far below a real drag. Phone is untouched: .dc-topics is display:none there and
            the swipe gesture is bound to the chat log, not this strip. */
+        (function () {   // MORE TABS ARROWS (1.0.221) - see the CSS note at .dc-topics::before
+            const bar = $('#dc-topics'); if (!bar) return;
+            const sync = () => { const max = bar.scrollWidth - bar.clientWidth;
+                bar.classList.toggle('more-l', max > 4 && bar.scrollLeft > 4);
+                bar.classList.toggle('more-r', max > 4 && max - bar.scrollLeft > 4); };
+            window.syncTopicArrows = sync;
+            bar.addEventListener('scroll', sync, { passive: true });
+            window.addEventListener('resize', sync);
+            if (window.MutationObserver) new MutationObserver(() => requestAnimationFrame(sync)).observe(bar, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class'] });
+            // a tap on an arrow lands on the strip itself (pseudo-elements have no target of their own): near an edge that shows one = slide
+            bar.addEventListener('click', e => { if (e.target !== bar) return; const r = bar.getBoundingClientRect(), step = Math.max(120, bar.clientWidth * 0.7);
+                if (bar.classList.contains('more-l') && e.clientX - r.left < 30) bar.scrollBy({ left: -step, behavior: 'smooth' });
+                else if (bar.classList.contains('more-r') && r.right - e.clientX < 30) bar.scrollBy({ left: step, behavior: 'smooth' }); });
+            setTimeout(sync, 0); setTimeout(sync, 600);
+        })();
         (function () {
             const bar = $('#dc-topics'); if (!bar) return;
             let down = false, sx = 0, sl = 0, moved = false;
@@ -3061,19 +3094,26 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // (a D turn goes from pending -> done, or arrives done) after the first paint, buzz + a sound (wood-block knock since 2026-10-11).
         // navigator.vibrate works on Android; iPhone Safari has no vibration API at all, so the chime is the iPhone
         // signal (audio is unlocked by his own send tap). Off switch: localStorage 'dc-buzz' = 'off'.
-        function replyBuzz() {
+        // ONE BEAT FOR EVERY WAITING THING (1.0.223): an animation started at any moment is given a negative delay equal to "how far
+        // into the 1.4 s beat the clock is right now", so every element lands on the same phase no matter when its class was added
+        // or its chip was re-drawn. Set once per element, at the moment it starts (changing it later would make it jump).
+        function dcPulseSync(el) { try { el.style.animationDelay = (-(Date.now() % 1400)) + 'ms'; } catch (_) { } }
+        // TWO SOUNDS (1.0.223): allDone = nothing else is still thinking -> the two wood knocks as before ("tok-tok").
+        // Others still thinking -> ONE softer, lower knock ("tok"): something landed, more is coming.
+        function replyBuzz(allDone) {
+            if (allDone === undefined) allDone = true;
             try { if (localStorage.getItem('dc-buzz') === 'off') return; } catch (_) { }
-            try { if (navigator.vibrate) navigator.vibrate([90, 60, 140]); } catch (_) { }
+            try { if (navigator.vibrate) navigator.vibrate(allDone ? [90, 60, 140] : [60]); } catch (_) { }
             try {
                 const C = window.AudioContext || window.webkitAudioContext; if (!C) return;
                 const ac = DC.buzzCtx || (DC.buzzCtx = new C()); if (ac.state === 'suspended') ac.resume();
                 // WOOD BLOCK (2026-10-11, L: "something like a block of wood"): two dry knocks ("tok-tok") instead of the
                 // sine chime - each = a short pitch-dropping tone (the hollow body) + a 12 ms band-passed noise click (the strike)
-                [[1050, 0], [820, 0.12]].forEach(([f, t]) => {
+                (allDone ? [[1050, 0], [820, 0.12]] : [[700, 0]]).forEach(([f, t]) => {
                     const at = ac.currentTime + 0.01 + t;
                     const o = ac.createOscillator(), g = ac.createGain();
                     o.type = 'sine'; o.frequency.setValueAtTime(f * 1.18, at); o.frequency.exponentialRampToValueAtTime(f, at + 0.015);
-                    g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(0.32, at + 0.002);
+                    g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(allDone ? 0.32 : 0.2, at + 0.002);
                     g.gain.exponentialRampToValueAtTime(0.0001, at + 0.075);
                     o.connect(g); g.connect(ac.destination); o.start(at); o.stop(at + 0.09);
                     const len = Math.floor(ac.sampleRate * 0.012), buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
@@ -3092,7 +3132,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (DC.doneD === null) { DC.doneD = now; return; }           // first paint: just remember, no buzz for history
             let landed = false; for (const k of now) if (!DC.doneD.has(k)) { landed = true; break; }
             DC.doneD = now;
-            if (landed) replyBuzz();
+            // still thinking = any pending bubble under 30 min old, in any tab (the same test the send button's light uses)
+            if (landed) replyBuzz(!Object.values(obj || {}).some(t => t && t.pending && Date.now() - (t.ts || 0) < 30 * 60 * 1000));
         }
         function renderChat(obj) {
             const R = DC.remote;
@@ -3101,7 +3142,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // THINKING LIGHT (2026-09-19): the send button breathes while any reply - in any tab - is still on its way.
             // Pending bubbles older than 30 min are ignored so one orphaned bubble cannot leave it pulsing forever.
             const thinking = Object.values(obj || {}).some(t => t && t.pending && Date.now() - (t.ts || 0) < 30 * 60 * 1000);
-            const sb = $('#dc-chat-send'); if (sb) { sb.classList.toggle('thinking', thinking); sb.title = thinking ? 'a reply is on its way - you can still send' : ''; }
+            const sb = $('#dc-chat-send'); if (sb) { const was = sb.classList.contains('thinking'); sb.classList.toggle('thinking', thinking); if (thinking && !was) dcPulseSync(sb); sb.title = thinking ? 'a reply is on its way - you can still send' : ''; }
             if (!R) {   // unread state is computed from the FULL turn set before the bar is drawn
                 const u = unreadTopics(obj);
                 DC._unread = u.unread; DC._unreadN = u.counts;
@@ -4803,7 +4844,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 [...sel.options].forEach(o => { if (o.dataset.base == null) o.dataset.base = o.value === '' ? 'unknown' : o.textContent;
                     o.textContent = (pend && o.value === pend.v) ? o.dataset.base + ' (switching…)' : (!pend && o.value && o.value === want) ? o.dataset.base + ' (in use)' : o.dataset.base; });
                 const has = !!want && [...sel.options].some(o => o.value === want);
-                const ph = sel.querySelector('option[value=\"\"]'); if (ph) ph.hidden = has || !!pend;
+                // 1.0.219 (L 2026-11-15 "when I click on it, unknown is an option"): iOS ignores `hidden` on an <option>, so the blank row
+                // stayed in the phone's picker. It is now taken OUT of the list while a model is known, and put back only when none is.
+                const ph = DC.modelPh || (DC.modelPh = sel.querySelector('option[value=\"\"]'));
+                if (ph) { if (has || pend) ph.remove(); else if (!ph.parentNode) sel.insertBefore(ph, sel.firstChild); }
                 if (pend && [...sel.options].some(o => o.value === pend.v)) {
                     sel.value = pend.v;
                     if (lbl) lbl.title = 'Switch to ' + pend.v + ' asked for ' + agoStr(pend.at) + '. It shows as confirmed when Droplet’s current turn ends and the hook publishes what answered.';
@@ -7016,7 +7060,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
           dh.addEventListener('pointercancel', () => { sy = null; }); }
         { const hb = dr.querySelector('.dh b'), tp = { n: 0, t: 0 }; hb.style.cursor = 'pointer'; hb.style.userSelect = 'none'; hb.style.touchAction = 'manipulation';
           // the whole header is the back button outside the list (L 2026-10-23: "instead of just the arrow to go back let the whole text back")
-          const dh = dr.querySelector('.dh'); dh.addEventListener('click', e => { if (dr.dataset.view === 'list' || e.target.closest('.dx, .dback')) return;
+          const dh = dr.querySelector('.dh'); dh.addEventListener('click', e => { if (dr.dataset.view === 'list' || e.target.closest('.dx, .dback, .dbot')) return;   // 1.0.222 (L 2026-11-15: in Settings the dock button "just goes back" and needed a second press): the whole-header-is-back tap swallowed the dock button's own click - it is now left alone like the X
               e.stopImmediatePropagation(); tp.n = 0; asideView('list'); drawerBrains(); renderHome(); }, true);
           hb.addEventListener('click', () => { const now = Date.now(); tp.n = now - tp.t < 650 ? tp.n + 1 : 1; tp.t = now;
               if (tp.n >= 3) { tp.n = 0; asideView(dr.dataset.view === 'web' ? 'list' : 'web'); if (dr.dataset.view === 'list') { drawerBrains(); renderHome(); } } }); }
