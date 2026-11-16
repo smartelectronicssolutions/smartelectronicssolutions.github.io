@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.225"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.227"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -220,6 +220,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         .dc-topics { display: flex; gap: 6px; align-items: center; overflow-x: auto; padding: 6px 2px; border-bottom: 1px solid var(--border); scrollbar-width: none; flex: 0 0 auto; cursor: grab; }   /* grab: draggable left/right with the mouse */
         .dc-topics::-webkit-scrollbar { display: none; }
         .dc-topics.dragging { cursor: grabbing; }
+        /* YOUR OWN BACKGROUND (1.0.226): the picture sits under a wash of the theme's background colour (62%), so bubbles and
+           text read the same in every theme, light or dark. No picture = the theme gradient, exactly as before. */
+        #dc-console.has-bg { background-image: linear-gradient(color-mix(in srgb, var(--bg) 62%, transparent), color-mix(in srgb, var(--bg) 62%, transparent)), var(--dc-bgimg);
+            background-size: cover; background-position: center; background-repeat: no-repeat; }
         /* MORE TABS THIS WAY (1.0.221, L 2026-11-15: "when there are too many tabs to see on the top add an arrow on the left and
            right to indicate there is more there"). The strip scrolls sideways with its scrollbar hidden, so nothing said that tabs
            were off the edge. Two arrows, pinned to the strip's own edges (sticky pseudo-elements: no extra elements, so the code
@@ -1007,6 +1011,14 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     <button type="button" class="lk-b" data-color="burgundy" title="deep wine gradient">Burgundy</button>
                     <button type="button" class="lk-b" data-color="" title="the SES navy + steelblue gradient (default)">SES</button>
                     <button type="button" class="lk-b" data-color="gray" title="charcoal gradient">Grayscale</button></div>
+                <!-- YOUR OWN BACKGROUND (1.0.226, L 2026-11-15: "add the ability to put your own bg back in"). The made backgrounds stay
+                     gone (2026-11-10); this is one picture of your own, kept ON THIS DEVICE only (localStorage dc_bg_own, shrunk to a
+                     small JPEG), drawn behind the chat with the theme colour washed over it so text stays readable. -->
+                <div class="lk-row"><span class="lk-l">Background</span>
+                    <button type="button" class="lk-b" id="dc-bg-pick" title="use one of your own pictures behind the chat (stays on this device)">Choose picture</button>
+                    <button type="button" class="lk-b" id="dc-bg-clear" title="back to the theme's gradient" hidden>Remove</button>
+                    <input type="file" id="dc-bg-file" accept="image/*" hidden>
+                    <span class="lk-sep" id="dc-bg-note"></span></div>
                 <div class="lk-row"><span class="lk-l">Text</span>
                     <button type="button" class="lk-b" data-fs="sm" title="small">S</button>
                     <button type="button" class="lk-b" data-fs="" title="normal">M</button>
@@ -3926,6 +3938,35 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
               const c = localStorage.getItem('dc_theme_color'); if (c && !THEME_SETS[c]) localStorage.removeItem('dc_theme_color');
               localStorage.removeItem('dc_theme_bg'); } catch (_) {}
         try { if (localStorage.getItem('dc_theme_fs') === 'xxl') localStorage.setItem('dc_theme_fs', 'xl'); } catch (_) {}   // XL -> L
+        // YOUR OWN BACKGROUND (1.0.226). Device-only on purpose: a picture is far too big for the synced Look settings, and a
+        // synced one would be re-downloaded by every device on every load. Shrunk in the browser first (long side 1600 px, JPEG),
+        // then smaller again if the browser's storage refuses it.
+        (function () {
+            const KEY = 'dc_bg_own', con = document.getElementById('dc-console');
+            const pick = document.getElementById('dc-bg-pick'), clr = document.getElementById('dc-bg-clear'), file = document.getElementById('dc-bg-file'), note = document.getElementById('dc-bg-note');
+            if (!con || !pick || !file) return;
+            const say = t => { if (note) note.textContent = t || ''; };
+            const paint = () => { let d = ''; try { d = localStorage.getItem(KEY) || ''; } catch (_) {}
+                const on = d.startsWith('data:image/');
+                if (on) con.style.setProperty('--dc-bgimg', 'url("' + d + '")'); else con.style.removeProperty('--dc-bgimg');
+                con.classList.toggle('has-bg', on); if (clr) clr.hidden = !on; pick.textContent = on ? 'Change picture' : 'Choose picture'; };
+            const shrink = (img, side, q) => { const k = Math.min(1, side / Math.max(img.naturalWidth, img.naturalHeight)), c = document.createElement('canvas');
+                c.width = Math.max(1, Math.round(img.naturalWidth * k)); c.height = Math.max(1, Math.round(img.naturalHeight * k));
+                c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); return c.toDataURL('image/jpeg', q); };
+            pick.addEventListener('click', () => file.click());
+            if (clr) clr.addEventListener('click', () => { try { localStorage.removeItem(KEY); } catch (_) {} say('removed'); paint(); });
+            file.addEventListener('change', () => { const f = file.files && file.files[0]; file.value = ''; if (!f) return;
+                if (!/^image\//.test(f.type)) { say('that is not a picture'); return; }
+                const url = URL.createObjectURL(f), img = new Image();
+                img.onerror = () => { URL.revokeObjectURL(url); say('could not read that picture'); };
+                img.onload = () => { let saved = false;
+                    for (const [side, q] of [[1600, 0.82], [1200, 0.75], [900, 0.7]]) {
+                        try { localStorage.setItem(KEY, shrink(img, side, q)); saved = true; break; } catch (_) {}   // storage full: try smaller
+                    }
+                    URL.revokeObjectURL(url); say(saved ? 'saved on this device' : 'too big for this browser to keep'); paint(); };
+                img.src = url; });
+            paint();
+        })();
         function themeGet(k) { try { return localStorage.getItem(THEME_KEYS[k]) || ''; } catch (_) { return ''; } }
         function themeSet(k, v) {
             try { v ? localStorage.setItem(THEME_KEYS[k], v) : localStorage.removeItem(THEME_KEYS[k]); } catch (_) {}
