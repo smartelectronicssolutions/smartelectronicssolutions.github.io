@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.244"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.245"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -254,6 +254,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         .dc-tabs-hide { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px; margin: 0 0 0 6px; color: var(--muted); font-size: calc(0.7rem * var(--dc-fs, 1)); white-space: nowrap; cursor: pointer; -webkit-user-select: none; user-select: none; }
         .dc-tabs-hide input { margin: 0; padding: 0; width: 14px; height: 14px; min-width: 0; flex: 0 0 auto; accent-color: var(--dc-purple); }
         #dc-topics.ah-off:not(.open) { display: none; }
+        /* 1.0.245 (L 2026-11-17: "hide" = the bar collapses into the tab name above, like on mobile, on ANY screen): ticked = .ah-collapse,
+           the strip shows only when dropped down (.open) by a tap on the tab-name pill; it folds up again after 5 s idle. */
+        #dc-topics.ah-collapse:not(.open) { display: none; }
         @keyframes dcSlideL { from { transform: translateX(28px); opacity: 0.35; } to { transform: none; opacity: 1; } }
         @keyframes dcSlideR { from { transform: translateX(-28px); opacity: 0.35; } to { transform: none; opacity: 1; } }
         .dc-chat-log.slide-l { animation: dcSlideL 0.18s ease-out; } .dc-chat-log.slide-r { animation: dcSlideR 0.18s ease-out; }
@@ -547,6 +550,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         .dc-bub .who .dc-tp { color: inherit; text-decoration: underline dotted; cursor: pointer; pointer-events: auto; }
         .dc-bub .who .dc-tp:hover { opacity: 1; text-decoration: underline; }
         .dc-bub .who { display: block; font-size: calc(0.58rem * var(--dc-fs, 1)); text-transform: uppercase; letter-spacing: 1px; opacity: 0.6; margin-bottom: 3px; }
+        /* YUKI'S OWN BUBBLE (0.84, 2026-11-18): when the local read-only stand-in covers a quota wall, her reply carries persona=yuki -
+           a soft accent + her name on the who-line so she is never mistaken for Droplet. */
+        .dc-bub.drop.yuki { border-left: 3px solid #d98cc0; }
+        .dc-bub.drop.yuki .who { color: #d98cc0; opacity: 0.85; }
         .dc-bub.me { align-self: flex-end; background: color-mix(in srgb, var(--dc-me-bg) var(--dc-me-op, 100%), transparent); color: color-mix(in srgb, var(--dc-me-fg) var(--dc-me-tx, 100%), transparent); border-bottom-right-radius: 4px; font-family: var(--font-mono); font-size: calc(0.84rem * var(--dc-fs, 1)); }
         .dc-bub.drop { align-self: flex-start; border: 1px solid color-mix(in srgb, var(--border) var(--dc-dp-op, 100%), transparent); border-bottom-left-radius: 4px; background: color-mix(in srgb, var(--dc-dp-bg, var(--surface)) var(--dc-dp-op, 100%), transparent); color: color-mix(in srgb, var(--dc-dp-fg, var(--text)) var(--dc-dp-tx, 100%), transparent); }   /* the Look sliders (2026-10-04): --dc-*-op = bubble opacity, --dc-*-tx = text opacity; NOT #dc-console-scoped, or it outranks the glass style (2026-09-27) */
         .dc-bub.drop.pending { opacity: 0.7; font-style: italic; }
@@ -1547,12 +1554,20 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const jumbo = bt.length <= 24 && /^(?:\p{Extended_Pictographic}|\p{Emoji_Modifier}|\uFE0F|\u200D|\s)+$/u.test(bt);
             const yt = (/(?:youtube\.com\/(?:watch\?(?:[^\s]*&)?v=|shorts\/)|youtu\.be\/)([\w-]{11})/.exec(body) || [])[1];
             const lp = yt ? `<a class="dc-yt" href="https://www.youtube.com/watch?v=${yt}" target="_blank" rel="noopener noreferrer"><img src="https://i.ytimg.com/vi/${yt}/hqdefault.jpg" loading="lazy" alt="YouTube video"><span>▶</span></a>` : '';
-            const bodyHtml = jumbo ? `<span class="dc-jumbo">${esc(bt)}</span>` : richBody(cardBody, me, !me && clean && !t.pending);
-            return { cls: `dc-bub ${me ? 'me' : 'drop'}${pend}${t.s === 'G' && !me ? ' guest' : ''}${R && t.s === 'L' ? ' owner' : ''}`, html: `${editBtn}${favBtn}<span class="who">${who}${time ? ' · ' + time : ''}${tick}${tag}${tp}</span>${qt}${bodyHtml}${att}${lp}${wait}${choices}${snapBox}${enh}${rx}<div class="ts">${time}</div>` };
+            // 2026-11-17 review #4: every chat update (a turn, a star, a seen echo) ran the text formatter over all ~120 loaded turns just to
+            // compare the result and throw it away. richBody() is a pure function of its 3 arguments, so its last output is kept per turn
+            // key and reused while those 3 are identical - same HTML out, no formatting pass. (The bubble compare in renderChat is unchanged.)
+            const tidy = !me && clean && !t.pending, mk = t.__k || '', mm = mk && DC.richMemo ? DC.richMemo[mk] : null;
+            let bodyHtml;
+            if (jumbo) bodyHtml = `<span class="dc-jumbo">${esc(bt)}</span>`;
+            else if (mm && mm.src === cardBody && mm.me === me && mm.tidy === tidy) bodyHtml = mm.html;
+            else { bodyHtml = richBody(cardBody, me, tidy); if (mk) { if (!DC.richMemo || ++DC.richMemoN > 600) { DC.richMemo = {}; DC.richMemoN = 1; } DC.richMemo[mk] = { src: cardBody, me, tidy, html: bodyHtml }; } }
+            return { cls: `dc-bub ${me ? 'me' : 'drop'}${pend}${t.persona === 'yuki' ? ' yuki' : ''}${t.s === 'G' && !me ? ' guest' : ''}${R && t.s === 'L' ? ' owner' : ''}`, html: `${editBtn}${favBtn}<span class="who">${who}${time ? ' · ' + time : ''}${tick}${tag}${tp}</span>${qt}${bodyHtml}${att}${lp}${wait}${choices}${snapBox}${enh}${rx}<div class="ts">${time}</div>` };
         }
         // PERF: keyed incremental render - only turns whose content changed are re-built; the rest of the DOM is
         // untouched (the old version rebuilt all 120 bubbles as one innerHTML on every change, which stuttered on the phone).
         DC.bubbleSig = {};
+        DC.richMemo = {}; DC.richMemoN = 0;   // 2026-11-17 review #4: formatted body per turn key (see bubbleHtml); emptied after 600 new entries so it cannot grow without end
         // ---- TOPIC TABS: one thread; each turn may carry `topic`; the strip filters the view. All = everything. ----
         DC.topicList = {};
         DC.isPhone = () => { try { return window.matchMedia('(max-width: 640px), (max-height: 480px)').matches; } catch (_) { return false; } };
@@ -2912,9 +2927,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const bar = $('#dc-topics'), log = $('#dc-chat-log'), con = $('#dc-console'); if (!bar || !log || !con) return;
             const KEY = 'dc_tabs_autohide', IDLE = 5000;
             let on = false; try { on = localStorage.getItem(KEY) === '1'; } catch (_) {}
+            bar.classList.toggle('ah-collapse', on);
             bar.classList.toggle('ah-keep', !on);   // 1.0.243: unticked = the bar is always there (phone CSS .dc-topics.ah-keep)
             let idleT = 0, quietUntil = 0, intentAt = 0, lastY = 0, acc = 0, pend = false, primed = false, prevN = {};
-            const phone = () => DC.isPhone();
+            const phone = () => DC.isPhone() || on;   // 1.0.245: ticked = drop-down mode on every screen (collapse into the tab name)
             const kbUp = () => { if (con.style.height) return true;   // fitKeyboard is holding the console to the visible part
                 const vv = window.visualViewport, ae = document.activeElement;
                 const typing = !!ae && (ae.tagName === 'TEXTAREA' || (ae.tagName === 'INPUT' && !/^(checkbox|radio|button|submit|range|color|file)$/i.test(ae.type || '')) || ae.isContentEditable);
@@ -2931,7 +2947,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 if (!shown()) { bar.classList.remove('ah-off'); if (phone()) bar.classList.add('open'); mark(); snapTopicChip(false); }
                 arm(); };
             const set = v => { on = !!v; try { localStorage.setItem(KEY, on ? '1' : '0'); } catch (_) {}
-                bar.classList.toggle('ah-keep', !on);
+                bar.classList.toggle('ah-keep', !on); bar.classList.toggle('ah-collapse', on); bar.classList.remove('ah-off');
+                if (on) bar.classList.add('open');   // just ticked from inside the open strip: keep it dropped until idle folds it
                 pend = false; clearTimeout(idleT); if (on) arm(); else bar.classList.remove('ah-off'); };
             // a reply in ANOTHER tab: that tab's unread count went up since the last draw of the strip
             const rendered = () => { const N = DC._unreadN || {}, cur = DC.topic || ''; let more = false;
@@ -2996,7 +3013,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // phone: the Chat tab is the topic label. Tapping it while Chat is already showing opens/closes the strip (pick or add a topic).
         (function wireChatTabToggle() { const ct = document.querySelector('.dc-tab[data-tab="ch"]'); if (!ct) return; let was = false;
             ct.addEventListener('pointerdown', () => { was = ct.classList.contains('active'); });
-            ct.addEventListener('click', () => { if (was && DC.isPhone()) { const b = $('#dc-topics'); if (b) { b.classList.toggle('open'); snapTopicChip(false); } } }); })();
+            ct.addEventListener('click', () => { if (was && (DC.isPhone() || (window.__dcTabsHide && window.__dcTabsHide.on()))) { const b = $('#dc-topics'); if (b) { b.classList.toggle('open'); snapTopicChip(false); } } }); })();
         // ROTATING PLACEHOLDER + TAB TO ACCEPT (2026-09-20, L: "suggested text in the chat box when
         // empty", then "can I press tab to enter suggestion").
         // Every line must be TRUE RIGHT NOW - a suggestion that lies is worse than an empty box - so each
@@ -4469,8 +4486,15 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     // UPDATE, not set (2026-09-25, L: "I sent a message, moved it to another tab, but the reply still came
                     // into its previous tab"): `t` is the bubble as it was when this watch began, so set() wrote the
                     // send-time topic back over a retag. update() fills the words and leaves the topic where he put it.
-                    if (j.status === 'done') { await update(tr, { s: 'D', who: t.who || DC.instName || 'Droplet', text: j.reply || '(done, no captured reply)', ts: Date.now(), pending: null, jobId: t.jobId }); unwatch(); delete DC.pendWatch[k]; }
-                    else if (j.status === 'error' || j.status === 'failed') { await update(tr, { s: 'D', who: t.who || DC.instName || 'Droplet', text: '⚠ ' + (j.error || j.reply || 'failed'), ts: Date.now(), pending: null, jobId: t.jobId }); unwatch(); delete DC.pendWatch[k]; }
+                    // 2026-11-17 review #1: every device that saw the "thinking" bubble holds this watch, and each one used to write the
+                    // reply + a fresh ts when the job said done - a phone waking late re-stamped a reply already read (unread again
+                    // everywhere) or re-created an archived turn. Re-read the turn first: write only while it is still there AND still
+                    // pending. A failed re-read (offline) falls back to the old write, so this can only skip a write, never add one.
+                    const stillPending = async () => { try { const v = (await get(tr)).val(); return !!(v && v.pending); } catch (_) { return true; } };
+                    // YUKI IN HER OWN BUBBLE (0.84, L 2026-11-18): a reply the daemon marked persona=yuki (local read-only stand-in
+                    // that covered a quota wall) is labelled "Yuki" and styled as her own bubble, never inside Droplet's name.
+                    if (j.status === 'done') { if (await stillPending()) await update(tr, { s: 'D', who: j.persona === 'yuki' ? 'Yuki' : (t.who || DC.instName || 'Droplet'), persona: j.persona || null, text: j.reply || '(done, no captured reply)', ts: Date.now(), pending: null, jobId: t.jobId }); unwatch(); delete DC.pendWatch[k]; }
+                    else if (j.status === 'error' || j.status === 'failed') { if (await stillPending()) await update(tr, { s: 'D', who: j.persona === 'yuki' ? 'Yuki' : (t.who || DC.instName || 'Droplet'), persona: j.persona || null, text: '⚠ ' + (j.error || j.reply || 'failed'), ts: Date.now(), pending: null, jobId: t.jobId }); unwatch(); delete DC.pendWatch[k]; }
                 });
             }
         }
@@ -5961,6 +5985,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // put the box back to what Droplet is ACTUALLY in (not blank): the switch has been asked
             // for, not confirmed, and the published value only changes when a reply comes back on it.
             if (!e.isTrusted) return; const v = ms.value;
+            // 0.84 THE CASCADE (L 2026-11-18): picking a Cascade rung (Opus/Sonnet/Fable) also saves it as the preferred
+            // TOP-OF-CHAIN under this login, so the auto-failover starts there and climbs back to it when quota returns.
+            if (['opus', 'sonnet', 'fable'].includes(v)) { try { set(ref(database, `${DC.base}/settings/cascadeTop`), v); } catch (_) {} }
             if (DC.syncModelSel) DC.syncModelSel(); else ms.value = '';
             if (!v) return;
             if (($('#dc-chat-target') || {}).value !== 'droplet') { $('#dc-chat-status').textContent = '\u26a0 model switch only applies to Droplet\u2019s session'; return; }
@@ -6079,6 +6106,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
 <script type="module">
     import { database, ref, onValue, push, set, get, update, query, limitToLast, auth, onAuthStateChanged, updateProfile } from './assets/js/firebase-init.js?v=20261011b';
     import { onDisconnect, serverTimestamp } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js';   // presence only
+    import { orderByKey, startAt, startAfter } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js';   // unread counts read only past the seen mark (2026-11-17 review #5)
     const $ = s => document.querySelector(s);
     const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
     const dcWarn = where => e => console.warn('[console] listener failed:', where, (e && (e.code || e.message)) || e);   // was () => {} - a rules/network failure showed as a blank pane with no trace
@@ -6358,11 +6386,22 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         if (tid === P.open && lm) {   // the open chat: count off what is already loaded, no read
             const n = Object.values(lm).filter(m => m && m.from !== P.me && +m.ts > since).length;
             P.unN[tid] = { ts: x.ts, since, n }; return n; }
-        P.unN[tid] = { ts: x.ts, since, n: 0 };
-        get(query(ref(database, `share/chat/${tid}/messages`), limitToLast(100))).then(s => {
-            const n = Object.values(s.val() || {}).filter(m => m && m.from !== P.me && +m.ts > since).length;
-            P.unN[tid] = { ts: x.ts, since, n }; if (n && !P.open) renderHome(); }).catch(() => {});
-        return 0; }
+        // 2026-11-17 review #5: every new line in an unread chat re-downloaded its last 100 messages just to count them. Now the read
+        // asks only for keys past what was already counted (same read mark: add the new lines to the old count), or else past the
+        // read mark itself - push keys start with their write time, so a key built from (mark - 5 min) bounds the read; the ts test
+        // below stays the real count, the 5 min only covers clock skew. Still capped at the last 100 like before.
+        const base = c && c.since === since && c.k ? c : null, prior = base ? base.n : 0;
+        P.unN[tid] = { ts: x.ts, since, n: prior, k: base ? base.k : '' };
+        const mref = ref(database, `share/chat/${tid}/messages`);
+        const q = base ? query(mref, orderByKey(), startAfter(base.k), limitToLast(100)) : since > 0 ? query(mref, orderByKey(), startAt(pushKeyAt(since - 300000)), limitToLast(100)) : query(mref, limitToLast(100));
+        get(q).then(s => { const v = s.val() || {}, ks = Object.keys(v).sort();
+            const n = prior + ks.filter(k => { const m = v[k]; return m && m.from !== P.me && +m.ts > since; }).length;
+            const cur = P.unN[tid]; if (cur && cur.since !== since) return;   // the read mark moved while this was out - its own count wins
+            P.unN[tid] = { ts: x.ts, since, n, k: ks.length ? ks[ks.length - 1] : (base ? base.k : '') }; if (n && !P.open) renderHome(); }).catch(() => {});
+        return prior; }
+    // the smallest push key written at ms `t` (Firebase push ids = 8 chars of time in this alphabet + 12 random)
+    function pushKeyAt(t) { const A = '-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz'; let s = ''; t = Math.max(0, Math.floor(t));
+        for (let i = 0; i < 8; i++) { s = A[t % 64] + s; t = Math.floor(t / 64); } return s; }
     const udot = t => { if (!unread(t)) return ''; const n = unreadN(t); return `<span class="dot${n ? ' n' : ''}">${n ? (n > 99 ? '99+' : n) : ''}</span>`; };
     // ROW DOT IN PLACE (2026-11-10): refresh one row's count without redrawing the whole list (the list sits beside the open chat on wide screens)
     function rowDot(tid) { const home = $('#dc-peer-home'); if (!home || home.hidden) return;
@@ -6729,6 +6768,15 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     const newestFirst = () => { let v = null; try { v = localStorage.getItem('dc_newest_first'); } catch (_) {} return v === null ? true : v === '1'; };   // same default as the console (unset = Top) - it read unset as Bottom, so the pane disagreed until the toggle was flipped once (L 2026-10-22)
     let lastMsgs = {};
     const tap = { k: '', t: 0, n: 0 };
+    // 2026-11-17 review #2: every redraw of the pane log (a new line, the other side's seen mark, a reaction, an E2E line opening)
+    // rebuilt it and forced the view to the newest end - scrolled up to read older lines, it snapped back. Call BEFORE the
+    // rebuild; the function it returns puts the view back AFTER: the newest end when you were there (or on the first draw of
+    // this view / when `force`), else the same lines you were reading (newest-top grows above you, so shift by the growth).
+    function peerKeepSpot(log, nf, view, force) {
+        const first = log.dataset.view !== view || log.dataset.nf !== String(nf) || !!log.querySelector('.dc-skel'), h = log.scrollHeight, top = log.scrollTop;
+        const atEnd = first || force || (nf ? top <= 40 : h - top - log.clientHeight <= 40);
+        return () => { log.dataset.view = view; log.dataset.nf = String(nf); log.scrollTop = atEnd ? (nf ? 0 : log.scrollHeight) : (nf ? top + (log.scrollHeight - h) : top); };
+    }
     function renderMsgs(msgs) {
         const log = $('#dc-peer-log'); if (!log) return;
         lastMsgs = msgs;
@@ -6749,6 +6797,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         const lastMine = [...asc].reverse().find(m => m.from === P.me);
         const K = window.__dcKit, byK = Object.fromEntries(asc0.map(x => [x.__k, x]));
         const nameOf = u => u === P.me ? 'You' : u === 'droplet' ? '💧 Droplet' : (P.dir[u] || ((P.groups[P.open] || {}).bots || {})[u] || 'them');
+        // 2026-11-17 review #2: a new line of your OWN still lands on the newest end (you just sent it)
+        const newestK = asc.length ? asc[asc.length - 1].__k : '', sentNow = !!newestK && asc[asc.length - 1].from === P.me && log.dataset.newest !== newestK && log.dataset.view === 't:' + P.open;
+        const spot = peerKeepSpot(log, nf, 't:' + P.open, sentNow);
         log.innerHTML = list.length ? list.map(m => { const me = m.from === P.me, tm = stamp(m.ts);
             const who = me ? 'You' : m.from === 'droplet' ? '💧 Droplet' : (m.name || P.dir[m.from] || 'them');
             const edit = (me || P.me === OWNER) && !m.snap ? '<button type="button" class="dc-edit" title="edit this message">✎</button>' : '';   // every own message, every message for the owner (L 2026-10-03 "edit every message in people's")
@@ -6765,7 +6816,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 : m.img && /^https:\/\//.test(m.img) ? `<div class="dc-snaps"><img src="${esc(m.img)}" alt="photo" loading="lazy"></div>${cap}` : cap;   // .dc-snaps = tap for the full-size swipe viewer
             return `<div class="dc-bub ${me ? 'me' : 'drop'}${m.from === 'droplet' ? ' dp' : ''}" data-k="${esc(m.__k)}">${m.snap ? '' : edit}<span class="who">${esc(who)} · ${tm}${tick}${m.edited ? ' · ✎ edited' : ''}</span>${qt}${body}${fl}${rx}<div class="ts">${tm}</div></div>`; }).join('')
             : `<div style="opacity:.6;text-align:center;padding:10px">Say hi to ${esc(P.dir[P.other] || 'them')} 👋 - only the two of you can see this.</div>`;
-        log.scrollTop = nf ? 0 : log.scrollHeight;
+        spot(); log.dataset.newest = newestK;
         // SAME AS THE CONSOLE (L, 2026-09-27: "mirror the style into the messages with other users"): ✎ on your newest message
         // edits it; a triple-tap on any message opens the console's own message sheet (▶ play · ⚡ speed read · Delete on yours).
         log.onclick = e => {
@@ -6828,13 +6879,14 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         const nf = newestFirst(); $('#dc-peer') && $('#dc-peer').classList.toggle('nf', nf);
         const L = window.__dcShared || {}, lk = L.linkify || (x => x), rich = L.richBody ? (x => L.richBody(x, true)) : (x => lk(esc(x))), stamp = L.fmtStamp || (t => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
         const rows = S.rows().slice(-80), list = nf ? rows.slice().reverse() : rows;
+        const spot = peerKeepSpot(log, nf, 'site');   // 2026-11-17 review #2
         log.innerHTML = list.length ? list.map(([k, m]) => { const me = S.self(m.username), tm = m.timestamp ? stamp(m.timestamp) : '';
             const who = me ? (m.username === S.replyAs ? 'You' : m.username) : (m.username || 'visitor');
             const img = m.imageUrl && /^https:\/\//.test(m.imageUrl) ? `<div class="dc-att"><a class="file" href="${esc(m.imageUrl)}" target="_blank" rel="noopener noreferrer">📷 image</a></div>` : '';
             return `<div class="dc-bub ${me ? 'me' : 'drop'}" data-site="${esc(k)}"><span class="who">${esc(who)} · ${tm}</span>${rich(m.text || '')}${img}<div class="ts">${tm}</div></div>`; }).join('')
             : '<div style="opacity:.6;text-align:center;padding:10px">No visitor messages yet. Replies here post on the site as Smart Solutions Support.</div>';
         log.onclick = null;
-        log.scrollTop = nf ? 0 : log.scrollHeight;
+        spot();
         if (document.visibilityState === 'visible') S.markSeen();
         dots();
     }
@@ -6881,13 +6933,14 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         const nf = newestFirst(); $('#dc-peer') && $('#dc-peer').classList.toggle('nf', nf);
         const L = window.__dcShared || {}, lk = L.linkify || (x => x), rich = L.richBody ? (x => L.richBody(x, true)) : (x => lk(esc(x))), stamp = L.fmtStamp || (t => new Date(t).toLocaleString([], { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }));
         const rows = bizRows(), list = nf ? rows.slice().reverse() : rows;
+        const spot = peerKeepSpot(log, nf, 'bizbot');   // 2026-11-17 review #2
         log.innerHTML = list.length ? list.map(([k, m]) => { const tm = m.ts ? stamp(m.ts) : '';
             const img = m.img && /^https:\/\//.test(m.img) ? `<div class="dc-snaps"><img src="${esc(m.img)}" alt="photo" loading="lazy" onerror="this.parentNode.outerHTML='<div class=&quot;dc-att&quot;><a class=&quot;file&quot; href=&quot;'+this.src+'&quot; target=&quot;_blank&quot; rel=&quot;noopener noreferrer&quot;>📷 image</a></div>'"></div>` : '';   // a USPS link that isn't a picture falls back to the old link. The picture itself, like a member chat (L 2026-10-23: "the images just say image") - .dc-snaps = tap for the full-size viewer
             if (m.from === 'me') return `<div class="dc-bub me" data-biz="${esc(k)}"><span class="who">You · ${tm}</span><div style="white-space:pre-wrap">${rich(m.text || '')}</div><div class="ts">${tm}</div></div>`;
             return `<div class="dc-bub drop" data-biz="${esc(k)}"><span class="who">Biz bot · ${tm}</span><div style="white-space:pre-wrap">${rich(m.text || '')}</div>${img}<div class="ts">${tm}</div></div>`; }).join('')
             : '<div style="opacity:.6;text-align:center;padding:10px">Nothing yet. New Field Nation leads (and anything else the biz bot sends you on Telegram) land here too.</div>';
         log.onclick = null;
-        log.scrollTop = nf ? 0 : log.scrollHeight;
+        spot();
         if (document.visibilityState === 'visible') bizMarkSeen();
     }
     document.addEventListener('visibilitychange', () => { if (!document.hidden && P.open === 'bizbot') renderBiz(); });
@@ -6945,6 +6998,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         const nf = newestFirst(); $('#dc-peer') && $('#dc-peer').classList.toggle('nf', nf);
         const L = window.__dcShared || {}, lk = L.linkify || (x => x), rich = L.richBody ? (x => L.richBody(x, true)) : (x => lk(esc(x))), stamp = L.fmtStamp || (t => new Date(t).toLocaleString());
         const rows = cfRows(), list = nf ? rows.slice().reverse() : rows;
+        const spot = peerKeepSpot(log, nf, 'campfire');   // 2026-11-17 review #2
         log.innerHTML = list.length ? list.map(([k, m]) => { const mine = m.sharedBy === P.me, tm = stamp(Number(k)), state = CF.done[k];
             const files = Array.isArray(m.files) && m.files.length ? `<div class="dc-att"><a class="file" href="/board.html" target="_blank" rel="noopener">📎 ${m.files.length} file${m.files.length > 1 ? 's' : ''}: open the board</a></div>` : '';
             const ai = P.me === OWNER ? 'Droplet' : 'my assistant';   // a member's local AI isn't called Droplet (2026-11-08)
@@ -6969,7 +7023,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 if (!(window.__dcSayDroplet && window.__dcSayDroplet(handed, ''))) return; }
             CF.done[k] = act; update(ref(database, `${P.me}/console/campfire/done`), { [k]: act }).catch(() => {}); renderCampfire();
         };
-        log.scrollTop = nf ? 0 : log.scrollHeight;
+        spot();
         if (document.visibilityState === 'visible') cfMarkSeen();
     }
     document.addEventListener('visibilitychange', () => { if (!document.hidden && P.open === 'campfire') renderCampfire(); });
@@ -7146,6 +7200,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         await set(ref(database, `share/chat/${tid}`), null); delete P.groups[tid]; }
 
     function peerSplit() { if (window.__dcSysPane && window.__dcSysPane.is()) window.__dcSysPane.close(); const bd = $('#dc-console .dc-body'); bd.classList.add('dc-split', 'dc-conv');
+        { const pl = $('#dc-peer-log'); if (pl) delete pl.dataset.view; }   // 2026-11-17 review #2: a view being opened always starts at its newest end
         if (!asideDocked()) closeDrawer(); }
     window.__dcClosePeer = () => closePeer();
     function closePeer() {
@@ -7355,11 +7410,14 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
 .dc-body.dc-2p.dc-aside-right>#dc-aside-split{order:2}
 @media (max-width:760px){#dc-drawer{position:absolute;left:0;top:0;bottom:0;width:100%;z-index:40;flex-basis:auto;background:var(--bg,#0d1117)}.dc-body.dc-2p.dc-aside>#dc-aside-split{display:none}}
 .dc-body.dc-2p.dc-aside-bot{flex-direction:column !important}
-.dc-body.dc-2p.dc-aside-bot>#dc-drawer{position:relative;order:3;width:auto;flex:0 0 var(--dc-aside-h,45%);min-height:0;z-index:6;border-right:0;border-left:0;border-top:1px solid var(--border,#333)}   /* 2026-11-08 (L: reply box showed over the pane when dragged down): relative + z 6 = the pane paints ABOVE the chat input and its pill/ghost/latest (z 2-5), still under the emoji picker (z 20) */
+.dc-body.dc-2p.dc-aside-bot>#dc-drawer{position:relative;order:3;width:auto;flex:0 1 var(--dc-aside-h,45%);min-height:0;z-index:6;border-right:0;border-left:0;border-top:1px solid var(--border,#333)}   /* 2026-11-08 (L: reply box showed over the pane when dragged down): relative + z 6 = the pane paints ABOVE the chat input and its pill/ghost/latest (z 2-5), still under the emoji picker (z 20) */
 .dc-body.dc-2p.dc-aside-bot.dc-aside>#dc-aside-split{display:block;order:2;flex:0 0 14px;cursor:ns-resize}
 .dc-body.dc-2p.dc-aside-bot>#dc-aside-split::before{width:46px;height:4px}
 @media (max-width:760px){.dc-body.dc-2p.dc-aside-bot.dc-aside>#dc-aside-split{flex-basis:24px}}
-.dc-body.dc-2p.dc-aside-bot>#dc-chat-panel,.dc-body.dc-2p.dc-aside-bot>#dc-peer{min-height:0;overflow:hidden}   /* 2026-11-08: clip in bottom-dock so the input cannot spill under the pane */
+.dc-body.dc-2p.dc-aside-bot>#dc-chat-panel,.dc-body.dc-2p.dc-aside-bot>#dc-peer{min-height:220px;overflow:hidden}   /* 2026-11-08: clip in bottom-dock so the input cannot spill under the pane */
+/* 2026-11-17 review #3: the pane took its full 20-80% first and the chat got what was left - at 80%, or with the keyboard up, that was the
+   tabs bar only (log 0 px, typing box clipped). The chat panel keeps a 220 px floor (tabs bar + a few lines + the box) and the pane
+   gives way instead: its flex-shrink is 1 above (was 0), so it only shrinks when the floor would be broken. */
 .dc-body.dc-2p.dc-aside-bot>#dc-drawer-scrim{display:none !important}
 #dc-drawer .dbot{background:none;border:0;color:inherit;font-size:1.05em;cursor:pointer;opacity:.6;padding:0 8px}
 #dc-drawer .dbot.on{opacity:1;color:var(--dc-purple,#8b1e3f)}
