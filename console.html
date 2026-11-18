@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.248"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.249"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -4956,9 +4956,22 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 <li><b>The meter</b>: the line in the middle is a usual day (your 30-day average on days you used it). Past the line = busier than normal.</li>
                 <li><b>The bars</b> are the last 14 days, one per day. The bright one is today.</li>
                 <li><b>What it counts</b>: the top rows, meter and bars are Droplet on se${DC.pilet && DC.pilet.today ? ' (plus a Pilet line for the Pi)' : ''}. <b>Bots (agent-vm)</b> = CompMan, Tutor and Analyst, counted on that VM every 5 min. Your claude.ai, desktop and phone chats can't be counted (no feed).</li>
-                <li><b>It is NOT your plan limit.</b> Max is one shared pool (5-hour window + weekly cap) across Claude Code, the bots and the apps. The real % left is in Claude Code <code>/usage</code> or claude.ai Settings → Usage.</li>
+                <li><b>This week vs the limit</b> (top bar): everything written this plan week by Droplet and the bots, against how much had been written when the weekly limit hit last time. The week resets Thursday 8 AM. It's an estimate (Anthropic counts more than output), but it moves the same way.</li>
+                <li><b>The other numbers are NOT your plan limit.</b> Max is one shared pool (5-hour window + weekly cap) across Claude Code, the bots and the apps. The real % left is in Claude Code <code>/usage</code> or claude.ai Settings → Usage.</li>
                 </ul></details>`;
-            box.innerHTML = lead + meter
+            // QUOTA BAR (2026-11-18, L: "week-to-date across all droplets / the auto-learned wall-point, resets weekly"):
+            // usage_census quota block = this plan week's output (Thu 8 AM ET reset), all droplets, vs where the limit hit.
+            const q = u.quota;
+            const qbar = q && q.wallPoint ? (() => {
+                const p = +q.pct || 0, w = Math.min(100, p), col = p >= 100 ? '#c0392b' : p >= 85 ? '#d68910' : 'var(--accent, #8b2240)';
+                const rs = q.resetsAt ? new Date(q.resetsAt) : null;
+                const when = rs ? rs.toLocaleDateString([], { weekday: 'short' }) + ' ' + rs.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '?';
+                return `<div style="margin:0 0 10px"><div style="display:flex;justify-content:space-between;font-size:0.82rem;margin-bottom:3px"><b>This week vs the limit</b><span><b style="color:${col}">${p.toFixed(0)}%</b></span></div>
+                    <div style="position:relative;height:14px;border-radius:7px;background:var(--border);overflow:hidden"><div style="position:absolute;left:0;top:0;bottom:0;width:${w}%;background:${col}"></div></div>
+                    <div style="font-size:0.72rem;color:var(--muted);margin-top:3px">${fmtTok(q.weekOut)} of ~${fmtTok(q.wallPoint)} written this plan week (Droplet + bots) · resets ${esc(when)}${p >= 100 ? ' · <b>past the level where the limit hit last time</b>' : ''}</div>
+                    <div style="font-size:0.66rem;color:var(--muted)">Estimate - wall ${q.wallFrom && q.wallFrom.startsWith('real') ? 'learned from a real limit hit' : 'guessed from the busiest past week'}. The exact % is in /usage.</div></div>`;
+            })() : '';
+            box.innerHTML = qbar + lead + meter
                 + big('Today', fmtTok(td), words(td) + (vs ? ' · ' + vs : ''))
                 + big('A usual day', fmtTok(Math.round(typ)), 'average of active days · ' + Math.round(m.msgs / (m.act || 1)) + ' messages')
                 + big('This month', fmtTok(m.out), 'last 30 days · ' + m.msgs.toLocaleString() + ' messages')
