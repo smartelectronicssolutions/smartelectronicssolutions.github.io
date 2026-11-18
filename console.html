@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.245"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.246"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -3240,13 +3240,25 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             try {
                 const C = window.AudioContext || window.webkitAudioContext; if (!C) return;
                 const ac = DC.buzzCtx || (DC.buzzCtx = new C()); if (ac.state === 'suspended') ac.resume();
-                // WOOD BLOCK (2026-10-11, L: "something like a block of wood"): two dry knocks ("tok-tok") instead of the
-                // sine chime - each = a short pitch-dropping tone (the hollow body) + a 12 ms band-passed noise click (the strike)
-                (allDone ? [[1050, 0], [820, 0.12]] : [[700, 0]]).forEach(([f, t]) => {
-                    const at = ac.currentTime + 0.01 + t;
+                if (allDone) {
+                    // ALL DONE (1.0.246, L 2026-11-18 "a brighter two-note chime, not just a second knock"): a clean rising
+                    // two-note bell (triangle, G5 -> D6) that cuts through a busy rush - unmistakably different from the dry
+                    // "tok" of more-coming, so the end of thinking stands out even when replies have been landing back to back.
+                    [[784, 0, 0.42], [1175, 0.11, 0.5]].forEach(([f, t, dur]) => {
+                        const at = ac.currentTime + 0.01 + t;
+                        const o = ac.createOscillator(), g = ac.createGain();
+                        o.type = 'triangle'; o.frequency.setValueAtTime(f, at);
+                        g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(0.3, at + 0.012);
+                        g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+                        o.connect(g); g.connect(ac.destination); o.start(at); o.stop(at + dur + 0.02);
+                    });
+                } else {
+                    // MORE COMING: one dry, low wood knock ("tok") - a short pitch-dropping tone (the hollow body) + a 12 ms
+                    // band-passed noise click (the strike). Something landed, more is still on the way.
+                    const f = 700, at = ac.currentTime + 0.01;
                     const o = ac.createOscillator(), g = ac.createGain();
                     o.type = 'sine'; o.frequency.setValueAtTime(f * 1.18, at); o.frequency.exponentialRampToValueAtTime(f, at + 0.015);
-                    g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(allDone ? 0.32 : 0.2, at + 0.002);
+                    g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(0.2, at + 0.002);
                     g.gain.exponentialRampToValueAtTime(0.0001, at + 0.075);
                     o.connect(g); g.connect(ac.destination); o.start(at); o.stop(at + 0.09);
                     const len = Math.floor(ac.sampleRate * 0.012), buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
@@ -3254,7 +3266,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     const n = ac.createBufferSource(), bp = ac.createBiquadFilter(), ng = ac.createGain();
                     n.buffer = buf; bp.type = 'bandpass'; bp.frequency.value = f * 2.4; bp.Q.value = 1.2; ng.gain.value = 0.22;
                     n.connect(bp); bp.connect(ng); ng.connect(ac.destination); n.start(at);
-                });
+                }
             } catch (_) { }
         }
         // unlock audio on the first tap anywhere (iOS needs a user gesture before any sound)
