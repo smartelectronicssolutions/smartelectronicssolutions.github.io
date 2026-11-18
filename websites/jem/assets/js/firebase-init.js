@@ -79,7 +79,13 @@ export {
 // signed in as Luis the page works and shows a thin "site is OFF" strip. hub.html and console.html never gate (that is
 // where the switch and the login live). ?switchtest=1 previews the layer without flipping the flag. Identical block in the
 // root file and in every self-contained site copy (websites/*/assets/js) - edit all of them together.
-(async () => {
+// LOCK (2026-11-16, L: "a switched-off site loads no data for non-owners"): the layer used to be a cover only - the page
+// under it still ran and loaded the signed-in visitor's own data, readable by anything that reads page text. Now every
+// page that imports this file WAITS for the check below before its own code runs, and for a non-owner on a switched-off
+// site the wait never ends: the page's module never starts, so nothing is subscribed or drawn. A device last seen as the
+// owner does not wait (your pages stay fast). Flag fetch has a 4 s limit; on a network error the page opens (as before).
+let __ssOwnerDevice = false; try { __ssOwnerDevice = localStorage.getItem("ss_owner") === "1"; } catch (_) {}
+const __ssGate = (async () => {
   try {
     const here = location.pathname.toLowerCase();
     if (here.endsWith("/hub.html") || here.endsWith("/console.html") || here.endsWith("/websites/index.html")) return;
@@ -112,7 +118,9 @@ export {
     if (!test && !wasOwner && cached && cached.on) showLayer(cached.message);   // instant, from this device's last look
     let m = null;
     if (!test) {
-      const r = await fetch(`${firebaseConfig.databaseURL}/public/site.json`, { cache: "no-store" });
+      const ac = new AbortController(); const ft = setTimeout(() => ac.abort(), 4000);
+      const r = await fetch(`${firebaseConfig.databaseURL}/public/site.json`, { cache: "no-store", signal: ac.signal });
+      clearTimeout(ft);
       const site = (await r.json()) || {};
       const all = site.maintenance || {}, mine = (site.sites || {})[siteKey] || {};
       if (!all.on && !mine.on) { LS.set(CK, JSON.stringify({ on: 0 })); hideLayer(); return; }
@@ -121,7 +129,7 @@ export {
     if (!test) LS.set(CK, JSON.stringify({ on: 1, message: m.message || "" }));
     if (!wasOwner || test) showLayer(m.message);   // straight away - no waiting on sign-in
     const owner = test ? false : await new Promise(res => {
-      const t = setTimeout(() => res(false), 2500);
+      const t = setTimeout(() => res(false), wasOwner ? 8000 : 2500);
       onAuthStateChanged(auth, u => { clearTimeout(t); res(!!u && u.uid === "7cIh8rrhVNOjjj5CBDgb3IlqzEh2"); });
     });
     if (!test) LS.set("ss_owner", owner ? "1" : "0");
@@ -136,5 +144,7 @@ export {
       return;
     }
     showLayer(m.message);
+    if (!test) await new Promise(() => {});   // LOCK: never resolves - the importing page never runs
   } catch (_) { /* never block a page over the switch */ }
 })();
+if (!__ssOwnerDevice) await __ssGate;

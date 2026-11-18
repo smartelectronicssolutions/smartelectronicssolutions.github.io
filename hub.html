@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.53">
+    <meta name="version" content="1.0.56">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Control Hub</title>
     <link rel="stylesheet" href="assets/css/master.css">
@@ -553,7 +553,7 @@
                     <h3>Network <span id="data-age" style="float:right;font-size:0.65rem;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0"></span></h3>
                     <div class="net-sub">Internet</div>
                     <div id="data-body"><div class="hb-sk" aria-label="Loading"><div class="hb-sk-row" style="gap:14px"><i class="hb-sk-t"></i><i class="hb-sk-t"></i><i class="hb-sk-t"></i></div><div class="hb-sk-week"><i class="hb-sk-wb" style="height:40%"></i><i class="hb-sk-wb" style="height:70%"></i><i class="hb-sk-wb" style="height:55%"></i><i class="hb-sk-wb" style="height:85%"></i><i class="hb-sk-wb" style="height:35%"></i><i class="hb-sk-wb" style="height:60%"></i><i class="hb-sk-wb" style="height:75%"></i></div><i class="hb-sk-l" style="width:90%"></i><i class="hb-sk-l" style="width:60%"></i></div></div>
-                    <div class="net-sub" style="margin-top:14px">LAN devices <span style="text-transform:none;letter-spacing:0">· dot = pi-hub live · 🖥 = open on Systems</span></div>
+                    <div class="net-sub" style="margin-top:14px">LAN devices <span style="text-transform:none;letter-spacing:0">· dot = pi-hub live · 🖥 = open on Machines</span></div>
                     <div style="overflow-x:auto">
                         <table class="htable" id="net-table">
                             <thead><tr><th>Host</th><th>IP</th><th>OS / Type</th><th>Role</th></tr></thead>
@@ -686,7 +686,7 @@
                  THAT PC's key. Each login only ever reads/writes its own <uid>/console/systems. -->
             <section class="hub-section" id="sy-section">
                 <div class="hcard" id="sys-card" style="display:none">
-                    <h3>Systems <span id="sy-age" style="float:right;font-size:0.65rem;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0"></span></h3>
+                    <h3>Machines <span id="sy-age" style="float:right;font-size:0.65rem;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0"></span></h3>
                     <div id="sy-hosts" class="cl-chips"></div>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
                         <button class="hbtn primary" id="sy-pull">Pull</button>
@@ -1243,6 +1243,100 @@
                 });
             </script>
 
+            <!-- SE HEALTH (1.0.54, 2026-11-17, L: "build it with GPU, drives and clock now, add CPU later"): se's hardware at a
+                 glance. The scheduled task svc-se-health (E:\Containers\ops\se-health\sehealth.py, every 5 min, read-only) writes
+                 console/sehealth ONLY when something material moved (a temp by 2 C, a flag, read errors, the clock state), so this
+                 card is ONE listener on that one small node - no polling. Owner login only (the node lives under the owner's uid).
+                 Drives are keyed by SERIAL (disk numbers move). Age uses serverTs (Firebase's clock), not se's own clock. -->
+            <section class="hub-section" id="sh-section">
+                <div class="hcard" id="sh-card" style="display:none">
+                    <h3>se Health <span id="sh-age" style="float:right;font-size:0.65rem;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0"></span></h3>
+                    <div id="sh-out"></div>
+                </div>
+            </section>
+            <style>
+                .sh-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+                .sh-tile { border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; min-width: 0; }
+                .sh-tile span { display: block; font-size: 0.62rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+                .sh-tile b { display: block; font-size: 0.95rem; font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+                .sh-tile.warn { border-color: #d99a1e; } .sh-tile.warn b { color: #d99a1e; }
+                .sh-tile.bad { border-color: #e05555; } .sh-tile.bad b { color: #e05555; }
+                .sh-drv { border-top: 1px solid var(--border); padding: 7px 0; font-size: 0.8rem; }
+                .sh-drv-h { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
+                .sh-drv-h b { color: var(--text); overflow-wrap: anywhere; }
+                .sh-drv-h i { font-style: normal; color: var(--muted); font-size: 0.72rem; overflow-wrap: anywhere; }
+                .sh-kv { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 10px; margin-top: 3px; font-size: 0.78rem; color: var(--text); }
+                .sh-kv span span { color: var(--muted); }
+                .sh-b { border: 1px solid var(--border); border-radius: 999px; padding: 0 7px; font-size: 0.66rem; line-height: 1.5; white-space: nowrap; }
+                .sh-b.warn { border-color: #d99a1e; color: #d99a1e; } .sh-b.bad { border-color: #e05555; color: #e05555; } .sh-b.ok { border-color: #2e9e5b; color: #2e9e5b; }
+                .sh-line { font-size: 0.82rem; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+                .sh-note { font-size: 0.72rem; color: var(--muted); line-height: 1.4; margin-top: 4px; }
+            </style>
+            <script type="module">
+                import { auth, database, ref, onValue, onAuthStateChanged } from './assets/js/firebase-init.js?v=20261011b';
+                const $ = s => document.querySelector(s);
+                const esc = v => String(v ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+                const ago = t => { if (!t) return ''; const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago'; };
+                const SH_OWNER_UID = '7cIh8rrhVNOjjj5CBDgb3IlqzEh2';   // same value as HUB_OWNER_UID (separate module)
+                let shUid = '', shWait = false, sh = null;
+                const has = v => v !== undefined && v !== null;
+                const val = (v, unit) => has(v) ? esc(v) + unit : '–';   // a missing reading is a dash, never a 0
+                const tile = (label, text, cls) => `<div class="sh-tile${cls ? ' ' + cls : ''}"><span>${label}</span><b>${text}</b></div>`;
+                const span = s => { s = Math.abs(s); if (s < 60) return (Math.round(s * 10) / 10) + ' s'; const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return h ? `${h} h ${m} min` : `${m} min ${Math.round(s % 60)} s`; };
+                const FLAG = { foreign: ['Foreign', 'warn'], offline: ['Offline', 'bad'], raw: ['RAW', 'warn'], readerr: ['Read errors', 'bad'], hot: ['Hot', 'bad'], unhealthy: ['Unhealthy', 'bad'] };
+                const dname = e => (e.letters && e.letters.length) ? e.letters.map(l => l + ':').join(' ') + (e.label ? ' ' + e.label : '') : (e.model || 'drive');
+                function paint() {
+                    const card = $('#sh-card'); if (!card) return;
+                    card.style.display = shUid === SH_OWNER_UID ? '' : 'none';
+                    if (shUid !== SH_OWNER_UID) return;
+                    if (shWait) { $('#sh-out').innerHTML = '<div class="hb-sk" aria-label="Loading"><div class="hb-sk-row"><i class="hb-sk-t"></i><i class="hb-sk-t"></i></div><i class="hb-sk-l" style="width:88%"></i><i class="hb-sk-l" style="width:72%"></i><i class="hb-sk-l" style="width:80%"></i></div>'; return; }
+                    if (!sh) { $('#sh-out').innerHTML = '<div class="cl-sum" style="color:var(--muted)">No readings yet - the svc-se-health task on se writes them.</div>'; $('#sh-age').textContent = ''; return; }
+                    const g = sh.gpu || {}, c = sh.clock || {}, pk = sh.peaks || {}, dm = sh.drivesMeta || {};
+                    let o = '';
+                    // GPU
+                    o += `<div class="sy-h">GPU${g.state === 'warn' ? ' <span class="sh-b bad">Hot</span>' : ''}</div>`;
+                    if (g.state === 'unknown' && !has(g.tempC)) o += `<div class="sh-note">No GPU reading${g.err ? ' - ' + esc(g.err) : ''}.</div>`;
+                    else o += '<div class="sh-grid">' + tile('Temp', val(g.tempC, ' °C'), g.state === 'warn' ? 'bad' : '') + tile('Fan', val(g.fanPct, ' %')) + tile('Power', val(g.powerW, ' W')) + tile('Load', val(g.utilPct, ' %'))
+                        + tile('VRAM', has(g.memUsedMB) && has(g.memTotalMB) ? `${(g.memUsedMB / 1024).toFixed(1)} / ${(g.memTotalMB / 1024).toFixed(0)} GB` : '–') + '</div>';
+                    // Drives (by serial; lettered volumes first)
+                    const ds = Object.entries(sh.drives || {}).sort(([, a], [, b]) => ((a.letters || []).length ? 0 : 1) - ((b.letters || []).length ? 0 : 1) ||String((a.letters || [])[0] || '').localeCompare(String((b.letters || [])[0] || '')) ||String(a.model).localeCompare(String(b.model)) || String(a.serial).localeCompare(String(b.serial)));
+                    o += `<div class="sy-h">Drives · ${ds.length}</div>`;
+                    o += ds.map(([k, e]) => {
+                        const fl = (e.flags || []).map(f => { const [t, cl] = FLAG[f] || [f, 'warn']; return `<span class="sh-b ${cl}">${esc(f === 'readerr' && has(e.readErr) ? 'Read errors ' + e.readErr : t)}</span>`; }).join('');
+                        const free = has(e.freeGB) ? `${Math.round(e.freeGB).toLocaleString()}${has(e.volGB) ? ' / ' + Math.round(e.volGB).toLocaleString() : ''} GB` : '–';
+                        // no counters at all (reader not elevated) = skip the three dash cells, keep the row short on a phone
+                        const kv = (dm.state === 'noaccess' ? '' : `<span><span>Temp</span> ${val(e.tempC, ' °C')}</span><span><span>Hours</span> ${has(e.hours) ? Number(e.hours).toLocaleString() : '–'}</span><span><span>Read err</span> ${val(e.readErr, '')}</span>`)
+                            + (dm.state === 'noaccess' && !has(e.freeGB) ? '' : `<span><span>Free</span> ${free}</span>`);
+                        return `<div class="sh-drv"><div class="sh-drv-h"><b>${esc(dname(e))}</b>${fl}<i>${e.letters && e.letters.length ? esc(e.model || '') + ' · ' : ''}…${esc(k.slice(-4))}</i></div>`
+                            + (kv ? `<div class="sh-kv">${kv}</div>` : '') + '</div>';
+                    }).join('') || '<div class="sh-note">No drive data.</div>';
+                    if (dm.state === 'noaccess') o += '<div class="sh-note">Temp, hours and read errors are blank: Windows only gives those counters to an elevated reader, and the task runs as a normal user.</div>';
+                    // Clock
+                    const red = c.state === 'red';
+                    o += '<div class="sy-h">Clock</div><div class="sh-line">' + (has(c.offsetS)
+                        ? `<span class="sh-b ${red ? 'bad' : 'ok'}">${red ? 'Off' : 'OK'}</span><span style="${red ? 'color:#e05555;font-weight:600' : ''}">${Math.abs(c.offsetS) < 0.05 ? 'in sync' : 'se is ' + span(c.offsetS) + (c.offsetS > 0 ? ' slow' : ' fast')}</span><span style="color:var(--muted);font-size:0.72rem">vs ${esc(c.source || 'time server')} · red over ${esc(c.limitS ?? 5)} s</span>`
+                        : `<span class="sh-b warn">Unknown</span><span style="color:var(--muted)">no answer from ${esc(c.source || 'the time server')}</span>`) + '</div>';
+                    // CPU
+                    o += `<div class="sy-h">CPU</div><div class="sh-line" style="color:var(--muted)">${esc((sh.cpu || {}).state || 'no sensor yet')}</div>`;
+                    // 24 h peaks (the window is measured on se's own clock on both ends, so its length is right even while that clock is off)
+                    const pd = pk.drives || {}, win = has(sh.updated) && has(pk.since) ? (sh.updated - pk.since) / 1000 : null;
+                    const pks = ds.filter(([k]) => has(pd[k])).map(([k, e]) => `${esc(e.letters && e.letters.length ? e.letters[0] + ':' : '…' + k.slice(-4))} ${esc(pd[k])}°`);
+                    o += `<div class="sy-h">Peaks · ${win === null || win >= 23.5 * 3600 ? '24 h' : 'last ' + span(Math.max(win, 60)).replace(/ \d+ s$/, '') + ' (building to 24 h)'}</div>`
+                        + `<div class="sh-line"><span><span style="color:var(--muted)">GPU</span> ${val(pk.gpu, ' °C')}</span>${pks.length ? `<span style="color:var(--muted)">Drives</span><span>${pks.join(' · ')}</span>` : ''}</div>`;
+                    $('#sh-out').innerHTML = o;
+                    const at = sh.serverTs || sh.updated;
+                    $('#sh-age').textContent = at ? 'updated ' + ago(at) : '';
+                }
+                setInterval(() => { if (sh) paint(); }, 60000);   // repaints the age only - no read
+                onAuthStateChanged(auth, u => {
+                    if (!u) return;
+                    shUid = u.uid;
+                    if (shUid !== SH_OWNER_UID) { paint(); return; }
+                    if (!sh) { shWait = true; paint(); }
+                    onValue(ref(database, `${u.uid}/console/sehealth`), s => { shWait = false; sh = s.val(); paint(); }, () => { shWait = false; paint(); });
+                });
+            </script>
+
             <section class="hub-section">
                 <div class="hcard"><h3>Quick Commands</h3><div id="cmd-list"></div></div>
             </section>
@@ -1348,8 +1442,11 @@
             const byKey = new Map(cards.map(c => [keyOf(c), c])), base = cards.map(keyOf);
             let order = base.slice(), wide = new Set(), half = new Set();
             const paintWide = () => cards.forEach(c => { c.classList.toggle('wide', wide.has(keyOf(c))); c.classList.toggle('half', half.has(keyOf(c))); });
+            // 1.0.55: the Systems card is now titled Machines; a saved layout keyed 'Systems' keeps its spot and size
+            const ren = a => (Array.isArray(a) ? a : []).map(k => k === 'Systems' ? 'Machines' : k);
             const apply = saved => {
                 if (!Array.isArray(saved)) return;
+                saved = ren(saved);
                 const seen = new Set(), next = [];
                 saved.forEach(k => { if (byKey.has(k) && !seen.has(k)) { seen.add(k); next.push(k); } });
                 base.forEach(k => { if (!seen.has(k)) next.push(k); });   // cards added since the save keep their home spot at the end
@@ -1360,13 +1457,13 @@
             };
             const LS = DC.uid && DC.uid !== HUB_OWNER_UID ? 'hub_card_order_' + DC.uid : 'hub_card_order';   // 1.0.46: each login keeps its own layout in this browser (the owner keeps the old key)
             try { apply(JSON.parse(localStorage.getItem(LS) || 'null')); } catch (_) {}
-            try { wide = new Set(JSON.parse(localStorage.getItem(LS + '_wide') || '[]')); half = new Set(JSON.parse(localStorage.getItem(LS + '_half') || '[]')); paintWide(); } catch (_) {}
+            try { wide = new Set(ren(JSON.parse(localStorage.getItem(LS + '_wide') || '[]'))); half = new Set(ren(JSON.parse(localStorage.getItem(LS + '_half') || '[]'))); paintWide(); } catch (_) {}
             const save = async () => {
                 try { localStorage.setItem(LS, JSON.stringify(order)); localStorage.setItem(LS + '_wide', JSON.stringify([...wide])); localStorage.setItem(LS + '_half', JSON.stringify([...half])); } catch (_) {}
                 try { await set(node, { order, wide: [...wide], half: [...half], at: Date.now() }); } catch (err) { console.warn('card layout save failed', err); }
             };
             const node = ref(database, `${DC.base}/hubCards`);
-            onValue(node, sn => { const v = sn.val(); if (v && Array.isArray(v.order) && !DC._cardDrag) { apply(v.order); wide = new Set(Array.isArray(v.wide) ? v.wide : []); half = new Set(Array.isArray(v.half) ? v.half : []); paintWide(); try { localStorage.setItem(LS, JSON.stringify(v.order)); localStorage.setItem(LS + '_wide', JSON.stringify([...wide])); } catch (_) {} } });
+            onValue(node, sn => { const v = sn.val(); if (v && Array.isArray(v.order) && !DC._cardDrag) { apply(v.order); wide = new Set(ren(v.wide)); half = new Set(ren(v.half)); paintWide(); try { localStorage.setItem(LS, JSON.stringify(v.order)); localStorage.setItem(LS + '_wide', JSON.stringify([...wide])); } catch (_) {} } });
             document.addEventListener('click', e => {   // TRIPLE-CLICK the title (L 2026-10-09): whole row <-> side by side
                 if (e.detail !== 3) return;
                 const h = e.target.closest('.hcard > h3'); if (!h || e.target.closest('a,button,input,select')) return;
@@ -2105,7 +2202,7 @@
                 const x = byIp.get(r.ip);
                 const dot = x ? `<span title="${x.up ? 'online' : 'offline'} · ${x.pct}% up (pi-hub)" style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;background:${x.up ? '#4ade80' : '#64748b'}"></span>` : '<span style="display:inline-block;width:8px;margin-right:6px"></span>';
                 const sid = sy[r.ip];
-                return `<tr><td class="click-copy" title="Click to copy">${dot}${escH(String(r.host ?? ''))}</td><td class="click-copy" title="Click to copy">${escH(String(r.ip ?? ''))}</td><td>${escH(String(r.os ?? ''))}</td><td>${escH(String(r.role ?? ''))}${x ? ` <span style="color:var(--muted);font-size:0.7rem">${x.pct}%</span>` : ''}${sid ? `<button class="net-sy" data-sy="${escH(sid)}" title="Open ${escH(sid)} on the Systems card">🖥 ${escH(sid)}</button>` : ''}</td></tr>`;
+                return `<tr><td class="click-copy" title="Click to copy">${dot}${escH(String(r.host ?? ''))}</td><td class="click-copy" title="Click to copy">${escH(String(r.ip ?? ''))}</td><td>${escH(String(r.os ?? ''))}</td><td>${escH(String(r.role ?? ''))}${x ? ` <span style="color:var(--muted);font-size:0.7rem">${x.pct}%</span>` : ''}${sid ? `<button class="net-sy" data-sy="${escH(sid)}" title="Open ${escH(sid)} on the Machines card">🖥 ${escH(sid)}</button>` : ''}</td></tr>`;
             }).join('');
         }
         window.__paintNet = paintNet;

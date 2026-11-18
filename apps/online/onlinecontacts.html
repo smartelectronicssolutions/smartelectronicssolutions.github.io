@@ -4,7 +4,7 @@
 <head>
   <title>Contact Information Management</title>
   <meta charset="UTF-8" />
-  <meta name="version" content="1.0.1">
+  <meta name="version" content="1.0.2">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="../assets/css/online.css" />
   <script>(function () { var t = localStorage.getItem("ss-theme"); if (t === "light") document.documentElement.classList.add("light"); }());</script>
@@ -300,6 +300,7 @@
       <input type="text" id="searchContacts" placeholder="Search name, email, phone, company…" />
       <label class="chk" id="incompleteWrap"><input type="checkbox" id="incompleteOnly" /> Incomplete only</label>
       <button class="btn primary" id="open-add">+ Add</button>
+      <button class="btn" id="download-vcf" title="vCard file of the contacts shown (iPhone: opens Add All Contacts)">Download contacts (.vcf)</button>
       <span class="count" id="count"></span>
     </div>
 
@@ -360,6 +361,7 @@
       <div class="modal-actions">
         <button class="btn primary" id="save-contact-button">Save</button>
         <button class="btn danger" id="delete-contact-button">Delete</button>
+        <button class="btn" data-vcf-one>vCard</button>
       </div>
       <div id="contact-extra" class="contact-subtle" style="margin-top:12px"></div>
       <h3>Projects</h3>
@@ -386,6 +388,7 @@
           <div id="person-email-list" class="field-list"></div>
         </div>
       </div>
+      <div class="modal-actions" style="margin:0 0 12px"><button class="btn" data-vcf-one>vCard</button></div>
       <div class="contact-subtle">Edit a person on the job itself (Jobs app &gt; Contacts).</div>
       <h3>Jobs</h3>
       <div id="person-jobs"></div>
@@ -458,6 +461,60 @@
     let pSortDir = 1;
     const peopleBody = document.getElementById("people-body");
     const personModal = document.getElementById("person-modal");
+    let shownRows = [];   // rows on screen now (view + search + sort) - what Download contacts (.vcf) exports
+    let openRow = null;   // row behind the open modal (its vCard button)
+
+    // 2026-11-17 vCard export (L: "have the page have a download"): vCard 3.0, CRLF, UTF-8, 75-octet folding.
+    // A text/vcard download opens the iPhone "Add All Contacts" sheet. A row with no phone and no email is skipped.
+    // A name of 2-3 plain words is written as a person (N = last;first); anything else as a company card.
+    const vEsc = (s) => String(s == null ? "" : s).replace(/\\/g, "\\\\").replace(/\r?\n/g, "\\n").replace(/;/g, "\\;").replace(/,/g, "\\,");
+    const vLine = (s) => String(s == null ? "" : s).replace(/[\r\n]+/g, " ").trim();
+    const vEnc = new TextEncoder();
+    function vFold(line) {
+      if (vEnc.encode(line).length <= 75) return line;
+      const out = [];
+      let cur = "", n = 0;
+      for (const ch of line) {
+        const b = vEnc.encode(ch).length, lim = out.length ? 74 : 75;
+        if (n + b > lim) { out.push(cur); cur = ch; n = b; } else { cur += ch; n += b; }
+      }
+      out.push(cur);
+      return out.join("\r\n ");
+    }
+    function vCard(r) {
+      const phones = (r.phones || []).map(vLine).filter(Boolean), emails = (r.emails || []).map(vLine).filter(Boolean);
+      if (!phones.length && !emails.length) return "";
+      const name = vLine(r.name) || phones[0] || emails[0];
+      const L = ["BEGIN:VCARD", "VERSION:3.0", "FN:" + vEsc(name)];
+      if (/^[\p{L}.'’-]+( [\p{L}.'’-]+){1,2}$/u.test(name)) {
+        const i = name.lastIndexOf(" ");
+        L.push("N:" + vEsc(name.slice(i + 1)) + ";" + vEsc(name.slice(0, i)) + ";;;");
+        if (r.company) L.push("ORG:" + vEsc(r.company));
+      } else L.push("N:;;;;", "ORG:" + vEsc(name), "X-ABShowAs:COMPANY");
+      if (r.roles && r.roles.length) L.push("TITLE:" + vEsc(r.roles.join(", ")));
+      phones.forEach((p, i) => L.push("TEL;TYPE=VOICE" + (i ? "" : ",PREF") + ":" + p));
+      emails.forEach((e, i) => L.push("EMAIL;TYPE=INTERNET" + (i ? "" : ",PREF") + ":" + e));
+      (r.addresses || []).forEach((a) => L.push("ADR;TYPE=WORK:;;" + vEsc(a) + ";;;;"));
+      if (r.jobNames && r.jobNames.length) L.push("NOTE:" + vEsc("Jobs: " + r.jobNames.join(", ")));
+      L.push("END:VCARD");
+      return L.map(vFold).join("\r\n") + "\r\n";
+    }
+    function downloadVcf(rows, label) {
+      const cards = rows.map(vCard).filter(Boolean);
+      if (!cards.length) { alert("Nothing to download - no contact here has a phone or an email."); return; }
+      const url = URL.createObjectURL(new Blob([cards.join("")], { type: "text/vcard;charset=utf-8" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = (String(label).replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "contacts") + ".vcf";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
+    document.getElementById("download-vcf").addEventListener("click", () =>
+      downloadVcf(shownRows, `contacts-${view}-${new Date().toLocaleDateString("en-CA")}`));
+    document.querySelectorAll("[data-vcf-one]").forEach((b) =>
+      b.addEventListener("click", () => { if (openRow) downloadVcf([openRow], openRow.name); }));
 
     function canWrite() {
       return !!(authReady && currentUser);
@@ -577,6 +634,7 @@
       const q = String(searchContacts.value || "").trim().toLowerCase();
       const rows = allPeople.filter((r) => !q || r.search.includes(q));
       rows.sort((a, b) => { const av = pSortVal(a), bv = pSortVal(b); return av < bv ? -pSortDir : av > bv ? pSortDir : 0; });
+      shownRows = rows;
       peopleBody.innerHTML = "";
       const frag = document.createDocumentFragment();
       rows.forEach((r) => {
@@ -624,6 +682,7 @@
     }
 
     function openPerson(r) {
+      openRow = r;
       document.getElementById("person-name").textContent = r.name;
       renderChips(document.getElementById("person-role-list"), r.roles);
       renderChips(document.getElementById("person-phone-list"), r.phones);
@@ -705,6 +764,7 @@
     function renderTable() {
       if (view === "people") { renderPeople(); return; }
       const rows = currentView();
+      shownRows = rows;
       body.innerHTML = "";
       const frag = document.createDocumentFragment();
       rows.forEach((r) => {
@@ -746,6 +806,7 @@
     };
 
     function openContact(r) {
+      openRow = r;
       selectedContactId = r.taskId;
       selectedName = r.name;
       contactNameElem.textContent = r.name;

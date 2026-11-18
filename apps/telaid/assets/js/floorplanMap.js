@@ -222,7 +222,10 @@ export function mountRadarMap(root, opts = {}) {
     if (!EMBED) document.body.style.overflowX = "clip";   // the full-width map box bleeds past the 1100px column; never a sideways scroll
     // Embedded in the checklist the map follows ONLY the site the checklist opens - no remembered site, no default
     // (L 2026-10-02: "the map is loading the Walmart one even when I haven't selected anything yet").
-    setTaskId(opts.task || (!EMBED && LAST_SITE && LAST_SITE.task) || (!EMBED && "1789898400000") || "");
+    // 2026-11-17 (L "this always opens walmart54 first" -> "open my newest job when nothing is remembered"): no link job and
+    // no remembered pick = start empty; loadJobs() then opens the newest job that is not in the future (was: hard-coded WM54).
+    const NO_PICK = !EMBED && !opts.task && !(LAST_SITE && LAST_SITE.task);
+    setTaskId(opts.task || (!EMBED && LAST_SITE && LAST_SITE.task) || "");
     if (EMBED) root.classList.add("embed");
     const HUBPH = {};   // "MDF"/"IDF3" -> [storage refs]
     let selHub = null, HL = new Set();   // HL = sensors matching what's typed in the Sensor # box (live)
@@ -1337,7 +1340,7 @@ export function mountRadarMap(root, opts = {}) {
       if (!sites.length) { selEl.innerHTML = '<option value="">No jobs found</option>'; return; }
       let cur = sites.find(g => g.ids.includes(TASK));
       // the remembered job isn't in this account's list (Account dropdown switched trees): open its first job with sensors
-      if (!cur) { cur = sites.find(g => g.hasSensors) || sites[0]; if (cur) setTaskId(cur.id); }
+      if (!cur) { cur = (NO_PICK && sites.find(g => g.last <= Date.now())) || sites.find(g => g.hasSensors) || sites[0]; if (cur) setTaskId(cur.id); }   // NO_PICK: newest job first (sites are newest-first; a booked job's id is its future start, so skip those)
       JOBS = sites; renderJobs();
       if (cur && cur.id !== TASK) setTaskId(cur.id);   // a sibling-night id -> the site's canonical record
     }
