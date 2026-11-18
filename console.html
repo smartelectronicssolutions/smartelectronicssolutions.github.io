@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.249"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.250"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -5111,7 +5111,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 // the box names what is IN USE: the current model reads "Opus (in use)", a pick in flight "Fable (switching…)", and the
                 // blank row says "unknown" instead of "switch to…" (which read like an instruction and made the box look stuck)
                 [...sel.options].forEach(o => { if (o.dataset.base == null) o.dataset.base = o.value === '' ? 'unknown' : o.textContent;
-                    o.textContent = (pend && o.value === pend.v) ? o.dataset.base + ' (switching…)' : (!pend && o.value && o.value === want) ? o.dataset.base + ' (in use)' : o.dataset.base; });
+                    o.textContent = (pend && o.value === pend.v) ? o.dataset.base + ' (switching…)' : (!pend && o.value && o.value === want) ? o.dataset.base + ' (in use)'
+                        : (DC.topic && DC.topic !== FAV_TAB && o.value === 'tab:' + tabModelOf(DC.topic)) ? o.dataset.base + ' (this tab)' : o.dataset.base; });
                 const has = !!want && [...sel.options].some(o => o.value === want);
                 // 1.0.219 (L 2026-11-15 "when I click on it, unknown is an option"): iOS ignores `hidden` on an <option>, so the blank row
                 // stayed in the phone's picker. It is now taken OUT of the list while a model is known, and put back only when none is.
@@ -6004,6 +6005,25 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 try { ls.value = localStorage.getItem('dc_tts_lang') || 'auto'; } catch (_) {}
                 ls.addEventListener('change', () => { try { localStorage.setItem('dc_tts_lang', ls.value); } catch (_) {} });
             } }
+        // ALL ENGINES IN ONE MENU (L 2026-11-18 "when I hit model I only see Claude's"): a second group, "This tab only", lists the
+        // non-Claude engines from TAB_MODELS (GPT/Copilot/Grok/local/Colibri). Picking one sets THIS tab's engine - the same
+        // settings/tabModel write the tab pencil makes; the main session (Claude Code's /model) is untouched. "tab:" = back to main.
+        { const ms = $('#dc-model'); if (ms && !DC.kdaemon) {
+            const g = document.createElement('optgroup'); g.label = 'This tab only';
+            [['tab:', 'This tab: main session'], ...TAB_MODELS.filter(([v]) => v && !v.startsWith('claude:')).map(([v, t]) => ['tab:' + v, t])]
+                .forEach(([v, t]) => { const o = document.createElement('option'); o.value = v; o.textContent = t; g.appendChild(o); });
+            ms.appendChild(g);
+            ms.addEventListener('change', async e => {
+                if (!e.isTrusted || !ms.value.startsWith('tab:')) return;
+                e.stopImmediatePropagation();
+                const m = ms.value.slice(4), st = $('#dc-chat-status');
+                if (DC.syncModelSel) DC.syncModelSel();
+                if (!DC.topic || DC.topic === FAV_TAB) { if (st) st.textContent = '⚠ open a tab first - a tab engine applies to one tab'; return; }
+                try { await set(ref(database, `${DC.base}/settings/tabModel/${topicKey(DC.topic)}`), m || null);
+                    if (st) st.textContent = '# ' + DC.topic + ' now answers on ' + (m ? (TAB_MODELS.find(([v]) => v === m) || [m, m])[1] : 'the main session'); }
+                catch (_) { if (st) st.textContent = '⚠ could not save the tab engine'; }
+            });
+        } }
         { const ms = $('#dc-model'); if (ms) ms.addEventListener('change', e => {
             // MODEL SWITCH (2026-09-19): send "/model <name>" as an ordinary message. The daemon's slash path
             // sends it bare (the console preamble would otherwise become the model NAME - that is how L's own
