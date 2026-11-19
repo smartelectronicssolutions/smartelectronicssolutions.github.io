@@ -491,7 +491,8 @@ export function mountRadarMap(root, opts = {}) {
       pulseEl.style.display = ""; pulseEl.style.left = cx0 + "px"; pulseEl.style.top = cy0 + "px";
     }
     function draw() {
-      cx.fillStyle = css("--secondaryBackgroundColor") || "#0f172a"; cx.fillRect(0, 0, cv.width, cv.height);
+      // LIGHTER MAP BACKGROUND in dark theme (L 2026-11-18 "the dark blue sometimes makes it hard to read the map maybe a lighter blue"): a mid steel blue instead of the page navy
+      cx.fillStyle = document.documentElement.classList.contains("light") ? (css("--secondaryBackgroundColor") || "#0f172a") : "#34557f"; cx.fillRect(0, 0, cv.width, cv.height);
       if (!B) return;
       const dpr = view.dpr, zoom = view.s / base.s, r = Math.min(9, 3.2 * Math.sqrt(zoom)) * dpr;
       if (layout === "floor" && planImg && planMode !== "off") drawPlan();
