@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.255"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.256"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1634,6 +1634,18 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // when ITS meta.tabModels lists that engine (= admin granted it + the CLI is on that PC). claude: still goes by kdTabOk.
         const kdKindOk = v => { const k = String(v || '').split(':')[0]; if (k === 'claude') return kdTabOk();
             const tms = (DC.lastMeta || {}).tabModels; return (k === 'copilot' || k === 'codex') && Array.isArray(tms) && tms.includes(k); };
+        // 1.0.256 (L 2026-11-19 "when they click it shows login instructions"): an engine the admin GRANTED (meta.grants.engines) on a
+        // 0.2.33+ daemon is listed even when its CLI is not on that PC yet - as "(set up first)"; picking it shows the install + sign-in
+        // steps and Save stays off, because a job for it would only land in the main chat.
+        const kdSetupNeeded = v => { const k = String(v || '').split(':')[0]; if (!DC.kdaemon || (k !== 'copilot' && k !== 'codex') || kdKindOk(v)) return false;
+            const m = DC.lastMeta || {}, g = (m.grants || {}).engines; const n = (((String(m.version || '').match(/kdaemon\s+([\d.]+)/) || [])[1]) || '').split('.').map(x => parseInt(x, 10) || 0);
+            return Array.isArray(g) && g.includes(k) && n[0] === 0 && (n[1] > 2 || (n[1] === 2 && n[2] >= 33)); };
+        const ENGINE_SETUP = {
+            copilot: 'Copilot is not set up on this PC yet. On the PC, in a terminal:\n1. npm install -g @github/copilot\n2. copilot\n3. type /login, open github.com/login/device and enter the code\n4. /exit, then reload this page.',
+            codex: 'Codex is not set up on this PC yet. On the PC, in a terminal:\n1. npm install -g @openai/codex\n2. codex login (sign in with your ChatGPT account)\n3. reload this page.' };
+        const ENGINE_SIGNIN = {
+            copilot: 'Copilot (GitHub login): its own conversation, tools + files, no browser. If it answers "not signed in": on the PC run copilot, type /login and enter the code at github.com/login/device.',
+            codex: 'Codex (ChatGPT login): its own conversation, tools + files, no browser. If it answers "not signed in": on the PC run codex login.' };
         // 1.0.253 FORCE MODEL: DC.forceModel (page memory only, never saved) beats the tab's pencil model. '__main' = force the main session.
         const jobTabModel = n => { const tm = DC.forceModel ? (DC.forceModel === '__main' ? '' : DC.forceModel) : tabModelOf(n); if (!tm) return ''; if (!DC.kdaemon) return tm; return kdKindOk(tm) ? tm : ''; };
         { const fsel = document.getElementById('dc-force-model'), pill = document.getElementById('dc-force-pill');
@@ -1658,10 +1670,14 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const name = box.querySelector('#dc-te-name'), sel = box.querySelector('#dc-te-model'), note = box.querySelector('#dc-te-note');
             name.style.cssText = fld; sel.style.cssText = fld; name.value = oldName;
             const kdOk = DC.kdaemon && kdTabOk();
-            for (const [v, t] of TAB_MODELS) { if (DC.kdaemon && v && !kdKindOk(v)) continue;   // member kdaemon: Default + Claude (0.2.30+) + Copilot/Codex when its meta lists them (0.2.33)
-                const o = document.createElement('option'); o.value = v; o.textContent = t; sel.appendChild(o); }
+            for (const [v, t] of TAB_MODELS) { const setup = kdSetupNeeded(v); if (DC.kdaemon && v && !kdKindOk(v) && !setup) continue;   // member kdaemon: Default + Claude (0.2.30+) + Copilot/Codex when its meta lists them (0.2.33), or granted = "(set up first)"
+                const o = document.createElement('option'); o.value = v; o.textContent = t + (setup ? ' (set up first)' : ''); sel.appendChild(o); }
             sel.value = tabModelOf(oldName); if (sel.value !== tabModelOf(oldName)) sel.value = '';
-            const say = () => { note.textContent = (DC.kdaemon && !kdOk) ? 'Per-tab models need daemon 0.2.30 or newer - press Update in Settings.'
+            note.style.whiteSpace = 'pre-line';
+            const say = () => { const ek = sel.value.split(':')[0], okBtn = box.querySelector('#dc-te-ok'), setup = kdSetupNeeded(sel.value);
+                if (okBtn) { okBtn.disabled = setup; okBtn.style.opacity = setup ? '.45' : ''; }
+                note.textContent = setup ? ENGINE_SETUP[ek] : (DC.kdaemon && (ek === 'copilot' || ek === 'codex')) ? ENGINE_SIGNIN[ek]
+                : (DC.kdaemon && !kdOk) ? 'Per-tab models need daemon 0.2.30 or newer - press Update in Settings.'
                 : !sel.value ? 'Uses this main session.' : sel.value.startsWith('local:') ? 'Local chat: no tools or memory files.'
                 : DC.kdaemon ? 'Its own conversation on this model: reads your folder and memory, not the main chat, same file rules.'
                 : 'Its own side session: reads memory, no main-session chat, and it can use tools and change files.'; };
