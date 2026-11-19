@@ -84,6 +84,11 @@ body.rm-embed-page header.top-actions { display: none !important; }
 .rmap .mapwrap .rm-slx { left: 8px; bottom: 4px; width: calc(100% - 40px) !important; }
 .rmap .mapwrap .rm-sly { top: 8px; left: calc(100% - 6px); width: var(--rm-slh, 300px) !important; transform: rotate(90deg); transform-origin: left top; }
 .rmap.embed #rm-map { height: min(62vh, 560px); }
+/* FULLSCREEN (L 2026-11-18 "can we add a way to fullscreen the map"): the map box fills the screen (CSS, so it works on iPhone where
+   Safari has no element fullscreen); real browser fullscreen is asked for too where it exists. The [] button or Esc leaves. */
+.rmap .mapwrap.rm-fs { position: fixed; inset: 0; z-index: 60; margin: 0 !important; border-radius: 0; border: 0; }
+.rmap .mapwrap.rm-fs #rm-map { height: 100vh !important; height: 100dvh !important; }
+body.rm-fs-on { overflow: hidden; }
 /* the Take / choose photo inputs: visually hidden but RENDERED - iOS (Safari AND Chrome, both WebKit) will not open the camera
    for a display:none / [hidden] file input (L 2026-10-05 "take picture not working in Chrome mobile"; same scar as 2026-09-22) */
 .rmap label.btn { position: relative; }
@@ -183,7 +188,7 @@ const TEMPLATE = `<div class="app-shell">
         <input id="rm-find" type="text" inputmode="text" placeholder="Find #" autocomplete="off" autocapitalize="off" spellcheck="false" />
       </div>
       <div class="mapwrap"><canvas id="rm-map" tabindex="0" aria-label="Floor map of every device"></canvas>
-        <div class="rm-zoom"><button type="button" id="rm-zin" aria-label="Zoom in" title="Zoom in">+</button><button type="button" id="rm-zout" aria-label="Zoom out" title="Zoom out">&minus;</button></div>
+        <div class="rm-zoom"><button type="button" id="rm-zin" aria-label="Zoom in" title="Zoom in">+</button><button type="button" id="rm-zout" aria-label="Zoom out" title="Zoom out">&minus;</button><button type="button" id="rm-zfs" aria-label="Full screen" title="Full screen">&#x26F6;</button></div>
         <input type="range" id="rm-slx" class="rm-sl rm-slx" min="0" max="1000" value="0" aria-label="Move the map left or right" hidden />
         <input type="range" id="rm-sly" class="rm-sl rm-sly" min="0" max="1000" value="0" aria-label="Move the map up or down" hidden /></div>
       <div class="legend" id="rm-legend"></div>
@@ -1241,6 +1246,14 @@ export function mountRadarMap(root, opts = {}) {
     // ZOOM BUTTONS (L 2026-10-03 "add a zoom and unzoom button onscreen"): 1.6x per tap, about the centre of the view
     $("zin").addEventListener("click", () => cvw.zoomAt(cv.width / 2, cv.height / 2, 1.6));
     $("zout").addEventListener("click", () => cvw.zoomAt(cv.width / 2, cv.height / 2, 1 / 1.6));
+    // FULLSCREEN toggle (L 2026-11-18): class on the map box + the browser fullscreen API where it exists; leaving either way undoes both
+    const mw = root.querySelector(".mapwrap");
+    const setFs = on => { mw.classList.toggle("rm-fs", on); document.body.classList.toggle("rm-fs-on", on); $("zfs").innerHTML = on ? "&#x2715;" : "&#x26F6;";
+      $("zfs").title = on ? "Exit full screen" : "Full screen"; setTimeout(() => fit(true), 60); };
+    $("zfs").addEventListener("click", () => { const on = !mw.classList.contains("rm-fs"); setFs(on);
+      try { if (on && mw.requestFullscreen && !document.fullscreenElement) mw.requestFullscreen().catch(() => {}); else if (!on && document.fullscreenElement) document.exitFullscreen().catch(() => {}); } catch (_) {} });
+    document.addEventListener("fullscreenchange", () => { if (!document.fullscreenElement && mw.classList.contains("rm-fs")) setFs(false); });
+    document.addEventListener("keydown", e => { if (e.key === "Escape" && mw.classList.contains("rm-fs") && !document.fullscreenElement) setFs(false); });
     // TRIPLE TAP / TRIPLE CLICK = rotate 90 deg (L 2026-10-06 "can I have a triple click rotate the map"): three quick taps
     // close together on the map; counted by hand so it works on phones too (tap counts in event.detail are unreliable there)
     let taps = [];
