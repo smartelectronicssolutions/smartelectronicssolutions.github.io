@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.254"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.255"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1630,11 +1630,15 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         const kdTabOk = () => { const m = DC.lastMeta || {}; if (Array.isArray(m.tabModels) && m.tabModels.includes('claude')) return true;
             const v = ((String(m.version || '').match(/kdaemon\s+([\d.]+)/) || [])[1]) || ''; const n = v.split('.').map(x => parseInt(x, 10) || 0);
             return n[0] === 0 && n[1] === 2 && n[2] >= 30; };
+        // 1.0.255 (kdaemon 0.2.33, L 2026-11-19 "use other brains in tabs like copilot"): a member daemon also runs copilot:/codex: tabs
+        // when ITS meta.tabModels lists that engine (= admin granted it + the CLI is on that PC). claude: still goes by kdTabOk.
+        const kdKindOk = v => { const k = String(v || '').split(':')[0]; if (k === 'claude') return kdTabOk();
+            const tms = (DC.lastMeta || {}).tabModels; return (k === 'copilot' || k === 'codex') && Array.isArray(tms) && tms.includes(k); };
         // 1.0.253 FORCE MODEL: DC.forceModel (page memory only, never saved) beats the tab's pencil model. '__main' = force the main session.
-        const jobTabModel = n => { const tm = DC.forceModel ? (DC.forceModel === '__main' ? '' : DC.forceModel) : tabModelOf(n); if (!tm) return ''; if (!DC.kdaemon) return tm; return kdTabOk() && tm.startsWith('claude:') ? tm : ''; };
+        const jobTabModel = n => { const tm = DC.forceModel ? (DC.forceModel === '__main' ? '' : DC.forceModel) : tabModelOf(n); if (!tm) return ''; if (!DC.kdaemon) return tm; return kdKindOk(tm) ? tm : ''; };
         { const fsel = document.getElementById('dc-force-model'), pill = document.getElementById('dc-force-pill');
           const fill = () => { if (!fsel) return; const cur = DC.forceModel || ''; const kdOk = DC.kdaemon && kdTabOk(); fsel.length = 1;
-              for (const [v, t] of [['__main', 'Main session'], ...TAB_MODELS.filter(x => x[0])]) { if (DC.kdaemon && v !== '__main' && !(kdOk && v.startsWith('claude:'))) continue;
+              for (const [v, t] of [['__main', 'Main session'], ...TAB_MODELS.filter(x => x[0])]) { if (DC.kdaemon && v !== '__main' && !kdKindOk(v)) continue;
                   const o = document.createElement('option'); o.value = v; o.textContent = t; fsel.appendChild(o); }
               fsel.value = cur; if (fsel.value !== cur) fsel.value = ''; };
           const show = () => { const v = DC.forceModel || ''; if (pill) { pill.hidden = !v; pill.textContent = v ? 'FORCED: ' + ((TAB_MODELS.find(x => x[0] === v) || [v, v === '__main' ? 'Main session' : v])[1]) : ''; }
@@ -1654,7 +1658,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const name = box.querySelector('#dc-te-name'), sel = box.querySelector('#dc-te-model'), note = box.querySelector('#dc-te-note');
             name.style.cssText = fld; sel.style.cssText = fld; name.value = oldName;
             const kdOk = DC.kdaemon && kdTabOk();
-            for (const [v, t] of TAB_MODELS) { if (DC.kdaemon && v && !(kdOk && v.startsWith('claude:'))) continue;   // member kdaemon: Default + Claude only (0.2.30+)
+            for (const [v, t] of TAB_MODELS) { if (DC.kdaemon && v && !kdKindOk(v)) continue;   // member kdaemon: Default + Claude (0.2.30+) + Copilot/Codex when its meta lists them (0.2.33)
                 const o = document.createElement('option'); o.value = v; o.textContent = t; sel.appendChild(o); }
             sel.value = tabModelOf(oldName); if (sel.value !== tabModelOf(oldName)) sel.value = '';
             const say = () => { note.textContent = (DC.kdaemon && !kdOk) ? 'Per-tab models need daemon 0.2.30 or newer - press Update in Settings.'
