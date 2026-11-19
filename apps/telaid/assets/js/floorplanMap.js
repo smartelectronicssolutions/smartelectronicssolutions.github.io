@@ -491,8 +491,7 @@ export function mountRadarMap(root, opts = {}) {
       pulseEl.style.display = ""; pulseEl.style.left = cx0 + "px"; pulseEl.style.top = cy0 + "px";
     }
     function draw() {
-      // LIGHTER MAP BACKGROUND in dark theme (L 2026-11-18 "the dark blue sometimes makes it hard to read the map maybe a lighter blue"): a mid steel blue instead of the page navy
-      cx.fillStyle = document.documentElement.classList.contains("light") ? (css("--secondaryBackgroundColor") || "#0f172a") : "#34557f"; cx.fillRect(0, 0, cv.width, cv.height);
+      cx.fillStyle = css("--secondaryBackgroundColor") || "#0f172a"; cx.fillRect(0, 0, cv.width, cv.height);
       if (!B) return;
       const dpr = view.dpr, zoom = view.s / base.s, r = Math.min(9, 3.2 * Math.sqrt(zoom)) * dpr;
       if (layout === "floor" && planImg && planMode !== "off") drawPlan();
@@ -818,7 +817,7 @@ export function mountRadarMap(root, opts = {}) {
       let su = Math.min(...cs.map(q => q[0])), sv = Math.min(...cs.map(q => q[1])), eu = Math.max(...cs.map(q => q[0])), ev = Math.max(...cs.map(q => q[1]));
       su = Math.max(0, Math.floor(su) - 2); sv = Math.max(0, Math.floor(sv) - 2); eu = Math.min(W, Math.ceil(eu) + 2); ev = Math.min(H, Math.ceil(ev) + 2);
       if (eu <= su || ev <= sv) return;
-      cx.save(); cx.globalAlpha = planMode === "full" ? (light ? 0.95 : 0.85) : (light ? 0.45 : 0.4); cx.globalCompositeOperation = light ? "multiply" : p.color ? "source-over" : "screen";
+      cx.save(); cx.globalAlpha = planMode === "full" ? (light ? 0.95 : 1) : (light ? 0.6 : 0.7);   // CLEARER LINES (L 2026-11-18 "the lines of the maps need to be clearer"): dim was .45/.4, full dark .85; the lighter-blue background tried first did not help and was reverted cx.globalCompositeOperation = light ? "multiply" : p.color ? "source-over" : "screen";
       cx.setTransform(a, b, c, d, e, f); cx.drawImage(im, su, sv, eu - su, ev - sv, su, sv, eu - su, ev - sv); cx.restore();
       cx.setTransform(1, 0, 0, 1, 0, 0);
     }
