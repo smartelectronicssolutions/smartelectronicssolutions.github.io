@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.251"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.254"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -931,7 +931,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                      guests, or se down, get the in-page localReply as before. -->
             </select>
             <button class="dc-tab active" data-tab="ch">Chat</button>
-            <span id="dc-pins"></span>   <!-- gear rows dragged up here live here (wirePins); the gear itself sits AFTER them (L, 2026-09-25: "move the gear to the right, after the six dots") -->
+            <span id="dc-pins"></span>
+            <!-- 1.0.253 FORCE MODEL (L 2026-11-19): shows while the gear's Force model is set; tap = off. Memory only - a reload clears it. -->
+            <button type="button" id="dc-force-pill" hidden title="every message from every tab goes to this model - tap to turn it off" style="font:inherit;font-size:.72rem;font-weight:700;padding:2px 8px;border-radius:999px;border:0;background:#e8891c;color:#1a1000;cursor:pointer;white-space:nowrap;max-width:46vw;overflow:hidden;text-overflow:ellipsis"></button>   <!-- gear rows dragged up here live here (wirePins); the gear itself sits AFTER them (L, 2026-09-25: "move the gear to the right, after the six dots") -->
             <span class="dc-menu">
                 <button id="dc-gear" class="dc-gear" title="chat options">⚙</button>
                 <div id="dc-gear-pop" class="dc-pop" hidden>
@@ -952,6 +954,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     <button class="dc-btn ghost sm" id="dc-reload" title="Reload this page (nothing is archived or cleared)" onclick="location.reload()">🔄 Reload page</button>
                     <!-- the theme rows moved to System > Look (2026-09-27); no gear shortcut (L: "get rid of the looks button, just go to System") -->
                     <label class="dc-chk" id="dc-model-lbl" title="switch the model of Droplet's running session. Sends /model to its terminal on its own line and posts back whatever the terminal says - including 'not found'. Use it when replies come back as 'you have reached your limit'.">🧠 Model<select id="dc-model" style="margin-left:6px;font:inherit;max-width:120px"><option value="">unknown</option><option value="opus">Opus</option><option value="sonnet">Sonnet</option><option value="haiku">Haiku</option><option value="fable">Fable</option><option value="default">default</option></select></label>
+                    <!-- 1.0.253 FORCE MODEL (L 2026-11-19: "force a certain AI mode as default ... reset, not save through page reloads"): overrides every
+                         tab's pencil model (and the All view) for messages to Droplet. Kept in page memory only - a reload puts it back to Off. -->
+                    <label class="dc-chk" id="dc-force-lbl" title="send every message, from every tab, to this model - it beats the pencil model on each tab. Resets to Off when the page reloads.">🎯 Force model<select id="dc-force-model" style="margin-left:6px;font:inherit;max-width:130px"><option value="">Off</option></select></label>
                     <button class="dc-tab" id="dc-sys-tab" data-tab="sys" title="advanced: profile · look/theme · conversation · routines · onlinechat bot">🎛<span class="dc-lbl"> Settings</span></button>   <!-- was "Full system & theme" (L 2026-10-04: "change to advanced") -->
                     <span class="dc-size" id="dc-thread-size" title="size of the live thread"></span>
                     <!-- the "wake Droplet" button left the menu 2026-09-25 (L): the droplet pill in the bar IS the wake control whenever it is not up -->
@@ -1625,7 +1630,18 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         const kdTabOk = () => { const m = DC.lastMeta || {}; if (Array.isArray(m.tabModels) && m.tabModels.includes('claude')) return true;
             const v = ((String(m.version || '').match(/kdaemon\s+([\d.]+)/) || [])[1]) || ''; const n = v.split('.').map(x => parseInt(x, 10) || 0);
             return n[0] === 0 && n[1] === 2 && n[2] >= 30; };
-        const jobTabModel = n => { const tm = tabModelOf(n); if (!tm) return ''; if (!DC.kdaemon) return tm; return kdTabOk() && tm.startsWith('claude:') ? tm : ''; };
+        // 1.0.253 FORCE MODEL: DC.forceModel (page memory only, never saved) beats the tab's pencil model. '__main' = force the main session.
+        const jobTabModel = n => { const tm = DC.forceModel ? (DC.forceModel === '__main' ? '' : DC.forceModel) : tabModelOf(n); if (!tm) return ''; if (!DC.kdaemon) return tm; return kdTabOk() && tm.startsWith('claude:') ? tm : ''; };
+        { const fsel = document.getElementById('dc-force-model'), pill = document.getElementById('dc-force-pill');
+          const fill = () => { if (!fsel) return; const cur = DC.forceModel || ''; const kdOk = DC.kdaemon && kdTabOk(); fsel.length = 1;
+              for (const [v, t] of [['__main', 'Main session'], ...TAB_MODELS.filter(x => x[0])]) { if (DC.kdaemon && v !== '__main' && !(kdOk && v.startsWith('claude:'))) continue;
+                  const o = document.createElement('option'); o.value = v; o.textContent = t; fsel.appendChild(o); }
+              fsel.value = cur; if (fsel.value !== cur) fsel.value = ''; };
+          const show = () => { const v = DC.forceModel || ''; if (pill) { pill.hidden = !v; pill.textContent = v ? 'FORCED: ' + ((TAB_MODELS.find(x => x[0] === v) || [v, v === '__main' ? 'Main session' : v])[1]) : ''; }
+              if (fsel && fsel.value !== v) fsel.value = v; };
+          if (fsel) { fill(); fsel.addEventListener('pointerdown', fill); fsel.addEventListener('focus', fill);
+              fsel.addEventListener('change', () => { DC.forceModel = fsel.value || ''; show(); }); }
+          if (pill) pill.addEventListener('click', () => { DC.forceModel = ''; show(); }); }
         function editTab(oldName) {
             const w = document.createElement('div');
             w.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px';
@@ -4701,7 +4717,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (target !== 'droplet' || raw.startsWith('/')) return 'Timed send is for a plain message to ' + (DC.instName || 'Droplet') + '.';
             if (KIT && KIT.hasAtt && KIT.hasAtt()) return 'Attachments cannot be timed yet. Remove them or send now.';
             const tpc = (DC.topic && DC.topic !== FAV_TAB) ? { topic: DC.topic } : {};
-            const tm = (DC.topic && jobTabModel(DC.topic)) || '';
+            const tm = ((DC.topic || DC.forceModel) && jobTabModel(DC.topic)) || '';
             const wantPing = !!($('#dc-chat-ping') && $('#dc-chat-ping').checked);
             try {
                 const lref = push(ref(database, `${DC.base}/chat/turns`)), rref = push(ref(database, `${DC.base}/routines`));
@@ -4877,7 +4893,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 const job = target === 'command'
                     ? { kind: 'command', command: raw, code: ykCode, chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing }
                     : { kind: 'prompt', target: jobTarget, rough: raw, enhanced: prompt, chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing,
-                        enhance: !!(enhOn && DC.kdaemon), lturn: lref.key, ...tpc, ...(jobTarget === 'droplet' && DC.topic && !DC.mainSession && jobTabModel(DC.topic) ? { tabModel: jobTabModel(DC.topic) } : {}), ...(editTurn ? { edited: true } : {}) };   // kdaemon: enhance server-side + which turn to annotate
+                        enhance: !!(enhOn && DC.kdaemon), lturn: lref.key, ...tpc, ...(jobTarget === 'droplet' && (DC.topic || DC.forceModel) && !DC.mainSession && jobTabModel(DC.topic) ? { tabModel: jobTabModel(DC.topic) } : {}), ...(editTurn ? { edited: true } : {}) };   // kdaemon: enhance server-side + which turn to annotate
                 await set(jref, job);
                 try { await update(lref, { jobId: jref.key }); } catch (_) {}   // lets a later delete blank the job text as well
                 DC.lastJob = jref.key;
@@ -5107,6 +5123,21 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 // as "(switching…)" until the hook publishes anything newer than the pick - whatever it says wins.
                 let pend = DC.modelPending || null;
                 if (pend && ((mm.modelAt && mm.modelAt > pend.at) || Date.now() - pend.at > 3 * 3600e3)) { pend = DC.modelPending = null; }
+                // 1.0.252 (L 2026-11-18 "when Claude is out what does the model dropdown say?" - it kept saying Opus): when the daemon's
+                // failover had GPT/Copilot answer (meta.poolLabel, newer than the last Claude modelAt), the box names THAT, greyed, with
+                // no "(in use)" on any Claude row. The next Claude reply writes a newer modelAt and this clears by itself.
+                const pool = (!pend && mm.poolLabel && (mm.poolAt || 0) > (mm.modelAt || 0)) ? mm.poolLabel : '';
+                if (pool) {
+                    [...sel.options].forEach(o => { if (o.dataset.base == null) o.dataset.base = o.value === '' ? 'unknown' : o.textContent; o.textContent = o.dataset.base; });
+                    const ph0 = DC.modelPh || (DC.modelPh = sel.querySelector('option[value=\"\"]'));
+                    if (ph0) { if (!ph0.parentNode) sel.insertBefore(ph0, sel.firstChild); ph0.textContent = pool; }
+                    sel.value = ''; sel.style.opacity = '.6';
+                    if (lbl) lbl.title = 'Claude is out - ' + (mm.poolModel || pool) + ' answered the last message' + (mm.poolAt ? ', ' + agoStr(mm.poolAt) : '')
+                        + '. This goes back to the Claude model by itself on Claude’s next reply.';
+                    return;
+                }
+                sel.style.opacity = '';
+                { const ph1 = DC.modelPh; if (ph1 && ph1.dataset.base) ph1.textContent = ph1.dataset.base; }
                 const want = String(mm.modelLabel || '').toLowerCase().split(/\s+/)[0];   // "Opus 5.5" -> "opus"
                 // the box names what is IN USE: the current model reads "Opus (in use)", a pick in flight "Fable (switching…)", and the
                 // blank row says "unknown" instead of "switch to…" (which read like an instruction and made the box look stuck)
