@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.257"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.259"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1779,6 +1779,15 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 if (fk.length) { const p = {}; for (const k of fk) p[`${k}/topic`] = null; await update(ref(database, `${DC.base}/chat/favorites`), p); }
                 const inflight = await retargetJobs(name, null);
                 await set(ref(database, `${DC.base}/chat/topics/${topicKey(name)}`), null);
+                // 1.0.258 (L 11-19): a removed tab forgets its model + side threads, so a new tab with the same name starts
+                // on Default, fresh. Thread keys = daemon's: <tk>__<model>, codex_<tk>__<model>, cascade__<tk>, codex_cascade__<tk>.
+                try {
+                    const tkey = topicKey(name);
+                    await set(ref(database, `${DC.base}/settings/tabModel/${tkey}`), null);
+                    const ss = (await get(ref(database, `${DC.base}/settings/tabSession`))).val() || {};
+                    const p = {}; for (const k of Object.keys(ss)) if (k.startsWith(tkey + '__') || k.startsWith('codex_' + tkey + '__') || k === 'cascade__' + tkey || k === 'codex_cascade__' + tkey) p[k] = null;
+                    if (Object.keys(p).length) await update(ref(database, `${DC.base}/settings/tabSession`), p);
+                } catch (e) { console.warn('tab model/thread cleanup failed', e); }
                 setTopic('');
                 if (status) status.textContent = tk.length
                     ? `# ${name} removed · ${tk.length} message${tk.length === 1 ? '' : 's'} kept, now untagged in All`
