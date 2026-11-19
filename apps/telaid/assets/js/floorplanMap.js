@@ -614,7 +614,7 @@ export function mountRadarMap(root, opts = {}) {
       return Object.entries(DPLANS).filter(([, v]) => v && v.url).sort((a, b) => (a[1].addedAt || 0) - (b[1].addedAt || 0)).map(([k, v]) => {
         const w = Number(v.w) || 3000, h = Number(v.h) || 2000, c = v.cal && v.cal.k ? v.cal : null;
         const meta = c ? { w, h, k: c.k, x0: c.x0, y0: c.y0 } : { w, h, k: w / 200, x0: 0, y0: 200 * h / w, synthetic: true };
-        return { key: "d:" + k, dev: k, label: v.name || k, meta: { ...meta, label: v.name || k }, src: v.url, owner }; });
+        return { key: "d:" + k, dev: k, label: v.name || k, meta: { ...meta, label: v.name || k, color: !!v.color }, src: v.url, owner }; });   // color: true = paper look (never inverted; blue stays blue)
     }
     function drawDevices(dpr, r) {
       const h = r * 1.05;
@@ -822,7 +822,7 @@ export function mountRadarMap(root, opts = {}) {
       let su = Math.min(...cs.map(q => q[0])), sv = Math.min(...cs.map(q => q[1])), eu = Math.max(...cs.map(q => q[0])), ev = Math.max(...cs.map(q => q[1]));
       su = Math.max(0, Math.floor(su) - 2); sv = Math.max(0, Math.floor(sv) - 2); eu = Math.min(W, Math.ceil(eu) + 2); ev = Math.min(H, Math.ceil(ev) + 2);
       if (eu <= su || ev <= sv) return;
-      cx.save(); cx.globalAlpha = planMode === "full" ? (light ? 0.95 : 1) : (light ? 0.6 : 0.7);   // CLEARER LINES (L 2026-11-18 "the lines of the maps need to be clearer"): dim was .45/.4, full dark .85; the lighter-blue background tried first did not help and was reverted cx.globalCompositeOperation = light ? "multiply" : p.color ? "source-over" : "screen";
+      cx.save(); cx.globalAlpha = p.color ? 1 : planMode === "full" ? (light ? 0.95 : 1) : (light ? 0.6 : 0.7);   // a colour sheet = the paper print at full strength (L 2026-11-18 "still having issues making out the map")   // CLEARER LINES (L 2026-11-18 "the lines of the maps need to be clearer"): dim was .45/.4, full dark .85; the lighter-blue background tried first did not help and was reverted cx.globalCompositeOperation = light ? "multiply" : p.color ? "source-over" : "screen";
       cx.setTransform(a, b, c, d, e, f); cx.drawImage(im, su, sv, eu - su, ev - sv, su, sv, eu - su, ev - sv); cx.restore();
       cx.setTransform(1, 0, 0, 1, 0, 0);
     }
