@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.268"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.269"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1171,6 +1171,14 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         const LIVE_MODEL = 'llama3.2:3b';   // the in-box rewrite. 2026-11-14 (L, Option A): was gemma2:9b (timed 2026-09-25) - 3b (~2.5 GB) fits next to Yuki's qwen3:30b-a3b on the 3090, gemma2 + qwen3:30b did not and every swap cost a 30-47 s cold load
         const $ = s => document.querySelector(s);
         const DC = { uid: null, base: null, memory: [], watchJob: null };
+        // OWNER ON KDAEMON (2026-11-20, L: se moves to the one daemon): the owner's own machine runs kdaemon in live-session mode.
+        // DC.kdaemon is tested FIRST in every helper, so HUB_OWNER_UID (a const declared further down) is never read before it exists.
+        // kdAb reads what the daemon REPORTS (meta.abilities), so a missing grant or a headless fallback puts that feature back in member mode.
+        function kdOwner() { return !!DC.kdaemon && DC.uid === HUB_OWNER_UID; }
+        function kdMember() { return !!DC.kdaemon && !kdOwner(); }
+        function kdAb(k, n) { const a = ((DC.lastMeta || {}).abilities || {})[k]; return n ? Array.isArray(a) && a.includes(n) : !!a; }
+        function kdNoSession() { return !!DC.kdaemon && !(kdOwner() && kdAb('liveSession')); }   // true = no terminal session to wake / read / send /model to
+        function yukiSe() { return !DC.guest && DC.daemonOn && (!DC.kdaemon || kdAb('hooks', 'yuki')); }   // Yuki on se answers only where a daemon serves her; else the in-page Local answer
         // ENCRYPTED TABS (TRIAL 2026-11-19, L: "Encrypt this tab" switch on the pencil, OFF by default): a tab whose switch is on
         // (settings/tabEnc/<tab> = true) stores its message text as an AGCM1 blob - the onlinenotes format (AES-256-GCM,
         // PBKDF2-SHA256 210k, AGCM1.<salt>.<iv>.<ct>) that the daemon's chat_crypt.py reads and writes too. Records carry
@@ -1747,7 +1755,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const fld = 'font-size:16px;padding:8px;border-radius:8px;border:1px solid var(--border,#345);background:var(--bg,#0d1526);color:inherit;width:100%;box-sizing:border-box';
             box.innerHTML = '<b>Edit tab</b><label>Name<input id="dc-te-name" maxlength="40"></label><label>Model<select id="dc-te-model"></select></label>'
                 + '<small id="dc-te-note" style="opacity:.75"></small>'
-                + (DC.kdaemon ? '' : '<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="dc-te-enc" style="width:18px;height:18px"> 🔒 Encrypt this tab</label><small id="dc-te-encnote" style="opacity:.75;white-space:pre-line"></small><div><button class="dc-btn ghost sm" id="dc-te-key" type="button">Passphrase…</button></div>')
+                + (DC.kdaemon ? ((DC.tabEnc || {})[topicKey(oldName)] ? '<small style="opacity:.75">🔒 Encrypted tabs are not on this daemon yet. New messages here are stored as plain text.</small>' : '') : '<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="dc-te-enc" style="width:18px;height:18px"> 🔒 Encrypt this tab</label><small id="dc-te-encnote" style="opacity:.75;white-space:pre-line"></small><div><button class="dc-btn ghost sm" id="dc-te-key" type="button">Passphrase…</button></div>')
                 + '<div style="display:flex;gap:8px;justify-content:flex-end"><button class="dc-btn ghost sm" id="dc-te-del" style="margin-right:auto;color:var(--dc-red,#e5534b)">Remove tab</button><button class="dc-btn ghost sm" id="dc-te-x">Cancel</button><button class="dc-btn sm" id="dc-te-ok">Save</button></div>';
             w.appendChild(box); document.body.appendChild(w);
             const name = box.querySelector('#dc-te-name'), sel = box.querySelector('#dc-te-model'), note = box.querySelector('#dc-te-note');
@@ -1756,6 +1764,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             for (const [v, t] of TAB_MODELS) { const setup = kdSetupNeeded(v); if (DC.kdaemon && v && !kdKindOk(v) && !setup) continue;   // member kdaemon: Default + Claude (0.2.30+) + Copilot/Codex when its meta lists them (0.2.33), or granted = "(set up first)"
                 const o = document.createElement('option'); o.value = v; o.textContent = t + (setup ? ' (set up first)' : ''); sel.appendChild(o); }
             sel.value = tabModelOf(oldName); if (sel.value !== tabModelOf(oldName)) sel.value = '';
+            // kdaemon cannot run local: / colibri: / grok: tab models - say so, and keep the saved model through a Save (a rename must not wipe it)
+            const lost = DC.kdaemon && tabModelOf(oldName) && !kdKindOk(tabModelOf(oldName)) ? tabModelOf(oldName) : '';
             note.style.whiteSpace = 'pre-line';
             const say = () => { const ek = sel.value.split(':')[0], okBtn = box.querySelector('#dc-te-ok'), setup = kdSetupNeeded(sel.value);
                 if (okBtn) { okBtn.disabled = setup; okBtn.style.opacity = setup ? '.45' : ''; }
@@ -1765,6 +1775,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 : DC.kdaemon ? 'Its own conversation on this model: reads your folder and memory, not the main chat, same file rules.'
                 : 'Its own side session: reads memory, no main-session chat, and it can use tools and change files.'; };
             sel.onchange = say; say();
+            if (lost) note.textContent = 'This tab is set to ' + lost + ', which is not on this daemon yet - its messages go to the main session.\n' + note.textContent;
             // 🔒 ENCRYPT THIS TAB (trial 11-19): new messages in this tab are stored encrypted; the note says which key, honestly
             const encBox = box.querySelector('#dc-te-enc'), encNote = box.querySelector('#dc-te-encnote');
             const encSay = () => { if (!encNote) return; encNote.textContent = (encBox.checked ? 'New messages here (yours and the replies) are stored encrypted. Old ones stay as they are; turning it off stops encrypting new ones.\n' : 'Off: messages here are stored as plain text.\n')
@@ -1789,7 +1800,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 const nm = String(name.value).trim().replace(/\s+/g, ' ').slice(0, 40), m = sel.value, encOnV = !!(encBox && encBox.checked);
                 close();
                 try {
-                    await set(ref(database, `${DC.base}/settings/tabModel/${topicKey(nm || oldName)}`), m || null);
+                    await set(ref(database, `${DC.base}/settings/tabModel/${topicKey(nm || oldName)}`), m || (lost || null));
                     if (encBox) await set(ref(database, `${DC.base}/settings/tabEnc/${topicKey(nm || oldName)}`), encOnV || null);   // 🔒 trial 11-19
                     if (nm && nm !== oldName) { await set(ref(database, `${DC.base}/settings/tabModel/${topicKey(oldName)}`), null); if (encBox) await set(ref(database, `${DC.base}/settings/tabEnc/${topicKey(oldName)}`), null); await renameTopic(oldName, nm); }
                 } catch (e) { const st = $('#dc-chat-status'); if (st) st.textContent = '⚠ tab edit failed: ' + (e.message || e); }
@@ -3211,7 +3222,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 const out = [], st = DC.dropletState;
                 const rs = replySuggFor(DC.topic);
                 if (rs) out.push({ show: '\u21a9 ' + rs, put: rs, reply: true });
-                if (st && st !== 'up' && !DC.kdaemon) out.push({ show: 'Droplet is ' + st + ' - tap the red dot to wake it', put: null });
+                if (st && st !== 'up' && !kdNoSession()) out.push({ show: 'Droplet is ' + st + ' - tap the red dot to wake it', put: null });
                 const un = document.querySelectorAll('.dc-topic.unread').length;
                 if (un) out.push({ show: un + ' tab' + (un > 1 ? 's have' : ' has') + ' a reply you have not read', put: null });
                 if (DC.topic && DC.topic !== FAV_TAB) out.push({ show: 'ask about ' + DC.topic + '…', put: 'Where does ' + DC.topic + ' stand right now?' });
@@ -3470,7 +3481,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // Another tab, or another brain/model, must not make this composer look busy. Old pending bubbles without brainAI
             // metadata do not pulse; they still expire from the indicator after the normal 30-minute orphan cutoff.
             const selectedTarget = ($('#dc-chat-target') || {}).value || 'droplet';
-            const activeBrainAI = selectedTarget === 'local' && !DC.guest && DC.daemonOn ? 'yuki'
+            const activeBrainAI = selectedTarget === 'local' && yukiSe() ? 'yuki'
                 : selectedTarget === 'droplet' && !DC.mainSession ? (jobTabModel(DC.topic) || 'droplet') : selectedTarget;
             const activeTopic = DC.topic === FAV_TAB ? '' : (DC.topic || '');
             const thinking = !R && Object.values(obj || {}).some(t => t && t.pending && Date.now() - (t.ts || 0) < 30 * 60 * 1000
@@ -4568,7 +4579,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // `obj` under-reported the real node 6x (95.4k shown vs 557.8k, 2026-09-19) - and this
             // is the exact number you look at to decide whether to archive. Daemon 0.24 publishes
             // the true count; fall back to the local sum if an older daemon is running.
-            const real = DC.lastMeta && Number(DC.lastMeta.threadChars);
+            const real = !DC.kdaemon && DC.lastMeta && Number(DC.lastMeta.threadChars);   // kdaemon never writes threadChars: a stale value must not drive the meter
             const chars = real > 0 ? real
                 : Object.values(obj || {}).reduce((n, t) => n + ((t && t.text) ? t.text.length : 0), 0);
             const lim = DC.autoArchiveChars || 0;
@@ -4890,7 +4901,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (!raw || !DC.base) return 'Type the message first.';
             const target = ($('#dc-chat-target') && $('#dc-chat-target').value) || 'droplet';
             const KIT = window.__dcKit;
-            if (DC.remote || DC.guest || DC.kdaemon) return 'Timed send only works on your own console for now.';
+            if (DC.remote || DC.guest || (DC.kdaemon && !(kdOwner() && kdAb('routines')))) return 'Timed send only works on your own console for now.';
             if (DC.editKey) return 'Finish the edit first.';
             if (target !== 'droplet' || raw.startsWith('/')) return 'Timed send is for a plain message to ' + (DC.instName || 'Droplet') + '.';
             if (KIT && KIT.hasAtt && KIT.hasAtt()) return 'Attachments cannot be timed yet. Remove them or send now.';
@@ -4986,6 +4997,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const who = target === 'local' ? (DC.botWho || 'Local') : target === 'droplet' ? (DC.instName || 'Droplet') : (CHAT_WHO[target] || 'Droplet');
             // ⌘ Command (2026-09-16, pick D): every run needs a live YubiKey code; the daemon verifies it, one use per code
             let ykCode = '';
+            if (target === 'command' && DC.kdaemon && !(DC.lastMeta || {}).allowCommands) { $('#dc-chat-status').textContent = '⌘ commands are off on this daemon'; return; }
             if (target === 'command') {
                 ykCode = String(window.prompt('Key code to run this on se (the authenticator entry "Droplet", 6 digits):') || '').replace(/[^0-9]/g, '');   // "Key", not the brand (L, 2026-09-25)
                 if (ykCode.length !== 6) { $('#dc-chat-status').textContent = '⌘ cancelled - no Key code, nothing was sent'; return; }
@@ -5058,7 +5070,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 }
                 if (editTurn) ta.value = '';   // a normal send already emptied the box at the start - clearing again here would eat what he typed since
                 let prompt = kx.pre + raw + kx.post, note = '';
-                if (enhOn && DC.kdaemon) {
+                if (enhOn && kdMember()) {
                     note = '✨ enhance by your daemon';       // their ollama, server-side; it writes `enhanced` onto this turn
                 }
                 // 2026-09-25 (L: "I'm seeing the old style enhance where it gives the 'see what was sent' part - I want it
@@ -5070,7 +5082,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 // to droplet I can't post until local is done"): the reply lands in its own pending bubble whenever
                 // ollama answers, exactly like a Droplet job; the box is yours again the moment it is queued.
                 // one Yuki: L's own login + se up -> the same Yuki runs on se with her tools (job target 'yuki'); else the page answers
-                const jobTarget = target === 'local' && !DC.guest && DC.daemonOn ? 'yuki' : target;
+                const jobTarget = target === 'local' && yukiSe() ? 'yuki' : target;
                 if (target === 'local' && jobTarget === 'local') { localReply(prompt, tpc, turns).catch(() => {}); send.disabled = false; ta.focus(); return; }
                 const jref = push(ref(database, `${DC.base}/jobs`));
                 const pendRef = push(ref(database, turns));
@@ -5079,7 +5091,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 const job = target === 'command'
                     ? { kind: 'command', command: raw, code: ykCode, chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing }
                     : { kind: 'prompt', target: jobTarget, rough: raw, enhanced: prompt, ...(encOn ? { rough: (await encF(raw)).text, enhanced: (await encF(prompt)).text, enc: ENC.MARK, encKey: encMode } : {}), chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing,
-                        enhance: !!(enhOn && DC.kdaemon), lturn: lref.key, ...tpc, ...(jobTarget === 'droplet' && (DC.topic || DC.forceModel) && !DC.mainSession && jobTabModel(DC.topic) ? { tabModel: jobTabModel(DC.topic) } : {}), ...(editTurn ? { edited: true } : {}) };   // kdaemon: enhance server-side + which turn to annotate
+                        enhance: !!(enhOn && kdMember()), lturn: lref.key, ...tpc, ...(jobTarget === 'droplet' && (DC.topic || DC.forceModel) && !DC.mainSession && jobTabModel(DC.topic) ? { tabModel: jobTabModel(DC.topic) } : {}), ...(editTurn ? { edited: true } : {}) };   // kdaemon: enhance server-side + which turn to annotate
                 await set(jref, job);
                 try { await update(lref, { jobId: jref.key }); } catch (_) {}   // lets a later delete blank the job text as well
                 DC.lastJob = jref.key;
@@ -5282,14 +5294,16 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     + (DC.kdaemon ? ' · ollama ' + (DC.ollamaUp ? 'detected' : 'not detected') : '');
                 ad.title = full || 'no version reported';
             }
-            if (DC.kdaemon) { drp.className = 'dc-pill ' + (dOn ? 'on' : 'off'); drp.lastChild.textContent = 'per msg'; }
+            if (kdNoSession()) { drp.className = 'dc-pill ' + (dOn ? 'on' : 'off'); drp.lastChild.textContent = 'per msg'; }
             // a kdaemon runs only its owner's Droplet: the CompMan target is L's fleet, so hide it there (a kdaemon would route it to Droplet anyway)
-            const cmOpt = document.querySelector('#dc-chat-target option[value="compman"]'); if (cmOpt) { cmOpt.hidden = !!DC.kdaemon; if (DC.kdaemon && $('#dc-chat-target').value === 'compman') $('#dc-chat-target').value = 'droplet'; }
+            const cmOpt = document.querySelector('#dc-chat-target option[value="compman"]'); if (cmOpt) { const noCm = !!DC.kdaemon && !(kdOwner() && kdAb('hooks', 'compman')); cmOpt.hidden = noCm; if (noCm && $('#dc-chat-target').value === 'compman') $('#dc-chat-target').value = 'droplet'; }
             // 🦙 Local used to be hidden for every kdaemon user. 2026-09-19 (L: anyone in the Louverse can participate): it stays offered -
             // it is the only thing that answers while their PC / daemon is off, and the same "Claude is out" fallback L has. syncTarget() picks.
             const loOpt = document.querySelector('#dc-chat-target option[value="local"]'); if (loOpt) loOpt.hidden = false;
             syncTarget();
-            $('#dc-console').classList.toggle('kd', DC.kdaemon);   // kdaemon has no routines engine / fleet / pings: System tab shows only the account line
+            $('#dc-console').classList.toggle('kd', kdMember());
+            { const cl = $('#dc-cmd-lbl'); if (cl) cl.hidden = !!DC.kdaemon && !m.allowCommands; }   // kdaemon: the Command target only where the daemon says commands are on
+            { const fb = $('#dc-fresh-btn'); if (fb && fb.textContent.indexOf('Restarting') < 0) { fb.disabled = !!DC.kdaemon; fb.title = DC.kdaemon ? 'not on this daemon yet - a fresh start happens by itself at 200K idle / 350K' : 'write a handoff note, then restart this session fresh to clear the context'; } }   // kdaemon has no routines engine / fleet / pings: System tab shows only the account line
             // pings text names the bot the daemon actually sends from (daemon publishes meta.tgBot from getMe), never a hardcoded handle
             const pb = $('#dc-pg-bot'); if (pb) pb.textContent = m.tgBot && m.tgBot.username ? `Droplet DMs you on Telegram from @${m.tgBot.username} ("${m.tgBot.name || ''}") on job/routine completion.` : 'Droplet DMs you on Telegram on job/routine completion.';
             // MODEL IN USE (2026-09-20, L: "can the model selector list what model is currently in").
@@ -5303,7 +5317,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 // 1.0.218 (L 2026-11-15 "it always says switch to and that's causing confusion"): this control sends /model to a TERMINAL
                 // session - a member's kdaemon has none (claude -p per message), so there it only made dead "/model opus" bubbles
                 // (Erik's, 11-15). Hidden on kdaemon consoles; they pick models per tab instead.
-                if (lbl) lbl.hidden = !!DC.kdaemon; if (DC.kdaemon) return;
+                if (lbl) lbl.hidden = kdNoSession(); if (kdNoSession()) return;
                 // SWITCHING (L 2026-11-09 "I switched to fable and it went back to opus"): the published label only
                 // changes when a turn ENDS (the Stop hook reads the transcript), so a pick looked ignored. Hold the pick
                 // as "(switching…)" until the hook publishes anything newer than the pick - whatever it says wins.
@@ -5349,10 +5363,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             DC.syncModelSel();
             const enh = $('#dc-chat-enhance'), enhLbl = enh && enh.closest('label');
             if (enh) {
-                const off = DC.kdaemon && !DC.ollamaUp;
+                const off = kdMember() && !DC.ollamaUp;
                 enh.disabled = off; if (off) enh.checked = false;
                 if (enhLbl) { enhLbl.style.opacity = off ? '.45' : ''; enhLbl.title = off ? 'greyed out: your daemon has not detected Ollama on your PC yet (install Ollama and it turns on by itself)'
-                    : (DC.kdaemon ? 'polish the message with Ollama on your PC (' + ((m.ollama && m.ollama.model) || 'model') + ') before Droplet sees it' : 'polish the message with the enhancer (ollama + rules + memory recall) before it goes; also renders replies clean'); }
+                    : (kdMember() ? 'polish the message with Ollama on your PC (' + ((m.ollama && m.ollama.model) || 'model') + ') before Droplet sees it' : 'polish the message with the enhancer (ollama + rules + memory recall) before it goes; also renders replies clean'); }
             }
         }
 
@@ -5670,7 +5684,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         $('#dc-x').onclick = () => { $('#dc-console').classList.remove('open'); lockZoom(false); lockPage(false); };
         document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('#dc-console').classList.contains('open') && !(e.target.closest && e.target.closest('.dc-topic-new, .dc-topic-in'))) $('#dc-x').click(); });   // keyboard close (Escape inside the new-topic box only closes the box)
         async function dcWake() {
-            if (!DC.base || DC.kdaemon || DC.waking || (DC.guest && !DC.daemonOn)) return;   // a guest with no daemon has nothing to wake - the job would sit forever
+            if (!DC.base || kdNoSession() || DC.waking || (DC.guest && !DC.daemonOn)) return;   // a guest with no daemon has nothing to wake - the job would sit forever
             DC.waking = true;
             const drp = $('#dc-droplet'); drp.className = 'dc-pill busy clk'; drp.lastChild.textContent = 'waking…';
             const j = push(ref(database, `${DC.base}/jobs`));
