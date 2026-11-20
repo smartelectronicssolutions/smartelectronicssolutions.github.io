@@ -76,7 +76,10 @@ if (!window.authListenerAttached) {
 }
 
 // 🧠 DOM READY — wire whichever template exists
-document.addEventListener("DOMContentLoaded", () => {
+// onReady (2026-11-19): firebase-init's site-lock gate is a top-level await, so on a non-owner device this module can run
+// AFTER DOMContentLoaded already fired - a plain listener then never ran and Sign In / Logout did nothing. Run now if ready.
+const onReady = (fn) => (document.readyState === "loading" ? document.addEventListener("DOMContentLoaded", fn) : fn());
+onReady(() => {
   // Template A: inline panel
   const authBtn = document.getElementById("auth-btn");
   const loginBox = document.getElementById("login-inline");
@@ -142,7 +145,7 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // 🎛️ DEBUG — double-click header h1 to reveal login section
-document.addEventListener("DOMContentLoaded", () => {
+onReady(() => {
   const headerTitle = document.querySelector("header h1");
   let loginSections = Array.from(document.querySelectorAll(".logins-section"));
   if (!loginSections.length) {

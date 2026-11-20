@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.259"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.263"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1143,6 +1143,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             <script>
                 (function () {   // ADVANCED FOLDS (L 2026-10-04 "make the other large areas retractable like Yuki and such"): every panel's heading toggles its body
                     const panels = [['dc-prof-panel', 'Profile'], ['dc-look-panel', 'Look'], ['dc-notif-panel', 'Notifications'], ['dc-chats-panel', 'Chats'], ['dc-bot-panel', 'onlinechat bot'], ['dc-rt-panel', 'Routines'], ['dc-in-panel', 'Conversation'], ['dc-use-panel', 'Usage']];
+                    // 1.0.261 (L 2026-11-20: "reset them once on every device"): one time per device, forget the saved fold choices of these panels so the new defaults show; taps after that stick again
+                    try { if (localStorage.getItem('dc_fold_reset') !== '1') { for (const [id] of panels) localStorage.removeItem('dc_fold_' + id); localStorage.setItem('dc_fold_reset', '1'); } } catch (_) {}
                     for (const [id, label] of panels) {
                         const p = document.getElementById(id); if (!p) continue;
                         let h = p.querySelector(':scope > h4');
@@ -1150,7 +1152,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                         const body = document.createElement('div'); body.className = 'dc-pbody'; while (h.nextSibling) body.appendChild(h.nextSibling); p.appendChild(body);
                         const chev = document.createElement('span'); chev.className = 'chev'; chev.textContent = '▾'; chev.style.marginRight = '6px'; h.insertBefore(chev, h.firstChild);
                         h.classList.add('dc-fold'); h.style.cursor = 'pointer'; h.style.userSelect = 'none'; h.setAttribute('role', 'button'); h.tabIndex = 0;
-                        const key = 'dc_fold_' + id; let open = true; try { open = localStorage.getItem(key) !== '0'; } catch (_) {}
+                        // 1.0.260 (L 2026-11-20: "defaults: Look, Notifications and Usage expanded, all other collapsed"): a section with no saved choice on this device starts open only if it is one of those three; a tap still sticks per device
+                        const key = 'dc_fold_' + id; const DEF_OPEN = id === 'dc-look-panel' || id === 'dc-notif-panel' || id === 'dc-use-panel';
+                        let open = DEF_OPEN; try { const sv = localStorage.getItem(key); if (sv !== null) open = sv !== '0'; } catch (_) {}
                         const paint = () => { body.hidden = !open; chev.textContent = open ? '▾' : '▸'; };
                         const flip = () => { open = !open; try { localStorage.setItem(key, open ? '1' : '0'); } catch (_) {} paint(); };
                         h.addEventListener('click', flip); h.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } });
@@ -1170,6 +1174,81 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         const LIVE_MODEL = 'llama3.2:3b';   // the in-box rewrite. 2026-11-14 (L, Option A): was gemma2:9b (timed 2026-09-25) - 3b (~2.5 GB) fits next to Yuki's qwen3:30b-a3b on the 3090, gemma2 + qwen3:30b did not and every swap cost a 30-47 s cold load
         const $ = s => document.querySelector(s);
         const DC = { uid: null, base: null, memory: [], watchJob: null };
+        // ENCRYPTED TABS (TRIAL 2026-11-19, L: "Encrypt this tab" switch on the pencil, OFF by default): a tab whose switch is on
+        // (settings/tabEnc/<tab> = true) stores its message text as an AGCM1 blob - the onlinenotes format (AES-256-GCM,
+        // PBKDF2-SHA256 210k, AGCM1.<salt>.<iv>.<ct>) that the daemon's chat_crypt.py reads and writes too. Records carry
+        // enc:'agcm1' + encKey:'uid'|'pass'. uid = the console owner's uid (zero setup - scrambles the text, but the id is not
+        // secret); pass = the passphrase typed once on this device (localStorage dc-chat-key, never sent to Firebase) = the real
+        // lock. One salt per secret per page load (fresh IV per message) + a key cache = one PBKDF2 per thread, not per message.
+        const ENC = { MARK: 'agcm1', PRE: 'AGCM1.', ITERS: 210000, LS: 'dc-chat-key', gen: 0, keys: new Map(), salt: new Map(), plain: new Map(), busy: new Set(), bad: new Set() };
+        const encB64 = u8 => { let b = ''; for (let i = 0; i < u8.length; i += 0x8000) b += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(b); };
+        const encUnb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+        const encIsBlob = s => typeof s === 'string' && s.startsWith(ENC.PRE) && s.split('.').length === 4;
+        const encPass = () => { try { return localStorage.getItem(ENC.LS) || ''; } catch (_) { return ''; } };
+        const encOwner = () => (DC.remote && DC.remote.owner) || String(DC.base || '').split('/')[0] || DC.uid || '';
+        const encSecret = mode => mode === 'pass' ? (encPass() || null) : (encOwner() || null);
+        function encKeyFor(secret, saltB64) { const id = secret + '|' + saltB64; if (ENC.keys.has(id)) return ENC.keys.get(id);
+            const te = new TextEncoder();
+            const p = crypto.subtle.importKey('raw', te.encode(secret), 'PBKDF2', false, ['deriveKey'])
+                .then(km => crypto.subtle.deriveKey({ name: 'PBKDF2', salt: encUnb64(saltB64), iterations: ENC.ITERS, hash: 'SHA-256' }, km, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']));
+            p.catch(() => ENC.keys.delete(id)); ENC.keys.set(id, p); return p; }
+        async function encryptChat(text, secret) {
+            if (!(window.crypto && crypto.subtle)) throw new Error('encrypted tabs need the secure page (https://luissolutions.us)');
+            if (!secret) throw new Error('no key for this encrypted tab');
+            let s = ENC.salt.get(secret); if (!s) { s = encB64(crypto.getRandomValues(new Uint8Array(16))); ENC.salt.set(secret, s); }
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await encKeyFor(secret, s), new TextEncoder().encode(text)));
+            return ENC.PRE + s + '.' + encB64(iv) + '.' + encB64(ct); }
+        async function decryptChat(blob, secret) { const [, s, iv, ct] = blob.split('.');
+            return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: encUnb64(iv) }, await encKeyFor(secret, s), encUnb64(ct))); }
+        window.__dcChatCrypt = { encryptChat, decryptChat, encIsBlob };   // test hook (writes nothing)
+        // member daemons (kdaemon) cannot read encrypted jobs yet, a guest view never writes - the switch only acts on L's own console
+        const tabEncOn = n => !!n && !DC.kdaemon && !DC.remote && !DC.guest && !!(DC.tabEnc || {})[String(n).replace(/[.#$\[\]\/]/g, '_')];
+        const encModeNow = () => encPass() ? 'pass' : 'uid';
+        // the text fields to write into tab `topic`: plain (markers cleared) or the blob + markers when that tab is encrypted
+        async function encFields(topic, text, mode) {
+            if (!tabEncOn(topic) || !text) return { text, enc: null, encKey: null };
+            mode = mode || encModeNow();
+            return { text: await encryptChat(String(text), encSecret(mode)), enc: ENC.MARK, encKey: mode }; }
+        // a job's reply as a turn's text fields: a sealed reply keeps its blob + markers, a plain one (notices, errors) stays plain
+        const encReplyFields = (j, text) => (j && j.enc === ENC.MARK && encIsBlob(text)) ? { text, enc: ENC.MARK, encKey: j.encKey || 'uid' } : { text, enc: null, encKey: null };
+        let encRedrawT = 0;
+        const encRedraw = () => { clearTimeout(encRedrawT); encRedrawT = setTimeout(() => { try { renderChat(DC.chatTurns || {}); } catch (_) {} }, 60); };
+        // what a turn SHOWS: plaintext once opened (cached per blob, memory only), else a lock line; opening is async and redraws
+        function encShow(t) {
+            if (!t || t.enc !== ENC.MARK || !encIsBlob(t.text)) return t;
+            const blob = t.text;
+            if (ENC.plain.has(blob)) return { ...t, text: ENC.plain.get(blob) };
+            const mode = t.encKey || 'uid', sec = encSecret(mode);
+            if (!sec) return { ...t, text: '🔒 encrypted - tap here to enter the key', encLocked: true };
+            const bid = blob + '|' + mode + '|' + ENC.gen;
+            if (ENC.bad.has(bid)) return { ...t, text: mode === 'pass' ? "🔒 encrypted - this device's key does not open it (tap here to change the key)" : '🔒 encrypted - could not be opened', encLocked: true };
+            if (!(window.crypto && crypto.subtle)) return { ...t, text: '🔒 encrypted - open the secure page (https) to read it', encLocked: true };
+            if (!ENC.busy.has(bid)) { ENC.busy.add(bid); decryptChat(blob, sec).then(p => { ENC.plain.set(blob, p); }, () => { ENC.bad.add(bid); }).finally(() => { ENC.busy.delete(bid); encRedraw(); }); }
+            return { ...t, text: '🔒 opening…', encLocked: true };
+        }
+        // the passphrase box (one per device): Save / Forget / Cancel. Password field, never echoed, never sent anywhere.
+        function encKeyDialog(after) {
+            const w = document.createElement('div');
+            w.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px';
+            const box = document.createElement('div');
+            box.style.cssText = 'width:100%;max-width:340px;background:var(--panel,#16213a);color:var(--text,#eee);border:1px solid var(--border,#345);border-radius:12px;padding:16px;display:grid;gap:10px';
+            const has = !!encPass();
+            box.innerHTML = '<b>🔒 Chat passphrase (this device)</b><small style="opacity:.8">The same passphrase L set on se with set_chat_key.py. Kept on this device only, never sent to Firebase. Without one, encrypted tabs use the default key (your account id) - that scrambles the text but is not a real lock.</small>'
+                + '<input id="dc-ek-in" type="password" autocomplete="off" data-1p-ignore placeholder="' + (has ? 'a passphrase is set - type to replace it' : 'passphrase') + '" style="font-size:16px;padding:8px;border-radius:8px;border:1px solid var(--border,#345);background:var(--bg,#0d1526);color:inherit;width:100%;box-sizing:border-box">'
+                + '<div style="display:flex;gap:8px;justify-content:flex-end">' + (has ? '<button class="dc-btn ghost sm" id="dc-ek-forget" style="margin-right:auto;color:var(--dc-red,#e5534b)">Forget key</button>' : '') + '<button class="dc-btn ghost sm" id="dc-ek-x">Cancel</button><button class="dc-btn sm" id="dc-ek-ok">Save</button></div>';
+            w.appendChild(box); document.body.appendChild(w);
+            const inp = box.querySelector('#dc-ek-in'); setTimeout(() => inp.focus(), 30);
+            const close = () => { w.remove(); if (after) after(); };
+            const reset = () => { ENC.gen++; ENC.plain.clear(); ENC.salt.clear(); ENC.keys.clear(); ENC.bad.clear(); encRedraw(); };
+            w.onclick = e => { if (e.target === w) close(); };
+            box.querySelector('#dc-ek-x').onclick = close;
+            const fg = box.querySelector('#dc-ek-forget'); if (fg) fg.onclick = () => { try { localStorage.removeItem(ENC.LS); } catch (_) {} reset(); close(); };
+            const ok = () => { const v = inp.value; if (!v) { close(); return; } try { localStorage.setItem(ENC.LS, v); } catch (_) {} reset(); close(); };
+            box.querySelector('#dc-ek-ok').onclick = ok;
+            inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); ok(); } else if (e.key === 'Escape') close(); });
+        }
+        window.__dcEncKeyDialog = encKeyDialog;
 
         const RULES = [
             { tag: 'always', label: 'voice: direct, markdown, no padding', topics: ['*'] },
@@ -1293,6 +1372,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 window.addEventListener('focus', chatWake);
             }
             onValue(ref(database, `${DC.base}/settings/tabModel`), s => { DC.tabModels = s.val() || {}; });
+            onValue(ref(database, `${DC.base}/settings/tabEnc`), s => { DC.tabEnc = s.val() || {}; renderTopics(); }, dcWarn('settings/tabEnc'));   // 🔒 encrypted tabs (trial 11-19)
             onValue(ref(database, `${DC.base}/chat/topics`), s => { DC.topicList = s.val() || {}; renderTopics(); });
             onValue(ref(database, `${DC.base}/chat/favorites`), s => { DC.favs = s.val() || {}; renderChat(DC.chatTurns || {}); });
             onValue(ref(database, `${DC.base}/seen/topics`), s => { const v = s.val() || {}; const norm = o => JSON.stringify(Object.keys(o || {}).sort().map(k => [k, o[k] && o[k].t, o[k] && +o[k].ts, o[k] && o[k].k ? Object.keys(o[k].k).sort().join(',') : ''])); const same = norm(v) === norm(DC.seenCloud) && DC.seenLoaded; DC.seenLoaded = true; DC.seenCloud = v; if (!same && !DC.remote) renderChat(DC.ownTurns || DC.chatTurns || {}); },
@@ -1665,7 +1745,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             box.style.cssText = 'width:100%;max-width:340px;background:var(--panel,#16213a);color:var(--text,#eee);border:1px solid var(--border,#345);border-radius:12px;padding:16px;display:grid;gap:10px';
             const fld = 'font-size:16px;padding:8px;border-radius:8px;border:1px solid var(--border,#345);background:var(--bg,#0d1526);color:inherit;width:100%;box-sizing:border-box';
             box.innerHTML = '<b>Edit tab</b><label>Name<input id="dc-te-name" maxlength="40"></label><label>Model<select id="dc-te-model"></select></label>'
-                + '<small id="dc-te-note" style="opacity:.75"></small><div style="display:flex;gap:8px;justify-content:flex-end"><button class="dc-btn ghost sm" id="dc-te-del" style="margin-right:auto;color:var(--dc-red,#e5534b)">Remove tab</button><button class="dc-btn ghost sm" id="dc-te-x">Cancel</button><button class="dc-btn sm" id="dc-te-ok">Save</button></div>';
+                + '<small id="dc-te-note" style="opacity:.75"></small>'
+                + (DC.kdaemon ? '' : '<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="dc-te-enc" style="width:18px;height:18px"> 🔒 Encrypt this tab</label><small id="dc-te-encnote" style="opacity:.75;white-space:pre-line"></small><div><button class="dc-btn ghost sm" id="dc-te-key" type="button">Passphrase…</button></div>')
+                + '<div style="display:flex;gap:8px;justify-content:flex-end"><button class="dc-btn ghost sm" id="dc-te-del" style="margin-right:auto;color:var(--dc-red,#e5534b)">Remove tab</button><button class="dc-btn ghost sm" id="dc-te-x">Cancel</button><button class="dc-btn sm" id="dc-te-ok">Save</button></div>';
             w.appendChild(box); document.body.appendChild(w);
             const name = box.querySelector('#dc-te-name'), sel = box.querySelector('#dc-te-model'), note = box.querySelector('#dc-te-note');
             name.style.cssText = fld; sel.style.cssText = fld; name.value = oldName;
@@ -1682,6 +1764,12 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 : DC.kdaemon ? 'Its own conversation on this model: reads your folder and memory, not the main chat, same file rules.'
                 : 'Its own side session: reads memory, no main-session chat, and it can use tools and change files.'; };
             sel.onchange = say; say();
+            // 🔒 ENCRYPT THIS TAB (trial 11-19): new messages in this tab are stored encrypted; the note says which key, honestly
+            const encBox = box.querySelector('#dc-te-enc'), encNote = box.querySelector('#dc-te-encnote');
+            const encSay = () => { if (!encNote) return; encNote.textContent = (encBox.checked ? 'New messages here (yours and the replies) are stored encrypted. Old ones stay as they are; turning it off stops encrypting new ones.\n' : 'Off: messages here are stored as plain text.\n')
+                + (encPass() ? 'Key: Passphrase (set on this device) - the real lock. se needs the same one (set_chat_key.py).' : 'Key: Default key (your account id) - scrambles the text in Firebase, but the id is not secret. Set a passphrase for a real lock.'); };
+            if (encBox) { encBox.checked = !!(DC.tabEnc || {})[topicKey(oldName)]; encBox.onchange = encSay; encSay();
+                box.querySelector('#dc-te-key').onclick = () => encKeyDialog(encSay); }
             const close = () => w.remove();
             w.onclick = e => { if (e.target === w) close(); };
             box.querySelector('#dc-te-x').onclick = close;
@@ -1697,11 +1785,12 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                   try { await set(ref(database, `${DC.base}/chat/topics/${topicKey(oldName)}`), null); } catch (_) {}
                   setTopic(''); }; }
             box.querySelector('#dc-te-ok').onclick = async () => {
-                const nm = String(name.value).trim().replace(/\s+/g, ' ').slice(0, 40), m = sel.value;
+                const nm = String(name.value).trim().replace(/\s+/g, ' ').slice(0, 40), m = sel.value, encOnV = !!(encBox && encBox.checked);
                 close();
                 try {
                     await set(ref(database, `${DC.base}/settings/tabModel/${topicKey(nm || oldName)}`), m || null);
-                    if (nm && nm !== oldName) { await set(ref(database, `${DC.base}/settings/tabModel/${topicKey(oldName)}`), null); await renameTopic(oldName, nm); }
+                    if (encBox) await set(ref(database, `${DC.base}/settings/tabEnc/${topicKey(nm || oldName)}`), encOnV || null);   // 🔒 trial 11-19
+                    if (nm && nm !== oldName) { await set(ref(database, `${DC.base}/settings/tabModel/${topicKey(oldName)}`), null); if (encBox) await set(ref(database, `${DC.base}/settings/tabEnc/${topicKey(oldName)}`), null); await renameTopic(oldName, nm); }
                 } catch (e) { const st = $('#dc-chat-status'); if (st) st.textContent = '⚠ tab edit failed: ' + (e.message || e); }
             };
         }
@@ -1784,6 +1873,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 try {
                     const tkey = topicKey(name);
                     await set(ref(database, `${DC.base}/settings/tabModel/${tkey}`), null);
+                    await set(ref(database, `${DC.base}/settings/tabEnc/${tkey}`), null);   // 🔒 trial 11-19: a new tab with this name starts unencrypted
                     const ss = (await get(ref(database, `${DC.base}/settings/tabSession`))).val() || {};
                     const p = {}; for (const k of Object.keys(ss)) if (k.startsWith(tkey + '__') || k.startsWith('codex_' + tkey + '__') || k === 'cascade__' + tkey || k === 'codex_cascade__' + tkey) p[k] = null;
                     if (Object.keys(p).length) await update(ref(database, `${DC.base}/settings/tabSession`), p);
@@ -1857,6 +1947,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 // same teal dashed outline the other person's chip has, so both sides see the same tab the same way.
                 const _sh = (window.__dcMyShares || []).find(x => x.topic === nm);
                 if (_sh) { c.classList.add('sharing'); c.insertAdjacentText('afterbegin', '📺 '); c.title = `shared with ${_sh.name} - they see it live (view only)`; }
+                if (tabEncOn(nm)) { c.insertAdjacentText('afterbegin', '🔒 '); c.title = 'encrypted tab' + (c.title ? ' · ' + c.title : ''); }   // trial 11-19
                 if (DC.topic === nm) { const p = document.createElement('span'); p.className = 'x'; p.textContent = '✎'; p.title = 'edit this tab: name and model';
                     p.onclick = e => { e.stopPropagation(); editTab(nm); }; c.appendChild(p); }
                 // MUTE PER CHAT (2026-10-23, Telegram review #2, on/off only): a muted tab still gets its messages + unread mark, no push
@@ -2050,7 +2141,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         function setEditMode(key) {
             DC.editKey = key || ''; const ta = $('#dc-chat-in'), wrap = $('.dc-chat-input'), send = $('#dc-chat-send'), st = $('#dc-chat-status');
             if (wrap) wrap.classList.toggle('editing', !!key); if (send) send.textContent = key ? '↻' : '▲';
-            if (key) { const t = (DC.chatTurns || {})[key]; if (ta) { ta.value = (t && t.text) || ''; ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } if (st) st.textContent = '✎ editing your last message · Esc to cancel'; }
+            if (key) { const t = encShow((DC.chatTurns || {})[key]); if (ta) { ta.value = (t && !t.encLocked && t.text) || ''; ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } if (st) st.textContent = '✎ editing your last message · Esc to cancel'; }
             else if (st && st.textContent.startsWith('✎ editing')) st.textContent = '';
         }
         document.getElementById('dc-chat-log') && document.getElementById('dc-chat-log').addEventListener('click', e => {
@@ -2296,7 +2387,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // sheet too - ext = { host, text, onDelete? } - same box, same arming, same ▶ / ⚡; # tag is Droplet-chat only.
         function confirmDelete(k, ext) {
             const host = ext ? ext.host : $('.dc-chat'); if (!host || host.querySelector('.dc-del')) return;
-            const t = ext ? { text: ext.text } : ((DC.topic === FAV_TAB ? (DC.favs || {}) : (DC.chatTurns || {}))[k] || {});
+            const t = ext ? { text: ext.text } : (encShow((DC.topic === FAV_TAB ? (DC.favs || {}) : (DC.chatTurns || {}))[k]) || {});   // encShow: an encrypted turn copies/plays its plain text (trial 11-19)
             if (!ext) { if (DC.editKey) { const ta0 = $('#dc-chat-in'); if (ta0) ta0.value = ''; } setEditMode(''); }   // a triple-tap on the newest message had started an edit: drop it
             const box = document.createElement('div'); box.className = 'dc-del';
             const playing = DC.speakingKey === k;
@@ -2444,9 +2535,16 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const src = (DC.topic === FAV_TAB ? (DC.favs || {}) : (DC.chatTurns || {}))[k]; if (!src) return;
             const on = !!(DC.favs || {})[k];
             await snapUndo(on ? 'unstarred' : 'starred', [`${DC.base}/chat/favorites/${k}`]);
-            try { await set(ref(database, `${DC.base}/chat/favorites/${k}`), on ? null : { s: 'D', who: src.who || 'Droplet', text: src.text || '', ts: src.ts || Date.now(), ...(src.topic ? { topic: src.topic } : {}), savedAt: Date.now() }); }
+            try { await set(ref(database, `${DC.base}/chat/favorites/${k}`), on ? null : { s: 'D', who: src.who || 'Droplet', text: src.text || '', ts: src.ts || Date.now(), ...(src.topic ? { topic: src.topic } : {}), ...(src.enc ? { enc: src.enc, encKey: src.encKey || 'uid' } : {}), savedAt: Date.now() }); }
             catch (err) { $('#dc-chat-status').textContent = '⚠ could not save favorite: ' + (err.message || err); }
         }, true);   // capture: runs before the edit/triple-tap handlers
+        // 🔒 LOCKED BUBBLE (trial 11-19): a tap on an encrypted message this device can't open = the passphrase box
+        document.getElementById('dc-chat-log') && document.getElementById('dc-chat-log').addEventListener('click', e => {
+            const el = e.target.closest && e.target.closest('[data-k]'); if (!el) return;
+            const t = (DC.topic === FAV_TAB ? (DC.favs || {}) : (DC.chatTurns || {}))[el.dataset.k];
+            if (!t || t.enc !== ENC.MARK || t.encKey !== 'pass') return;
+            const v = encShow(t); if (v && v.encLocked && v.text !== '🔒 opening…') encKeyDialog();
+        });
         // 1 / 2 BUTTONS: a tap sends that digit as the next message (the normal send path, so it gets its own bubble
         // and job); daemon 0.29 presses it on the terminal menu. Capture phase + stopPropagation keeps the tap out of
         // the triple-tap counter, and an in-progress edit is dropped first so the digit can never overwrite a message.
@@ -3351,7 +3449,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             DC.lastLKey = keys.slice().reverse().find(k => obj[k] && obj[k].s === 'L') || '';
             {   // suggested reply: only for a finished Droplet reply at the tail of a real tab (not the ★ view)
                 const tk = keys[keys.length - 1], tt = tk && obj[tk];
-                DC.replyTailK = (!favView && tt && tt.s === 'D' && !tt.pending && tt.text) ? tk : '';
+                DC.replyTailK = (!favView && tt && tt.s === 'D' && !tt.pending && tt.text && !tt.enc) ? tk : '';   // !enc: an encrypted reply is never sent to the reply-suggest model
                 if (DC.replyTailK && !R) draftReply(tk, tt, DC.lastLKey && obj[DC.lastLKey] ? obj[DC.lastLKey].text : '');
             }
             for (const k of keys) if (obj[k] && obj[k].s === 'L') obj[k].__last = (k === DC.lastLKey);
@@ -3372,7 +3470,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             for (const el of Array.from(log.children)) { if (!live.has(el.dataset.k)) { el.remove(); delete DC.bubbleSig[el.dataset.k]; } }
             let prev = null;
             for (const k of order) {
-                const t = obj[k]; const b = bubbleHtml(t, clean);
+                const t = encShow(obj[k]); const b = bubbleHtml(t, clean);   // encShow: plaintext of an encrypted turn (memory only) or its lock line
                 const sig = b.cls + '|' + b.html;
                 let el = log.querySelector(`[data-k="${k}"]`);
                 let fresh = false;
@@ -3570,6 +3668,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const off = els.filter(el => { const r = el.getBoundingClientRect(); return !(r.bottom > lr.top + 20 && r.top < lr.bottom - 20); });
             if (!off.length) { hideUnreadPill(); return; }
             const tgt = off[0], up = tgt.getBoundingClientRect().top < lr.top;
+            // 1.0.262 (L 2026-11-20: "if the only unread is the latest message it can just show latest"): one unread and it IS the newest
+            // line of the tab = the latest pill already points at it (it is off screen, so that pill is up); two chips for one line is noise
+            if (left.size === 1 && !(DC.chipGone || {}).latest) { const all = Array.from(log.children).filter(el => el.dataset && el.dataset.k); const newest = nf ? all[0] : all[all.length - 1]; if (newest === tgt) { hideUnreadPill(); return; } }
             showUnreadPill(log, nf, left.size, tgt.dataset.k);
             const p = document.querySelector('.dc-chat .dc-unr'); if (p) p.textContent = left.size + ' unread ' + (up ? '↑' : '↓');
         }
@@ -3803,7 +3904,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const gSnip = (t, q) => { t = String(t || '').replace(/\s+/g, ' '); const i = q ? t.toLowerCase().indexOf(q) : -1, a = Math.max(0, i - 40); return (a ? '…' : '') + t.slice(a, a + 150); };
             async function gSearch() {
                 const q = findQ.trim().toLowerCase(), rows = [];
-                for (const [k, t] of Object.entries(DC.chatTurns || {})) rows.push({ where: 'dc', topic: t.topic || '', k, ts: t.ts || 0, text: String(t.text || ''), who: t.s === 'L' ? 'You' : (t.who || 'Droplet'), m: null });
+                for (const [k, t0] of Object.entries(DC.chatTurns || {})) { const t = encShow(t0) || {}; rows.push({ where: 'dc', topic: t.topic || '', k, ts: t.ts || 0, text: String(t.text || ''), who: t.s === 'L' ? 'You' : (t.who || 'Droplet'), m: null }); }   // encShow: encrypted turns search by their opened text (trial 11-19)
                 if (!gPeer && window.__dcPeerSearch) { fn.textContent = 'searching…'; try { gPeer = await window.__dcPeerSearch(); } catch (_) { gPeer = []; } }
                 for (const r of gPeer || []) rows.push(r);
                 const hits = rows.filter(r => (!q || r.text.toLowerCase().includes(q)) && (!gKind || gKindOf(r.text, r.m)[gKind])).sort((a, b) => b.ts - a.ts).slice(0, 100);
@@ -3839,7 +3940,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     if (k && (DC.chatTurns || {})[k]) update(ref(database, `${DC.base}/chat/turns/${k}`), { react: null }).catch(() => {}); }
             }, true);
 
-            function setReply(k, t) { const src = (DC.chatTurns || {})[k] || t || {};
+            function setReply(k, t) { let src = (DC.chatTurns || {})[k] || t || {}; src = encShow(src) || src; if (src.encLocked) src = { ...src, text: '🔒 message' };   // encrypted turn: quote its plain text (trial 11-19)
                 S.reply = { k, who: src.s === 'L' ? 'You' : (src.who || 'Droplet'), text: short(src.text).slice(0, 300) }; paint(); ta.focus(); }
             window.__dcSetReply = k => { if (!DC.remote) setReply(k); };   // the bubble swipe (#10)
             // the triple-tap sheet gets a reaction row + ↩ Reply (own chat only)
@@ -4490,8 +4591,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             ].filter(Boolean).join('  ·  ');
             const open = el.classList.contains('open');
             const list = open ? '<div class="dc-now-list">' +
-                run.map(x => `<div>⚙ <span>${esc(head(x))}</span></div>`).join('') +
-                que.map(x => `<div>⏳ <span>${esc(head(x))}</span></div>`).join('') +
+                run.map(x => `<div class="dc-now-go" data-topic="${esc(x.t.topic || '')}" title="go to this tab" style="cursor:pointer">⚙ <span>${esc(head(x))}</span></div>`).join('') +
+                que.map(x => `<div class="dc-now-go" data-topic="${esc(x.t.topic || '')}" title="go to this tab" style="cursor:pointer">⏳ <span>${esc(head(x))}</span></div>`).join('') +
                 wait.map(([k, w]) => `<div class="dc-now-wait" data-k="${esc(k)}" title="tap to answer it"><span>🙋 ${w.tab ? esc(w.tab) + ': ' : ''}${esc(w.text || '')}</span><button type="button" class="dc-now-done" data-k="${esc(k)}" title="done, drop it">✓</button></div>`).join('') +
                 '</div>' : '';
             el.innerHTML = `<div class="dc-now-line">${esc(line)}</div>${list}`;
@@ -4507,7 +4608,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 if (ta) { const q = `re: ${String(it.text || '').slice(0, 90)}` + '\n'; if (!ta.value.includes(q.trim())) ta.value = q + ta.value; ta.dispatchEvent(new Event('input', { bubbles: true })); ta.focus(); }
                 return;
             }
-            if (e.target.closest('.dc-now-list')) return;   // running / queued lines: nothing to do, don't collapse
+            // tap a running / queued line (the gear or its text) = go to that tab (L 2026-11-19); '' = the main tab
+            const g = e.target.closest('.dc-now-go');
+            if (g) { e.stopPropagation(); if ((DC.topic || '') !== (g.dataset.topic || '')) setTopic(g.dataset.topic || ''); return; }
+            if (e.target.closest('.dc-now-list')) return;   // other lines: nothing to do, don't collapse
             const n = e.target.closest('#dc-now'); if (n) { n.classList.toggle('open'); paintNow(); }
         });
         setInterval(() => { paintNow(); paintWait(); }, 5000);
@@ -4537,7 +4641,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                         // Stopped mid-work keeps the ⛔ note: Droplet may have done part of it.
                         if ((DC.chatTurns || {})[k]) {
                             if (!j.startedAt) await set(tr, null);
-                            else await update(tr, { text: '⛔ ' + (j.reply || 'cancelled'), pending: null, ts: Date.now() });
+                            else await update(tr, { text: '⛔ ' + ((encIsBlob(j.reply) ? '' : j.reply) || 'cancelled'), pending: null, ts: Date.now() });
                         }
                         return;
                     }
@@ -4551,8 +4655,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     const stillPending = async () => { try { const v = (await get(tr)).val(); return !!(v && v.pending); } catch (_) { return true; } };
                     // YUKI IN HER OWN BUBBLE (0.84, L 2026-11-18): a reply the daemon marked persona=yuki (local read-only stand-in
                     // that covered a quota wall) is labelled "Yuki" and styled as her own bubble, never inside Droplet's name.
-                    if (j.status === 'done') { if (await stillPending()) await update(tr, { s: 'D', who: j.persona === 'yuki' ? 'Yuki' : (t.who || DC.instName || 'Droplet'), persona: j.persona || null, text: j.reply || '(done, no captured reply)', ts: Date.now(), pending: null, jobId: t.jobId }); unwatch(); delete DC.pendWatch[k]; }
-                    else if (j.status === 'error' || j.status === 'failed') { if (await stillPending()) await update(tr, { s: 'D', who: j.persona === 'yuki' ? 'Yuki' : (t.who || DC.instName || 'Droplet'), persona: j.persona || null, text: '⚠ ' + (j.error || j.reply || 'failed'), ts: Date.now(), pending: null, jobId: t.jobId }); unwatch(); delete DC.pendWatch[k]; }
+                    if (j.status === 'done') { if (await stillPending()) await update(tr, { s: 'D', who: j.persona === 'yuki' ? 'Yuki' : (t.who || DC.instName || 'Droplet'), persona: j.persona || null, ...encReplyFields(j, j.reply || '(done, no captured reply)'), ts: Date.now(), pending: null, jobId: t.jobId }); unwatch(); delete DC.pendWatch[k]; }
+                    else if (j.status === 'error' || j.status === 'failed') { if (await stillPending()) await update(tr, { s: 'D', who: j.persona === 'yuki' ? 'Yuki' : (t.who || DC.instName || 'Droplet'), persona: j.persona || null, ...((!j.error && encIsBlob(j.reply)) ? encReplyFields(j, j.reply) : { text: '⚠ ' + (j.error || j.reply || 'failed') }), ts: Date.now(), pending: null, jobId: t.jobId }); unwatch(); delete DC.pendWatch[k]; }
                 });
             }
         }
@@ -4639,7 +4743,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             await set(pendRef, { s: 'D', who: DC.botWho || 'Local', text: '…thinking (local)', ts: Date.now(), pending: true, local: true, ...tpc });   // her name on the bubble when she has one
             $('#dc-chat-status').textContent = '🦙 local: ' + MODEL + '…';
             const topic = tpc.topic || '';
-            const hist = Object.entries(DC.chatTurns || {}).filter(([k, t]) => t && !t.pending && t.text && (t.topic || '') === topic).sort((a, b) => (a[1].ts || 0) - (b[1].ts || 0)).slice(-12)
+            const hist = Object.entries(DC.chatTurns || {}).map(([k, t]) => [k, encShow(t)]).filter(([k, t]) => t && !t.pending && !t.encLocked && t.text && (t.topic || '') === topic).sort((a, b) => (a[1].ts || 0) - (b[1].ts || 0)).slice(-12)
                 .map(([k, t]) => ({ role: t.s === 'L' ? 'user' : 'assistant', content: String(t.enhanced || t.text).slice(0, 4000) }));
             if (hist.length && hist[hist.length - 1].role === 'user') hist.pop();   // the turn we just wrote - re-added below as the prompt
             let reply = '';
@@ -4655,7 +4759,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 if (DC.uid) for (const [, k, v] of reply.matchAll(/\[MEMORY:([^=\]]+)=([^\]]+)\]/gi)) { try { await set(ref(database, `${DC.uid}/chat/bot/memory/${k.trim().replace(/[.#$\[\]\/]/g, '_')}`), { value: v.trim(), updated: Date.now() }); } catch (_) {} }
                 reply = reply.replace(/\[MEMORY:[^\]]+\]/gi, '').replace(/\[MOOD:\w+\]/gi, '').trim() || '(empty reply)';
             } catch (e) { reply = '⚠ Local (ollama) failed: ' + (e.name === 'AbortError' ? 'timed out after 3 min' : (e.message || e)); }
-            await update(pendRef, { text: reply, pending: null, ts: Date.now() });
+            let encR; try { encR = await encFields(topic, reply); } catch (_) { encR = { text: '🔒 reply withheld - it could not be encrypted on this device', enc: null, encKey: null }; }   // 🔒 trial 11-19
+            await update(pendRef, { ...encR, pending: null, ts: Date.now() });
             $('#dc-chat-status').textContent = '';
         }
         // ---- OFFLINE OUTBOX (2026-09-19, L) -------------------------------------------
@@ -4746,6 +4851,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (target !== 'droplet' || raw.startsWith('/')) return 'Timed send is for a plain message to ' + (DC.instName || 'Droplet') + '.';
             if (KIT && KIT.hasAtt && KIT.hasAtt()) return 'Attachments cannot be timed yet. Remove them or send now.';
             const tpc = (DC.topic && DC.topic !== FAV_TAB) ? { topic: DC.topic } : {};
+            if (tabEncOn(tpc.topic)) return 'Timed send is not available in an encrypted tab yet (trial) - send it now instead.';
             const tm = ((DC.topic || DC.forceModel) && jobTabModel(DC.topic)) || '';
             const wantPing = !!($('#dc-chat-ping') && $('#dc-chat-ping').checked);
             try {
@@ -4851,17 +4957,23 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const turns = `${DC.base}/chat/turns`;
             try {
                 const editKey = DC.editKey || ''; const editTurn = editKey ? (DC.chatTurns || {})[editKey] : null;
-                if (editTurn && raw === String(editTurn.text || '').trim()) {   // edit with no change: nothing to resend
+                if (editTurn && raw === String((encShow(editTurn) || editTurn).text || '').trim()) {   // edit with no change: nothing to resend
                     ta.value = ''; setEditMode(''); send.disabled = false; return; }
                 const tpc = editTurn ? (editTurn.topic ? { topic: editTurn.topic } : {}) : forcedTopic !== undefined ? (forcedTopic ? { topic: forcedTopic } : {}) : ((DC.topic && DC.topic !== FAV_TAB) ? { topic: DC.topic } : {});   // an edit keeps its turn's topic; else the active tab (★ view sends untagged)
+                // 🔒 ENCRYPTED TAB (trial 11-19): one key mode per send, so his turn and the job match. A ⌘ command stays plain (it must run).
+                // Checked BEFORE anything is taken or written: no crypto = nothing sent, words back in the box, never into the outbox.
+                const encOn = target !== 'command' && tabEncOn(tpc.topic), encMode = encModeNow();
+                const encF = async txt => encOn ? await encFields(tpc.topic, txt, encMode) : { text: txt, enc: null, encKey: null };
+                if (encOn) { try { await encF('.'); } catch (e) { $('#dc-chat-status').textContent = '⚠ ' + (e.message || e) + ' - nothing was sent'; if (!ta.value) ta.value = raw; send.disabled = false; return; } }
                 const kx = (!editTurn && KIT) ? KIT.take() : { turn: {}, pre: '', post: '' };
+                if (encOn && kx.turn && kx.turn.replyTo) kx.turn.replyTo = { ...kx.turn.replyTo, text: '🔒 message' };   // the quoted words ride inside the sealed prompt only
                 // SEND = GO TO LATEST (1.0.210, L: "when you type it, should bring you to the latest showing unless doing a reply"):
                 // a new message (not an edit, not a reply) retires any landing still in flight and snaps to the newest end now,
                 // before the write - the render that follows snaps again when the turn lands.
                 if (!editTurn && !(kx.turn && kx.turn.replyTo) && !DC.remote) { const lg = $('#dc-chat-log'); if (lg) { DC.jumpGen = (DC.jumpGen || 0) + 1; hideUnreadPill(); snapChatEnd(lg, newestFirst()); } }
                 const lref = editTurn ? ref(database, `${turns}/${editKey}`) : push(ref(database, turns));
-                if (editTurn) await update(lref, { text: raw, edited: true, editedAt: Date.now(), enhanced: null, enhNote: null });
-                else await set(lref, { s: 'L', text: raw, ts: Date.now(), target, ...tpc, ...kx.turn });
+                if (editTurn) await update(lref, { ...(await encF(raw)), edited: true, editedAt: Date.now(), enhanced: null, enhNote: null });
+                else await set(lref, { s: 'L', ...(await encF(raw)), ts: Date.now(), target, ...tpc, ...kx.turn });
                 if (editTurn) setEditMode('');
                 // AN EDIT SUPERSEDES ITS OLD JOB (2026-09-20, reworked 2026-09-23 once a real
                 // cancel existed). An edit starts a second job, so the first one has to go or you
@@ -4921,7 +5033,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 await set(pendRef, { s: 'D', who, text: '…thinking', ts: Date.now(), pending: true, jobId: jref.key, ...tpc });   // jobId => reconcilePending fills it even after a reload
                 const job = target === 'command'
                     ? { kind: 'command', command: raw, code: ykCode, chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing }
-                    : { kind: 'prompt', target: jobTarget, rough: raw, enhanced: prompt, chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing,
+                    : { kind: 'prompt', target: jobTarget, rough: raw, enhanced: prompt, ...(encOn ? { rough: (await encF(raw)).text, enhanced: (await encF(prompt)).text, enc: ENC.MARK, encKey: encMode } : {}), chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing,
                         enhance: !!(enhOn && DC.kdaemon), lturn: lref.key, ...tpc, ...(jobTarget === 'droplet' && (DC.topic || DC.forceModel) && !DC.mainSession && jobTabModel(DC.topic) ? { tabModel: jobTabModel(DC.topic) } : {}), ...(editTurn ? { edited: true } : {}) };   // kdaemon: enhance server-side + which turn to annotate
                 await set(jref, job);
                 try { await update(lref, { jobId: jref.key }); } catch (_) {}   // lets a later delete blank the job text as well
