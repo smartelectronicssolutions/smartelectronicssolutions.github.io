@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.269"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.271"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1442,7 +1442,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         if (freshBtn) freshBtn.onclick = async () => {
             if (!DC.base) return;
             if (!confirm('Write a handoff and restart the session fresh? This clears the current context.')) return;
-            freshBtn.disabled = true; freshBtn.textContent = '🫧 Restarting…';
+            freshBtn.disabled = true; freshBtn.textContent = '🫧 Restarting…'; DC.freshTapAt = Date.now();
             try { await set(ref(database, `${DC.base}/freshNow`), true); }
             catch (e) { freshBtn.disabled = false; freshBtn.textContent = '🫧 Fresh start now'; alert('Could not trigger: ' + e); }
         };
@@ -5303,7 +5303,11 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             syncTarget();
             $('#dc-console').classList.toggle('kd', kdMember());
             { const cl = $('#dc-cmd-lbl'); if (cl) cl.hidden = !!DC.kdaemon && !m.allowCommands; }   // kdaemon: the Command target only where the daemon says commands are on
-            { const fb = $('#dc-fresh-btn'); if (fb && fb.textContent.indexOf('Restarting') < 0) { fb.disabled = !!DC.kdaemon; fb.title = DC.kdaemon ? 'not on this daemon yet - a fresh start happens by itself at 200K idle / 350K' : 'write a handoff note, then restart this session fresh to clear the context'; } }   // kdaemon has no routines engine / fleet / pings: System tab shows only the account line
+            // 1.0.270: kdaemon 0.2.43+ reports abilities.freshNow (live session on) = the button works there too.
+            // "Restarting…" goes back to the button once the daemon reports a fresh start after the tap, or after 20 min.
+            { const fb = $('#dc-fresh-btn'); if (fb) {
+                if (fb.textContent.indexOf('Restarting') >= 0 && DC.freshTapAt && ((m.lastFreshStart || 0) > DC.freshTapAt || Date.now() - DC.freshTapAt > 1200000)) { fb.textContent = '🫧 Fresh start now'; DC.freshTapAt = 0; }
+                if (fb.textContent.indexOf('Restarting') < 0) { const ok = !DC.kdaemon || kdAb('freshNow'); fb.disabled = !ok; fb.title = ok ? 'write a handoff note, then restart this session fresh to clear the context' : 'not on this daemon yet - a fresh start happens by itself at 200K idle / 350K'; } } }   // kdaemon has no routines engine / fleet / pings: System tab shows only the account line
             // pings text names the bot the daemon actually sends from (daemon publishes meta.tgBot from getMe), never a hardcoded handle
             const pb = $('#dc-pg-bot'); if (pb) pb.textContent = m.tgBot && m.tgBot.username ? `Droplet DMs you on Telegram from @${m.tgBot.username} ("${m.tgBot.name || ''}") on job/routine completion.` : 'Droplet DMs you on Telegram on job/routine completion.';
             // MODEL IN USE (2026-09-20, L: "can the model selector list what model is currently in").
