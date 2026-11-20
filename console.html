@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.265"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.268"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1795,6 +1795,40 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 } catch (e) { const st = $('#dc-chat-status'); if (st) st.textContent = '⚠ tab edit failed: ' + (e.message || e); }
             };
         }
+        // LEAVE A SHARED TAB (1.0.266, L 2026-11-20: "Even better just remove tab unshares." + "don't delete the tab for the person who
+        // owns it tho"): Remove tab on a tab someone shares WITH me takes ME out - my own entry in their guest list goes (rules: a guest
+        // may delete only {owner}/console/guests/<topic>/<own uid>) and my inbox line for it goes, so the chip leaves my strip. Nothing of
+        // the owner's is written: their tab, its messages and their tab list stay exactly as they are.
+        function editRemoteTab(r) {
+            const w = document.createElement('div');
+            w.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px';
+            const box = document.createElement('div');
+            box.style.cssText = 'width:100%;max-width:340px;background:var(--panel,#16213a);color:var(--text,#eee);border:1px solid var(--border,#345);border-radius:12px;padding:16px;display:grid;gap:10px';
+            box.innerHTML = '<b>Shared tab</b><div>📺 ' + esc(r.name || '?') + ' · # ' + esc(r.topic) + '</div>'
+                + '<small style="opacity:.75">' + esc(r.name || 'Their') + ' shares this tab with you (view only). Remove tab takes it off your console and ends your access. Their tab and its messages stay as they are.</small>'
+                + '<div style="display:flex;gap:8px;justify-content:flex-end"><button class="dc-btn ghost sm" id="dc-rt-del" style="margin-right:auto;color:var(--dc-red,#e5534b)">Remove tab</button><button class="dc-btn ghost sm" id="dc-rt-x">Cancel</button></div>';
+            w.appendChild(box); document.body.appendChild(w);
+            const close = () => w.remove();
+            w.onclick = e => { if (e.target === w) close(); };
+            box.querySelector('#dc-rt-x').onclick = close;
+            const del = box.querySelector('#dc-rt-del'); let armT = 0;
+            del.onclick = async () => {
+                if (!del.classList.contains('arm')) { del.classList.add('arm'); del.textContent = 'Remove? tap again';
+                    armT = setTimeout(() => { del.classList.remove('arm'); del.textContent = 'Remove tab'; }, 3000); return; }
+                clearTimeout(armT); close(); await leaveRemoteTab(r); };
+        }
+        async function leaveRemoteTab(r) {
+            const st = $('#dc-chat-status');
+            if (!r || !r.owner || !r.topic || !DC.uid || r.owner === DC.uid) return;
+            try {
+                await set(ref(database, `${r.owner}/console/guests/${r.topic}/${DC.uid}`), null);
+                if (r.tid) await set(ref(database, `share/chatIndex/${DC.uid}/${r.tid}`), null);
+                if (DC.remote && DC.remote.owner === r.owner && DC.remote.topic === r.topic) { exitRemote(); renderChat(DC.ownTurns || {}); }
+                renderTopics();
+                if (st) st.textContent = `# ${r.topic} removed from your console - ${r.name || 'their'} tab is untouched`;
+            } catch (e) { if (st) st.textContent = '⚠ could not remove the shared tab: ' + (e.code || e.message || e); }
+        }
+        window.__dcLeaveRemoteTab = leaveRemoteTab;   // test hook
         async function renameTopic(oldName, inp) {
             if (!DC.base || !oldName || oldName === FAV_TAB) return;
             const nm = String(inp).trim().replace(/\s+/g, ' ').slice(0, 40);
@@ -1964,6 +1998,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 const b = document.createElement('button'); b.type = 'button';
                 b.className = 'dc-topic remote' + (DC.remote && DC.remote.owner === r.owner && DC.remote.topic === r.topic ? ' on' : '');
                 b.innerHTML = '📺 ' + esc(r.name || '?') + ' · # ' + esc(r.topic); b.title = `${r.name}'s tab, shared with you - view only (chat with them in 👥)`;
+                // 1.0.266 (L 2026-11-20 "just remove tab unshares"): the open shared tab gets the same ✎ as my own tabs; its box has Remove tab = I leave the share
+                if (DC.remote && DC.remote.owner === r.owner && DC.remote.topic === r.topic) { const p = document.createElement('span'); p.className = 'x'; p.textContent = '✎'; p.title = 'shared tab: remove it from your console';
+                    p.onclick = e => { e.stopPropagation(); editRemoteTab(r); }; b.appendChild(p); }
                 b.onclick = () => enterRemote(r); bar.appendChild(b); }
             const nf = Object.keys(DC.favs || {}).length; const fc = document.createElement('button'); fc.type = 'button'; fc.className = 'dc-topic fav' + (!DC.remote && DC.topic === FAV_TAB ? ' on' : '');
             fc.innerHTML = FAV_TAB + `<span class="n">${nf}</span>`; fc.title = 'favorites - replies you starred, kept even after Archive chat'; fc.onclick = () => setTopic(FAV_TAB); bar.appendChild(fc);
@@ -3429,10 +3466,16 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const R = DC.remote;
             DC.chatTurns = obj;
             if (!R) checkReplyLanded(obj);
-            // THINKING LIGHT (2026-09-19): the send button breathes while any reply - in any tab - is still on its way.
-            // Pending bubbles older than 30 min are ignored so one orphaned bubble cannot leave it pulsing forever.
-            const thinking = Object.values(obj || {}).some(t => t && t.pending && Date.now() - (t.ts || 0) < 30 * 60 * 1000);
-            const sb = $('#dc-chat-send'); if (sb) { const was = sb.classList.contains('thinking'); sb.classList.toggle('thinking', thinking); if (thinking && !was) dcPulseSync(sb); sb.title = thinking ? 'a reply is on its way - you can still send' : ''; }
+            // 1.0.267 (L 2026-11-20): the send arrow pulses only for pending work in this tab and on the same brain/AI route.
+            // Another tab, or another brain/model, must not make this composer look busy. Old pending bubbles without brainAI
+            // metadata do not pulse; they still expire from the indicator after the normal 30-minute orphan cutoff.
+            const selectedTarget = ($('#dc-chat-target') || {}).value || 'droplet';
+            const activeBrainAI = selectedTarget === 'local' && !DC.guest && DC.daemonOn ? 'yuki'
+                : selectedTarget === 'droplet' && !DC.mainSession ? (jobTabModel(DC.topic) || 'droplet') : selectedTarget;
+            const activeTopic = DC.topic === FAV_TAB ? '' : (DC.topic || '');
+            const thinking = !R && Object.values(obj || {}).some(t => t && t.pending && Date.now() - (t.ts || 0) < 30 * 60 * 1000
+                && (t.topic || '') === activeTopic && t.brainAI === activeBrainAI);
+            const sb = $('#dc-chat-send'); if (sb) { const was = sb.classList.contains('thinking'); sb.classList.toggle('thinking', thinking); if (thinking && !was) dcPulseSync(sb); sb.title = thinking ? 'a reply is on its way in this tab for this AI - you can still send' : ''; }
             if (!R) {   // unread state is computed from the FULL turn set before the bar is drawn
                 const u = unreadTopics(obj);
                 DC._unread = u.unread; DC._unreadN = u.counts;
@@ -4741,7 +4784,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         window.__dcLocalSystem = uid => { const o = DC.uid; DC.uid = uid; return localSystem().finally(() => { DC.uid = o; }); };   // test hook
         async function localReply(prompt, tpc, turns) {
             const pendRef = push(ref(database, turns));
-            await set(pendRef, { s: 'D', who: DC.botWho || 'Local', text: '…thinking (local)', ts: Date.now(), pending: true, local: true, ...tpc });   // her name on the bubble when she has one
+            await set(pendRef, { s: 'D', who: DC.botWho || 'Local', text: '…thinking (local)', ts: Date.now(), pending: true, local: true, brainAI: 'local', ...tpc });   // her name on the bubble when she has one
             $('#dc-chat-status').textContent = '🦙 local: ' + MODEL + '…';
             const topic = tpc.topic || '';
             const hist = Object.entries(DC.chatTurns || {}).map(([k, t]) => [k, encShow(t)]).filter(([k, t]) => t && !t.pending && !t.encLocked && t.text && (t.topic || '') === topic).sort((a, b) => (a[1].ts || 0) - (b[1].ts || 0)).slice(-12)
@@ -5031,7 +5074,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 if (target === 'local' && jobTarget === 'local') { localReply(prompt, tpc, turns).catch(() => {}); send.disabled = false; ta.focus(); return; }
                 const jref = push(ref(database, `${DC.base}/jobs`));
                 const pendRef = push(ref(database, turns));
-                await set(pendRef, { s: 'D', who, text: '…thinking', ts: Date.now(), pending: true, jobId: jref.key, ...tpc });   // jobId => reconcilePending fills it even after a reload
+                const pendingBrainAI = jobTarget === 'droplet' && !DC.mainSession ? (jobTabModel(DC.topic) || 'droplet') : jobTarget;
+                await set(pendRef, { s: 'D', who, text: '…thinking', ts: Date.now(), pending: true, brainAI: pendingBrainAI, jobId: jref.key, ...tpc });   // jobId => reconcilePending fills it even after a reload
                 const job = target === 'command'
                     ? { kind: 'command', command: raw, code: ykCode, chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing }
                     : { kind: 'prompt', target: jobTarget, rough: raw, enhanced: prompt, ...(encOn ? { rough: (await encF(raw)).text, enhanced: (await encF(prompt)).text, enc: ENC.MARK, encKey: encMode } : {}), chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing,
@@ -7433,6 +7477,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 keep.onchange = () => { const n = Math.max(0, Math.min(3650, Math.round(Number(keep.value) || 0))); keep.value = n; set(ref(database, `${P.me}/console/settings/chatRetainDays`), n).catch(e => alert('Not saved: ' + (e.code || e.message))); }; }
         }
         onValue(ref(database, `${P.me}/console/shares`), s => { P.shares = s.val() || {};
+            // 1.0.266: a guest can now leave a tab I share (Remove tab on their side). They cannot write my share marker, so I clear it
+            // here when their entry in my guest list is gone - only the marker; the tab and its messages are not touched.
+            for (const [k, x] of Object.entries(P.shares)) { if (!x || !x.topic || !x.with || x.mode !== 'guest') continue;
+                get(ref(database, `${P.me}/console/guests/${x.topic}/${x.with}`)).then(g => { if (!g.exists()) set(ref(database, `${P.me}/console/shares/${k}`), null).catch(() => {}); }).catch(() => {}); }
             window.__dcMyShares = Object.values(P.shares).filter(x => x && x.topic).map(x => ({ topic: x.topic, name: x.name || P.dir[x.with] || 'them' }));
             window.__dcRenderTopics && window.__dcRenderTopics();
             if (P.open) renderBar(); else renderHome(); }, dcWarn('settings'));
