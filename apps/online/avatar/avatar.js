@@ -434,9 +434,13 @@
       const MR = this.rig.mouth, tuck = MR.inner_tuck || 3, teeth = MR.teeth || 7, depth = MR.inner_depth || 46;
       const faceDrop = (x, y, ly) => mo * 0.62 * smooth(ly - 4 * K, ly + 46 * K, y) * clamp(1 - Math.pow((x - mcx) / (170 * K), 2), 0, 1);
       const bpx = (this.rig.body && this.rig.body.pivot) ? this.rig.body.pivot[0] : 520 * K;
+      // HEAD SCALE (2026-11-21, opt-in; L: female head "about 15% bigger"): rig.headScale scales everything the head transform
+      // moves about the head pivot (the neck point), AFTER the feature deformers - so mouth/eye/brow math is untouched and the
+      // neck stays the anchor. Absent = 1 (x * 1 is exact: rigs without it render exactly as before).
+      const HS = +this.rig.headScale || 1;
       const headXY = (x, y, zz, ya, pa, rl, sx) => {          // the head transform for one rest point (shared by the seam blend)
         const r = this._rot(x, y, zz, ya, pa); let X2 = r[0] - pdx, Y2 = r[1] - pdy;
-        const c2 = Math.cos(rl * 0.35), s2 = Math.sin(rl * 0.35), ox = X2 - piv[0], oy = Y2 - piv[1];
+        const c2 = Math.cos(rl * 0.35), s2 = Math.sin(rl * 0.35), ox = (X2 - piv[0]) * HS, oy = (Y2 - piv[1]) * HS;
         return [piv[0] + ox * c2 - oy * s2 + sx + P.bodyYaw * 14 * K, piv[1] + ox * s2 + oy * c2 + breathLift];
       };
       const BH = this.rig.depth.front_hair || { zScale: 1, zOff: 22 * K };   // hair crossing the cut is front hair: blend at its depth
@@ -516,7 +520,7 @@
         let r = this._rot(x, y, z[i], ya, pa);
         let X2 = r[0] - pdx, Y2 = r[1] - pdy;
         const cr2 = rl === P.roll ? cr : Math.cos(rl * 0.35), sr2 = rl === P.roll ? sr : Math.sin(rl * 0.35);
-        const ox = X2 - piv[0], oy = Y2 - piv[1];
+        const ox = (X2 - piv[0]) * HS, oy = (Y2 - piv[1]) * HS;
         X2 = piv[0] + ox * cr2 - oy * sr2; Y2 = piv[1] + ox * sr2 + oy * cr2;
         out[i * 2] = X2 + sx + P.bodyYaw * 14 * K; out[i * 2 + 1] = Y2 + breathLift;
       }
