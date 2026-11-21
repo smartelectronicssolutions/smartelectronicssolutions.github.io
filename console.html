@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.273"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.274"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -4979,6 +4979,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // CARD ANSWERS STAY WITH THE CARD (L 2026-11-02 "why not just in the All tab"): a tap on a card sends into the card's own
             // tab (untagged card = All), not whatever tab happened to be open. Read synchronously, before the first await.
             const forcedTopic = DC.sendTopicOnce; DC.sendTopicOnce = undefined;
+            // THE TAB IS THE ONE YOU SENT FROM (L 2026-11-21 "it follows me"): read it now, before the up-to-1.5 s enhance wait below -
+            // reading DC.topic after that await tagged the message with whatever tab he had switched to in the meantime.
+            const sendTab = DC.topic, sendTopic = (sendTab && sendTab !== FAV_TAB) ? sendTab : '';   // sendTab = raw (may be ★) for the tab-model lookups below
             const ta = $('#dc-chat-in'); let raw = ta.value.trim();
             const KIT = window.__dcKit;   // messenger kit: reply-to + attachments
             if (KIT && KIT.uploading()) { $('#dc-chat-status').textContent = '📎 still uploading - one sec'; return; }
@@ -5015,7 +5018,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 const editKey = DC.editKey || ''; const editTurn = editKey ? (DC.chatTurns || {})[editKey] : null;
                 if (editTurn && raw === String((encShow(editTurn) || editTurn).text || '').trim()) {   // edit with no change: nothing to resend
                     ta.value = ''; setEditMode(''); send.disabled = false; return; }
-                const tpc = editTurn ? (editTurn.topic ? { topic: editTurn.topic } : {}) : forcedTopic !== undefined ? (forcedTopic ? { topic: forcedTopic } : {}) : ((DC.topic && DC.topic !== FAV_TAB) ? { topic: DC.topic } : {});   // an edit keeps its turn's topic; else the active tab (★ view sends untagged)
+                const tpc = editTurn ? (editTurn.topic ? { topic: editTurn.topic } : {}) : forcedTopic !== undefined ? (forcedTopic ? { topic: forcedTopic } : {}) : (sendTopic ? { topic: sendTopic } : {});   // an edit keeps its turn's topic; else the tab active when Send was pressed (★ view sends untagged)
                 // 🔒 ENCRYPTED TAB (trial 11-19): one key mode per send, so his turn and the job match. A ⌘ command stays plain (it must run).
                 // Checked BEFORE anything is taken or written: no crypto = nothing sent, words back in the box, never into the outbox.
                 const encOn = target !== 'command' && tabEncOn(tpc.topic), encMode = encModeNow();
@@ -5086,12 +5089,12 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 if (target === 'local' && jobTarget === 'local') { localReply(prompt, tpc, turns).catch(() => {}); send.disabled = false; ta.focus(); return; }
                 const jref = push(ref(database, `${DC.base}/jobs`));
                 const pendRef = push(ref(database, turns));
-                const pendingBrainAI = jobTarget === 'droplet' && !DC.mainSession ? (jobTabModel(DC.topic) || 'droplet') : jobTarget;
+                const pendingBrainAI = jobTarget === 'droplet' && !DC.mainSession ? (jobTabModel(sendTab) || 'droplet') : jobTarget;
                 await set(pendRef, { s: 'D', who, text: '…thinking', ts: Date.now(), pending: true, brainAI: pendingBrainAI, jobId: jref.key, ...tpc });   // jobId => reconcilePending fills it even after a reload
                 const job = target === 'command'
                     ? { kind: 'command', command: raw, code: ykCode, chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing }
                     : { kind: 'prompt', target: jobTarget, rough: raw, enhanced: prompt, ...(encOn ? { rough: (await encF(raw)).text, enhanced: (await encF(prompt)).text, enc: ENC.MARK, encKey: encMode } : {}), chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing,
-                        enhance: !!(enhOn && kdMember()), lturn: lref.key, ...tpc, ...(jobTarget === 'droplet' && (DC.topic || DC.forceModel) && !DC.mainSession && jobTabModel(DC.topic) ? { tabModel: jobTabModel(DC.topic) } : {}), ...(editTurn ? { edited: true } : {}) };   // kdaemon: enhance server-side + which turn to annotate
+                        enhance: !!(enhOn && kdMember()), lturn: lref.key, ...tpc, ...(jobTarget === 'droplet' && (sendTab || DC.forceModel) && !DC.mainSession && jobTabModel(sendTab) ? { tabModel: jobTabModel(sendTab) } : {}), ...(editTurn ? { edited: true } : {}) };   // kdaemon: enhance server-side + which turn to annotate
                 await set(jref, job);
                 try { await update(lref, { jobId: jref.key }); } catch (_) {}   // lets a later delete blank the job text as well
                 DC.lastJob = jref.key;
@@ -5107,7 +5110,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 // where the network is fine - and a pre-check on it silently swallowed a message
                 // with no bubble and no thinking light. A send that actually threw is proof.
                 let queued = false;
-                try { outboxAdd(raw, (DC.topic && DC.topic !== FAV_TAB) ? DC.topic : ''); queued = true; } catch (_) {}
+                try { outboxAdd(raw, sendTopic); queued = true; } catch (_) {}
                 $('#dc-chat-status').textContent = queued
                     ? '⏸ no signal - queued, it sends when you are back (' + outboxRead().length + ' waiting)'
                     : '⚠ send failed: ' + (e.message || e);
