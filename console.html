@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.279"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.281"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1217,8 +1217,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         async function decryptChat(blob, secret) { const [, s, iv, ct] = blob.split('.');
             return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: encUnb64(iv) }, await encKeyFor(secret, s), encUnb64(ct))); }
         window.__dcChatCrypt = { encryptChat, decryptChat, encIsBlob };   // test hook (writes nothing)
-        // member daemons (kdaemon) cannot read encrypted jobs yet, a guest view never writes - the switch only acts on L's own console
-        const tabEncOn = n => !!n && !DC.kdaemon && !DC.remote && !DC.guest && !!(DC.tabEnc || {})[String(n).replace(/[.#$\[\]\/]/g, '_')];
+        // 1.0.280: a kdaemon reads/writes encrypted tabs once it publishes meta.canEncrypt (kdaemon 0.2.61+); an older kdaemon
+        // cannot, so the switch stays hidden and off there. A guest view never writes.
+        const kdEnc = () => !DC.kdaemon || !!(DC.lastMeta || {}).canEncrypt;
+        const tabEncOn = n => !!n && kdEnc() && !DC.remote && !DC.guest && !!(DC.tabEnc || {})[String(n).replace(/[.#$\[\]\/]/g, '_')];
         const encModeNow = () => encPass() ? 'pass' : 'uid';
         // the text fields to write into tab `topic`: plain (markers cleared) or the blob + markers when that tab is encrypted
         async function encFields(topic, text, mode) {
@@ -1249,7 +1251,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const box = document.createElement('div');
             box.style.cssText = 'width:100%;max-width:340px;background:var(--panel,#16213a);color:var(--text,#eee);border:1px solid var(--border,#345);border-radius:12px;padding:16px;display:grid;gap:10px';
             const has = !!encPass();
-            box.innerHTML = '<b>🔒 Chat passphrase (this device)</b><small style="opacity:.8">The same passphrase L set on se with set_chat_key.py. Kept on this device only, never sent to Firebase. Without one, encrypted tabs use the default key (your account id) - that scrambles the text but is not a real lock.</small>'
+            box.innerHTML = '<b>🔒 Chat passphrase (this device)</b><small style="opacity:.8">' + (DC.kdaemon ? 'The same passphrase set on the PC your assistant runs on (python kdaemon.py --set-chat-key).' : 'The same passphrase L set on se with set_chat_key.py.') + ' Kept on this device only, never sent to Firebase. Without one, encrypted tabs use the default key (your account id) - that scrambles the text but is not a real lock.</small>'
                 + '<input id="dc-ek-in" type="password" autocomplete="off" data-1p-ignore placeholder="' + (has ? 'a passphrase is set - type to replace it' : 'passphrase') + '" style="font-size:16px;padding:8px;border-radius:8px;border:1px solid var(--border,#345);background:var(--bg,#0d1526);color:inherit;width:100%;box-sizing:border-box">'
                 + '<div style="display:flex;gap:8px;justify-content:flex-end">' + (has ? '<button class="dc-btn ghost sm" id="dc-ek-forget" style="margin-right:auto;color:var(--dc-red,#e5534b)">Forget key</button>' : '') + '<button class="dc-btn ghost sm" id="dc-ek-x">Cancel</button><button class="dc-btn sm" id="dc-ek-ok">Save</button></div>';
             w.appendChild(box); document.body.appendChild(w);
@@ -1773,7 +1775,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const fld = 'font-size:16px;padding:8px;border-radius:8px;border:1px solid var(--border,#345);background:var(--bg,#0d1526);color:inherit;width:100%;box-sizing:border-box';
             box.innerHTML = '<b>Edit tab</b><label>Name<input id="dc-te-name" maxlength="40"></label><label>Model<select id="dc-te-model"></select></label>'
                 + '<small id="dc-te-note" style="opacity:.75"></small>'
-                + (DC.kdaemon ? ((DC.tabEnc || {})[topicKey(oldName)] ? '<small style="opacity:.75">🔒 Encrypted tabs are not on this daemon yet. New messages here are stored as plain text.</small>' : '') : '<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="dc-te-enc" style="width:18px;height:18px"> 🔒 Encrypt this tab</label><small id="dc-te-encnote" style="opacity:.75;white-space:pre-line"></small><div><button class="dc-btn ghost sm" id="dc-te-key" type="button">Passphrase…</button></div>')
+                + ((DC.kdaemon && !kdEnc()) ? ((DC.tabEnc || {})[topicKey(oldName)] ? '<small style="opacity:.75">🔒 Encrypted tabs are not on this daemon yet. New messages here are stored as plain text.</small>' : '') : '<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="dc-te-enc" style="width:18px;height:18px"> 🔒 Encrypt this tab</label><small id="dc-te-encnote" style="opacity:.75;white-space:pre-line"></small><div><button class="dc-btn ghost sm" id="dc-te-key" type="button">Passphrase…</button></div>')
                 + '<div id="dc-te-share" style="display:grid;gap:6px"></div>'   // 1.0.276: 📺 Share, filled below
                 + '<div style="display:flex;gap:8px;justify-content:flex-end"><button class="dc-btn ghost sm" id="dc-te-del" style="margin-right:auto;color:var(--dc-red,#e5534b)">Remove tab</button><button class="dc-btn ghost sm" id="dc-te-x">Cancel</button><button class="dc-btn sm" id="dc-te-ok">Save</button></div>';
             w.appendChild(box); document.body.appendChild(w);
@@ -1799,7 +1801,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // 🔒 ENCRYPT THIS TAB (trial 11-19): new messages in this tab are stored encrypted; the note says which key, honestly
             const encBox = box.querySelector('#dc-te-enc'), encNote = box.querySelector('#dc-te-encnote');
             const encSay = () => { if (!encNote) return; encNote.textContent = (encBox.checked ? 'New messages here (yours and the replies) are stored encrypted. Old ones stay as they are; turning it off stops encrypting new ones.\n' : 'Off: messages here are stored as plain text.\n')
-                + (encPass() ? 'Key: Passphrase (set on this device) - the real lock. se needs the same one (set_chat_key.py).' : 'Key: Default key (your account id) - scrambles the text in Firebase, but the id is not secret. Set a passphrase for a real lock.'); };
+                + (encPass() ? ('Key: Passphrase (set on this device) - the real lock. ' + (DC.kdaemon ? ((DC.lastMeta || {}).chatKeySet ? 'The PC your assistant runs on has a passphrase too - it must be the same one.' : 'The PC your assistant runs on has none yet: run python kdaemon.py --set-chat-key there with the same one.') : 'se needs the same one (set_chat_key.py).')) : 'Key: Default key (your account id) - scrambles the text in Firebase, but the id is not secret. Set a passphrase for a real lock.'); };
             if (encBox) { encBox.checked = !!(DC.tabEnc || {})[topicKey(oldName)]; encBox.onchange = encSay; encSay();
                 box.querySelector('#dc-te-key').onclick = () => encKeyDialog(encSay); }
             const close = () => w.remove();
@@ -4919,12 +4921,12 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         var sendChatBusy = null;   // var, not let: a call before this line runs must not hit the TDZ (module-eval scar)
         // TIMED SEND (1.0.236): the clock panel + the write. See the note at the ▲ wiring.
         function schedFmt(at) { try { return new Date(at).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch (_) { return String(at); } }
-        function openSchedPanel() {
+        function openSchedPanel() {   // centred on screen (L 2026-11-21 'show up in the middle'; was bottom:90px)
             const st = $('#dc-chat-status'), ta = $('#dc-chat-in');
             if (!ta || !(ta.value || '').trim()) { if (st) st.textContent = '⏰ type the message first, then hold ▲ to pick a time'; return; }
             let p = document.getElementById('dc-sched-pop'); if (p) p.remove();
             p = document.createElement('div'); p.id = 'dc-sched-pop';
-            p.setAttribute('style', 'position:fixed;left:50%;bottom:90px;transform:translateX(-50%);z-index:2147483000;background:var(--bg,#14181d);color:var(--text,#e8e6e3);border:1px solid var(--border,#444);border-radius:12px;padding:14px 16px;box-shadow:0 8px 30px rgba(0,0,0,.5);width:min(92vw,320px);box-sizing:border-box;font:inherit');
+            p.setAttribute('style', 'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:2147483000;background:var(--bg,#14181d);color:var(--text,#e8e6e3);border:1px solid var(--border,#444);border-radius:12px;padding:14px 16px;box-shadow:0 8px 30px rgba(0,0,0,.5);width:min(92vw,320px);box-sizing:border-box;font:inherit');
             const d = new Date(Date.now() + 3600000); d.setMinutes(Math.ceil(d.getMinutes() / 5) * 5, 0, 0);
             const loc = x => new Date(x.getTime() - x.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
             p.innerHTML = '<div style="font-weight:600;margin-bottom:8px">⏰ Send this message later</div>'
@@ -5138,7 +5140,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 const job = target === 'command'
                     ? { kind: 'command', command: raw, code: ykCode, chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing }
                     : { kind: 'prompt', target: jobTarget, rough: raw, enhanced: prompt, ...(encOn ? { rough: (await encF(raw)).text, enhanced: (await encF(prompt)).text, enc: ENC.MARK, encKey: encMode } : {}), chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing,
-                        enhance: !!(enhOn && kdMember()), lturn: lref.key, ...tpc, ...(jobTarget === 'droplet' && (sendTab || DC.forceModel) && !DC.mainSession && jobTabModel(sendTab) ? { tabModel: jobTabModel(sendTab) } : {}), ...(editTurn ? { edited: true } : {}) };   // kdaemon: enhance server-side + which turn to annotate
+                        enhance: !!(enhOn && kdMember() && !encOn), lturn: lref.key, ...tpc, ...(jobTarget === 'droplet' && (sendTab || DC.forceModel) && !DC.mainSession && jobTabModel(sendTab) ? { tabModel: jobTabModel(sendTab) } : {}), ...(editTurn ? { edited: true } : {}) };   // kdaemon: enhance server-side + which turn to annotate
                 await set(jref, job);
                 try { await update(lref, { jobId: jref.key }); } catch (_) {}   // lets a later delete blank the job text as well
                 DC.lastJob = jref.key;
