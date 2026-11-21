@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.278"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.279"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1901,6 +1901,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 const inflight = await retargetJobs(oldName, nm);   // replies still on their way come to the new name too
                 await update(ref(database, `${DC.base}/chat/topics/${topicKey(nm)}`), { name: nm, createdAt: Date.now() });
                 await set(ref(database, `${DC.base}/chat/topics/${topicKey(oldName)}`), null);
+                try { if (window.__dcTabShare && window.__dcTabShare.move) await window.__dcTabShare.move(oldName, nm); }   // 1.0.279: shares follow the new name
+                catch (e) { console.warn('rename: shares', e); }
                 setTopic(nm);
                 if (status) status.textContent = `# ${oldName} → # ${nm} · ${keys.length} message${keys.length === 1 ? '' : 's'} carried`
                     + (inflight ? ` · ${inflight} reply still on its way redirected` : '');
@@ -7560,7 +7562,28 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         info: topic => { const sh = sharesOf(topic), inTab = new Set(sh.map(([, x]) => x.with));   // 1.0.278: everyone in the tab + who can still be added
             return { me: P.me, key: slug(topic), shares: sh.map(([k, x]) => ({ key: k, name: x.name || P.dir[x.with] || 'them' })),
                 people: Object.entries(P.dir || {}).filter(([u, n]) => u && u !== P.me && n && !inTab.has(u)).sort((a, b) => String(a[1]).localeCompare(String(b[1]))) }; },
-        share: uid => shareTab(uid), unshare: key => unshareTab(key) };
+        share: uid => shareTab(uid), unshare: key => unshareTab(key),
+        // 1.0.279 RENAME KEEPS SHARES (L 2026-11-21 "make sure sharing and unshare don't break when the name of the topic is changed"):
+        // a guest's access is keyed by topic NAME (guests/<topic>/<uid>, rules read it), so a rename moves every share to the new
+        // name: new guest entry first (the marker watcher drops a marker whose guest entry is missing), then the marker under the new
+        // key, then their inbox line + the thread's topic, then the old guest entry + old marker. The thread id (tid) stays.
+        move: async (from, to) => {
+            for (const [k, x] of sharesOf(from)) {
+                const dup = shareWith(to, x.with), nk = `${slug(to)}__${x.with}`;
+                try {
+                    if (!dup) {
+                        await set(ref(database, `${P.me}/console/guests/${to}/${x.with}`), { name: x.name || P.dir[x.with] || '', since: x.since || Date.now() });
+                        await set(ref(database, `${P.me}/console/shares/${nk}`), { ...x, topic: to });
+                        if (x.tid) {
+                            await update(ref(database, `share/chatIndex/${x.with}/${x.tid}`), { topic: to, name: `${P.myName} · # ${to}` }).catch(e => console.warn('share move: inbox', e.code || e));
+                            if (P.me === OWNER) await set(ref(database, `share/chat/${x.tid}/topic`), to).catch(e => console.warn('share move: thread', e.code || e));
+                        }
+                    }
+                    if (k !== nk) await set(ref(database, `${P.me}/console/shares/${k}`), null);
+                    await set(ref(database, `${P.me}/console/guests/${from}/${x.with}`), null);
+                } catch (e) { console.warn('share move', k, e.code || e.message); }
+            }
+        } };
     // ONE CHAT LIST (2026-10-23, Telegram review #1 in L's layout: "from the droplet in the upper left corner when you click that it opens
     // this new pane on the left ... then you click and on the right [desktop: left] or ... the secondary panel is on bottom or top"):
     // the name top-left (a button now; the target <select> stays hidden as the state) opens a LEFT DRAWER = Brains (the chat targets)
