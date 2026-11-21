@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.283"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.284"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -3503,6 +3503,29 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 }
             } catch (_) { }
         }
+        // CAMPFIRE SOUND (1.0.284, L 2026-11-21 "add a different sound for campfire messages"): a new Campfire post plays a FIRE
+        // CRACKLE - a soft low warm swell (A3 sine) under four quick crackling pops (band-passed noise) - so it can't be mistaken
+        // for the reply knock/chime. Same off switch (localStorage 'dc-buzz' = 'off'); short triple vibration on Android.
+        window.__dcCampfireSound = function () {
+            try { if (localStorage.getItem('dc-buzz') === 'off') return; } catch (_) { }
+            try { if (navigator.vibrate) navigator.vibrate([40, 40, 40, 40, 40]); } catch (_) { }
+            try {
+                const C = window.AudioContext || window.webkitAudioContext; if (!C) return;
+                const ac = DC.buzzCtx || (DC.buzzCtx = new C()); if (ac.state === 'suspended') ac.resume();
+                const t0 = ac.currentTime + 0.01;
+                const o = ac.createOscillator(), g = ac.createGain();
+                o.type = 'sine'; o.frequency.setValueAtTime(220, t0); o.frequency.linearRampToValueAtTime(247, t0 + 0.5);
+                g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(0.16, t0 + 0.08); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.65);
+                o.connect(g); g.connect(ac.destination); o.start(t0); o.stop(t0 + 0.7);
+                [[0.02, 2600, 0.30], [0.13, 1800, 0.24], [0.21, 3200, 0.20], [0.38, 2200, 0.26]].forEach(([t, f, v]) => {
+                    const at = t0 + t, len = Math.floor(ac.sampleRate * 0.018), buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
+                    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
+                    const n = ac.createBufferSource(), bp = ac.createBiquadFilter(), ng = ac.createGain();
+                    n.buffer = buf; bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = 2.5; ng.gain.value = v;
+                    n.connect(bp); bp.connect(ng); ng.connect(ac.destination); n.start(at);
+                });
+            } catch (_) { }
+        };
         // unlock audio on the first tap anywhere (iOS needs a user gesture before any sound)
         document.addEventListener('pointerdown', () => { try { const C = window.AudioContext || window.webkitAudioContext; if (C && !DC.buzzCtx) DC.buzzCtx = new C(); if (DC.buzzCtx && DC.buzzCtx.state === 'suspended') DC.buzzCtx.resume(); } catch (_) { } }, { once: true, passive: true });
         function checkReplyLanded(obj) {
@@ -7286,7 +7309,12 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     try { CF.seen = Math.max(CF.seen, +localStorage.getItem('dc-campfire-seen') || 0); } catch (_) {}
     function cfStart() {
         if (CF.on || !P.me) return; CF.on = true;   // 2026-11-08 (L: every member sees the fire): any signed-in member subscribes; the rules gate share/mail on share/approved, so an unapproved account just gets denied and never shows the row
-        onValue(query(ref(database, 'share/mail'), limitToLast(60)), s => { CF.posts = s.val() || {}; CF.ok = true; cfPaint(); }, e => { CF.denied = true; dcWarn('campfire')(e); });
+        onValue(query(ref(database, 'share/mail'), limitToLast(60)), s => { CF.posts = s.val() || {}; CF.ok = true;
+            // CAMPFIRE SOUND (1.0.284, L 2026-11-21 "a different sound for campfire messages"): a NEW post for me (not mine, not cleared)
+            // arriving after the first load plays the fire crackle (window.__dcCampfireSound), not the reply chime. First snapshot = baseline.
+            const ks = Object.keys(CF.posts);
+            if (CF.known) { if (ks.some(k => !CF.known.has(k) && CF.posts[k] && CF.posts[k].sharedBy !== P.me && cfForMe(CF.posts[k]) && CF.done[k] !== 'hide')) { try { window.__dcCampfireSound && window.__dcCampfireSound(); } catch (_) {} } }
+            CF.known = new Set(ks); cfPaint(); }, e => { CF.denied = true; dcWarn('campfire')(e); });
         onValue(ref(database, `${P.me}/console/campfire`), s => { const v = s.val() || {}; CF.done = v.done || {};
             if ((+v.seen || 0) > CF.seen) { CF.seen = +v.seen; try { localStorage.setItem('dc-campfire-seen', String(CF.seen)); } catch (_) {} } cfPaint(); }, dcWarn('campfire state'));
     }
