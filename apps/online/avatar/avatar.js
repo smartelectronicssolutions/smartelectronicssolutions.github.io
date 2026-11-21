@@ -144,7 +144,8 @@
       // cache-bust the layers by the rig's own geometry: rig.json is no-cache but PNGs are cached a day, so a rebuilt rig
       // (e.g. bust -> full body, 2026-11-14) used to draw new geometry over OLD cached pictures = torn, floating-head avatar
       let hv = 0; for (const ch of JSON.stringify(rig.parts)) hv = (Math.imul(hv, 31) + ch.charCodeAt(0)) | 0;
-      const bust = u => u + (u.indexOf('?') < 0 ? '?' : '&') + 'rv=' + (hv >>> 0).toString(36);
+      // blob:/data: URLs (account rigs from Storage, opts.resolve) can't take a query - they're never cached anyway
+      const bust = u => /^(blob|data):/.test(u) ? u : u + (u.indexOf('?') < 0 ? '?' : '&') + 'rv=' + (hv >>> 0).toString(36);
       const imgs = await Promise.all(rig.parts.map(async p => loadImg(bust(await url(p.file)))));
       const so = { closed: 0, half: 1, open: 2 };
       this.parts = rig.parts.map((p, i) => this._mkPart(p, imgs[i]))
