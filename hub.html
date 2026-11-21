@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.59">
+    <meta name="version" content="1.0.61">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Control Hub</title>
     <link rel="stylesheet" href="assets/css/master.css">
@@ -1200,12 +1200,17 @@
                         ? `<span class="sh-b ${red ? 'bad' : 'ok'}">${red ? 'Off' : 'OK'}</span><span style="${red ? 'color:#e05555;font-weight:600' : ''}">${Math.abs(c.offsetS) < 0.05 ? 'in sync' : 'se is ' + span(c.offsetS) + (c.offsetS > 0 ? ' slow' : ' fast')}</span><span style="color:var(--muted);font-size:0.72rem">vs ${esc(c.source || 'time server')} · red over ${esc(c.limitS ?? 5)} s</span>`
                         : `<span class="sh-b warn">Unknown</span><span style="color:var(--muted)">no answer from ${esc(c.source || 'the time server')}</span>`) + '</div>';
                     // CPU
-                    o += `<div class="sy-h">CPU</div><div class="sh-line" style="color:var(--muted)">${esc((sh.cpu || {}).state || 'no sensor yet')}</div>`;
+                    const u = sh.cpu || {}, fn = u.fans || {}, stop = u.fansStopped || [];
+                    o += '<div class="sy-h">CPU</div>' + (has(u.tempC)
+                        ? `<div class="sh-line"><span class="sh-b ${u.state === 'warn' ? 'warn' : 'ok'}">${u.state === 'warn' ? 'Hot' : 'OK'}</span><span><span style="color:var(--muted)">Temp</span> ${val(u.tempC, ' °C')}</span><span><span style="color:var(--muted)">Power</span> ${val(u.powerW, ' W')}</span><span><span style="color:var(--muted)">Chipset</span> ${val(u.chipsetC, ' °C')}</span></div>`
+                          + `<div class="sh-line"><span><span style="color:var(--muted)">CPU fan</span> ${val(fn['CPU Fan'], ' rpm')}</span><span><span style="color:var(--muted)">Pump</span> ${val(fn['AIO Pump'], ' rpm')}</span></div>`
+                          + (stop.length ? `<div class="sh-note">Reading 0 rpm: ${esc(stop.join(', '))}</div>` : '')
+                        : `<div class="sh-line" style="color:var(--muted)">${esc(u.state === 'no reading' ? 'no reading (' + (u.why || '?') + ')' : (u.state || 'no sensor yet'))}</div>`);
                     // 24 h peaks (the window is measured on se's own clock on both ends, so its length is right even while that clock is off)
                     const pd = pk.drives || {}, win = has(sh.updated) && has(pk.since) ? (sh.updated - pk.since) / 1000 : null;
                     const pks = ds.filter(([k]) => has(pd[k])).map(([k, e]) => `${esc(e.letters && e.letters.length ? e.letters[0] + ':' : '…' + k.slice(-4))} ${esc(pd[k])}°`);
                     o += `<div class="sy-h">Peaks · ${win === null || win >= 23.5 * 3600 ? '24 h' : 'last ' + span(Math.max(win, 60)).replace(/ \d+ s$/, '') + ' (building to 24 h)'}</div>`
-                        + `<div class="sh-line"><span><span style="color:var(--muted)">GPU</span> ${val(pk.gpu, ' °C')}</span>${pks.length ? `<span style="color:var(--muted)">Drives</span><span>${pks.join(' · ')}</span>` : ''}</div>`;
+                        + `<div class="sh-line"><span><span style="color:var(--muted)">CPU</span> ${val(pk.cpu, ' °C')}</span><span><span style="color:var(--muted)">GPU</span> ${val(pk.gpu, ' °C')}</span>${pks.length ? `<span style="color:var(--muted)">Drives</span><span>${pks.join(' · ')}</span>` : ''}</div>`;
                     $('#sh-out').innerHTML = o;
                     const at = sh.serverTs || sh.updated;
                     $('#sh-age').textContent = at ? 'updated ' + ago(at) : '';
