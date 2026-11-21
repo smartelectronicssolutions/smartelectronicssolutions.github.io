@@ -4,7 +4,7 @@
 <head>
   <script>(function(){try{if(localStorage.getItem("ss-theme")==="light")document.documentElement.classList.add("light")}catch(e){}})();</script>  <!-- saved light/dark before first paint (2026-10-01) -->
     <meta charset="UTF-8">
-    <meta name="version" content="1.5.1">
+    <meta name="version" content="1.5.2">
     <title>Live Chat</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <link rel="stylesheet" href="../assets/css/online.css">
@@ -2468,9 +2468,14 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             try { acctAvatars = (await listAll(storageRef(storage, `${user.uid}/chat/bot/avatar`))).prefixes.map(r => r.name).filter(k => AV_KEY_RE.test(k)); }
             catch (e) { console.warn('[avatar] account rigs not listed:', e && e.code); }
             // which of those folders hold a 3D model (model.vrm) - one small listing per folder, signed-in only
-            const has3d = await Promise.all(acctAvatars.map(k => listAll(storageRef(storage, `${user.uid}/chat/bot/avatar/${k}`))
-                .then(l => l.items.some(i => i.name === 'model.vrm')).catch(() => false)));
-            acct3d = acctAvatars.filter((k, i) => has3d[i]);
+            // 1.5.2 (L 11-21 "yuki3d is showing up as the male avatar"): the 2.5D list showed EVERY folder, so a 3D-only folder
+            // (model.vrm, no rig.json) could be saved as the 2.5D avatar -> no rig -> male fallback. Now: 3D list = folders with
+            // model.vrm, 2.5D list = folders with rig.json (a folder holding both shows in both).
+            const kinds = await Promise.all(acctAvatars.map(k => listAll(storageRef(storage, `${user.uid}/chat/bot/avatar/${k}`))
+                .then(l => ({ vrm: l.items.some(i => i.name === 'model.vrm'), rig: l.items.some(i => /^rig.*\.json$/.test(i.name)) }))
+                .catch(() => ({ vrm: false, rig: true }))));
+            acct3d = acctAvatars.filter((k, i) => kinds[i].vrm);
+            acctAvatars = acctAvatars.filter((k, i) => kinds[i].rig || !kinds[i].vrm);
         }
         const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch { return d; } };
         const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch { } };
