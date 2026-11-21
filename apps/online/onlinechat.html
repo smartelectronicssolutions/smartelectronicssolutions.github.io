@@ -4,7 +4,7 @@
 <head>
   <script>(function(){try{if(localStorage.getItem("ss-theme")==="light")document.documentElement.classList.add("light")}catch(e){}})();</script>  <!-- saved light/dark before first paint (2026-10-01) -->
     <meta charset="UTF-8">
-    <meta name="version" content="1.3.7">
+    <meta name="version" content="1.3.9">
     <title>Live Chat</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <link rel="stylesheet" href="../assets/css/online.css">
@@ -751,7 +751,7 @@
                     <div class="menu-label">Voice &amp; view</div>
                     <button type="button" id="speak-toggle" class="tgl" title="Read replies out loud">🔈 Speak</button>
                     <button type="button" id="handsfree-toggle" class="tgl" title="After a reply is read, listen again automatically">🔁 Hands-free</button>
-                    <button type="button" id="front-toggle" class="tgl" title="Bring the avatar in front of the chat: drag to move, pinch / wheel to zoom, double-tap to reset">⬆ Front</button>
+                    <button type="button" id="front-toggle" class="tgl" title="Bring the avatar in front of the chat: drag to move, pinch / wheel to zoom, double-tap to reset. 3D: Shift+drag turns the camera, Shift+wheel pans, two-finger twist on a phone">⬆ Front</button>
                     <button type="button" id="av-collapse" class="tgl" title="Show / hide the avatar">👤 Avatar</button>
                 </div>
                 <div id="av-status"></div>
@@ -2698,7 +2698,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                 let av;
                 if (def.vrm) {   // 3D: engine + three-vrm fetched now, first use only (ES module cache after that)
                     const ph = $v('av-placeholder'); avStage.classList.add('empty'); ph.textContent = 'Loading the 3D avatar...';
-                    const A3 = await import('./avatar/avatar3d.js?v=20261121');
+                    const A3 = await import('./avatar/avatar3d.js?v=20261121c');
                     if (VS.loadId !== myLoad) return;
                     const o3 = def.storage
                         ? { load: async () => (await getBlob(storageRef(storage, `${currentUser.uid}/chat/bot/avatar/${key.slice(3)}/model.vrm`))).arrayBuffer() }
@@ -2716,7 +2716,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                 avPane.classList.toggle('fullbody', full); mainEl.classList.toggle('fb', full);
                 document.querySelector('.av-float').style.aspectRatio = av.W + ' / ' + av.H;
                 fitBackdrop();
-                loadXf();
+                loadXf(); loadView();
                 if (VS.actx) av.useAnalyser(VS.actx, VS.analyser, VS.audio);
                 if (!VS.collapsed) av.start();
             } catch (e) {
@@ -2750,6 +2750,17 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             applyXf(false);
         }
         function saveXf() { try { localStorage.setItem(xfKey(), JSON.stringify(VS.xf)); } catch { } }
+        // 3D CAMERA (1.3.8, L 11-21: "Shift+drag rotate/tilt, Shift+wheel pan up/down, two-finger twist on the phone, double-tap
+        // reset, remember the angle"): only for an avatar with setView (the 3D engine). Saved per avatar on this device.
+        const hasView = () => !!(VS.av && VS.av.setView);
+        const viewKey = () => 'vc_avview_' + (VS.avatarKey || 'male');
+        function loadView() {
+            if (!hasView()) return;
+            let v = null; try { v = JSON.parse(localStorage.getItem(viewKey()) || 'null'); } catch { }
+            VS.av.setView(v && isFinite(v.yaw) && isFinite(v.pitch) && isFinite(v.pan) ? v : null);
+        }
+        let viewT = null;
+        function saveView() { clearTimeout(viewT); viewT = setTimeout(() => { if (hasView()) try { localStorage.setItem(viewKey(), JSON.stringify(VS.av.getView())); } catch { } }, 250); }
         function applyXf(clamp) {
             const X = VS.xf;
             X.s = Math.max(0.5, Math.min(4, X.s));
@@ -2769,7 +2780,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             frontBtn.classList.toggle('on', VS.front);
             frontBtn.textContent = VS.front ? '⬇ Back' : '⬆ Front';
             if (VS.front && VS.collapsed) { VS.collapsed = false; lsSet('vc_collapsed', '0'); paintToggles(); if (VS.av) { fitAvatar(); VS.av.start(); } }
-            if (VS.front) vStatus('Front: drag to move, pinch or wheel to zoom, double-tap to reset, triple-tap to send back.', false, 5000);
+            if (VS.front) vStatus('Front: drag to move, pinch or wheel to zoom, double-tap to reset, triple-tap to send back.' + (hasView() ? ' 3D: Shift+drag turns the camera, Shift+wheel pans up/down, two-finger twist turns it on a phone.' : ''), false, 7000);
         }
         frontBtn.addEventListener('click', () => setFront(!VS.front));
         // Click around the avatar when it is up front: the layer stays pointer-events:none even in
@@ -2786,10 +2797,13 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             return VS.av.alphaAt((cx - r.left) * k, (cy - r.top) * k, Math.max(2, 8 * k)) > 20;
         }
         const ptrDist = () => { const [a, b] = [...VS.ptrs.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+        const ptrAng = () => { const [a, b] = [...VS.ptrs.values()]; return Math.atan2(b.y - a.y, b.x - a.x); };
         const ptrMid = () => { const [a, b] = [...VS.ptrs.values()]; return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; };
         function gestureStart() {
             const one = [...VS.ptrs.values()][0];
             VS.g = { x: VS.xf.x, y: VS.xf.y, s: VS.xf.s, d: VS.ptrs.size >= 2 ? ptrDist() : 0, m: VS.ptrs.size >= 2 ? ptrMid() : { x: one.x, y: one.y } };
+            VS.g.v = hasView() ? VS.av.getView() : null; VS.g.a = VS.ptrs.size >= 2 ? ptrAng() : 0; VS.g.twist = false;
+            VS.g.orbit = !!(VS.g.v && VS.ptrs.size === 1 && VS.orbitKey);   // Shift held at the press = camera, not move
         }
         document.addEventListener('pointerdown', e => {
             if (!VS.front) return;
@@ -2798,6 +2812,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             if (!joining && !hitHer(e.clientX, e.clientY)) return;           // around her: leave it to the chat
             e.stopPropagation(); if (e.pointerType === 'mouse') e.preventDefault();
             VS.ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY });
+            VS.orbitKey = !joining && e.shiftKey;
             gestureStart(); avFloatEl.classList.add('dragging'); document.documentElement.style.cursor = 'grabbing';
         }, true);
         document.addEventListener('touchstart', e => {                       // only her touches lose their default (no scroll/zoom)
@@ -2817,7 +2832,18 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             e.stopPropagation();
             const p = VS.ptrs.get(e.pointerId); p.x = e.clientX; p.y = e.clientY;
             const G = VS.g;
-            if (VS.ptrs.size >= 2 && G.d) { const m = ptrMid(); VS.xf.s = G.s * ptrDist() / G.d; VS.xf.x = G.x + (m.x - G.m.x); VS.xf.y = G.y + (m.y - G.m.y); }
+            if (G.orbit && VS.ptrs.size === 1) {                              // Shift+drag: left/right = around her, up/down = tilt
+                VS.av.setView({ yaw: G.v.yaw - (e.clientX - G.m.x) * 0.01, pitch: G.v.pitch + (e.clientY - G.m.y) * 0.006, pan: G.v.pan });
+                saveView(); return;
+            }
+            if (VS.ptrs.size >= 2 && G.d) {
+                const m = ptrMid(); VS.xf.s = G.s * ptrDist() / G.d; VS.xf.x = G.x + (m.x - G.m.x); VS.xf.y = G.y + (m.y - G.m.y);
+                if (G.v) {                                                    // two-finger twist turns the camera (after ~10 deg, so a pinch stays a pinch)
+                    let da = ptrAng() - G.a; da = Math.atan2(Math.sin(da), Math.cos(da));
+                    if (!G.twist && Math.abs(da) > 0.17) { G.twist = true; G.a += Math.sign(da) * 0.17; da -= Math.sign(da) * 0.17; }
+                    if (G.twist) { VS.av.setView({ yaw: G.v.yaw - da, pitch: G.v.pitch, pan: G.v.pan }); saveView(); }
+                }
+            }
             else if (VS.ptrs.size === 1) { VS.xf.x = G.x + (e.clientX - G.m.x); VS.xf.y = G.y + (e.clientY - G.m.y); }
             applyXf();
         }, true);
@@ -2832,7 +2858,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                 const now = Date.now();                                      // (held 330 ms: a third tap = triple-tap instead)
                 if (now - VS.lastTap < 320) {
                     VS.lastTap = 0; clearTimeout(VS.resetT);
-                    VS.resetT = setTimeout(() => { VS.xf = defaultXf(); applyXf(false); xfSettle(); }, 330);
+                    VS.resetT = setTimeout(() => { VS.xf = defaultXf(); applyXf(false); xfSettle(); if (hasView()) { VS.av.setView(null); saveView(); } }, 330);
                 } else VS.lastTap = now;
             }
             xfSettle();
@@ -2842,6 +2868,9 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
         document.addEventListener('wheel', e => {                            // zoom only with the cursor over her
             if (!VS.front || (e.target.closest && e.target.closest('header, .chat-header-area, .input-bar, .drop-menu')) || !hitHer(e.clientX, e.clientY)) return;
             e.preventDefault(); e.stopPropagation();
+            if (e.shiftKey && hasView()) {                                   // Shift+wheel = pan up/down (Windows turns Shift+wheel into deltaX)
+                const d = e.deltaY || e.deltaX, v = VS.av.getView(); VS.av.setView({ yaw: v.yaw, pitch: v.pitch, pan: v.pan - d * 0.0008 }); saveView(); return;
+            }
             VS.xf.s *= Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)); applyXf(); xfSettle();
         }, { capture: true, passive: false });
         // TRIPLE-TAP on the avatar = Front <-> Back (same as the Front button), in either mode. Only short, still taps on her

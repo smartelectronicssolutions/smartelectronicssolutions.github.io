@@ -6,6 +6,7 @@
 //   av.pushWord(word, dur) / av.endWords()    text-timed mouth when there is no analyser audio (device voice)
 //   av.setExpression(name, amt) / av.setHead(h | null) / av.blinkNow()
 //   av.alphaAt(px, py, r)                     max alpha 0-255 of rendered pixels around canvas px (hit-testing)
+//   av.getView() / av.setView({yaw, pitch, pan})   camera orbit (radians) + up/down pan (fraction of her height); 0,0,0 = straight on
 // The page owns the canvas size (canvas.width/height); this follows it every frame.
 // ES module, imported by the page ONLY when the 3D style is chosen. Needs the page importmap for 'three',
 // 'three/addons/' and '@pixiv/three-vrm' (three@0.180.0, @pixiv/three-vrm@3.5.5).
@@ -103,7 +104,20 @@ class Avatar3D {
         const { top, bot } = this.fr, cy = (top + bot) / 2, span = top - bot, vf = THREE.MathUtils.degToRad(cam.fov);
         const hf = 2 * Math.atan(Math.tan(vf / 2) * cam.aspect);
         const dist = Math.max((span / 2) / Math.tan(vf / 2), 0.45 / Math.tan(hf / 2));
-        cam.position.set(0, cy, dist); cam.lookAt(0, cy, 0);
+        // CAMERA (2026-11-21, L "rotate the camera in the 3D Yuki"): orbit around her at the same distance. yaw = around
+        // (any angle), pitch = tilt (clamped), pan = the look point moved up/down as a fraction of her height.
+        const V = this.view || { yaw: 0, pitch: 0, pan: 0 }, ty = cy + V.pan * span, cp = Math.cos(V.pitch);
+        cam.position.set(dist * Math.sin(V.yaw) * cp, ty + dist * Math.sin(V.pitch), dist * Math.cos(V.yaw) * cp);
+        cam.lookAt(0, ty, 0);
+    }
+
+    // ---- camera surface (3D only; the page checks av.setView exists) ----
+    getView() { const V = this.view || { yaw: 0, pitch: 0, pan: 0 }; return { yaw: V.yaw, pitch: V.pitch, pan: V.pan }; }
+    setView(v) {
+        v = v || {}; const TAU = Math.PI * 2;
+        let yaw = Number(v.yaw) || 0; yaw = ((yaw % TAU) + TAU + Math.PI) % TAU - Math.PI;   // keep it in -PI..PI
+        this.view = { yaw, pitch: clamp(Number(v.pitch) || 0, -0.6, 0.75), pan: clamp(Number(v.pan) || 0, -0.45, 0.45) };
+        this._fit(true);
     }
 
     // IDLE (2026-11-21, L "Yuki model looks stiff and rigid"): relaxed arms out of the T-pose + breathing, now with a slow
