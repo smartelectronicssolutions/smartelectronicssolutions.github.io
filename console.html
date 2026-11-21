@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.281"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.283"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -4522,6 +4522,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 // (2026-11-12) a reply seen on its own (seen key) is read even while an older one above it is not
                 if (ts > (seen[k] || 0) && !(sk[k] || (sk[k] = seenKeys(k)))[key]) { counts[k] = (counts[k] || 0) + 1; out[k] = true; }
             }
+            if (Object.keys(out).length) out[''] = true;   // ALL = EVERY TAB (1.0.282, L 2026-11-21): All is marked unread while any tab holds an unread reply; its chip number already sums every tab (renderTopics). counts stay per topic so nothing double counts
             return { unread: out, newest, counts };
         }
         // SEEN ON SCREEN (2026-11-09, L): a message counts as read when its bubble has actually been on screen, not when the chat
@@ -4567,18 +4568,36 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const ck = topicKey(k) || '_all';
             DC.seenCloud = { ...(DC.seenCloud || {}), [ck]: { t: k, ts } };
             if (DC.base) set(ref(database, `${DC.base}/seen/topics/${ck}`), { t: k, ts }).catch(() => {});
-            DC.holdUnread = k;
+            DC.holdUnread = k; DC.holdView = DC.topic || '';   // 1.0.282: hold the VIEW it was marked in (All tracks every tab now, so a mark made in All must hold All)
             const st = $('#dc-chat-status'); if (st) st.textContent = '● marked unread' + (k ? ' in # ' + k : '');
             renderChat(DC.chatTurns || {});
         }
         function watchSeenChat(log, obj, cur) {
-            if (DC.holdUnread !== undefined && DC.holdUnread !== null) { if (DC.holdUnread === cur) { watchSeen(log, [], () => {}); return []; } DC.holdUnread = null; }
+            if (DC.holdUnread !== undefined && DC.holdUnread !== null) { if ((DC.holdView !== undefined ? DC.holdView : DC.holdUnread) === cur) { watchSeen(log, [], () => {}); return []; } DC.holdUnread = null; DC.holdView = undefined; }
+            if (cur === '') return watchSeenAll(log, obj);
             const was = seenRead()[cur] || 0, sk = seenKeys(cur);
             const items = Object.entries(obj || {}).filter(([k, t]) => t && t.s === 'D' && !t.pending && (t.topic || '') === cur && (t.ts || 0) > was && !sk[k])
                 .sort((a, b) => (a[1].ts || 0) - (b[1].ts || 0)).map(([k, t]) => ({ k, ts: t.ts || 0 }));
             const left = new Set(items.map(it => it.k));
             watchSeen(log, items, ts => { if (ts) markSeen(cur, ts); const u = unreadTopics(DC.chatTurns || obj); DC._unread = u.unread; DC._unreadN = u.counts; DC._unread[cur] = false; renderTopics(); aimUnreadPill(log, left); },
                 (k, ts) => { left.delete(k); markSeenKey(cur, k, ts); });
+            DC.unseenLeft = left;
+            return items;
+        }
+        // ALL = EVERY TAB (1.0.282, L 2026-11-21: "All counts every tab's unread, and reading anywhere marks it read everywhere"):
+        // the All view shows every tab's replies, so it watches every reply still unread in ITS OWN tab and marks it read THERE -
+        // per-message key + that tab's contiguous watermark (no separate All mark any more for tagged replies). Reading in a #tab
+        // already writes the tab's own mark, which All honours through unreadTopics, so the two can't disagree.
+        function watchSeenAll(log, obj) {
+            const seen = seenRead(), skc = {}, per = {};
+            const items = Object.entries(obj || {}).filter(([k, t]) => { if (!t || t.s !== 'D' || t.pending) return false; const tp = t.topic || '';
+                    return (t.ts || 0) > (seen[tp] || 0) && !(skc[tp] || (skc[tp] = seenKeys(tp)))[k]; })
+                .sort((a, b) => (a[1].ts || 0) - (b[1].ts || 0)).map(([k, t]) => ({ k, ts: t.ts || 0, tp: t.topic || '' }));
+            for (const it of items) (per[it.tp] = per[it.tp] || []).push(it);
+            const left = new Set(items.map(it => it.k)), got = new Set(), topicOf = Object.fromEntries(items.map(it => [it.k, it.tp]));
+            watchSeen(log, items, () => { const u = unreadTopics(DC.chatTurns || obj); DC._unread = u.unread; DC._unreadN = u.counts; DC._unread[''] = false; renderTopics(); aimUnreadPill(log, left); },
+                (k, ts) => { left.delete(k); got.add(k); const tp = topicOf[k]; if (tp === undefined) return; markSeenKey(tp, k, ts);
+                    let wm = 0; for (const it of per[tp]) { if (!got.has(it.k)) break; wm = it.ts; } if (wm) markSeen(tp, wm); });   // that tab's watermark moves only past its own contiguous seen lines
             DC.unseenLeft = left;
             return items;
         }
