@@ -4,7 +4,7 @@
 <head>
   <script>(function(){try{if(localStorage.getItem("ss-theme")==="light")document.documentElement.classList.add("light")}catch(e){}})();</script>  <!-- saved light/dark before first paint (2026-10-01) -->
     <meta charset="UTF-8">
-    <meta name="version" content="1.4.1">
+    <meta name="version" content="1.5.1">
     <title>Live Chat</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <link rel="stylesheet" href="../assets/css/online.css">
@@ -799,6 +799,19 @@
                     <select id="prs-avatar"></select>
                     <span class="prs-hint">This account's assistant look · saved with Save</span>
                 </div>
+                <!-- 1.5.0 BRAIN PICKER (L 2026-11-21: "Build the Brain picker with Local + Gemini now, and add Claude and GPT slots that turn
+                     on when I add API keys"): {uid}/chat/bot/brain. Cloud brains run in svc-brains on se, only for allowed accounts; a
+                     refusal or failure answers on Local. Options that can't run are disabled with the reason. -->
+                <div class="prs-section">
+                    <label>Brain</label>
+                    <select id="prs-brain">
+                        <option value="local">Local (on the home server)</option>
+                        <option value="gemini">Gemini Flash</option>
+                        <option value="claude">Claude Haiku</option>
+                        <option value="gpt">GPT-4o mini</option>
+                    </select>
+                    <span class="prs-hint" id="prs-brain-hint">Which AI answers in this chat · saved with Save</span>
+                </div>
                 <div class="prs-section">
                     <label>Personality</label>
                     <textarea id="prs-personality" class="blur-field" rows="6" placeholder="Describe the bot's personality, tone, and behavior..." onclick="this.focus()"></textarea>
@@ -864,7 +877,7 @@
     </div>
 
     <script>window.LINKS_ASIDE_HREF = 'https://luissolutions.us/apps/online/onlinelinks.html';</script>
-    <script src="avatar/avatar.js?v=20261121b"></script>
+    <script src="avatar/avatar.js?v=20261121c"></script>
     <script type="module" src="../assets/js/auth.js"></script>
     <script src="../assets/js/links-aside.js" charset="utf-8" defer></script>
     <script type="module">
@@ -878,6 +891,7 @@
         // LLM model is Firebase-configurable: {uid}/chat/bot/model, else public/bot/model,
         // else this default. Swap models with a data flip — no deploy.
         let BOT_MODEL = 'dolphin3';
+        let BOT_BRAIN = 'local';   // 1.5.0: {uid}/chat/bot/brain - 'local' (ollama, BOT_MODEL) | 'gemini' | 'claude' | 'gpt'
         let BOT_NAME = 'Assistant';   // generic default; an account's own name comes from {uid}/chat/bot/name
         const INVENTORY_KEYWORDS = /inventory|item|stock|product|emporium|price|quantity|how many|available|shop|sell|buy|catalog|listing|merchandise|goods|supplies|parts|do you have|do you carry|do you sell|what does.{0,20}cost|how much is|in stock|out of stock|what.{0,10}sell|what.{0,10}carry|what.{0,10}got/i;
         const TICKET_KEYWORDS = /ticket|repair|fix|broken|status|service|jem|job|order|customer|client|device|phone|laptop|computer|screen|issue|problem|case|pickup|drop.?off|appointment|warranty|complaint|tracking|open ticket|pending|in.?progress/i;
@@ -1624,11 +1638,14 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
 
                 const systemPrompt = await buildContext(question);
 
+                const hdrs = { 'Content-Type': 'application/json' };
+                if (BOT_BRAIN !== 'local' && currentUser) { try { hdrs.Authorization = 'Bearer ' + await currentUser.getIdToken(); } catch { } }
                 const res = await fetch(OLLAMA_URL, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: hdrs,
                     body: JSON.stringify({
                         model: BOT_MODEL,
+                        brain: BOT_BRAIN,   // 1.5.0: the server answers on Local if this brain can't run for this account
                         stream: false,
                         messages: [
                             { role: 'system', content: systemPrompt },
@@ -1639,6 +1656,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
 
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
+                if (data.brainNote) console.info('[brain]', data.brainNote);
                 const raw = data.message?.content?.trim() || 'U-um... I\'m not sure what to say...';
 
                 // Parse and strip mood tag
@@ -2074,6 +2092,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                         if (pubModel.exists() && pubModel.val()) BOT_MODEL = String(pubModel.val());
                     }
                     if (nameSnap.exists() && nameSnap.val()) BOT_NAME = nameSnap.val();
+                    try { const b = (await get(ref(database, `${user.uid}/chat/bot/brain`))).val(); BOT_BRAIN = ['gemini', 'claude', 'gpt'].includes(b) ? b : 'local'; } catch { BOT_BRAIN = 'local'; }
                     userCharPrompt = charSnap.exists() && charSnap.val() ? charSnap.val() : null;
                     userNegPrompt  = negSnap.exists()  && negSnap.val()  ? negSnap.val()  : null;
                     userNsfw       = nsfwSnap.exists() ? !!nsfwSnap.val() : false;
@@ -2149,6 +2168,29 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             });
         });
 
+        // 1.5.0 BRAIN PICKER: which brains can run is asked from the server (GET /chat/brains with this login's ID token).
+        // The saved pick stays shown even while unavailable (the server answers on Local meanwhile); disabled options can't be newly picked.
+        const BRAIN_NAMES = { local: 'Local (on the home server)', gemini: 'Gemini Flash', claude: 'Claude Haiku', gpt: 'GPT-4o mini' };
+        async function fillPrsBrain() {
+            const sel = document.getElementById('prs-brain'), hint = document.getElementById('prs-brain-hint'); if (!sel || !currentUser) return;
+            let st = { local: true };
+            try { const tok = await currentUser.getIdToken(); const r = await fetch(OLLAMA_URL + '/brains', { headers: { Authorization: 'Bearer ' + tok } }); if (r.ok) st = await r.json(); } catch { }
+            let saved = 'local'; try { saved = (await get(ref(database, `${currentUser.uid}/chat/bot/brain`))).val() || 'local'; } catch { }
+            if (!BRAIN_NAMES[saved]) saved = 'local';
+            for (const o of sel.options) {
+                const k = o.value; let why = '';
+                if (k !== 'local') {
+                    if (!st.allowed) why = 'not on this account';
+                    else if (!st[k]) why = k === 'gemini' ? 'sign-in pending' : 'add API key';
+                }
+                o.disabled = !!why && k !== saved; o.textContent = BRAIN_NAMES[k] + (why ? ` (${why})` : '');
+            }
+            sel.value = saved;
+            if (hint) hint.textContent = st.down ? 'Brain service is offline right now - Local answers · saved with Save'
+                : (saved !== 'local' && (!st.allowed || !st[saved]) ? 'This brain is not available yet - Local answers until it is · saved with Save'
+                : 'Which AI answers in this chat · saved with Save');
+        }
+
         async function loadPersonaEditor() {
             if (!currentUser) return;
             const uid = currentUser.uid;
@@ -2168,6 +2210,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                 document.getElementById('prs-personality').value = persS.val()  || '';
                 document.getElementById('prs-nsfw').checked      = !!nsfwS.val();
                 if (typeof fillPrsAvatar === 'function') fillPrsAvatar();
+                fillPrsBrain();
                 // memory summary (separate load — non-blocking if it's missing)
                 try {
                     const memSumS = await get(ref(database, `${uid}/chat/bot/memory_summary`));
@@ -2234,6 +2277,8 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             const avKey  = (avSel && avSel.value) || null;
             const avStyle = (document.getElementById('prs-avstyle') || {}).value === '3d' ? '3d' : '2d';
             const av3 = avKey && avKey.startsWith('3d:') ? avKey.slice(3) : null;   // 3D picks are '3d:<key>' ('3d:default' = built-in)
+            const bsel = document.getElementById('prs-brain');
+            const brainPick = bsel && ['gemini', 'claude', 'gpt'].includes(bsel.value) ? bsel.value : 'local';
             status.textContent = 'Saving…';
             try {
                 await Promise.all([
@@ -2244,12 +2289,14 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                     set(ref(database, `${uid}/chat/bot/personality`), pers  || null),
                     set(ref(database, `${uid}/chat/bot/nsfw`),        nsfw),
                     set(ref(database, `${uid}/chat/bot/avatarStyle`), avStyle),
+                    set(ref(database, `${uid}/chat/bot/brain`), brainPick),
                     ...(avKey && !av3 ? [set(ref(database, `${uid}/chat/bot/avatar`), avKey)] : []),
                     ...(av3 ? [set(ref(database, `${uid}/chat/bot/avatar3d`), av3)] : [])
                 ]);
                 if (typeof notePick === 'function') notePick(avKey);
                 if (avKey && typeof loadAvatar === 'function' && avKey !== VS.avatarKey) loadAvatar(avKey);
                 // apply live
+                BOT_BRAIN = brainPick;
                 if (name)  BOT_NAME       = name;
                 if (model) userSdModel    = model; else userSdModel    = null;
                 if (char)  userCharPrompt = char;  else userCharPrompt = null;
