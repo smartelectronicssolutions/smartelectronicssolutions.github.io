@@ -151,6 +151,22 @@
       this.parts = rig.parts.map((p, i) => this._mkPart(p, imgs[i]))
         .sort((a, b) => (a.z - b.z) || ((so[a.name.split('_')[2]] || 0) - (so[b.name.split('_')[2]] || 0)));
       this.byName = {}; for (const p of this.parts) this.byName[p.name] = p;
+      // LIMBS (2026-11-21, opt-in; first user = Floppy, L: "have his hands wave up and down, mostly stay down"): rig.limbs =
+      // {partName: {up: signed radians of a full raise, pivot?: [x, y]}} (pivot defaults to the part's own pivot, rig pixels).
+      // A limb part rotates about its pivot by its current angle, then rides the BODY transform (breath, sway, cut blend).
+      // Rigs without rig.limbs never touch any of this.
+      this.limbs = null;
+      if (rig.limbs) {
+        this.limbs = {};
+        for (const nm in rig.limbs) {
+          const L = rig.limbs[nm], pt = this.byName[nm], pv = L.pivot || (pt && pt.pivot);
+          if (!pt || !pv) continue;
+          this.limbs[nm] = { px: pv[0], py: pv[1], up: +L.up || 0, a: 0, c: 1, s: 0, w: -1 };   // a = angle, w = wave clock (-1 = resting)
+          pt.limb = this.limbs[nm];
+        }
+        let calm = false; try { calm = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches); } catch (e) { }
+        this.limbCalm = calm; this.limbNext = 4 + this.rand() * 6; this.wasTalking = false;
+      }
       this.mouthY = rig.head.jaw.mouth_y;
       if (rig.head.cut && rig.head.cut.length > 1) { this.cutX = rig.head.cut.map(q => q[0]); this.cutY = rig.head.cut.map(q => q[1]); }
       const LN = rig.mouth.line;
@@ -355,6 +371,41 @@
       P.eyeY = ease(P.eyeY, clamp(SC.y + P.pitch * 2 + xv('eyeY'), -1, 1), dt, 0.05);
       P.browL = ease(P.browL, xv('brow') + xv('browL') + P.open * 0.12 * (talking ? 1 : 0), dt, 0.1);
       P.browR = ease(P.browR, xv('brow') + xv('browR') + P.open * 0.12 * (talking ? 1 : 0), dt, 0.1);
+      if (this.limbs) this._stepLimbs(dt, talking);
+    }
+
+    // limbs: rest = down with a tiny sway; every 8-20 s (25-45 s with reduced motion) one arm - sometimes both - waves:
+    // raise 0.35 s, wag up/down 1.2 s, lower 0.4 s. Sometimes a wave when talking starts. No allocations per frame.
+    _stepLimbs(dt, talking) {
+      const R = this.rand, t = this.t, calm = this.limbCalm, LB = this.limbs;
+      let start = false;
+      this.limbNext -= dt;
+      if (this.limbNext <= 0) { start = true; this.limbNext = calm ? 25 + R() * 20 : 8 + R() * 12; }
+      if (talking && !this.wasTalking && R() < (calm ? 0.1 : 0.35)) start = true;
+      this.wasTalking = talking;
+      if (start) {
+        let busy = false; for (const nm in LB) if (LB[nm].w >= 0) busy = true;
+        if (!busy) {
+          const r = R(), both = r < 0.15, pickL = r < 0.7; let i = 0;
+          for (const nm in LB) { if (both || (i === 0) === pickL) LB[nm].w = 0; i++; }
+        }
+      }
+      const WAG = (calm ? 6 : 12) * Math.PI / 180, RAISE = 0.35, WAGT = 1.2, LOWER = 0.4, TOT = RAISE + WAGT + LOWER;
+      let i = 0;
+      for (const nm in LB) {
+        const L = LB[nm], side = L.up < 0 ? -1 : 1;
+        let a = side * (calm ? 0.6 : 1) * 0.045 * Math.sin(t * 1.3 + i * 2.1);   // idle sway, ~2.5 deg
+        if (L.w >= 0) {
+          L.w += dt; const w = L.w;
+          if (w >= TOT) L.w = -1;
+          else {
+            const lift = w < RAISE ? smooth(0, RAISE, w) : w < RAISE + WAGT ? 1 : 1 - smooth(RAISE + WAGT, TOT, w);
+            const wag = w >= RAISE && w < RAISE + WAGT ? Math.sin((w - RAISE) / WAGT * Math.PI * 2 * 2.5) * WAG * side : 0;
+            a += L.up * lift * (calm ? 0.8 : 1) + wag;
+          }
+        }
+        L.a = a; L.c = Math.cos(a); L.s = Math.sin(a); i++;
+      }
     }
 
     // ---------- deformation ----------
@@ -397,7 +448,11 @@
           x = cx + (x - cx) * 1.04 - P.yaw * 18 * K - P.sx * 0.3; y = cy + (y - cy) * 1.04 + P.pitch * 10 * K;
           out[i * 2] = x; out[i * 2 + 1] = y; continue;
         }
-        if (p.key === 'body' || p.key === 'neck') {
+        if (p.limb) {                                              // limb: rotate about its pivot, then ride the body below
+          const L = p.limb, dx = x - L.px, dy = y - L.py;
+          x = L.px + dx * L.c - dy * L.s; y = L.py + dx * L.s + dy * L.c;
+        }
+        if (p.key === 'body' || p.key === 'neck' || p.limb) {
           const by = this.H, x0 = x, y0 = y;
           const top = clamp((by - y) / (720 * K), 0, 1.2);
           y = by - (by - y) * (1 + P.breath * 0.012);
