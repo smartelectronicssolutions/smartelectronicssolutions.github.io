@@ -4,7 +4,7 @@
 <head>
   <script>(function(){try{if(localStorage.getItem("ss-theme")==="light")document.documentElement.classList.add("light")}catch(e){}})();</script>  <!-- saved light/dark before first paint (2026-10-01) -->
     <meta charset="UTF-8">
-    <meta name="version" content="1.3.9">
+    <meta name="version" content="1.4.1">
     <title>Live Chat</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <link rel="stylesheet" href="../assets/css/online.css">
@@ -710,6 +710,16 @@
             main.voice-main .chat-shell { margin-left: calc(env(fold-left) + env(fold-width)); }
             main.voice-main:not(.av-hidden) #chat-window { padding-left: 14px; }
         }
+        /* FLOPPY POPUP (1.4.0): Win98-style card, bottom-left, never covers the input */
+        #floppy-pop { position: fixed; left: 12px; bottom: 84px; z-index: 60; width: min(300px, calc(100vw - 24px)); background: #c0c0c0;
+            border: 2px solid; border-color: #fff #404040 #404040 #fff; box-shadow: 2px 2px 0 #000; font: 13px Tahoma, 'MS Sans Serif', sans-serif; color: #000; }
+        #floppy-pop .fp-bar { display: flex; align-items: center; justify-content: space-between; padding: 3px 4px; color: #fff; font-weight: 700;
+            background: linear-gradient(90deg, #000080, #1084d0); }
+        #floppy-pop .fp-x, #floppy-pop .fp-btns button { background: #c0c0c0; color: #000; border: 2px solid; border-color: #fff #404040 #404040 #fff; font: inherit; cursor: pointer; }
+        #floppy-pop .fp-x { width: 20px; height: 18px; padding: 0; line-height: 1; font-size: 11px; }
+        #floppy-pop .fp-body { padding: 12px 10px 6px; }
+        #floppy-pop .fp-btns { display: flex; gap: 8px; justify-content: center; padding: 6px 10px 10px; }
+        #floppy-pop .fp-btns button { min-width: 72px; padding: 3px 8px; }
     </style>
 </head>
 
@@ -2361,6 +2371,11 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             female: { label: 'Female', base: 'avatar/female/', voice: 'af_heart', expr: true, focus: [620, 500],
                       deviceVoice: /\b(female|zira|samantha|aria|jenny|karen|victoria|susan|moira|tessa|ava|allison)\b/i,
                       missing: 'The female avatar could not load - chat and voice still work.' },
+            // FLOPPY (2026-11-21, L): an original retro desktop-buddy joke - a living 3.5" disk (avatar/floppy/, drawn by
+            // Deliveryloppyuild_floppy.py). While he is the avatar, a rare Win98-style "save to disk?" popup (floppyPopup).
+            floppy: { label: 'Floppy (retro)', base: 'avatar/floppy/', voice: 'am_michael', expr: true, focus: [512, 640],
+                      deviceVoice: /(male|david|guy|daniel|alex|fred|aaron|mark|james|tom)/i,
+                      missing: 'Floppy could not load - chat and voice still work.' },
         };
         const DEFAULT_AVATAR = 'male';
         // RESOLUTION: desktop (fine pointer, >= 900 px) loads rig@2x, phones rig@1.5x, weak devices
@@ -2583,8 +2598,30 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             setTimeout(() => { if (!VS.speaking) setExpr('neutral', 1); }, 1800);
             if (VS.handsfree && VS.heardLast) startListening(true);   // conversation loop (stops after a silent turn)
         }
+        // FLOPPY POPUP: only while Floppy is the avatar, at most once per 10 min, never while you are typing; never blocks
+        // the chat (a small corner card, both buttons just close it). Pure joke, nothing is saved anywhere.
+        let floppyLast = Date.now();
+        function floppyPopup() {
+            if (VS.avatarKey !== 'floppy' || Date.now() - floppyLast < 600000) return;
+            if (document.activeElement === messageInput || messageInput.value) return;
+            if (Math.random() > 0.35 || document.getElementById('floppy-pop')) return;
+            floppyLast = Date.now();
+            const lines = [['Save conversation', 'Would you like to save this conversation to disk?'],
+                           ['Disk space', 'This conversation is 0.003% of a 1.44 MB disk. Keep saving?'],
+                           ['Floppy tip', 'It looks like you are chatting! Would you like me to save that?']];
+            const [t, q] = lines[Math.floor(Math.random() * lines.length)];
+            const el = document.createElement('div'); el.id = 'floppy-pop'; el.setAttribute('role', 'dialog');
+            el.innerHTML = `<div class="fp-bar"><span>💾 ${t}</span><button type="button" class="fp-x" aria-label="Close">✕</button></div>`
+                + `<div class="fp-body">${q}</div><div class="fp-btns"><button type="button">Yes</button><button type="button">Yes</button></div>`;
+            el.addEventListener('click', e => { if (!e.target.closest('button')) return; const b = el.querySelector('.fp-body');
+                if (e.target.classList.contains('fp-x')) { el.remove(); return; }
+                b.textContent = 'Saved to A:\ (not really).'; el.querySelector('.fp-btns').remove(); setTimeout(() => el.remove(), 1800); });
+            document.body.appendChild(el);
+            setTimeout(() => el.remove(), 15000);
+        }
         function voiceOnBotReply(msg) {
             VS.awaiting = false;
+            setTimeout(floppyPopup, 2500);
             const m = MOOD_EXPR[msg.mood] || ['neutral', 1];
             if (!VS.speak) { setExpr(m[0], m[1]); setTimeout(() => setExpr('neutral', 1), 2500); return; }
             speakReply(msg.text || '', msg.mood);
