@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.61">
+    <meta name="version" content="1.0.62">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Control Hub</title>
     <link rel="stylesheet" href="assets/css/master.css">
@@ -1139,17 +1139,22 @@
             </section>
             <style>
                 .sh-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+                #sh-card { container-type: inline-size; }
+                .sh-grid.g4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }   /* 4 across; 2 x 2 when the card itself is narrow */
+                @container (max-width: 340px) { .sh-grid.g4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
                 .sh-tile { border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; min-width: 0; }
                 .sh-tile span { display: block; font-size: 0.62rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
                 .sh-tile b { display: block; font-size: 0.95rem; font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+                .sh-tile i { display: block; font-style: normal; font-size: 0.66rem; color: var(--muted); margin-top: 1px; overflow-wrap: anywhere; }
                 .sh-tile.warn { border-color: #d99a1e; } .sh-tile.warn b { color: #d99a1e; }
                 .sh-tile.bad { border-color: #e05555; } .sh-tile.bad b { color: #e05555; }
-                .sh-drv { border-top: 1px solid var(--border); padding: 7px 0; font-size: 0.8rem; }
-                .sh-drv-h { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
-                .sh-drv-h b { color: var(--text); overflow-wrap: anywhere; }
-                .sh-drv-h i { font-style: normal; color: var(--muted); font-size: 0.72rem; overflow-wrap: anywhere; }
-                .sh-kv { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 10px; margin-top: 3px; font-size: 0.78rem; color: var(--text); }
-                .sh-kv span span { color: var(--muted); }
+                .sh-sec { border-top: 1px solid var(--border); margin-top: 10px; padding-top: 2px; }
+                .sh-tbl { width: 100%; border-collapse: collapse; font-size: 0.78rem; table-layout: fixed; }
+                .sh-tbl th { text-align: left; font-weight: 500; font-size: 0.62rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; padding: 2px 4px; }
+                .sh-tbl td { padding: 5px 4px; border-top: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }
+                .sh-tbl td.n { white-space: nowrap; text-align: right; } .sh-tbl th.n { text-align: right; }
+                .sh-tbl td small { display: block; color: var(--muted); font-size: 0.66rem; font-weight: 400; }
+                .sh-tbl td.hot { color: #e05555; font-weight: 600; } .sh-tbl td.off { color: #d99a1e; font-weight: 600; }
                 .sh-b { border: 1px solid var(--border); border-radius: 999px; padding: 0 7px; font-size: 0.66rem; line-height: 1.5; white-space: nowrap; }
                 .sh-b.warn { border-color: #d99a1e; color: #d99a1e; } .sh-b.bad { border-color: #e05555; color: #e05555; } .sh-b.ok { border-color: #2e9e5b; color: #2e9e5b; }
                 .sh-line { font-size: 0.82rem; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
@@ -1164,7 +1169,7 @@
                 let shUid = '', shWait = false, sh = null;
                 const has = v => v !== undefined && v !== null;
                 const val = (v, unit) => has(v) ? esc(v) + unit : '–';   // a missing reading is a dash, never a 0
-                const tile = (label, text, cls) => `<div class="sh-tile${cls ? ' ' + cls : ''}"><span>${label}</span><b>${text}</b></div>`;
+                const tile = (label, text, cls, sub) => `<div class="sh-tile${cls ? ' ' + cls : ''}"><span>${label}</span><b>${text}</b>${sub ? `<i>${sub}</i>` : ''}</div>`;
                 const span = s => { s = Math.abs(s); if (s < 60) return (Math.round(s * 10) / 10) + ' s'; const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return h ? `${h} h ${m} min` : `${m} min ${Math.round(s % 60)} s`; };
                 const FLAG = { foreign: ['Foreign', 'warn'], offline: ['Offline', 'bad'], raw: ['RAW', 'warn'], readerr: ['Read errors', 'bad'], hot: ['Hot', 'bad'], unhealthy: ['Unhealthy', 'bad'] };
                 const dname = e => (e.letters && e.letters.length) ? e.letters.map(l => l + ':').join(' ') + (e.label ? ' ' + e.label : '') : (e.model || 'drive');
@@ -1174,43 +1179,53 @@
                     if (shUid !== SH_OWNER_UID) return;
                     if (shWait) { $('#sh-out').innerHTML = '<div class="hb-sk" aria-label="Loading"><div class="hb-sk-row"><i class="hb-sk-t"></i><i class="hb-sk-t"></i></div><i class="hb-sk-l" style="width:88%"></i><i class="hb-sk-l" style="width:72%"></i><i class="hb-sk-l" style="width:80%"></i></div>'; return; }
                     if (!sh) { $('#sh-out').innerHTML = '<div class="cl-sum" style="color:var(--muted)">No readings yet - the svc-se-health task on se writes them.</div>'; $('#sh-age').textContent = ''; return; }
-                    const g = sh.gpu || {}, c = sh.clock || {}, pk = sh.peaks || {}, dm = sh.drivesMeta || {};
-                    let o = '';
-                    // GPU
-                    o += `<div class="sy-h">GPU${g.state === 'warn' ? ' <span class="sh-b bad">Hot</span>' : ''}</div>`;
-                    if (g.state === 'unknown' && !has(g.tempC)) o += `<div class="sh-note">No GPU reading${g.err ? ' - ' + esc(g.err) : ''}.</div>`;
-                    else o += '<div class="sh-grid">' + tile('Temp', val(g.tempC, ' °C'), g.state === 'warn' ? 'bad' : '') + tile('Fan', val(g.fanPct, ' %')) + tile('Power', val(g.powerW, ' W')) + tile('Load', val(g.utilPct, ' %'))
-                        + tile('VRAM', has(g.memUsedMB) && has(g.memTotalMB) ? `${(g.memUsedMB / 1024).toFixed(1)} / ${(g.memTotalMB / 1024).toFixed(0)} GB` : '–') + '</div>';
-                    // Drives (by serial; lettered volumes first)
-                    const ds = Object.entries(sh.drives || {}).sort(([, a], [, b]) => ((a.letters || []).length ? 0 : 1) - ((b.letters || []).length ? 0 : 1) ||String((a.letters || [])[0] || '').localeCompare(String((b.letters || [])[0] || '')) ||String(a.model).localeCompare(String(b.model)) || String(a.serial).localeCompare(String(b.serial)));
-                    o += `<div class="sy-h">Drives · ${ds.length}</div>`;
-                    o += ds.map(([k, e]) => {
-                        const fl = (e.flags || []).map(f => { const [t, cl] = FLAG[f] || [f, 'warn']; return `<span class="sh-b ${cl}">${esc(f === 'readerr' && has(e.readErr) ? 'Read errors ' + e.readErr : t)}</span>`; }).join('');
-                        const free = has(e.freeGB) ? `${Math.round(e.freeGB).toLocaleString()}${has(e.volGB) ? ' / ' + Math.round(e.volGB).toLocaleString() : ''} GB` : '–';
-                        // no counters at all (reader not elevated) = skip the three dash cells, keep the row short on a phone
-                        const kv = (dm.state === 'noaccess' ? '' : `<span><span>Temp</span> ${val(e.tempC, ' °C')}</span><span><span>Hours</span> ${has(e.hours) ? Number(e.hours).toLocaleString() : '–'}</span><span><span>Read err</span> ${val(e.readErr, '')}</span>`)
-                            + (dm.state === 'noaccess' && !has(e.freeGB) ? '' : `<span><span>Free</span> ${free}</span>`);
-                        return `<div class="sh-drv"><div class="sh-drv-h"><b>${esc(dname(e))}</b>${fl}<i>${e.letters && e.letters.length ? esc(e.model || '') + ' · ' : ''}…${esc(k.slice(-4))}</i></div>`
-                            + (kv ? `<div class="sh-kv">${kv}</div>` : '') + '</div>';
-                    }).join('') || '<div class="sh-note">No drive data.</div>';
-                    if (dm.state === 'noaccess') o += '<div class="sh-note">Temp, hours and read errors are blank: Windows only gives those counters to an elevated reader, and the task runs as a normal user.</div>';
-                    // Clock
-                    const red = c.state === 'red';
-                    o += '<div class="sy-h">Clock</div><div class="sh-line">' + (has(c.offsetS)
-                        ? `<span class="sh-b ${red ? 'bad' : 'ok'}">${red ? 'Off' : 'OK'}</span><span style="${red ? 'color:#e05555;font-weight:600' : ''}">${Math.abs(c.offsetS) < 0.05 ? 'in sync' : 'se is ' + span(c.offsetS) + (c.offsetS > 0 ? ' slow' : ' fast')}</span><span style="color:var(--muted);font-size:0.72rem">vs ${esc(c.source || 'time server')} · red over ${esc(c.limitS ?? 5)} s</span>`
-                        : `<span class="sh-b warn">Unknown</span><span style="color:var(--muted)">no answer from ${esc(c.source || 'the time server')}</span>`) + '</div>';
+                    // 1.0.62 (L 11-21 "make it better organized and laid out"): status line + 4 summary tiles, then CPU / GPU / Drives
+                    // sections; each 24 h peak sits under its own reading; drives = one table; clock lives in the summary.
+                    const g = sh.gpu || {}, c = sh.clock || {}, pk = sh.peaks || {}, dm = sh.drivesMeta || {}, u = sh.cpu || {}, pd = pk.drives || {};
+                    const fans = u.fans || {}, stop = u.fansStopped || [];
+                    const win = has(sh.updated) && has(pk.since) ? (sh.updated - pk.since) / 1000 : null;
+                    const pkw = win === null || win >= 23.5 * 3600 ? '24 h' : span(Math.max(win, 60)).replace(/ \d+ s$/, '');
+                    const pkTxt = v => has(v) ? `${pkw} peak ${esc(Math.round(v))}°` : '';
+                    const ds = Object.entries(sh.drives || {}).sort(([, a], [, b]) => ((a.letters || []).length ? 0 : 1) - ((b.letters || []).length ? 0 : 1) || String((a.letters || [])[0] || '').localeCompare(String((b.letters || [])[0] || '')) || String(a.model).localeCompare(String(b.model)) || String(a.serial).localeCompare(String(b.serial)));
+                    const dFlagged = ds.filter(([, e]) => (e.flags || []).some(f => f !== 'raw' && f !== 'foreign'));
+                    const hot = ds.reduce((m, [k, e]) => has(e.tempC) && (!m || e.tempC > m[1].tempC) ? [k, e] : m, null);
+                    const red = c.state === 'red', cpuHot = u.state === 'warn', gpuHot = g.state === 'warn';
+                    const issues = [cpuHot && 'CPU hot', gpuHot && 'GPU hot', red && 'clock off', dFlagged.length && `${dFlagged.length} drive${dFlagged.length > 1 ? 's' : ''} flagged`, stop.length && `${stop.length} fan${stop.length > 1 ? 's' : ''} at 0 rpm`].filter(Boolean);
+                    let o = `<div class="sh-line" style="margin-bottom:6px">${issues.length ? `<span class="sh-b warn">${issues.length} to look at</span><span style="color:var(--muted);font-size:0.76rem">${esc(issues.join(' · '))}</span>` : '<span class="sh-b ok">All OK</span>'}</div>`;
+                    o += '<div class="sh-grid g4">'
+                        + tile('CPU', val(u.tempC, ' °C'), cpuHot ? 'bad' : '', has(u.powerW) ? val(u.powerW, ' W') : '')
+                        + tile('GPU', val(g.tempC, ' °C'), gpuHot ? 'bad' : '', has(g.utilPct) ? val(g.utilPct, ' % load') : '')
+                        + tile('Drives', hot ? val(hot[1].tempC, ' °C') : '–', hot && (hot[1].flags || []).includes('hot') ? 'bad' : '', hot ? 'hottest: ' + esc((hot[1].letters || [])[0] ? hot[1].letters[0] + ':' : '…' + hot[0].slice(-4)) : '')
+                        + tile('Clock', has(c.offsetS) ? (Math.abs(c.offsetS) < 0.05 ? 'In sync' : span(c.offsetS) + (c.offsetS > 0 ? ' slow' : ' fast')) : 'Unknown', red ? 'bad' : has(c.offsetS) ? '' : 'warn', red ? 'over ' + esc(c.limitS ?? 5) + ' s' : 'OK')
+                        + '</div>';
                     // CPU
-                    const u = sh.cpu || {}, fn = u.fans || {}, stop = u.fansStopped || [];
-                    o += '<div class="sy-h">CPU</div>' + (has(u.tempC)
-                        ? `<div class="sh-line"><span class="sh-b ${u.state === 'warn' ? 'warn' : 'ok'}">${u.state === 'warn' ? 'Hot' : 'OK'}</span><span><span style="color:var(--muted)">Temp</span> ${val(u.tempC, ' °C')}</span><span><span style="color:var(--muted)">Power</span> ${val(u.powerW, ' W')}</span><span><span style="color:var(--muted)">Chipset</span> ${val(u.chipsetC, ' °C')}</span></div>`
-                          + `<div class="sh-line"><span><span style="color:var(--muted)">CPU fan</span> ${val(fn['CPU Fan'], ' rpm')}</span><span><span style="color:var(--muted)">Pump</span> ${val(fn['AIO Pump'], ' rpm')}</span></div>`
-                          + (stop.length ? `<div class="sh-note">Reading 0 rpm: ${esc(stop.join(', '))}</div>` : '')
-                        : `<div class="sh-line" style="color:var(--muted)">${esc(u.state === 'no reading' ? 'no reading (' + (u.why || '?') + ')' : (u.state || 'no sensor yet'))}</div>`);
-                    // 24 h peaks (the window is measured on se's own clock on both ends, so its length is right even while that clock is off)
-                    const pd = pk.drives || {}, win = has(sh.updated) && has(pk.since) ? (sh.updated - pk.since) / 1000 : null;
-                    const pks = ds.filter(([k]) => has(pd[k])).map(([k, e]) => `${esc(e.letters && e.letters.length ? e.letters[0] + ':' : '…' + k.slice(-4))} ${esc(pd[k])}°`);
-                    o += `<div class="sy-h">Peaks · ${win === null || win >= 23.5 * 3600 ? '24 h' : 'last ' + span(Math.max(win, 60)).replace(/ \d+ s$/, '') + ' (building to 24 h)'}</div>`
-                        + `<div class="sh-line"><span><span style="color:var(--muted)">CPU</span> ${val(pk.cpu, ' °C')}</span><span><span style="color:var(--muted)">GPU</span> ${val(pk.gpu, ' °C')}</span>${pks.length ? `<span style="color:var(--muted)">Drives</span><span>${pks.join(' · ')}</span>` : ''}</div>`;
+                    o += '<div class="sh-sec"><div class="sy-h">CPU' + (cpuHot ? ' <span class="sh-b bad">Hot</span>' : '') + '</div>';
+                    if (has(u.tempC)) {
+                        o += '<div class="sh-grid g4">' + tile('Temp', val(u.tempC, ' °C'), cpuHot ? 'bad' : '', pkTxt(pk.cpu)) + tile('Power', val(u.powerW, ' W'))
+                            + tile('Chipset', val(u.chipsetC, ' °C'), has(u.chipsetC) && u.chipsetC >= 80 ? 'warn' : '') + tile('Board', val(u.boardC, ' °C')) + '</div>';
+                        const fe = Object.entries(fans).sort(([a], [b]) => (/^CPU|Pump/.test(a) ? 0 : 1) - (/^CPU|Pump/.test(b) ? 0 : 1) || a.localeCompare(b));
+                        if (fe.length) o += '<div class="sy-h">Cooling</div><table class="sh-tbl"><tr><th>Fan</th><th class="n">rpm</th></tr>'
+                            + fe.map(([n, r]) => `<tr><td>${esc(n.replace(/^Chassis Fan No /, 'Chassis '))}</td><td class="n${r === 0 ? ' off' : ''}">${r === 0 ? '0 · stopped' : Number(r).toLocaleString()}</td></tr>`).join('') + '</table>';
+                    } else o += `<div class="sh-note">${esc(u.state === 'no reading' ? 'No reading (' + (u.why || '?') + ')' : (u.state || 'No sensor yet'))}</div>`;
+                    o += '</div>';
+                    // GPU
+                    o += '<div class="sh-sec"><div class="sy-h">GPU' + (gpuHot ? ' <span class="sh-b bad">Hot</span>' : '') + '</div>';
+                    if (g.state === 'unknown' && !has(g.tempC)) o += `<div class="sh-note">No GPU reading${g.err ? ' - ' + esc(g.err) : ''}.</div>`;
+                    else o += '<div class="sh-grid g4">' + tile('Temp', val(g.tempC, ' °C'), gpuHot ? 'bad' : '', pkTxt(pk.gpu)) + tile('Load', val(g.utilPct, ' %')) + tile('Power', val(g.powerW, ' W')) + tile('Fan', val(g.fanPct, ' %')) + '</div>'
+                        + (has(g.memUsedMB) && has(g.memTotalMB) ? `<div class="sh-note">VRAM ${(g.memUsedMB / 1024).toFixed(1)} of ${(g.memTotalMB / 1024).toFixed(0)} GB in use</div>` : '');
+                    o += '</div>';
+                    // Drives: one table (lettered volumes first)
+                    const noc = dm.state === 'noaccess';
+                    o += `<div class="sh-sec"><div class="sy-h">Drives · ${ds.length}</div>`;
+                    o += ds.length ? '<table class="sh-tbl"><colgroup><col style="width:46%"><col><col><col></colgroup><tr><th>Drive</th><th class="n">Temp</th><th class="n">Free</th><th class="n">Hours</th></tr>' + ds.map(([k, e]) => {
+                        const fl = (e.flags || []).map(f => { const [t, cl] = FLAG[f] || [f, 'warn']; return ` <span class="sh-b ${cl}">${esc(f === 'readerr' && has(e.readErr) ? 'Read errors ' + e.readErr : t)}</span>`; }).join('');
+                        const free = has(e.freeGB) ? `${Math.round(e.freeGB).toLocaleString()} GB${has(e.volGB) ? `<small>of ${Math.round(e.volGB).toLocaleString()}</small>` : ''}` : '–';
+                        const peak = has(pd[k]) ? `<small>peak ${esc(pd[k])}°</small>` : '';
+                        return `<tr><td><b>${esc(dname(e))}</b>${fl}<small>${e.letters && e.letters.length ? esc(e.model || '') + ' · ' : ''}…${esc(k.slice(-4))}</small></td>`
+                            + `<td class="n${(e.flags || []).includes('hot') ? ' hot' : ''}">${noc ? '–' : val(e.tempC, '°')}${peak}</td><td class="n">${free}</td><td class="n">${noc || !has(e.hours) ? '–' : Number(e.hours).toLocaleString()}</td></tr>`;
+                    }).join('') + '</table>' : '<div class="sh-note">No drive data.</div>';
+                    if (noc) o += '<div class="sh-note">Temp and hours are blank: Windows only gives those counters to an elevated reader, and the task runs as a normal user.</div>';
+                    o += '</div>';
                     $('#sh-out').innerHTML = o;
                     const at = sh.serverTs || sh.updated;
                     $('#sh-age').textContent = at ? 'updated ' + ago(at) : '';
