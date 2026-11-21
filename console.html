@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.275"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.277"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1764,6 +1764,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             box.innerHTML = '<b>Edit tab</b><label>Name<input id="dc-te-name" maxlength="40"></label><label>Model<select id="dc-te-model"></select></label>'
                 + '<small id="dc-te-note" style="opacity:.75"></small>'
                 + (DC.kdaemon ? ((DC.tabEnc || {})[topicKey(oldName)] ? '<small style="opacity:.75">🔒 Encrypted tabs are not on this daemon yet. New messages here are stored as plain text.</small>' : '') : '<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="dc-te-enc" style="width:18px;height:18px"> 🔒 Encrypt this tab</label><small id="dc-te-encnote" style="opacity:.75;white-space:pre-line"></small><div><button class="dc-btn ghost sm" id="dc-te-key" type="button">Passphrase…</button></div>')
+                + '<div id="dc-te-share" style="display:grid;gap:6px"></div>'   // 1.0.276: 📺 Share, filled below
                 + '<div style="display:flex;gap:8px;justify-content:flex-end"><button class="dc-btn ghost sm" id="dc-te-del" style="margin-right:auto;color:var(--dc-red,#e5534b)">Remove tab</button><button class="dc-btn ghost sm" id="dc-te-x">Cancel</button><button class="dc-btn sm" id="dc-te-ok">Save</button></div>';
             w.appendChild(box); document.body.appendChild(w);
             const name = box.querySelector('#dc-te-name'), sel = box.querySelector('#dc-te-model'), note = box.querySelector('#dc-te-note');
@@ -1794,6 +1795,24 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const close = () => w.remove();
             w.onclick = e => { if (e.target === w) close(); };
             box.querySelector('#dc-te-x').onclick = close;
+            // 📺 SHARE (1.0.276, L 2026-11-21 "add share option in the pencil in the tab"): same share as the 👥 bar - the person sees
+            // this tab live, view only. Acts at once (not on Save). Shared already = who + Unshare.
+            { const sw = box.querySelector('#dc-te-share'), T = window.__dcTabShare, I = T && oldName && oldName !== '★' ? T.info(oldName) : null;
+              if (sw && I && I.me && I.key) {
+                  if (I.share) {
+                      sw.innerHTML = '<div style="display:flex;gap:8px;align-items:center"><span style="flex:1">📺 Shared with ' + esc(I.share.name || '?') + ' (view only)</span>'
+                          + '<button class="dc-btn ghost sm" id="dc-te-unshare" type="button">Unshare</button></div>';
+                      sw.querySelector('#dc-te-unshare').onclick = () => { close(); T.unshare(I.key); };
+                  } else if (I.people.length) {
+                      sw.innerHTML = '<label>📺 Share this tab with<select id="dc-te-sharewho"><option value="">Pick a person…</option>'
+                          + I.people.map(([u, n]) => '<option value="' + esc(u) + '">' + esc(n) + '</option>').join('') + '</select></label>'
+                          + '<div style="display:flex;gap:8px;align-items:center"><small style="flex:1;opacity:.75">They see it live, view only. You two talk in 👥.</small>'
+                          + '<button class="dc-btn ghost sm" id="dc-te-sharego" type="button" disabled>Share</button></div>';
+                      const who = sw.querySelector('#dc-te-sharewho'), go = sw.querySelector('#dc-te-sharego');
+                      who.style.cssText = fld; who.onchange = () => { go.disabled = !who.value; };
+                      go.onclick = () => { if (!who.value) return; close(); T.share(who.value); };
+                  }
+              } }
             // REMOVE TAB (1.0.241): moved here from the ✕ that sat on the chip - same two guards. An empty tab: tap twice inside 3 s.
             // A tab with messages: the confirm box (nothing is deleted, the messages drop to All).
             { const del = box.querySelector('#dc-te-del'); let armT = 0;
@@ -7521,6 +7540,12 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (P.open) renderBar(); else renderHome(); }, dcWarn('settings'));
     });
     window.__dcPeer = P;   // test hook
+    // 1.0.276 SHARE FROM THE PENCIL (L 2026-11-21 "add share option in the pencil in the tab"): the tab popup (editTab, other module)
+    // reads who can be picked + whether this tab is shared, and calls the same shareTab / unshareTab the 👥 bar uses.
+    window.__dcTabShare = {
+        info: topic => ({ me: P.me, key: slug(topic), share: P.shares[slug(topic)] || null,
+            people: Object.entries(P.dir || {}).filter(([u, n]) => u && u !== P.me && n).sort((a, b) => String(a[1]).localeCompare(String(b[1]))) }),
+        share: uid => shareTab(uid), unshare: key => unshareTab(key) };
     // ONE CHAT LIST (2026-10-23, Telegram review #1 in L's layout: "from the droplet in the upper left corner when you click that it opens
     // this new pane on the left ... then you click and on the right [desktop: left] or ... the secondary panel is on bottom or top"):
     // the name top-left (a button now; the target <select> stays hidden as the state) opens a LEFT DRAWER = Brains (the chat targets)
