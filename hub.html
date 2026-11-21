@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.63">
+    <meta name="version" content="1.0.65">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Control Hub</title>
     <link rel="stylesheet" href="assets/css/master.css">
@@ -592,11 +592,19 @@
                     <div id="sy-set" hidden style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:10px"></div>
                     <div id="sy-cat" hidden class="sy-set" style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:10px"></div>
                     <div id="sy-out" style="margin-top:10px"></div>
-                    <!-- se's drives (moved from the Storage card 2026-11-10): same ids, so drive_scan's pie / map handlers keep working; shown on the se chip -->
+                    <!-- 1.0.64 (L 11-21 "Fold Health into Machines as a Health section on se, merge the drive tables, and remove the separate
+                         card"): the old se Health card's readout lives here, shown on the se chip only. Its module (below, after this
+                         card's script) paints #sh-out and adds the Health column to #drive-rows. -->
+                    <div id="sh-wrap" hidden>
+                        <div class="sy-h">Health <span id="sh-age" style="float:right;font-weight:400;text-transform:none;letter-spacing:0"></span></div>
+                        <div id="sh-out"></div>
+                    </div>
+                    <!-- se's drives (moved from the Storage card 2026-11-10): same ids, so drive_scan's pie / map handlers keep working; shown on the se chip.
+                         1.0.64: + Health column (temp / hours / flags from console/sehealth, matched by letter); disks with no letter get extra rows. -->
                     <div id="sy-se-drives">
                         <div class="sy-h">Drives (se) · tap a row for its map</div>
                         <table class="htable">
-                            <thead><tr><th>Drive</th><th>Label</th><th>Role</th></tr></thead>
+                            <thead><tr><th>Drive</th><th>Label</th><th>Role</th><th class="n">Health</th></tr></thead>
                             <tbody id="drive-rows"></tbody>
                         </table>
                     </div>
@@ -789,6 +797,7 @@
                     if (!o) o = `<div class="cl-sum" style="color:var(--muted)">Nothing pulled from ${esc(cur)} yet - tap Pull.</div>`;
                     $('#sy-out').innerHTML = o;
                     const sd = $('#sy-se-drives'); if (sd) sd.hidden = cur !== 'se';
+                    const sw = $('#sh-wrap'); if (sw) sw.hidden = cur !== 'se';   // 1.0.64: Health section rides the se chip too
                     $('#sy-age').textContent = ago(Math.max(h.machineAt || 0, h.scanAt || 0));
                     const pk = Object.entries(peers.list || {}).filter(([id]) => !list[id]);
                     $('#sy-peer').innerHTML = pk.length ? pk.map(([id, p]) => `<option value="${esc(id)}">${esc(id)}${p.online ? '' : ' (offline)'}</option>`).join('') : '<option value="">no new Windows PCs on your Tailscale</option>';
@@ -1130,16 +1139,16 @@
                  glance. The scheduled task svc-se-health (E:\Containers\ops\se-health\sehealth.py, every 5 min, read-only) writes
                  console/sehealth ONLY when something material moved (a temp by 2 C, a flag, read errors, the clock state), so this
                  card is ONE listener on that one small node - no polling. Owner login only (the node lives under the owner's uid).
-                 Drives are keyed by SERIAL (disk numbers move). Age uses serverTs (Firebase's clock), not se's own clock. -->
-            <section class="hub-section" id="sh-section">
-                <div class="hcard" id="sh-card" style="display:none">
-                    <h3>se Health <span id="sh-age" style="float:right;font-size:0.65rem;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0"></span></h3>
-                    <div id="sh-out"></div>
-                </div>
-            </section>
+                 Drives are keyed by SERIAL (disk numbers move). Age uses serverTs (Firebase's clock), not se's own clock.
+                 1.0.64: the separate card is GONE - this module now paints #sh-wrap inside the Machines card (se chip) and puts drive
+                 health into the Machines drive table (#drive-rows) as a 4th column. -->
             <style>
                 .sh-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-                #sh-card { container-type: inline-size; }
+                #sh-wrap { container-type: inline-size; margin-top: 10px; }
+                #drive-rows td.sh-h, #sy-se-drives th.n { text-align: right; white-space: nowrap; }
+                #drive-rows td.sh-h small { display: block; color: var(--muted); font-size: 0.66rem; }
+                #drive-rows td.sh-h .sh-b { display: inline-block; margin-top: 2px; }
+                #drive-rows td.sh-h.hot { color: #e05555; font-weight: 600; }
                 .sh-grid.g4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }   /* 4 across; 2 x 2 when the card itself is narrow */
                 @container (max-width: 340px) { .sh-grid.g4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
                 .sh-tile { border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; min-width: 0; }
@@ -1176,9 +1185,39 @@
                 const span = s => { s = Math.abs(s); if (s < 60) return (Math.round(s * 10) / 10) + ' s'; const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return h ? `${h} h ${m} min` : `${m} min ${Math.round(s % 60)} s`; };
                 const FLAG = { foreign: ['Foreign', 'warn'], offline: ['Offline', 'bad'], raw: ['RAW', 'warn'], readerr: ['Read errors', 'bad'], hot: ['Hot', 'bad'], unhealthy: ['Unhealthy', 'bad'] };
                 const dname = e => (e.letters && e.letters.length) ? e.letters.map(l => l + ':').join(' ') + (e.label ? ' ' + e.label : '') : (e.model || 'drive');
+                // 1.0.64: drive health -> the Machines drive table. Lettered disks fill the Health cell of their row (letter = what
+                // drive_scan's letterOf reads); disks with no letter (foreign / raw / offline) get their own rows, cell 0 starts with
+                // '—' so letterOf never matches a scan. Re-run after every renderTable / scan repaint (wraps __paintDrives below).
+                function decorate() {
+                    const tb = document.getElementById('drive-rows'); if (!tb) return;
+                    tb.querySelectorAll('tr.sh-extra').forEach(x => x.remove());
+                    if (!sh || shUid !== SH_OWNER_UID) return;
+                    const pd = (sh.peaks || {}).drives || {}, noc = (sh.drivesMeta || {}).state === 'noaccess';
+                    const cell = (k, e) => {
+                        const fl = (e.flags || []).map(f => { const [t, cl] = FLAG[f] || [f, 'warn']; return `<span class="sh-b ${cl}">${esc(f === 'readerr' && has(e.readErr) ? 'Read errors ' + e.readErr : t)}</span>`; }).join(' ');
+                        const sub = [noc || !has(e.hours) ? '' : Number(e.hours).toLocaleString() + ' h', has(pd[k]) ? 'peak ' + esc(pd[k]) + '°' : ''].filter(Boolean).join(' · ');
+                        return `${noc ? '–' : val(e.tempC, '°')}${sub ? `<small>${sub}</small>` : ''}${fl ? '<br>' + fl : ''}`;
+                    };
+                    const all = Object.entries(sh.drives || {}), used = new Set();
+                    tb.querySelectorAll('tr:not(.dv-detail)').forEach(tr => {
+                        const L = ((tr.cells[0] || {}).textContent || '').trim().charAt(0).toUpperCase();
+                        let td = tr.querySelector('td.sh-h'); if (!td) { td = document.createElement('td'); td.className = 'sh-h'; tr.appendChild(td); }
+                        const hit = all.find(([, e]) => (e.letters || []).map(x => String(x).toUpperCase()).includes(L));
+                        if (hit) used.add(hit[0]);
+                        td.classList.toggle('hot', !!hit && (hit[1].flags || []).includes('hot'));
+                        td.innerHTML = hit ? cell(hit[0], hit[1]) : '–';
+                    });
+                    all.filter(([k]) => !used.has(k)).forEach(([k, e]) => {
+                        const tr = document.createElement('tr'); tr.className = 'sh-extra';
+                        tr.innerHTML = `<td>— ${esc(e.letters && e.letters.length ? e.letters.map(l => l + ':').join(' ') : 'no letter')}</td><td>${esc(e.model || 'drive')}<small style="display:block;color:var(--muted);font-size:0.66rem">…${esc(k.slice(-4))}</small></td><td></td><td class="sh-h${(e.flags || []).includes('hot') ? ' hot' : ''}">${cell(k, e)}</td>`;
+                        tb.appendChild(tr);
+                    });
+                    const nn = document.getElementById('sh-noc'); if (nn) nn.remove();
+                    if (noc) tb.closest('table').insertAdjacentHTML('afterend', '<div class="sh-note" id="sh-noc">Temp and hours are blank: Windows only gives those counters to an elevated reader, and the task runs as a normal user.</div>');
+                }
                 function paint() {
-                    const card = $('#sh-card'); if (!card) return;
-                    card.style.display = shUid === SH_OWNER_UID ? '' : 'none';
+                    if (!$('#sh-out')) return;
+                    decorate();
                     if (shUid !== SH_OWNER_UID) return;
                     if (shWait) { $('#sh-out').innerHTML = '<div class="hb-sk" aria-label="Loading"><div class="hb-sk-row"><i class="hb-sk-t"></i><i class="hb-sk-t"></i></div><i class="hb-sk-l" style="width:88%"></i><i class="hb-sk-l" style="width:72%"></i><i class="hb-sk-l" style="width:80%"></i></div>'; return; }
                     if (!sh) { $('#sh-out').innerHTML = '<div class="cl-sum" style="color:var(--muted)">No readings yet - the svc-se-health task on se writes them.</div>'; $('#sh-age').textContent = ''; return; }
@@ -1195,7 +1234,7 @@
                     const red = c.state === 'red', cpuHot = u.state === 'warn', gpuHot = g.state === 'warn';
                     // 1.0.63 (L: "1 to look at? Nothing happens when I click that"): each issue is a link that jumps to its section and flashes it
                     const issues = [cpuHot && ['CPU hot', 'sh-s-cpu'], gpuHot && ['GPU hot', 'sh-s-gpu'], red && ['clock off', 'sh-s-sum'],
-                        dFlagged.length && [`${dFlagged.length} drive${dFlagged.length > 1 ? 's' : ''} flagged`, 'sh-s-drv'],
+                        dFlagged.length && [`${dFlagged.length} drive${dFlagged.length > 1 ? 's' : ''} flagged`, 'sy-se-drives'],
                         stop.length && [`${stop.length} fan${stop.length > 1 ? 's' : ''} at 0 rpm (${stop.map(n => n.replace(/^Chassis Fan No /, 'Chassis ')).join(', ')})`, 'sh-s-cool']].filter(Boolean);
                     let o = `<div class="sh-line" id="sh-s-sum" style="margin-bottom:6px">${issues.length ? `<span class="sh-b warn">${issues.length} to look at</span>` + issues.map(([t, id]) => `<a href="#${id}" class="sh-go" data-go="${id}">${esc(t)} ›</a>`).join('') : '<span class="sh-b ok">All OK</span>'}</div>`;
                     o += '<div class="sh-grid g4">'
@@ -1220,23 +1259,19 @@
                     else o += '<div class="sh-grid g4">' + tile('Temp', val(g.tempC, ' °C'), gpuHot ? 'bad' : '', pkTxt(pk.gpu)) + tile('Load', val(g.utilPct, ' %')) + tile('Power', val(g.powerW, ' W')) + tile('Fan', val(g.fanPct, ' %')) + '</div>'
                         + (has(g.memUsedMB) && has(g.memTotalMB) ? `<div class="sh-note">VRAM ${(g.memUsedMB / 1024).toFixed(1)} of ${(g.memTotalMB / 1024).toFixed(0)} GB in use</div>` : '');
                     o += '</div>';
-                    // Drives: one table (lettered volumes first)
-                    const noc = dm.state === 'noaccess';
-                    o += `<div class="sh-sec" id="sh-s-drv"><div class="sy-h">Drives · ${ds.length}</div>`;
-                    o += ds.length ? '<table class="sh-tbl"><colgroup><col style="width:46%"><col><col><col></colgroup><tr><th>Drive</th><th class="n">Temp</th><th class="n">Free</th><th class="n">Hours</th></tr>' + ds.map(([k, e]) => {
-                        const fl = (e.flags || []).map(f => { const [t, cl] = FLAG[f] || [f, 'warn']; return ` <span class="sh-b ${cl}">${esc(f === 'readerr' && has(e.readErr) ? 'Read errors ' + e.readErr : t)}</span>`; }).join('');
-                        const free = has(e.freeGB) ? `${Math.round(e.freeGB).toLocaleString()} GB${has(e.volGB) ? `<small>of ${Math.round(e.volGB).toLocaleString()}</small>` : ''}` : '–';
-                        const peak = has(pd[k]) ? `<small>peak ${esc(pd[k])}°</small>` : '';
-                        return `<tr><td><b>${esc(dname(e))}</b>${fl}<small>${e.letters && e.letters.length ? esc(e.model || '') + ' · ' : ''}…${esc(k.slice(-4))}</small></td>`
-                            + `<td class="n${(e.flags || []).includes('hot') ? ' hot' : ''}">${noc ? '–' : val(e.tempC, '°')}${peak}</td><td class="n">${free}</td><td class="n">${noc || !has(e.hours) ? '–' : Number(e.hours).toLocaleString()}</td></tr>`;
-                    }).join('') + '</table>' : '<div class="sh-note">No drive data.</div>';
-                    if (noc) o += '<div class="sh-note">Temp and hours are blank: Windows only gives those counters to an elevated reader, and the task runs as a normal user.</div>';
-                    o += '</div>';
+                    // Drives: 1.0.64 - no table here any more; decorate() puts temp / hours / flags into the Machines drive table below.
                     $('#sh-out').innerHTML = o;
                     const at = sh.serverTs || sh.updated;
                     $('#sh-age').textContent = at ? 'updated ' + ago(at) : '';
                 }
                 setInterval(() => { if (sh) paint(); }, 60000);   // repaints the age only - no read
+                // 1.0.64: re-add the Health column whenever the drive table is rebuilt (renderTable) or repainted (scan data).
+                // __paintDrives is defined by a classic script at the end of <body>; modules run after parsing, so it exists here.
+                if (typeof window.__paintDrives === 'function' && !window.__paintDrives.__sh) {
+                    const orig = window.__paintDrives;
+                    window.__paintDrives = function () { orig.apply(this, arguments); try { decorate(); } catch (e) { console.warn('sh decorate', e); } };
+                    window.__paintDrives.__sh = true;
+                }
                 $('#sh-out').addEventListener('click', e => { const a = e.target.closest('[data-go]'); if (!a) return; e.preventDefault();
                     const t = document.getElementById(a.dataset.go); if (!t) return; t.scrollIntoView({ behavior: 'smooth', block: 'center' });
                     t.classList.remove('sh-flash'); void t.offsetWidth; t.classList.add('sh-flash'); });
