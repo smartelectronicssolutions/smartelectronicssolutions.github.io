@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.65">
+    <meta name="version" content="1.0.66">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Control Hub</title>
     <link rel="stylesheet" href="assets/css/master.css">
@@ -1149,7 +1149,8 @@
                 #drive-rows td.sh-h small { display: block; color: var(--muted); font-size: 0.66rem; }
                 #drive-rows td.sh-h .sh-b { display: inline-block; margin-top: 2px; }
                 #drive-rows td.sh-h.hot { color: #e05555; font-weight: 600; }
-                .sh-grid.g4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }   /* 4 across; 2 x 2 when the card itself is narrow */
+                .sh-grid.g4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+                .sh-grid.g3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }   /* 1.0.66: CPU / GPU sections without the temp tile */   /* 4 across; 2 x 2 when the card itself is narrow */
                 @container (max-width: 340px) { .sh-grid.g4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
                 .sh-tile { border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; min-width: 0; }
                 .sh-tile span { display: block; font-size: 0.62rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
@@ -1238,15 +1239,15 @@
                         stop.length && [`${stop.length} fan${stop.length > 1 ? 's' : ''} at 0 rpm (${stop.map(n => n.replace(/^Chassis Fan No /, 'Chassis ')).join(', ')})`, 'sh-s-cool']].filter(Boolean);
                     let o = `<div class="sh-line" id="sh-s-sum" style="margin-bottom:6px">${issues.length ? `<span class="sh-b warn">${issues.length} to look at</span>` + issues.map(([t, id]) => `<a href="#${id}" class="sh-go" data-go="${id}">${esc(t)} ›</a>`).join('') : '<span class="sh-b ok">All OK</span>'}</div>`;
                     o += '<div class="sh-grid g4">'
-                        + tile('CPU', val(u.tempC, ' °C'), cpuHot ? 'bad' : '', has(u.powerW) ? val(u.powerW, ' W') : '')
-                        + tile('GPU', val(g.tempC, ' °C'), gpuHot ? 'bad' : '', has(g.utilPct) ? val(g.utilPct, ' % load') : '')
+                        + tile('CPU', val(u.tempC, ' °C'), cpuHot ? 'bad' : '', pkTxt(pk.cpu))   /* 1.0.66 (L "Cpu temp is listed twice"): temp + peak only up here; the sections below hold the rest */
+                        + tile('GPU', val(g.tempC, ' °C'), gpuHot ? 'bad' : '', pkTxt(pk.gpu))
                         + tile('Drives', hot ? val(hot[1].tempC, ' °C') : '–', hot && (hot[1].flags || []).includes('hot') ? 'bad' : '', hot ? 'hottest: ' + esc((hot[1].letters || [])[0] ? hot[1].letters[0] + ':' : '…' + hot[0].slice(-4)) : '')
                         + tile('Clock', has(c.offsetS) ? (Math.abs(c.offsetS) < 0.05 ? 'In sync' : span(c.offsetS) + (c.offsetS > 0 ? ' slow' : ' fast')) : 'Unknown', red ? 'bad' : has(c.offsetS) ? '' : 'warn', red ? 'over ' + esc(c.limitS ?? 5) + ' s' : 'OK')
                         + '</div>';
                     // CPU
                     o += '<div class="sh-sec" id="sh-s-cpu"><div class="sy-h">CPU' + (cpuHot ? ' <span class="sh-b bad">Hot</span>' : '') + '</div>';
                     if (has(u.tempC)) {
-                        o += '<div class="sh-grid g4">' + tile('Temp', val(u.tempC, ' °C'), cpuHot ? 'bad' : '', pkTxt(pk.cpu)) + tile('Power', val(u.powerW, ' W'))
+                        o += '<div class="sh-grid g3">' + tile('Power', val(u.powerW, ' W'))
                             + tile('Chipset', val(u.chipsetC, ' °C'), has(u.chipsetC) && u.chipsetC >= 80 ? 'warn' : '') + tile('Board', val(u.boardC, ' °C')) + '</div>';
                         const fe = Object.entries(fans).sort(([a], [b]) => (/^CPU|Pump/.test(a) ? 0 : 1) - (/^CPU|Pump/.test(b) ? 0 : 1) || a.localeCompare(b));
                         if (fe.length) o += '<div class="sy-h">Cooling</div><table class="sh-tbl" id="sh-s-cool"><tr><th>Fan</th><th class="n">rpm</th></tr>'
@@ -1256,7 +1257,7 @@
                     // GPU
                     o += '<div class="sh-sec" id="sh-s-gpu"><div class="sy-h">GPU' + (gpuHot ? ' <span class="sh-b bad">Hot</span>' : '') + '</div>';
                     if (g.state === 'unknown' && !has(g.tempC)) o += `<div class="sh-note">No GPU reading${g.err ? ' - ' + esc(g.err) : ''}.</div>`;
-                    else o += '<div class="sh-grid g4">' + tile('Temp', val(g.tempC, ' °C'), gpuHot ? 'bad' : '', pkTxt(pk.gpu)) + tile('Load', val(g.utilPct, ' %')) + tile('Power', val(g.powerW, ' W')) + tile('Fan', val(g.fanPct, ' %')) + '</div>'
+                    else o += '<div class="sh-grid g3">' + tile('Load', val(g.utilPct, ' %')) + tile('Power', val(g.powerW, ' W')) + tile('Fan', val(g.fanPct, ' %')) + '</div>'
                         + (has(g.memUsedMB) && has(g.memTotalMB) ? `<div class="sh-note">VRAM ${(g.memUsedMB / 1024).toFixed(1)} of ${(g.memTotalMB / 1024).toFixed(0)} GB in use</div>` : '');
                     o += '</div>';
                     // Drives: 1.0.64 - no table here any more; decorate() puts temp / hours / flags into the Machines drive table below.
