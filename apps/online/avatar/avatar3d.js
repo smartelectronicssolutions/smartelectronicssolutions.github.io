@@ -75,7 +75,13 @@ class Avatar3D {
         this.scene.add(vrm.scene);
         for (const n of ['hips', 'spine', 'chest', 'upperChest', 'neck', 'head', 'leftUpperArm', 'rightUpperArm', 'leftLowerArm', 'rightLowerArm', 'leftHand', 'rightHand', 'leftShoulder', 'rightShoulder'])
             this.B[n] = vrm.humanoid.getNormalizedBoneNode(n);
-        this._pose(0);
+        this.F = {};   // finger bones (each optional - a model without them just skips the curl)
+        for (const side of ['left', 'right']) for (const f of ['Thumb', 'Index', 'Middle', 'Ring', 'Little'])
+            for (const seg of f === 'Thumb' ? ['Metacarpal', 'Proximal', 'Distal'] : ['Proximal', 'Intermediate', 'Distal']) {
+                const b = vrm.humanoid.getNormalizedBoneNode(side + f + seg); if (b) this.F[side + f + seg] = b; }
+        this.hips0 = this.B.hips ? this.B.hips.position.x : 0;
+        try { this.calm = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches); } catch { this.calm = false; }
+        this._pose(0, 0);
         vrm.update(0); vrm.scene.updateMatrixWorld(true);
         for (let i = 0; i < 60; i++) vrm.update(1 / 60);   // settle hair/cloth springs before the first frame (no sleeve flare on load)
         const wp = n => { const b = vrm.humanoid.getRawBoneNode(n); const v = new THREE.Vector3(); if (b) b.getWorldPosition(v); return v; };
@@ -100,23 +106,48 @@ class Avatar3D {
         cam.position.set(0, cy, dist); cam.lookAt(0, cy, 0);
     }
 
-    _pose(breath) {   // relaxed arms out of the T-pose + breathing
-        const B = this.B;
-        if (B.leftUpperArm) B.leftUpperArm.rotation.set(0.05, 0, -1.3 + breath * 0.015);
-        if (B.rightUpperArm) B.rightUpperArm.rotation.set(0.05, 0, 1.3 - breath * 0.015);
-        if (B.leftLowerArm) B.leftLowerArm.rotation.set(0, -0.28, 0);
-        if (B.rightLowerArm) B.rightLowerArm.rotation.set(0, 0.28, 0);
-        if (B.leftHand) B.leftHand.rotation.set(0, 0.1, -0.18);
-        if (B.rightHand) B.rightHand.rotation.set(0, -0.1, 0.18);
-        if (B.spine) B.spine.rotation.x = -0.012 * breath;
-        if (B.chest) B.chest.rotation.x = -0.02 * breath;
-        if (B.leftShoulder) B.leftShoulder.rotation.z = 0.025 * breath;
-        if (B.rightShoulder) B.rightShoulder.rotation.z = -0.025 * breath;
+    // IDLE (2026-11-21, L "Yuki model looks stiff and rigid"): relaxed arms out of the T-pose + breathing, now with a slow
+    // weight shift (hips roll + shift, spine/chest counter-roll, head counter-tilt in step()), arms that lag the body and
+    // swing a touch, softly bent elbows and curled fingers. Layered slow sines only (no jitter); small amplitudes so the
+    // hair/skirt springs follow without flaring. Reduced motion = a quarter of the sway.
+    _pose(breath, t) {
+        const B = this.B; t = t || 0;
+        const k = this.calm ? 0.25 : 1, TAU = Math.PI * 2;
+        const sway = k * (Math.sin(t * TAU / 7.6) + 0.35 * Math.sin(t * TAU / 3.3 + 1.1));    // -1.35..1.35, weight shift
+        const lag = k * (Math.sin(t * TAU / 7.6 - 0.7) + 0.35 * Math.sin(t * TAU / 3.3 + 0.4)); // arms trail the body
+        const drift = k * Math.sin(t * TAU / 11.3 + 2.0);                                       // very slow lean
+        this.sway = sway;
+        if (B.hips) { B.hips.rotation.z = 0.034 * sway; B.hips.rotation.x = 0.008 * drift; B.hips.position.x = (this.hips0 || 0) + 0.011 * sway; }
+        if (B.spine) B.spine.rotation.set(-0.016 * breath - 0.006 * drift, 0, -0.018 * sway);
+        if (B.chest) B.chest.rotation.set(-0.028 * breath, 0, -0.008 * sway);
+        if (B.upperChest) { B.upperChest.rotation.x = -0.012 * breath; B.upperChest.rotation.z = -0.004 * sway; }
+        const sw = 0.05 * lag, fw = 0.06 + 0.025 * Math.sin(t * TAU / 5.1 + 0.8) * k;
+        if (B.leftUpperArm) B.leftUpperArm.rotation.set(fw + 0.01 * breath + 0.012 * lag, 0, -1.27 + breath * 0.02 - sw);
+        if (B.rightUpperArm) B.rightUpperArm.rotation.set(fw + 0.01 * breath - 0.012 * lag, 0, 1.27 - breath * 0.02 - sw);
+        const el = 0.30 + 0.03 * Math.sin(t * TAU / 6.2) * k;
+        if (B.leftLowerArm) B.leftLowerArm.rotation.set(0, -el, 0);
+        if (B.rightLowerArm) B.rightLowerArm.rotation.set(0, el + 0.02 * Math.sin(t * TAU / 6.9 + 1) * k, 0);
+        if (B.leftHand) B.leftHand.rotation.set(0, 0.12, -0.2 - 0.03 * lag);
+        if (B.rightHand) B.rightHand.rotation.set(0, -0.12, 0.2 - 0.03 * lag);
+        if (B.leftShoulder) B.leftShoulder.rotation.z = 0.035 * breath;
+        if (B.rightShoulder) B.rightShoulder.rotation.z = -0.035 * breath;
+        // fingers: soft curl, more toward the little finger, each segment a bit more; thumb rests in toward the palm
+        const F = this.F || {}, cv = 1 + 0.06 * Math.sin(t * TAU / 4.7) * k;
+        for (const side of ['left', 'right']) {
+            const s = side === 'left' ? -1 : 1;
+            [['Index', 0.18], ['Middle', 0.24], ['Ring', 0.3], ['Little', 0.36]].forEach(([f, a]) => {
+                ['Proximal', 'Intermediate', 'Distal'].forEach((seg, i) => { const b = F[side + f + seg]; if (b) b.rotation.set(0, 0, s * a * cv * (1 + i * 0.25)); });
+            });
+            const th = [F[side + 'ThumbMetacarpal'], F[side + 'ThumbProximal'], F[side + 'ThumbDistal']];
+            if (th[0]) th[0].rotation.set(0, -s * 0.25, 0);
+            if (th[1]) th[1].rotation.set(0, -s * 0.18, 0);
+            if (th[2]) th[2].rotation.set(0, -s * 0.15 * cv, 0);
+        }
     }
 
     step(dt) {
         const vrm = this.vrm, B = this.B, I = this.I; this.t += dt; const t = this.t;
-        this._pose(0.5 + 0.5 * Math.sin(t * 2 * Math.PI / 4.2));
+        this._pose(0.5 + 0.5 * Math.sin(t * 2 * Math.PI / 4.2), t);
         // head: manual (setHead, -1..1) or idle look-arounds (pick a look every 4-10 s, ease in, hold, tiny drift)
         const ex = this.exprTarget;
         let ty, tp;
@@ -134,8 +165,9 @@ class Avatar3D {
         I.yaw = ease(I.yaw, ty, dt, 0.16); I.pitch = ease(I.pitch, tp, dt, 0.16);
         const yr = THREE.MathUtils.degToRad(I.yaw), pr = THREE.MathUtils.degToRad(I.pitch);
         if (B.upperChest) B.upperChest.rotation.y = yr * 0.12;
-        if (B.neck) B.neck.rotation.set(-pr * 0.4, yr * 0.35, 0);
-        if (B.head) B.head.rotation.set(-pr * 0.6, yr * 0.53, -yr * 0.04);
+        const sw = this.sway || 0;   // weight shift from _pose: neck/head tilt back against the hips roll so the eyes stay level-ish
+        if (B.neck) B.neck.rotation.set(-pr * 0.4, yr * 0.35, -0.009 * sw);
+        if (B.head) B.head.rotation.set(-pr * 0.6, yr * 0.53, -yr * 0.04 - 0.018 * sw);
         if (B.hips) B.hips.rotation.y = yr * 0.05;
 
         const em = vrm.expressionManager; if (!em) return;
