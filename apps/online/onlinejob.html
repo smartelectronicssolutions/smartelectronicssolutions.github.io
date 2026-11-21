@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="version" content="1.0.19">
+  <meta name="version" content="1.0.20">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>Jobs</title>
   <link rel="stylesheet" href="../assets/css/online.css" />
@@ -323,6 +323,8 @@
     // from the (already-loaded) Firebase auth module so a dropped/expired token
     // reverts the DB scope to signed-out instead of leaving it on a stale uid.
     import { onIdTokenChanged } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
+    // Key-range queries for the tasks window (EGRESS 2026-11-20). orderByKey needs no .indexOn; same module URL as firebase-init.
+    import { query, orderByKey, startAt, endBefore } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js";
 
     // ════════════════════════════════════
     // SHARED
@@ -394,6 +396,42 @@
     const autoTaskId = new URLSearchParams(location.search).get('task');
     let autoTaskSelected = false;
     let allTasks = [];
+    // ── Tasks window (EGRESS 2026-11-20: the whole tasks node was ~2.2 MB per open) ──
+    // Task keys are creation-time ms (13 digits, so key order = time order). The live listener holds only keys from the last
+    // WINDOW_DAYS (covers the 14-day table and the 3-week Paycom view). Older tasks load on demand (Load More / Show All /
+    // dropdown / sort / Save JSON / old ?task= link / an older open task) through a second live listener. A small per-device
+    // index of every task (project, has-lists, hours, open, contacts) in localStorage keeps counts, all-time hours, contact
+    // suggestions and the job meta-owner exact without the old tasks; it gap-fills by key range and fully rebuilds weekly.
+    const WINDOW_DAYS = 30, IDX_FULL_MS = 7 * 24 * 3600 * 1000;
+    let winCut = "";            // tasks with key >= winCut are in the live window
+    let winTasks = [], winLoaded = false;
+    let olderTasks = null;      // null = older tasks not loaded
+    let unsubscribeOlder = null, olderReady = null, idxBusy = false;
+    let taskIdx = { v: 1, upTo: "", fullAt: 0, e: {} };   // upTo = every task with key < upTo is in e
+    const idxStoreKey = () => `onlinejob.taskIdx.${DB}`;
+    function idxLoad() { try { const o = JSON.parse(localStorage.getItem(idxStoreKey()) || "null"); if (o && o.v === 1 && o.e && typeof o.upTo === "string") return o; } catch (e) { } return { v: 1, upTo: "", fullAt: 0, e: {} }; }
+    function idxSave() { try { localStorage.setItem(idxStoreKey(), JSON.stringify(taskIdx)); } catch (e) { } }
+    function idxEntry(t, id) {
+      const c = taskContacts(t);
+      return { p: (t.project || "").trim().toLowerCase(), l: t.lists ? 1 : 0, b: bestTime(t, id), h: Math.round(taskSec(t)),
+        s: t.status === "scheduled" ? 1 : 0, o: (t.startTime && !t.endTime) ? 1 : 0, t: Date.parse(t.startTime) || 0, ...(c.length ? { c } : {}) };
+    }
+    // Replace every entry with key in [from, to) (to "" = no upper bound) by the given list.
+    function idxMerge(list, from, to) {
+      for (const k of Object.keys(taskIdx.e)) if (k >= from && (!to || k < to)) delete taskIdx.e[k];
+      list.forEach(t => { if (t && t.id) taskIdx.e[t.id] = idxEntry(t, t.id); });
+    }
+    function idxCommit() { if (winLoaded && taskIdx.upTo >= winCut) { const now = String(Date.now()); if (now > taskIdx.upTo) taskIdx.upTo = now; } idxSave(); }
+    // Index entries for older tasks that are NOT loaded (empty once the older listener has delivered).
+    function olderIdx() { return olderTasks ? [] : Object.entries(taskIdx.e).filter(([k]) => k < winCut); }
+    function olderStats() {
+      let n = 0, sec = 0, open = 0;
+      olderIdx().forEach(([, x]) => { if (x.s) return; n++; sec += x.h || 0; if (x.o) open++; });
+      return { n, sec, open, complete: taskIdx.upTo >= winCut };
+    }
+    const hasOlderToLoad = () => !olderTasks && (olderStats().n > 0 || taskIdx.upTo < winCut);
+    const mergedTasks = () => winTasks.concat(olderTasks || []);
+    function snapTasks(snap) { const out = []; snap.forEach(s => { const t = s.val() || {}; t.id = t.id || s.key; out.push(t); }); return out; }
     const _pristineTasks = {};   // 2026-11-08 (audit fix #4): each task as last READ from Firebase, so saveTask writes only what changed
     let isLoadingImages = false;
     let imageLoadGen = 0;
@@ -756,9 +794,10 @@
       timerFileUploader.value = ""; timerImageNameInput.value = ""; timerMarkupText.value = "";
     }
 
+    function taskSec(t) { return !t.endTime ? 0 : (Array.isArray(t.segments) && t.segments.length) ? recHours(t) * 3600 : (new Date(t.endTime) - new Date(t.startTime)) / 1000; }   // segments win over the span (2026-11-03)
     function updateTotalHours(tasks) {
-      let s = 0;
-      tasks.forEach(t => { if (t.endTime) s += (Array.isArray(t.segments) && t.segments.length) ? recHours(t) * 3600 : (new Date(t.endTime) - new Date(t.startTime)) / 1000; });   // segments win over the span (2026-11-03)
+      let s = olderStats().sec;   // older tasks not loaded yet count from the index (0 once they are loaded)
+      tasks.forEach(t => { s += taskSec(t) || 0; });
       totalHoursSpan.innerText = `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m (${(s / 3600).toFixed(2)})`;
     }
 
@@ -766,17 +805,25 @@
       const sel = document.getElementById("taskSelect");
       sel.innerHTML = '<option value="" disabled selected>Select Task</option>';
       tasks.forEach(t => sel.appendChild(new Option(`${t.customerName || "Unnamed"} - ${t.project || "No Project"}`, t.id)));
+      if (hasOlderToLoad()) { const n = olderStats().n; sel.appendChild(new Option(`⋯ Load ${n ? n + " " : ""}older jobs`, "__older__")); }
       if (currentTaskId && tasks.some(t => t.id === currentTaskId)) { sel.value = currentTaskId; document.getElementById("autoTaskNotice")?.remove(); } // keep the open task showing (e.g. after a ?task= link) when the list rebuilds
     }
 
     function loadTasks() {
       if (unsubscribeTasks) unsubscribeTasks();
+      if (unsubscribeOlder) unsubscribeOlder();
+      unsubscribeOlder = null; olderReady = null; olderTasks = null; winTasks = []; winLoaded = false;
       hasAutoLoaded = false; // fresh (re)subscribe → allow one auto-resume of the latest open task
-      unsubscribeTasks = onValue(dbRef(database, `${DB}/tasks`), (snap) => {
+      winCut = String(Date.now() - WINDOW_DAYS * 24 * 3600 * 1000);
+      taskIdx = idxLoad();
+      const myDB = DB;
+      unsubscribeTasks = onValue(query(dbRef(database, `${DB}/tasks`), orderByKey(), startAt(winCut)), (snap) => {
+        if (myDB !== DB) return;
         taskReadRetries = 0;
-        const tasks = [];
-        snap.forEach(s => { const t = s.val() || {}; t.id = t.id || s.key; tasks.push(t); });
-        handleTasksUpdate(tasks);
+        winTasks = snapTasks(snap); winLoaded = true;
+        idxMerge(winTasks, winCut, ""); idxCommit();
+        handleTasksUpdate(mergedTasks());
+        idxEnsure();
       }, (err) => {
         // A brand-new sign-in can race the auth token, so the first read is denied.
         // Re-subscribe a few times so tasks appear without a manual page refresh.
@@ -784,6 +831,43 @@
         if (DB !== "public" && taskReadRetries < 4) { taskReadRetries++; setTimeout(loadTasks, 700); }
         else if (autoTaskId) autoTaskNotice(`Can't open job "${autoTaskId}": this sign-in has no access to that account. Sign in to the account that owns it.`);
       });
+    }
+
+    // Older tasks (key < winCut) as a second LIVE listener - once loaded the page behaves exactly as before the window.
+    // Resolves after the first delivery (or a read error). Safe to call repeatedly.
+    function loadOlder() {
+      if (olderReady) return olderReady;
+      const myDB = DB, cut = winCut;
+      let done; olderReady = new Promise(r => { done = r; });
+      unsubscribeOlder = onValue(query(dbRef(database, `${DB}/tasks`), orderByKey(), endBefore(cut)), (snap) => {
+        if (myDB !== DB || cut !== winCut) return;
+        olderTasks = snapTasks(snap);
+        idxMerge(olderTasks, "", cut); taskIdx.fullAt = Date.now(); if (taskIdx.upTo < cut) taskIdx.upTo = cut; idxCommit();
+        if (winLoaded) handleTasksUpdate(mergedTasks());
+        done();
+      }, (err) => {
+        console.warn("[tasks] older read error:", err?.message);
+        if (unsubscribeOlder) unsubscribeOlder();
+        unsubscribeOlder = null; olderReady = null; done();
+      });
+      return olderReady;
+    }
+
+    // Keep the index complete below winCut: no index / a week old -> load the older tasks once (rebuilds it);
+    // otherwise fetch only the key range between the last visit and the window start.
+    async function idxEnsure() {
+      if (olderTasks || olderReady || idxBusy) return;
+      if (!taskIdx.fullAt || Date.now() - taskIdx.fullAt > IDX_FULL_MS || !taskIdx.upTo) { loadOlder(); return; }
+      if (taskIdx.upTo >= winCut) return;
+      const myDB = DB, cut = winCut, from = taskIdx.upTo;
+      idxBusy = true;
+      try {
+        const list = snapTasks(await get(query(dbRef(database, `${DB}/tasks`), orderByKey(), startAt(from), endBefore(cut))));
+        if (myDB !== DB || cut !== winCut || olderTasks) return;
+        idxMerge(list, from, cut); taskIdx.upTo = cut; idxCommit();
+        handleTasksUpdate(mergedTasks());
+      } catch (e) { console.warn("[tasks] index gap read:", e?.message); }
+      finally { idxBusy = false; }
     }
 
     // A ?task= link that can't open says so, instead of leaving a blank form (2026-10-23).
@@ -802,15 +886,20 @@
       tasks.sort((a, b) => (Date.parse(b.startTime) || 0) - (Date.parse(a.startTime) || 0));   // 2026-10-11: a record with no startTime made the comparator NaN and scrambled the list (7/14 showed as latest)
       const cutoff = Date.now() - 14 * 24 * 3600 * 1000;
       const recentCount = tasks.filter(t => t.startTime && new Date(t.startTime) >= cutoff).length;
-      if (recentCount === tasks.length) isShowingAll = true;
+      const moreOlder = hasOlderToLoad();   // window mode: older tasks exist but aren't loaded yet
+      if (recentCount === tasks.length && !moreOlder) isShowingAll = true;
       // Preserve how many rows are shown across data updates (e.g. after an edit)
       // so a Load-More-expanded view doesn't collapse back to the recent window.
       visibleCount = isShowingAll ? tasks.length
                                   : Math.min(tasks.length, Math.max(visibleCount, recentCount));
       tasks.slice(0, visibleCount).forEach(addTaskToTable);
-      document.getElementById("totalTasks").innerText = tasks.length;
+      document.getElementById("totalTasks").innerText = tasks.length + olderStats().n;
       checkOngoingTask(tasks); updateTotalHours(tasks); renderPaycomDaily(tasks); populateTaskDropdown(tasks);
-      if (autoTaskId && !autoTaskSelected && tasks.find(t => t.id === autoTaskId)) {
+      // an open job older than the window (index says so) -> load the older tasks so it auto-resumes as before
+      if (!olderTasks && olderStats().open && !tasks.some(t => t.startTime && !t.endTime)) loadOlder();
+      if (autoTaskId && !autoTaskSelected && !olderTasks && !bookedHit && autoTaskId < winCut && !tasks.find(t => t.id === autoTaskId)) {
+        loadOlder();   // a ?task= link to an older job: load the older tasks, then this runs again and selects it
+      } else if (autoTaskId && !autoTaskSelected && tasks.find(t => t.id === autoTaskId)) {
         const sel = document.getElementById('taskSelect');
         sel.value = autoTaskId;
         sel.dispatchEvent(new Event('change'));
@@ -841,7 +930,7 @@
       // Refresh the load buttons: remove stale ones, re-add if tasks remain hidden.
       document.getElementById("loadMoreBtn")?.remove();
       document.getElementById("loadAllBtn")?.remove();
-      if (visibleCount < tasks.length) addLoadAllBtn();
+      if (visibleCount < tasks.length || moreOlder) addLoadAllBtn();
       reapplyDateFilter();
     }
 
@@ -911,9 +1000,12 @@
     // Everyone already on any loaded task's contacts[] (no extra reads) - newest task wins per name.
     function knownContacts() {
       const map = new Map();
-      [...allTasks].sort((a, b) => (Date.parse(a.startTime) || 0) - (Date.parse(b.startTime) || 0))
-        .concat(currentTask ? [currentTask] : [])
-        .forEach(t => taskContacts(t).forEach(c => { const k = normContactName(c.name); if (k) map.set(k, c); }));
+      const loaded = new Set(allTasks.map(t => t.id));   // + contacts on older tasks not loaded yet (from the index)
+      allTasks.map(t => ({ t: Date.parse(t.startTime) || 0, c: taskContacts(t) }))
+        .concat(olderIdx().filter(([k, x]) => x.c && !loaded.has(k)).map(([, x]) => ({ t: x.t || 0, c: x.c })))
+        .sort((a, b) => a.t - b.t).map(x => x.c)
+        .concat(currentTask ? [taskContacts(currentTask)] : [])
+        .forEach(list => list.forEach(c => { const k = normContactName(c.name); if (k) map.set(k, c); }));
       return map;
     }
     function openContactForm(idx) {
@@ -1141,12 +1233,19 @@
       const moreBtn = document.createElement("button"); moreBtn.id = "loadMoreBtn";
       const allBtn = document.createElement("button"); allBtn.id = "loadAllBtn"; allBtn.innerText = "Show All";
       const relabel = () => {
-        const hidden = allTasks.length - shownCount();
+        const hidden = allTasks.length + olderStats().n - shownCount();
         moreBtn.innerText = `Load ${Math.min(LOAD_MORE_N, hidden)} More (${hidden} older)`;
       };
 
       // Load More: append the next batch of older tasks — light, avoids the Show All lag.
-      moreBtn.onclick = () => {
+      moreBtn.onclick = async () => {
+        if (!olderTasks && allTasks.length - shownCount() < LOAD_MORE_N) {
+          // window mode: the next batch reaches past the loaded window - load the older tasks first (handleTasksUpdate re-renders to this count)
+          visibleCount = shownCount() + LOAD_MORE_N; moreBtn.disabled = allBtn.disabled = true; moreBtn.innerText = "Loading older…";
+          await loadOlder();
+          if (!olderTasks) { moreBtn.disabled = allBtn.disabled = false; relabel(); }
+          return;
+        }
         const shown = new Set(Array.from(taskLogTbody.querySelectorAll("tr")).map(r => r.dataset.taskId));
         allTasks.filter(t => !shown.has(t.id)).slice(0, LOAD_MORE_N).forEach(addTaskToTable);
         visibleCount = shownCount();  // persist so an edit doesn't collapse the view
@@ -1156,8 +1255,14 @@
       };
 
       // Show All: the nuclear option (kept for when you really need everything).
-      allBtn.onclick = () => {
+      allBtn.onclick = async () => {
         isShowingAll = true;
+        if (!olderTasks) {   // window mode: load the older tasks; handleTasksUpdate then renders everything (isShowingAll)
+          moreBtn.disabled = allBtn.disabled = true; allBtn.innerText = "Loading older…";
+          await loadOlder();
+          if (!olderTasks) { isShowingAll = false; moreBtn.disabled = allBtn.disabled = false; allBtn.innerText = "Show All"; }
+          return;
+        }
         const shown = new Set(Array.from(taskLogTbody.querySelectorAll("tr")).map(r => r.dataset.taskId));
         allTasks.filter(t => !shown.has(t.id)).forEach(addTaskToTable);
         visibleCount = allTasks.length;
@@ -1174,7 +1279,7 @@
       const c = document.getElementById("timerButtons");
       const mkBtn = (label, fn) => { const b = document.createElement("button"); b.innerText = label; b.onclick = fn; c.appendChild(b); };
       mkBtn("Export CSV", exportTaskCSV);
-      mkBtn("Save JSON", () => { const blob = new Blob([JSON.stringify(allTasks, null, 2)], { type: "application/json" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = "tasks.json"; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); });
+      mkBtn("Save JSON", async () => { if (!olderTasks) await loadOlder(); const blob = new Blob([JSON.stringify(allTasks, null, 2)], { type: "application/json" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = "tasks.json"; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); });
       mkBtn("Load JSON", () => { const inp = document.createElement("input"); inp.type = "file"; inp.accept = "application/json"; inp.onchange = e => { const file = e.target.files[0]; if (!file) return; const r = new FileReader(); r.onload = () => { JSON.parse(r.result).forEach(t => { const ref = dbRef(database, `${DB}/tasks/${t.id}`); get(ref).then(s => { if (!s.exists()) set(ref, t); }); }); }; r.readAsText(file); }; inp.click(); });
     }
 
@@ -1554,6 +1659,7 @@
     });
     document.getElementById("taskSelect").addEventListener("change", async e => {
       const id = e.target.value; if (!id) return;
+      if (id === "__older__") { e.target.value = currentTaskId || ""; await loadOlder(); return; }   // window mode: list the older jobs too
       if (id !== autoTaskId) { autoTaskSelected = true; document.getElementById("autoTaskNotice")?.remove(); }   // picking another job clears a ?task= link's notice for good (2026-11-03: booked-job banner sat over an older job)
       const snap = await get(dbRef(database, `${DB}/tasks/${id}`)); if (!snap.exists()) return;
       const task = snap.val(); task.id = task.id || id; currentTask = task; currentTaskId = id;
@@ -1580,11 +1686,13 @@
     });
     document.getElementById("calculateHoursBtn").addEventListener("click", calcHoursBetweenDates);
     document.querySelectorAll(".toggle-column").forEach(cb => cb.addEventListener("change", () => { saveColVis(); applyColVis(); }));
-    document.querySelector("#task-log th.start-time-column").addEventListener("click", () => {
+    document.querySelector("#task-log th.start-time-column").addEventListener("click", async () => {
+      if (!olderTasks) await loadOlder();   // sorting lists every task, as before the window
       const sorted = [...allTasks].sort((a, b) => { const d = (Date.parse(a.startTime) || 0) - (Date.parse(b.startTime) || 0); return sortOrder === "asc" ? d : -d; });
       taskLogTbody.innerHTML = ""; sorted.forEach(addTaskToTable); sortOrder = sortOrder === "asc" ? "desc" : "asc";
     });
-    document.querySelector("#task-log th.end-time-column").addEventListener("click", () => {
+    document.querySelector("#task-log th.end-time-column").addEventListener("click", async () => {
+      if (!olderTasks) await loadOlder();
       const sorted = [...allTasks].sort((a, b) => { const d = (Date.parse(a.endTime) || 0) - (Date.parse(b.endTime) || 0); return sortOrderEnd === "asc" ? d : -d; });
       taskLogTbody.innerHTML = ""; sorted.forEach(addTaskToTable); sortOrderEnd = sortOrderEnd === "asc" ? "desc" : "asc";
     });
@@ -1979,24 +2087,40 @@
       renderDailyTasks();
     }
 
-    // {id: task} from the live tasks listener (allTasks); null until it has delivered once
-    function liveTaskMap() { if (!allTasks || !allTasks.length) return null; const m = {}; allTasks.forEach(t => { if (t && t.id) m[t.id] = t; }); return m; }
+    // Every task on this project as {id, l (has lists), b (bestTime), task?, fromIdx}: loaded tasks + older ones from the index.
+    // If neither the listener nor a complete index is available, fall back to loading the older tasks (exact, as before).
+    async function projectCandidates(projKey) {
+      if (!winLoaded) { const all = (await get(dbRef(database, `${DB}/tasks`))).val() || {}; return Object.entries(all).filter(([, t]) => normKey(t.project) === projKey).map(([id, t]) => ({ id, l: !!t.lists, b: bestTime(t, id), task: t })); }
+      if (!olderTasks && taskIdx.upTo < winCut) await loadOlder();
+      const out = allTasks.filter(t => t && t.id && normKey(t.project) === projKey)
+        .map(t => ({ id: String(t.id), l: !!t.lists, b: bestTime(t, t.id), task: t }));
+      const have = new Set(out.map(x => x.id));
+      olderIdx().forEach(([id, x]) => { if (!x.s && x.p === projKey && !have.has(id)) out.push({ id, l: !!x.l, b: x.b, fromIdx: true }); });
+      return out;
+    }
     function bestTime(task, id) { return Math.max(Number(task.updatedAt) || 0, Number(task.createdAt) || 0, Number(task.startTime) || 0, Number(task.timestamp) || 0, Number(id) || 0); }
     async function resolveMetaOwnerTaskId() {
       metaOwnerTaskId = currentProject;
       const projKey = normKey(currentProjectName);
       if (!projKey) return metaOwnerTaskId;
       // EGRESS (2026-11-11): the live onValue listener already holds every task in allTasks - reuse it instead of a
-      // full GET of the whole tasks node (~250 kB) on every job open; GET only if the listener hasn't delivered yet.
-      const tasks = liveTaskMap() || (await get(dbRef(database, `${DB}/tasks`))).val();
-      if (!tasks) return metaOwnerTaskId;
-      const matches = Object.entries(tasks).filter(([, t]) => normKey(t.project) === projKey);
-      if (!matches.length) return metaOwnerTaskId;
-      // Prefer oldest task that owns lists; fall back to oldest any match
-      const withLists = matches.filter(([, t]) => t.lists);
-      const pool = withLists.length ? withLists : matches;
-      pool.sort((a, b) => bestTime(a[1], a[0]) - bestTime(b[1], b[0]));
-      metaOwnerTaskId = pool[0][0];
+      // full GET of the whole tasks node on every job open; GET only if the listener hasn't delivered yet.
+      // EGRESS (2026-11-20): the listener holds the window only - older siblings come from the index (projectCandidates).
+      for (let tries = 0; tries < 3; tries++) {
+        const cands = await projectCandidates(projKey);
+        if (!cands.length) return metaOwnerTaskId;
+        // Prefer oldest task that owns lists; fall back to oldest any match
+        const withLists = cands.filter(x => x.l);
+        const pool = withLists.length ? withLists : cands;
+        pool.sort((a, b) => a.b - b.b);
+        const pick = pool[0];
+        if (pick.fromIdx) {   // an index entry may be stale (task deleted or re-projected elsewhere): confirm with one tiny read
+          const pv = (await get(dbRef(database, `${DB}/tasks/${pick.id}/project`))).val();
+          if (normKey(pv) !== projKey) { delete taskIdx.e[pick.id]; idxSave(); continue; }
+        }
+        metaOwnerTaskId = pick.id;
+        return metaOwnerTaskId;
+      }
       return metaOwnerTaskId;
     }
 
@@ -2143,7 +2267,13 @@
     async function buildJobReport() {
       if (!window.jspdf) throw new Error("PDF library still loading - try again in a moment");
       if (!currentProject) throw new Error("Select or load a job first");
-      const all = liveTaskMap() || (await get(dbRef(database, `${DB}/tasks`))).val() || {};   // EGRESS 2026-11-11: reuse the live list
+      // EGRESS 2026-11-11: reuse the live list. 2026-11-20: older records of this job are fetched one by one (index ids), not the whole node.
+      const all = {};
+      for (const x of await projectCandidates(normKey(currentProjectName))) {
+        const t = x.task || (await get(dbRef(database, `${DB}/tasks/${x.id}`))).val();
+        if (t) all[x.id] = t;
+      }
+      if (metaOwnerTaskId && !all[metaOwnerTaskId]) { const m = (await get(dbRef(database, `${DB}/tasks/${metaOwnerTaskId}`))).val(); if (m) all[metaOwnerTaskId] = m; }
       const recs = projectRecords(all).map(([id, t]) => ({ id, ...t })).sort((a, b) => (Date.parse(a.startTime) || +a.id) - (Date.parse(b.startTime) || +b.id));
       if (!recs.length) throw new Error("No records for this job");
       const meta = all[metaOwnerTaskId] || recs[0];
