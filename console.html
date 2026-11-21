@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.277"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.278"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1164,6 +1164,16 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
 <script type="module">
         import { database, ref, onValue, push, set, update, remove, get, query, limitToLast, auth as __auth, onAuthStateChanged as __onAuth } from './assets/js/firebase-init.js?v=20261011b';
         import { orderByChild, equalTo } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js';   // shared-tab (guest) reads
+        // 1.0.278 TWO-TAP CONFIRM (L 2026-11-21 "keep the click method all around ... the remove tab button changes then you press it
+        // again in a certain time"): no browser confirm() boxes. First tap turns the button red with the question, a second tap inside
+        // 3 s does it, otherwise it goes back. window.__dcArm(btn, text) -> true only on the second tap. Shared with the other modules.
+        window.__dcArm = (el, txt = 'Sure? tap again', ms = 3000) => {
+            if (!el) return true;
+            if (el.dataset.armed === '1') { clearTimeout(el._armT); el.dataset.armed = ''; el.classList.remove('arm'); el.style.background = el.dataset.armBg || ''; el.style.color = el.dataset.armFg || ''; if (el.dataset.armHtml != null) el.innerHTML = el.dataset.armHtml; return true; }
+            el.dataset.armHtml = el.innerHTML; el.dataset.armBg = el.style.background; el.dataset.armFg = el.style.color; el.dataset.armed = '1';
+            el.textContent = txt; el.classList.add('arm'); el.style.background = '#c0392b'; el.style.color = '#fff';
+            el._armT = setTimeout(() => { el.dataset.armed = ''; el.classList.remove('arm'); el.style.background = el.dataset.armBg || ''; el.style.color = el.dataset.armFg || ''; el.innerHTML = el.dataset.armHtml; }, ms);
+            return false; };
         const onUserReady = cb => __onAuth(__auth, cb);   // 2026-10-11: was auth.js (its import chain hit a cached broken file on the iPad)
 
         const OLLAMA = 'https://api.luissolutions.us/chat';
@@ -1441,7 +1451,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         const freshBtn = $('#dc-fresh-btn');
         if (freshBtn) freshBtn.onclick = async () => {
             if (!DC.base) return;
-            if (!confirm('Write a handoff and restart the session fresh? This clears the current context.')) return;
+            if (!window.__dcArm(freshBtn, '🫧 Restart fresh? tap again')) return;   // 1.0.278 two-tap
             freshBtn.disabled = true; freshBtn.textContent = '🫧 Restarting…'; DC.freshTapAt = Date.now();
             try { await set(ref(database, `${DC.base}/freshNow`), true); }
             catch (e) { freshBtn.disabled = false; freshBtn.textContent = '🫧 Fresh start now'; alert('Could not trigger: ' + e); }
@@ -1799,29 +1809,28 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // this tab live, view only. Acts at once (not on Save). Shared already = who + Unshare.
             { const sw = box.querySelector('#dc-te-share'), T = window.__dcTabShare, I = T && oldName && oldName !== '★' ? T.info(oldName) : null;
               if (sw && I && I.me && I.key) {
-                  if (I.share) {
-                      sw.innerHTML = '<div style="display:flex;gap:8px;align-items:center"><span style="flex:1">📺 Shared with ' + esc(I.share.name || '?') + ' (view only)</span>'
-                          + '<button class="dc-btn ghost sm" id="dc-te-unshare" type="button">Unshare</button></div>';
-                      sw.querySelector('#dc-te-unshare').onclick = () => { close(); T.unshare(I.key); };
-                  } else if (I.people.length) {
-                      sw.innerHTML = '<label>📺 Share this tab with<select id="dc-te-sharewho"><option value="">Pick a person…</option>'
-                          + I.people.map(([u, n]) => '<option value="' + esc(u) + '">' + esc(n) + '</option>').join('') + '</select></label>'
-                          + '<div style="display:flex;gap:8px;align-items:center"><small style="flex:1;opacity:.75">They see it live, view only. You two talk in 👥.</small>'
-                          + '<button class="dc-btn ghost sm" id="dc-te-sharego" type="button" disabled>Share</button></div>';
-                      const who = sw.querySelector('#dc-te-sharewho'), go = sw.querySelector('#dc-te-sharego');
-                      who.style.cssText = fld; who.onchange = () => { go.disabled = !who.value; };
-                      go.onclick = () => { if (!who.value) return; close(); T.share(who.value); };
-                  }
+                  // 1.0.278 (L: "add multiple people to a tab"): everyone already in, each with Unshare, then add another person
+                  let h = I.shares.map((x, i) => '<div style="display:flex;gap:8px;align-items:center"><span style="flex:1">📺 ' + esc(x.name) + ' (view only)</span>'
+                      + '<button class="dc-btn ghost sm" type="button" data-unsh="' + i + '">Unshare</button></div>').join('');
+                  if (I.people.length) h += '<label>📺 ' + (I.shares.length ? 'Add a person' : 'Share this tab with') + '<select id="dc-te-sharewho"><option value="">Pick a person…</option>'
+                      + I.people.map(([u, n]) => '<option value="' + esc(u) + '">' + esc(n) + '</option>').join('') + '</select></label>'
+                      + '<div style="display:flex;gap:8px;align-items:center"><small style="flex:1;opacity:.75">They see it live, view only. You talk in 👥.</small>'
+                      + '<button class="dc-btn ghost sm" id="dc-te-sharego" type="button" disabled>Share</button></div>';
+                  sw.innerHTML = h;
+                  sw.querySelectorAll('[data-unsh]').forEach(btn => btn.onclick = () => { if (!window.__dcArm(btn, 'Unshare? tap again')) return; close(); T.unshare(I.shares[+btn.dataset.unsh].key); });
+                  const who = sw.querySelector('#dc-te-sharewho'), go = sw.querySelector('#dc-te-sharego');
+                  if (who) { who.style.cssText = fld; who.onchange = () => { go.disabled = !who.value; };
+                      go.onclick = () => { if (!who.value) return; close(); T.share(who.value); }; }
               } }
             // REMOVE TAB (1.0.241): moved here from the ✕ that sat on the chip - same two guards. An empty tab: tap twice inside 3 s.
             // A tab with messages: the confirm box (nothing is deleted, the messages drop to All).
             { const del = box.querySelector('#dc-te-del'); let armT = 0;
               del.onclick = async () => {
                   const n = Object.values(DC.ownTurns || DC.chatTurns || {}).filter(t => t && t.topic === oldName).length;
-                  if (n) { close(); confirmTabDelete(oldName, n); return; }
-                  if (!del.classList.contains('arm')) { del.classList.add('arm'); del.textContent = 'Remove? tap again';
-                      armT = setTimeout(() => { del.classList.remove('arm'); del.textContent = 'Remove tab'; }, 3000); return; }
-                  clearTimeout(armT); close();
+                  // 1.0.278 (L "keep the click method all around"): a tab with messages uses the same two taps (its messages drop to All)
+                  if (!window.__dcArm(del, n ? `Remove? ${n} msg → All · tap again` : 'Remove? tap again')) return;
+                  close();
+                  if (n) { await deleteTopic(oldName); return; }
                   try { await set(ref(database, `${DC.base}/chat/topics/${topicKey(oldName)}`), null); } catch (_) {}
                   setTopic(''); }; }
             box.querySelector('#dc-te-ok').onclick = async () => {
@@ -4093,7 +4102,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const n = $('#dc-bot-mem-n'); if (n) n.textContent = rows.length ? '(' + rows.length + ')' : '(none yet)';
             const box = $('#dc-bot-mem'); if (!box) return;
             box.innerHTML = rows.map(([k, v]) => `<div class="dc-bot-mem" data-k="${attr(k)}"><b>${esc(k)}</b><span>${esc(String(v && typeof v === 'object' ? v.value : v))}</span><span class="x" title="forget this">✕</span></div>`).join('');
-            box.querySelectorAll('.x').forEach(x => x.onclick = async () => { const row = x.parentElement, k = row.dataset.k; if (!confirm(`Forget "${k}"? Yuki loses this memory.`)) return;
+            box.querySelectorAll('.x').forEach(x => x.onclick = async () => { const row = x.parentElement, k = row.dataset.k; if (!window.__dcArm(x, 'forget?')) return;
                 try { await remove(ref(database, `${DC.uid}/chat/bot/memory/${k}`)); row.remove(); botStatus('forgot ' + k); if (n) n.textContent = '(' + box.children.length + ')'; } catch (e) { botStatus('failed: ' + e.message); } });
         }
         async function renderBotPanel() {
@@ -5678,7 +5687,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 update(ref(database, `${DC.base}/routines/${cb.dataset.en}`), { enabled: cb.checked, nextRun: 0 }));
             list.querySelectorAll('[data-del]').forEach(b => b.onclick = () => {
                 const r = (obj || {})[b.dataset.del] || {};
-                if (!confirm(`Delete routine "${r.name || b.dataset.del}"?`)) return;
+                if (!window.__dcArm(b, 'Delete? tap again')) return;   // 1.0.278 two-tap
                 remove(ref(database, `${DC.base}/routines/${b.dataset.del}`)); });
         }
         // wiring
@@ -6385,7 +6394,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const inflight = Object.values(DC.chatTurns || {}).filter(t => t && t.pending).length;
             if (inflight) { $('#dc-chat-status').textContent = '⏳ ' + inflight + ' repl' + (inflight > 1 ? 'ies' : 'y')
                 + ' still coming - archiving now would lose ' + (inflight > 1 ? 'them' : 'it'); return; }
-            if (!confirm("Archive chat: save this chat to Droplet's memory, then clear the screen?")) return;
+            if (!window.__dcArm($('#dc-chat-clear'), 'Archive + clear? tap again')) return;   // 1.0.278 two-tap
             // Phase 2: the daemon (on se, with D:\ access) serializes the thread into the cascade
             // Memory then clears the live turns — the difference between talking and having talked.
             $('#dc-chat-status').textContent = '📎 archiving to Droplet’s memory…';
@@ -6741,6 +6750,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     const slug = t => String(t || '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
     const curTopic = () => { try { return localStorage.getItem('dc_topic') || ''; } catch (_) { return ''; } };
     P.shares = {};
+    // 1.0.278 MANY PEOPLE PER TAB (L 2026-11-21 "add multiple people to a tab"): a share record is found by its topic + person, not by
+    // its key. Old records keep the key <slug>; new ones are <slug>__<uid>, so one tab can hold several shares.
+    const sharesOf = topic => Object.entries(P.shares || {}).filter(([, x]) => x && x.topic === topic);
+    const shareWith = (topic, uid) => sharesOf(topic).find(([, x]) => x.with === uid) || null;
 
     const H = (t, k) => k ? `<div class="ph ph-c" data-col="${k}" role="button" tabindex="0">${t}<span class="chev">▾</span></div>` : `<div class="ph">${t}</div>`;
     // COLLAPSIBLE (2026-09-28, L: "have the users collapsible"): a keyed header folds everything under it up to the next header.
@@ -6881,7 +6894,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         home.querySelectorAll('[data-home]').forEach(b => b.onclick = () => showHome());
         home.querySelectorAll('[data-share]').forEach(b => b.onclick = () => shareTab(b.dataset.share));
         home.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openTabRow(b.dataset.open));
-        home.querySelectorAll('[data-unshare]').forEach(b => b.onclick = () => unshareTab());
+        home.querySelectorAll('[data-unshare]').forEach(b => b.onclick = () => unshareTab(undefined, b));
         home.querySelectorAll('.pswipe').forEach(wireSwipe);
         home.querySelectorAll('[data-readall]').forEach(b => b.onclick = () => { for (const [t, x] of Object.entries(P.index)) if (x && x.ts) markSeen(t, x.ts); dots(); renderHome(); });
         const pp = $('#dc-peer-pop'); if (pp) pp.onchange = async () => {
@@ -6924,6 +6937,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     async function shareTab(uid) {
         const topic = curTopic(), s = slug(topic); if (!s || topic === '★') return;
         if (/[.#$\[\]\/]/.test(topic)) { alert('This tab name has a character Firebase keys cannot hold (. # $ [ ] /) - rename the tab to share it.'); return; }
+        if (shareWith(topic, uid)) return;   // 1.0.278: already in this tab
         const tid = `tab-${s}-${[P.me, uid].sort().join('_')}`, now = Date.now(), name = P.dir[uid] || uid.slice(0, 6);
         try {
             await set(ref(database, `${P.me}/console/guests/${topic}/${uid}`), { name, since: now });
@@ -6939,7 +6953,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     [`share/chat/${tid}/kind`]: 'tab', [`share/chat/${tid}/topic`]: topic,
                     [`share/chat/${tid}/owner`]: P.me, [`share/chat/${tid}/createdAt`]: now });
             }
-            await set(ref(database, `${P.me}/console/shares/${s}`), { tid, with: uid, name, topic, since: now, mode: 'guest' });
+            await set(ref(database, `${P.me}/console/shares/${s}__${uid}`), { tid, with: uid, name, topic, since: now, mode: 'guest' });   // 1.0.278: one key per person
             await set(ref(database, `share/chatIndex/${uid}/${tid}`), { with: P.me, name: `${P.myName} · # ${topic}`, last: `${P.myName} shared # ${topic} with you`, ts: now, from: P.me, kind: 'tab', topic, owner: P.me });
             renderBar(); renderHome();
             const st = document.getElementById('dc-chat-status'); if (st) st.textContent = `📺 ${name} can see # ${topic} now - live, view only`;
@@ -6972,15 +6986,14 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         const b = (attrs, label, title) => `<button type="button" class="pbar-b" ${attrs} title="${esc(title || '')}">${label}</button>`;
         let html = '';
         if (P.me !== OWNER && !P.open.startsWith('tab-')) {   // any member can share a tab (their Droplet / Cairn keeps driving it)
-            const sh = topic && P.shares[slug(topic)];
+            const sw = topic && shareWith(topic, other);   // 1.0.278: someone else in this tab no longer blocks sharing it with this person
             if (topic && topic !== '★') {
-                if (sh && sh.with === other) html += b(`data-stop="${esc(slug(topic))}"`, `⏹ Unshare # ${esc(topic)}`, `take ${oname} out of this tab`);
-                else if (sh) html += `<span class="pbar-note"># ${esc(topic)} is shared with ${esc(sh.name)}</span>`;
+                if (sw) html += b(`data-stop="${esc(sw[0])}"`, `⏹ Unshare # ${esc(topic)}`, `take ${oname} out of this tab`);
                 else html += b('data-sharecur="1"', `📺 Share # ${esc(topic)}`, `${oname} sees this tab live (view only) - you two talk here in 👥`);
             }
             bar.innerHTML = html; bar.hidden = !html;
             bar.querySelectorAll('[data-sharecur]').forEach(x => x.onclick = () => shareTab(other));
-            bar.querySelectorAll('[data-stop]').forEach(x => x.onclick = () => unshareTab(x.dataset.stop));
+            bar.querySelectorAll('[data-stop]').forEach(x => x.onclick = () => unshareTab(x.dataset.stop, x));
             return;
         }
         if (P.open.startsWith('tab-')) {
@@ -6988,10 +7001,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             html += b('data-dm="1"', `💬 Chat with ${esc(oname)}`, 'back to your conversation with them');
             if (cur) html += b(`data-stop="${esc(cur[0])}"`, '⏹ Stop sharing', `stop sharing # ${cur[1].topic}`);
         } else {
-            const sh = topic && P.shares[slug(topic)];
+            const sw = topic && shareWith(topic, other);   // 1.0.278: many people per tab
             if (topic && topic !== '★') {
-                if (sh && sh.with === other) html += `<span class="pbar-note">📺 ${esc(oname)} is in # ${esc(topic)}</span>` + b(`data-stop="${esc(slug(topic))}"`, `⏹ Unshare # ${esc(topic)}`, `take ${oname} out of this tab`);
-                else if (sh) html += `<span class="pbar-note"># ${esc(topic)} is shared with ${esc(sh.name)}</span>`;
+                if (sw) html += `<span class="pbar-note">📺 ${esc(oname)} is in # ${esc(topic)}</span>` + b(`data-stop="${esc(sw[0])}"`, `⏹ Unshare # ${esc(topic)}`, `take ${oname} out of this tab`);
                 else html += b('data-sharecur="1"', `📺 Share # ${esc(topic)}`, `${oname} sees this tab live (view only) - you two talk here in 👥`);
             }
             for (const [k, s] of mine) if (!topic || s.topic !== topic) html += b(`data-view="${esc(s.tid)}" data-t="${esc(s.topic)}"`, `📺 # ${esc(s.topic)}`, 'a tab you share with them');
@@ -7000,22 +7012,23 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         bar.querySelectorAll('[data-dm]').forEach(x => x.onclick = () => openPeer(other));
         bar.querySelectorAll('[data-sharecur]').forEach(x => x.onclick = () => shareTab(other));
         bar.querySelectorAll('[data-view]').forEach(x => x.onclick = () => openTabRow(x.dataset.view));
-        bar.querySelectorAll('[data-stop]').forEach(x => x.onclick = () => unshareTab(x.dataset.stop));
+        bar.querySelectorAll('[data-stop]').forEach(x => x.onclick = () => unshareTab(x.dataset.stop, x));
     }
 
 
-    async function unshareTab(key) {
-        const s = key || slug(curTopic()), sh = P.shares[s]; if (!sh) return;
+    async function unshareTab(key, btn) {
+        const cur = sharesOf(curTopic()), s = key || (cur.length === 1 ? cur[0][0] : ''), sh = s && P.shares[s]; if (!sh) return;   // 1.0.278
         const topic = sh.topic || curTopic();
-        if (!confirm(`Take ${sh.name} out of # ${topic}? The tab disappears from their console; their lines stay in yours.`)) return;
-        try {
-            await set(ref(database, `${P.me}/console/guests/${topic}/${sh.with}`), null);
-            await set(ref(database, `share/chatIndex/${sh.with}/${sh.tid}`), null);
-            await set(ref(database, `${P.me}/console/shares/${s}`), null);
-            await set(ref(database, `share/chat/${sh.tid}`), null);
-            if (P.open === sh.tid) openPeer(sh.with);   // back to the conversation with them, not a closed pane
-            renderBar(); renderHome();
-        } catch (e) { alert('Could not stop sharing: ' + (e.code || e.message)); }
+        if (btn && !window.__dcArm(btn, `Unshare ${sh.name}? tap again`)) return;   // 1.0.278 two-tap (the pencil arms its own button first)
+        // 1.0.278 (L 2026-11-21 photo "Could not stop sharing: PERMISSION_DENIED"): one refused clean-up step used to stop the rest and
+        // leave the marker behind. Now the guest entry (= their access) goes first and is the only step that must work; the other
+        // three are tidy-up and each runs on its own. The thread itself only the owner account may delete (rules), so members skip it.
+        try { await set(ref(database, `${P.me}/console/guests/${topic}/${sh.with}`), null); }
+        catch (e) { alert('Could not stop sharing: ' + (e.code || e.message)); return; }
+        const tidy = [`share/chatIndex/${sh.with}/${sh.tid}`, `${P.me}/console/shares/${s}`].concat(P.me === OWNER && sh.tid ? [`share/chat/${sh.tid}`] : []);
+        for (const p of tidy) { try { await set(ref(database, p), null); } catch (e) { console.warn('unshare tidy-up', p, e.code || e.message); } }
+        if (P.open === sh.tid) openPeer(sh.with);   // back to the conversation with them, not a closed pane
+        renderBar(); renderHome();
     }
 
     async function openPeer(uid) { if (!uid || uid === 'group') return;   // 'group' is a group's inbox marker, never a person
@@ -7309,7 +7322,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const b = e.target.closest && e.target.closest('.dc-cf-opts .dc-choice'); if (!b) return; e.stopPropagation();
             const k = b.parentNode.dataset.cf, act = b.dataset.act;
             if (act === 'del') {   // real delete = verify first (L: all deletes have a verify)
-                const m = (CF.posts || {})[k] || {}; if (!confirm(`Delete this Campfire post for everyone?\n\n${String(m.subject || m.body || '').slice(0, 80)}`)) return;
+                if (!window.__dcArm(b, 'Delete for everyone? tap again')) return;   // 1.0.278 two-tap
                 set(ref(database, `share/mail/${k}`), null).then(() => { delete CF.posts[k]; renderCampfire(); dots(); }).catch(e => alert('Could not delete: ' + (e.code || e.message))); return; }
             if (act === 'hide') { CF.done[k] = 'hide'; update(ref(database, `${P.me}/console/campfire/done`), { [k]: 'hide' }).catch(() => {}); renderCampfire(); dots(); return; }   // cleared for me only, no confirm - nothing is destroyed
             if (act === 'hand') {   // Campfire hand-overs go untagged = All (L 2026-11-02), not the open tab
@@ -7479,7 +7492,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (!name) { q('.pgrp-st').textContent = 'give it a name'; return; } if (!uids.length && !Object.keys(g.bots || {}).length) { q('.pgrp-st').textContent = 'pick at least one member'; return; }   // a bot group (REaD = L + the mail bots) has no other people - renaming it must still save (L 2026-10-22)
             q('.pgrp-st').textContent = 'saving…';
             try { const id = await saveGroup(tid, name, uids); openGroup(id); } catch (e) { q('.pgrp-st').textContent = 'not saved: ' + (e.code || e.message); } };
-        if (q('.pgrp-del')) q('.pgrp-del').onclick = async () => { if (!confirm(`Delete "${g.name}" for everyone? Its messages go too.`)) return; try { await deleteGroup(tid); showHome(); } catch (e) { alert('Not deleted: ' + (e.code || e.message)); } };
+        if (q('.pgrp-del')) q('.pgrp-del').onclick = async () => { if (!window.__dcArm(q('.pgrp-del'), 'Delete group + messages? tap again')) return; try { await deleteGroup(tid); showHome(); } catch (e) { alert('Not deleted: ' + (e.code || e.message)); } };
     }
     async function saveGroup(tid, name, uids) {
         const now = Date.now(), isNew = !tid; if (isNew) tid = 'grp-' + push(ref(database, 'share/chat')).key;
@@ -7535,7 +7548,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // here when their entry in my guest list is gone - only the marker; the tab and its messages are not touched.
             for (const [k, x] of Object.entries(P.shares)) { if (!x || !x.topic || !x.with || x.mode !== 'guest') continue;
                 get(ref(database, `${P.me}/console/guests/${x.topic}/${x.with}`)).then(g => { if (!g.exists()) set(ref(database, `${P.me}/console/shares/${k}`), null).catch(() => {}); }).catch(() => {}); }
-            window.__dcMyShares = Object.values(P.shares).filter(x => x && x.topic).map(x => ({ topic: x.topic, name: x.name || P.dir[x.with] || 'them' }));
+            { const by = {}; for (const x of Object.values(P.shares)) if (x && x.topic) (by[x.topic] = by[x.topic] || []).push(x.name || P.dir[x.with] || 'them');   // 1.0.278: one chip, every name
+              window.__dcMyShares = Object.entries(by).map(([topic, ns]) => ({ topic, name: ns.join(', ') })); }
             window.__dcRenderTopics && window.__dcRenderTopics();
             if (P.open) renderBar(); else renderHome(); }, dcWarn('settings'));
     });
@@ -7543,8 +7557,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     // 1.0.276 SHARE FROM THE PENCIL (L 2026-11-21 "add share option in the pencil in the tab"): the tab popup (editTab, other module)
     // reads who can be picked + whether this tab is shared, and calls the same shareTab / unshareTab the 👥 bar uses.
     window.__dcTabShare = {
-        info: topic => ({ me: P.me, key: slug(topic), share: P.shares[slug(topic)] || null,
-            people: Object.entries(P.dir || {}).filter(([u, n]) => u && u !== P.me && n).sort((a, b) => String(a[1]).localeCompare(String(b[1]))) }),
+        info: topic => { const sh = sharesOf(topic), inTab = new Set(sh.map(([, x]) => x.with));   // 1.0.278: everyone in the tab + who can still be added
+            return { me: P.me, key: slug(topic), shares: sh.map(([k, x]) => ({ key: k, name: x.name || P.dir[x.with] || 'them' })),
+                people: Object.entries(P.dir || {}).filter(([u, n]) => u && u !== P.me && n && !inTab.has(u)).sort((a, b) => String(a[1]).localeCompare(String(b[1]))) }; },
         share: uid => shareTab(uid), unshare: key => unshareTab(key) };
     // ONE CHAT LIST (2026-10-23, Telegram review #1 in L's layout: "from the droplet in the upper left corner when you click that it opens
     // this new pane on the left ... then you click and on the right [desktop: left] or ... the secondary panel is on bottom or top"):
