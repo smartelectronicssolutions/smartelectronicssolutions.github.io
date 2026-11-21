@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.62">
+    <meta name="version" content="1.0.63">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Control Hub</title>
     <link rel="stylesheet" href="assets/css/master.css">
@@ -1159,6 +1159,9 @@
                 .sh-b.warn { border-color: #d99a1e; color: #d99a1e; } .sh-b.bad { border-color: #e05555; color: #e05555; } .sh-b.ok { border-color: #2e9e5b; color: #2e9e5b; }
                 .sh-line { font-size: 0.82rem; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
                 .sh-note { font-size: 0.72rem; color: var(--muted); line-height: 1.4; margin-top: 4px; }
+                .sh-go { font-size: 0.76rem; color: #d99a1e; text-decoration: none; border-bottom: 1px dashed currentColor; cursor: pointer; }
+                @keyframes shFlash { 0%, 60% { background: rgba(217, 154, 30, 0.22); } 100% { background: transparent; } }
+                .sh-flash { animation: shFlash 1.6s ease-out; border-radius: 6px; }
             </style>
             <script type="module">
                 import { auth, database, ref, onValue, onAuthStateChanged } from './assets/js/firebase-init.js?v=20261011b';
@@ -1190,8 +1193,11 @@
                     const dFlagged = ds.filter(([, e]) => (e.flags || []).some(f => f !== 'raw' && f !== 'foreign'));
                     const hot = ds.reduce((m, [k, e]) => has(e.tempC) && (!m || e.tempC > m[1].tempC) ? [k, e] : m, null);
                     const red = c.state === 'red', cpuHot = u.state === 'warn', gpuHot = g.state === 'warn';
-                    const issues = [cpuHot && 'CPU hot', gpuHot && 'GPU hot', red && 'clock off', dFlagged.length && `${dFlagged.length} drive${dFlagged.length > 1 ? 's' : ''} flagged`, stop.length && `${stop.length} fan${stop.length > 1 ? 's' : ''} at 0 rpm`].filter(Boolean);
-                    let o = `<div class="sh-line" style="margin-bottom:6px">${issues.length ? `<span class="sh-b warn">${issues.length} to look at</span><span style="color:var(--muted);font-size:0.76rem">${esc(issues.join(' · '))}</span>` : '<span class="sh-b ok">All OK</span>'}</div>`;
+                    // 1.0.63 (L: "1 to look at? Nothing happens when I click that"): each issue is a link that jumps to its section and flashes it
+                    const issues = [cpuHot && ['CPU hot', 'sh-s-cpu'], gpuHot && ['GPU hot', 'sh-s-gpu'], red && ['clock off', 'sh-s-sum'],
+                        dFlagged.length && [`${dFlagged.length} drive${dFlagged.length > 1 ? 's' : ''} flagged`, 'sh-s-drv'],
+                        stop.length && [`${stop.length} fan${stop.length > 1 ? 's' : ''} at 0 rpm (${stop.map(n => n.replace(/^Chassis Fan No /, 'Chassis ')).join(', ')})`, 'sh-s-cool']].filter(Boolean);
+                    let o = `<div class="sh-line" id="sh-s-sum" style="margin-bottom:6px">${issues.length ? `<span class="sh-b warn">${issues.length} to look at</span>` + issues.map(([t, id]) => `<a href="#${id}" class="sh-go" data-go="${id}">${esc(t)} ›</a>`).join('') : '<span class="sh-b ok">All OK</span>'}</div>`;
                     o += '<div class="sh-grid g4">'
                         + tile('CPU', val(u.tempC, ' °C'), cpuHot ? 'bad' : '', has(u.powerW) ? val(u.powerW, ' W') : '')
                         + tile('GPU', val(g.tempC, ' °C'), gpuHot ? 'bad' : '', has(g.utilPct) ? val(g.utilPct, ' % load') : '')
@@ -1199,24 +1205,24 @@
                         + tile('Clock', has(c.offsetS) ? (Math.abs(c.offsetS) < 0.05 ? 'In sync' : span(c.offsetS) + (c.offsetS > 0 ? ' slow' : ' fast')) : 'Unknown', red ? 'bad' : has(c.offsetS) ? '' : 'warn', red ? 'over ' + esc(c.limitS ?? 5) + ' s' : 'OK')
                         + '</div>';
                     // CPU
-                    o += '<div class="sh-sec"><div class="sy-h">CPU' + (cpuHot ? ' <span class="sh-b bad">Hot</span>' : '') + '</div>';
+                    o += '<div class="sh-sec" id="sh-s-cpu"><div class="sy-h">CPU' + (cpuHot ? ' <span class="sh-b bad">Hot</span>' : '') + '</div>';
                     if (has(u.tempC)) {
                         o += '<div class="sh-grid g4">' + tile('Temp', val(u.tempC, ' °C'), cpuHot ? 'bad' : '', pkTxt(pk.cpu)) + tile('Power', val(u.powerW, ' W'))
                             + tile('Chipset', val(u.chipsetC, ' °C'), has(u.chipsetC) && u.chipsetC >= 80 ? 'warn' : '') + tile('Board', val(u.boardC, ' °C')) + '</div>';
                         const fe = Object.entries(fans).sort(([a], [b]) => (/^CPU|Pump/.test(a) ? 0 : 1) - (/^CPU|Pump/.test(b) ? 0 : 1) || a.localeCompare(b));
-                        if (fe.length) o += '<div class="sy-h">Cooling</div><table class="sh-tbl"><tr><th>Fan</th><th class="n">rpm</th></tr>'
+                        if (fe.length) o += '<div class="sy-h">Cooling</div><table class="sh-tbl" id="sh-s-cool"><tr><th>Fan</th><th class="n">rpm</th></tr>'
                             + fe.map(([n, r]) => `<tr><td>${esc(n.replace(/^Chassis Fan No /, 'Chassis '))}</td><td class="n${r === 0 ? ' off' : ''}">${r === 0 ? '0 · stopped' : Number(r).toLocaleString()}</td></tr>`).join('') + '</table>';
                     } else o += `<div class="sh-note">${esc(u.state === 'no reading' ? 'No reading (' + (u.why || '?') + ')' : (u.state || 'No sensor yet'))}</div>`;
                     o += '</div>';
                     // GPU
-                    o += '<div class="sh-sec"><div class="sy-h">GPU' + (gpuHot ? ' <span class="sh-b bad">Hot</span>' : '') + '</div>';
+                    o += '<div class="sh-sec" id="sh-s-gpu"><div class="sy-h">GPU' + (gpuHot ? ' <span class="sh-b bad">Hot</span>' : '') + '</div>';
                     if (g.state === 'unknown' && !has(g.tempC)) o += `<div class="sh-note">No GPU reading${g.err ? ' - ' + esc(g.err) : ''}.</div>`;
                     else o += '<div class="sh-grid g4">' + tile('Temp', val(g.tempC, ' °C'), gpuHot ? 'bad' : '', pkTxt(pk.gpu)) + tile('Load', val(g.utilPct, ' %')) + tile('Power', val(g.powerW, ' W')) + tile('Fan', val(g.fanPct, ' %')) + '</div>'
                         + (has(g.memUsedMB) && has(g.memTotalMB) ? `<div class="sh-note">VRAM ${(g.memUsedMB / 1024).toFixed(1)} of ${(g.memTotalMB / 1024).toFixed(0)} GB in use</div>` : '');
                     o += '</div>';
                     // Drives: one table (lettered volumes first)
                     const noc = dm.state === 'noaccess';
-                    o += `<div class="sh-sec"><div class="sy-h">Drives · ${ds.length}</div>`;
+                    o += `<div class="sh-sec" id="sh-s-drv"><div class="sy-h">Drives · ${ds.length}</div>`;
                     o += ds.length ? '<table class="sh-tbl"><colgroup><col style="width:46%"><col><col><col></colgroup><tr><th>Drive</th><th class="n">Temp</th><th class="n">Free</th><th class="n">Hours</th></tr>' + ds.map(([k, e]) => {
                         const fl = (e.flags || []).map(f => { const [t, cl] = FLAG[f] || [f, 'warn']; return ` <span class="sh-b ${cl}">${esc(f === 'readerr' && has(e.readErr) ? 'Read errors ' + e.readErr : t)}</span>`; }).join('');
                         const free = has(e.freeGB) ? `${Math.round(e.freeGB).toLocaleString()} GB${has(e.volGB) ? `<small>of ${Math.round(e.volGB).toLocaleString()}</small>` : ''}` : '–';
@@ -1231,6 +1237,9 @@
                     $('#sh-age').textContent = at ? 'updated ' + ago(at) : '';
                 }
                 setInterval(() => { if (sh) paint(); }, 60000);   // repaints the age only - no read
+                $('#sh-out').addEventListener('click', e => { const a = e.target.closest('[data-go]'); if (!a) return; e.preventDefault();
+                    const t = document.getElementById(a.dataset.go); if (!t) return; t.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    t.classList.remove('sh-flash'); void t.offsetWidth; t.classList.add('sh-flash'); });
                 onAuthStateChanged(auth, u => {
                     if (!u) return;
                     shUid = u.uid;
