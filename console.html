@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.274"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.275"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1722,7 +1722,15 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // 1.0.255 (kdaemon 0.2.33, L 2026-11-19 "use other brains in tabs like copilot"): a member daemon also runs copilot:/codex: tabs
         // when ITS meta.tabModels lists that engine (= admin granted it + the CLI is on that PC). claude: still goes by kdTabOk.
         const kdKindOk = v => { const k = String(v || '').split(':')[0]; if (k === 'claude') return kdTabOk();
-            const tms = (DC.lastMeta || {}).tabModels; return (k === 'copilot' || k === 'codex') && Array.isArray(tms) && tms.includes(k); };
+            const tms = (DC.lastMeta || {}).tabModels; if (k === 'copilot' || k === 'codex') return Array.isArray(tms) && tms.includes(k);
+            // kdaemon 0.2.55 (L 11-21 "If the person has local one they should be able to use it on a tab"): local:<ollama model> and
+            // command engines (Colibri) when meta.tabModels lists the kind AND meta.tabEngineModels lists that model
+            const tem = ((DC.lastMeta || {}).tabEngineModels || {})[k], mdl = String(v || '').slice(k.length + 1);
+            return Array.isArray(tms) && tms.includes(k) && Array.isArray(tem) && tem.includes(mdl); };
+        // kdaemon 0.2.55: the picker list = the fixed list + every model the daemon's meta.tabEngineModels offers that the list lacks
+        const tabModelList = () => { if (!DC.kdaemon) return TAB_MODELS; const tem = (DC.lastMeta || {}).tabEngineModels || {}, have = new Set(TAB_MODELS.map(x => x[0])), extra = [];
+            for (const [k, ms] of Object.entries(tem)) if (Array.isArray(ms)) for (const m of ms) { const v = k + ':' + m; if (!have.has(v)) extra.push([v, (k === 'local' ? 'Local' : k.charAt(0).toUpperCase() + k.slice(1)) + ': ' + m]); }
+            return TAB_MODELS.concat(extra); };
         // 1.0.256 (L 2026-11-19 "when they click it shows login instructions"): an engine the admin GRANTED (meta.grants.engines) on a
         // 0.2.33+ daemon is listed even when its CLI is not on that PC yet - as "(set up first)"; picking it shows the install + sign-in
         // steps and Save stays off, because a job for it would only land in the main chat.
@@ -1739,10 +1747,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         const jobTabModel = n => { const tm = DC.forceModel ? (DC.forceModel === '__main' ? '' : DC.forceModel) : tabModelOf(n); if (!tm) return ''; if (!DC.kdaemon) return tm; return kdKindOk(tm) ? tm : ''; };
         { const fsel = document.getElementById('dc-force-model'), pill = document.getElementById('dc-force-pill');
           const fill = () => { if (!fsel) return; const cur = DC.forceModel || ''; const kdOk = DC.kdaemon && kdTabOk(); fsel.length = 1;
-              for (const [v, t] of [['__main', 'Main session'], ...TAB_MODELS.filter(x => x[0])]) { const setup = kdSetupNeeded(v); if (DC.kdaemon && v !== '__main' && !kdKindOk(v) && !setup) continue;
+              for (const [v, t] of [['__main', 'Main session'], ...tabModelList().filter(x => x[0])]) { const setup = kdSetupNeeded(v); if (DC.kdaemon && v !== '__main' && !kdKindOk(v) && !setup) continue;
                   const o = document.createElement('option'); o.value = v; o.textContent = t + (setup ? ' (set up first)' : ''); o.disabled = setup; fsel.appendChild(o); }   // 1.0.257: same list as the pencil, everyone
               fsel.value = cur; if (fsel.value !== cur) fsel.value = ''; };
-          const show = () => { const v = DC.forceModel || ''; if (pill) { pill.hidden = !v; pill.textContent = v ? 'FORCED: ' + ((TAB_MODELS.find(x => x[0] === v) || [v, v === '__main' ? 'Main session' : v])[1]) : ''; }
+          const show = () => { const v = DC.forceModel || ''; if (pill) { pill.hidden = !v; pill.textContent = v ? 'FORCED: ' + ((tabModelList().find(x => x[0] === v) || [v, v === '__main' ? 'Main session' : v])[1]) : ''; }
               if (fsel && fsel.value !== v) fsel.value = v; };
           if (fsel) { fill(); fsel.addEventListener('pointerdown', fill); fsel.addEventListener('focus', fill);
               fsel.addEventListener('change', () => { DC.forceModel = fsel.value || ''; show(); }); }
@@ -1761,7 +1769,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const name = box.querySelector('#dc-te-name'), sel = box.querySelector('#dc-te-model'), note = box.querySelector('#dc-te-note');
             name.style.cssText = fld; sel.style.cssText = fld; name.value = oldName;
             const kdOk = DC.kdaemon && kdTabOk();
-            for (const [v, t] of TAB_MODELS) { const setup = kdSetupNeeded(v); if (DC.kdaemon && v && !kdKindOk(v) && !setup) continue;   // member kdaemon: Default + Claude (0.2.30+) + Copilot/Codex when its meta lists them (0.2.33), or granted = "(set up first)"
+            for (const [v, t] of tabModelList()) { const setup = kdSetupNeeded(v); if (DC.kdaemon && v && !kdKindOk(v) && !setup) continue;   // member kdaemon: Default + Claude (0.2.30+) + Copilot/Codex when its meta lists them (0.2.33), or granted = "(set up first)"
                 const o = document.createElement('option'); o.value = v; o.textContent = t + (setup ? ' (set up first)' : ''); sel.appendChild(o); }
             sel.value = tabModelOf(oldName); if (sel.value !== tabModelOf(oldName)) sel.value = '';
             // kdaemon cannot run local: / colibri: / grok: tab models - say so, and keep the saved model through a Save (a rename must not wipe it)
@@ -1771,7 +1779,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 if (okBtn) { okBtn.disabled = setup; okBtn.style.opacity = setup ? '.45' : ''; }
                 note.textContent = setup ? ENGINE_SETUP[ek] : (DC.kdaemon && (ek === 'copilot' || ek === 'codex')) ? ENGINE_SIGNIN[ek]
                 : (DC.kdaemon && !kdOk) ? 'Per-tab models need daemon 0.2.30 or newer - press Update in Settings.'
-                : !sel.value ? 'Uses this main session.' : sel.value.startsWith('local:') ? 'Local chat: no tools or memory files.'
+                : !sel.value ? 'Uses this main session.' : sel.value.startsWith('local:') ? 'Local chat on your PC: no tools or memory files.'
+                : (DC.kdaemon && !['claude', 'copilot', 'codex'].includes(ek) && (((DC.lastMeta || {}).tabEngineModels || {})[ek])) ? 'Runs on your PC, one message at a time - an answer can take a long time. Your other tabs stay free.'
                 : DC.kdaemon ? 'Its own conversation on this model: reads your folder and memory, not the main chat, same file rules.'
                 : 'Its own side session: reads memory, no main-session chat, and it can use tools and change files.'; };
             sel.onchange = say; say();
@@ -4742,7 +4751,11 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (!has(tsel.value)) tsel.value = has('droplet') ? 'droplet' : ((Array.from(tsel.options).find(o => !o.hidden) || {}).value || 'droplet');
             if (DC.guest && !DC.userPickedTarget && has('local')) {
                 if (!DC.daemonOn && tsel.value === 'droplet') { tsel.value = 'local'; DC.autoLocal = true; }
-                else if (DC.daemonOn && DC.autoLocal && tsel.value === 'local') { tsel.value = 'droplet'; DC.autoLocal = false; }
+                // 1.0.276 (L 11-21, Erik's messages stuck on 🦙 Local after Pulsar came back): back to their assistant whenever it is
+                // online and Local was NOT picked by hand on this page - also a Local restored by 🧠 Remember or set by a drawer tap
+                // (before, only a Local this page had switched to itself (autoLocal) ever went back, so a reload while the daemon was
+                // restarting left every later message on Local)
+                else if (DC.daemonOn && tsel.value === 'local') { tsel.value = 'droplet'; DC.autoLocal = false; }
             }
             const onLocal = !!DC.guest && tsel.value === 'local';
             const note = $('#dc-guest-note'); if (note) { note.hidden = true; note.textContent = ''; }   // L 2026-09-27: "I don't need this text present" - note kept in GUEST_LOCAL_NOTE, never shown
@@ -4755,6 +4768,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             tsel.classList.toggle('has-mark', tsel.value === 'droplet');
         }
         window.__dcSyncTarget = syncTarget; window.__dcRenderMeta = m => renderMeta(m); window.__dcState = () => ({ guest: !!DC.guest, daemonOn: !!DC.daemonOn, autoLocal: !!DC.autoLocal, userPicked: !!DC.userPickedTarget, base: DC.base });
+        window.__dcUserPicked = () => { DC.userPickedTarget = true; DC.autoLocal = false; };   // 1.0.276: the drawer's brain tap is a hand pick too
         window.__dcUserPick = v => { const t = $('#dc-chat-target'); if (t) t.value = v; DC.userPickedTarget = true; DC.autoLocal = false; syncTarget(); };   // test hooks (a real pick = a trusted change event, which a script cannot fake)
         // LOCAL WEARS THE SIGNED-IN PERSON'S BOT (2026-09-25, L: "whoever is logged in has a local bot with settings
         // they can customize... it would simplify plumbing"). Yuki was a SECOND bot in a hidden sidebar with its own
@@ -7631,7 +7645,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
           hb.addEventListener('click', () => { const now = Date.now(); tp.n = now - tp.t < 650 ? tp.n + 1 : 1; tp.t = now;
               if (tp.n >= 3) { tp.n = 0; asideView(dr.dataset.view === 'web' ? 'list' : 'web'); if (dr.dataset.view === 'list') { drawerBrains(); renderHome(); } } }); }
         dr.addEventListener('click', e => { const t = e.target;
-            const bb = t.closest('[data-brain]'); if (bb) { sel.value = bb.dataset.brain; sel.dispatchEvent(new Event('change', { bubbles: true })); if (P.open) closePeer(); drawerBrains(); if (!asideDocked()) closeDrawer(); return; }   // a brain = the Droplet chat in the main pane
+            const bb = t.closest('[data-brain]'); if (bb) { sel.value = bb.dataset.brain; window.__dcUserPicked && window.__dcUserPicked(); sel.dispatchEvent(new Event('change', { bubbles: true })); if (P.open) closePeer(); drawerBrains(); if (!asideDocked()) closeDrawer(); return; }   // a brain = the Droplet chat in the main pane
             if (t.closest('.dbot')) { const on = !asideBottom(); setAsideBottom(on);
                 paintBottom(); if (!asideDocked()) $('#dc-drawer-scrim').classList.add('open'); try { localStorage.setItem('dc_aside_open', on ? '1' : '0'); } catch (_) {} return; }
             if (t.closest('.dx')) { closeDrawer(); return; }
