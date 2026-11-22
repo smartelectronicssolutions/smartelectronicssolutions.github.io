@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
-<meta name="version" content="1.0.34">
+<meta name="version" content="1.0.36">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0c0f13"><title>Loadout</title>
 <style>
@@ -375,6 +375,7 @@
 .dragghost b{position:absolute;right:2px;bottom:1px;font-size:.7rem;color:#fff;background:#c8402e;border-radius:9px;padding:0 5px}
 .dropbar{position:fixed;left:50%;top:8px;transform:translateX(-50%);z-index:5900;max-width:min(96vw,900px);display:flex;flex-wrap:wrap;gap:6px;justify-content:center;padding:8px 10px;background:#f7d9a4;border:2px solid #7a3f1a;border-radius:9px;box-shadow:0 6px 18px rgba(0,0,0,.45)}
 .dropbar .achip{cursor:default}
+.drophint{position:fixed;left:50%;top:6px;transform:translateX(-50%);z-index:5900;padding:4px 12px;font-size:.72rem;background:#f7d9a4;border:2px solid #7a3f1a;border-radius:9px;box-shadow:0 3px 10px rgba(0,0,0,.35);pointer-events:none;white-space:nowrap}
 .it.lifting{opacity:.35}
 /* PHONE PORTRAIT: game fills the screen, A/B float over its bottom-right, everything else is below - swipe down to reach it */
 @media (pointer:coarse) and (orientation:portrait){.app{overflow:hidden!important}.wrap>.controls,.wrap>footer,.app>footer{display:none!important}   /* b126 (L: "the whole page shouldn't scroll - just show it all"): no page scroll on a phone; the keyboard help + footer are hidden there (Yuki explains the controls) */
@@ -3396,7 +3397,7 @@ function itemDropDo(k,it){const many=selSet.has(it)&&selSet.size>1?[...selSet]:[
   if(n){try{svBlip&&svBlip();}catch(e){}const ph=$("phint");if(ph)ph.textContent=`Moved ${n>1?n+" items":many[0].name} → ${key==="bag"?"Backpack":invLabel(key)}`;}
   try{renderPanel();}catch(e){}}
 function itemDrag(d,it){let st=null;
-  const end=()=>{if(!st)return;if(st.timer)clearTimeout(st.timer);if(st.ghost)st.ghost.remove();if(st.bar)st.bar.remove();if(st.hi)st.hi.classList.remove("drop");d.classList.remove("lifting");
+  const end=()=>{if(!st)return;if(st.timer)clearTimeout(st.timer);if(st.ghost)st.ghost.remove();if(st.bar)st.bar.remove();if(st.hint)st.hint.remove();if(st.hi)st.hi.classList.remove("drop");d.classList.remove("lifting");
     window.removeEventListener("pointermove",mv,true);window.removeEventListener("pointerup",up,true);window.removeEventListener("pointercancel",cancel,true);window.removeEventListener("touchmove",tm,{capture:true});st=null;};
   const lift=()=>{if(!st||st.on)return;st.on=true;d.classList.add("lifting");const g=document.createElement("div");g.className="dragghost";
     g.innerHTML=it.img?`<img src="${esc(it.img)}" alt="">`:`<span>${esc(it.name)}</span>`;const n=selSet.has(it)&&selSet.size>1?selSet.size:0;if(n)g.insertAdjacentHTML("beforeend",`<b>${n}</b>`);
@@ -3404,8 +3405,12 @@ function itemDrag(d,it){let st=null;
     // DROP BAR: every container (+ Backpack) as a target while dragging, so a drop spot is always on screen
     const bar=document.createElement("div");bar.className="dropbar";const locs=["bag",...containerLocs().filter(l=>l!=="bag")];
     for(const k of locs){if(k===it.loc)continue;const c=document.createElement("span");c.className="achip";c.dataset.drop=k;c.innerHTML=(k==="bag"?"🎒 Backpack":`${invIcon(k)} ${esc(invLabel(k))}`);bar.appendChild(c);}
-    document.body.appendChild(bar);st.bar=bar;place(st.x,st.y);try{navigator.vibrate&&navigator.vibrate(12);}catch(e){}};
-  const place=(x,y)=>{if(!st||!st.ghost)return;st.ghost.style.left=x+"px";st.ghost.style.top=y+"px";const t=itemDropTarget(x,y);
+    document.body.appendChild(bar);st.bar=bar;
+    /* TOUCH: bar waits for the top edge (L 2026-11-22: "I can't drag across squares on mobile. It pops that list up, maybe leave that until I drag on top area") */
+    if(st.touch){bar.style.display="none";const h=document.createElement("div");h.className="drophint";h.textContent="↑ drag up here for containers";document.body.appendChild(h);st.hint=h;}
+    place(st.x,st.y);try{navigator.vibrate&&navigator.vibrate(12);}catch(e){}};
+  const place=(x,y)=>{if(!st||!st.ghost)return;st.ghost.style.left=x+"px";st.ghost.style.top=y+"px";
+    if(st.touch&&st.bar){const shown=st.bar.style.display!=="none";if(!shown&&y<70){st.bar.style.display="";if(st.hint)st.hint.style.display="none";}else if(shown&&y>st.bar.getBoundingClientRect().bottom+60){st.bar.style.display="none";if(st.hint)st.hint.style.display="";}}const t=itemDropTarget(x,y);
     if(t!==st.hi){if(st.hi)st.hi.classList.remove("drop");st.hi=t&&(t.classList.contains("it")?t!==d:t.dataset.drop!==it.loc)?t:null;if(st.hi)st.hi.classList.add("drop");}};
   const mv=e=>{if(!st||e.pointerId!==st.id)return;st.x=e.clientX;st.y=e.clientY;const far=Math.hypot(e.clientX-st.sx,e.clientY-st.sy);
     if(!st.on){if(st.touch){if(far>10)end();return;}if(far>6)lift();else return;}e.preventDefault();place(e.clientX,e.clientY);};
