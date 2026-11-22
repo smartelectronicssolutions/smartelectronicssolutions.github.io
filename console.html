@@ -5449,7 +5449,15 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                         if (i) { window.__dcPicAtt[k] = att.slice(); await update(pendRef, { text: `${say}\n\n${label(i + 1)}` }); }
                         run.ctl = new AbortController();
                         const res = await fetch(CMP_SD, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: run.ctl.signal,
-                            body: JSON.stringify({ prompt, negative_prompt: c.neg, model: c.model, steps: hq ? 30 : 15, cfg_scale: 7.5, width: hq ? 896 : 512, height: hq ? 1152 : 640 }) });
+                            // 1.0.293 (L 2026-11-21 "25 steps + upscale pass for every picture (slower, cleaner)"): the normal tier was 15 steps at
+                            // 512x640 with no second pass - small faces and hands came out wrong too often. Now 25 steps + a 1.5x hires pass
+                            // (768x960 out). hq stays as onlinechat had it (30 steps, 896x1152, no second pass - it is already large).
+                            body: JSON.stringify({ prompt, negative_prompt: c.neg, model: c.model, steps: hq ? 30 : 25, cfg_scale: 7.5, width: hq ? 896 : 512, height: hq ? 1152 : 640,
+                                ...(hq || CMP_PIC.noHr ? {} : { enable_hr: true, hr_scale: 1.5, hr_second_pass_steps: 12, denoising_strength: 0.4 }) }) });
+                        // the upscale pass failing (a missing upscaler, out of memory) must not leave pictures broken: once, retry this
+                        // picture without it and stay without it until the page reloads
+                        if (!res.ok && !hq && !CMP_PIC.noHr && !run.cancel) { let why = ''; try { why = String((await res.json()).error || ''); } catch (_) {}
+                            console.warn('[companion] upscale pass failed, drawing without it:', res.status, why.slice(0, 160)); CMP_PIC.noHr = true; i--; continue; }
                         if (!res.ok) throw new Error('SD ' + res.status);
                         const sd = await res.json(); if (!sd.ok || !sd.image) throw new Error(sd.error || 'no image');
                         if (run.cancel) break;
