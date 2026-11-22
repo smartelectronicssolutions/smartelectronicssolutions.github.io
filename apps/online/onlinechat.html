@@ -4,7 +4,7 @@
 <head>
   <script>(function(){try{if(localStorage.getItem("ss-theme")==="light")document.documentElement.classList.add("light");var c=localStorage.getItem("oc-colors");if(c==="burgundy"||c==="gray")document.documentElement.classList.add("c-"+c)}catch(e){}})();</script>  <!-- saved light/dark + colour set (1.6.0) before first paint (2026-10-01) -->
     <meta charset="UTF-8">
-    <meta name="version" content="1.6.2">
+    <meta name="version" content="1.6.3">
     <title>Live Chat</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <!-- 1.6.x PWA (like the console): Safari share -> Add to Home Screen opens full screen -->
@@ -485,24 +485,22 @@
             overflow: hidden;
         }
         #avatar-bg.collapsed { display: none; }
+        /* 1.6.3 (L 11-21 "all positioned the same, default center 1/3 screen size"): EVERY avatar (bust, full-body, 3D) gets
+           the same box - one third of the chat pane tall, centred left-right and centred between the header and the composer.
+           Centring uses the `translate` property so the avbob transform animation still runs. */
         .av-float {
             position: absolute;
-            left: -16%;
-            bottom: 70px;
-            height: 72%;
+            left: 50%;
+            top: calc(50% + (var(--av-top, 96px) - var(--av-bottom, 110px)) / 2);
+            height: 33.333%;
+            translate: -50% -50%;
             aspect-ratio: 4 / 5;
             opacity: 0.42;
             animation: avbob 7s ease-in-out infinite;
         }
         /* FULL-BODY rigs (rig.json fullbody:true): head-to-toe fits the visible height between the chat header
            and the composer (JS sets --av-top / --av-bottom), contain-fit via the rig's own aspect, anchored bottom-left */
-        #avatar-bg.fullbody .av-float {
-            left: 0;
-            top: var(--av-top, 96px);
-            bottom: var(--av-bottom, 110px);
-            height: auto;
-            opacity: 0.5;
-        }
+        #avatar-bg.fullbody .av-float { opacity: 0.5; }   /* same centred 1/3 box as every avatar (1.6.3) */
         /* outfit status pill under the avatar */
         #av-outfit {
             position: absolute;
@@ -530,10 +528,7 @@
             -webkit-mask-image: radial-gradient(ellipse 62% 70% at 50% 42%, var(--text) 52%, transparent 100%);
             mask-image: radial-gradient(ellipse 62% 70% at 50% 42%, var(--text) 52%, transparent 100%);
         }
-        #avatar-bg.fullbody .av-float #av-stage {
-            -webkit-mask-image: linear-gradient(to right, var(--text) 80%, transparent 100%);
-            mask-image: linear-gradient(to right, var(--text) 80%, transparent 100%);
-        }
+        #avatar-bg.fullbody .av-float #av-stage { -webkit-mask-image: none; mask-image: none; }   /* centred now: no left-edge fade */
         #avatar-bg.front .av-float #av-stage { -webkit-mask-image: none; mask-image: none; }
         #avatar-bg.front { z-index: 3; }
         #avatar-bg.front .av-float { opacity: 1; }   /* input = pixel hit-test, layer stays pointer-events:none */
@@ -699,7 +694,7 @@
         #voice-interim:empty { display: none; }
 
         @media (min-width: 900px) {
-            .av-float { left: -2%; bottom: 0; height: 97%; opacity: 0.9; }
+            .av-float { opacity: 0.9; }   /* 1.6.3: same centred 1/3 box on desktop too */
             /* 1.5.5 (L 11-21 "We don't need to block out the left side for the avatar"): the chat no longer reserves a left
                column for her - the messages sit in a centered column (max ~820 px) and the avatar stands to the side/behind. */
             main.voice-main #chat-window { padding-left: max(14px, calc((100% - 820px) / 2)); padding-right: max(14px, calc((100% - 820px) / 2)); }
@@ -707,13 +702,13 @@
         }
         /* Surface Duo 2 spanned: she fills the left screen, the chat sits on the right screen, nothing on the hinge */
         @media (horizontal-viewport-segments: 2) {
-            .av-float { left: 0; bottom: 0; height: auto; width: env(viewport-segment-width 0 0); opacity: 1; }
+            .av-float { left: 0; top: auto; bottom: 0; translate: none; height: auto; width: env(viewport-segment-width 0 0); opacity: 1; }
             .av-float #av-stage { -webkit-mask-image: none; mask-image: none; }
             main.voice-main .chat-shell { margin-left: env(viewport-segment-left 1 0); }
             main.voice-main:not(.av-hidden) #chat-window { padding-left: 14px; }
         }
         @media (spanning: single-fold-vertical) {
-            .av-float { left: 0; bottom: 0; height: auto; width: env(fold-left); opacity: 1; }
+            .av-float { left: 0; top: auto; bottom: 0; translate: none; height: auto; width: env(fold-left); opacity: 1; }
             .av-float #av-stage { -webkit-mask-image: none; mask-image: none; }
             main.voice-main .chat-shell { margin-left: calc(env(fold-left) + env(fold-width)); }
             main.voice-main:not(.av-hidden) #chat-window { padding-left: 14px; }
@@ -2994,12 +2989,10 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
         // fit. AV_START_ZOOM = scale, AV_START_TOP = how far the top of the figure is pulled to the top of the box (1 = flush).
         // Double-tap goes back to this view. Manual zoom / move is saved per avatar on this device.
         const AV_START_ZOOM = 1.7, AV_START_TOP = 0.92;
-        function defaultXf() {
-            if (!avPane.classList.contains('fullbody')) return { x: 0, y: 0, s: 1 };   // bust rigs already fill the box
-            const h = avStage.offsetHeight || 0;
-            return { x: 0, y: Math.round((AV_START_ZOOM - 1) * h / 2 * AV_START_TOP), s: AV_START_ZOOM };
+        function defaultXf() {   // 1.6.3: every avatar starts unzoomed in the same centred 1/3 box (AV_START_* kept, unused)
+            return { x: 0, y: 0, s: 1 };
         }
-        function xfKey() { return 'vc_avxf2_' + (VS.avatarKey || 'male'); }   // v2 key: everyone starts at the new start view
+        function xfKey() { return 'vc_avxf3_' + (VS.avatarKey || 'male'); }   // v3 key: old saved moves/zooms reset to the centred start
         function loadXf() {
             let v = null; try { v = JSON.parse(localStorage.getItem(xfKey()) || 'null'); } catch { }
             VS.xf = (v && isFinite(v.x) && isFinite(v.y) && isFinite(v.s)) ? { x: +v.x, y: +v.y, s: +v.s } : defaultXf();
