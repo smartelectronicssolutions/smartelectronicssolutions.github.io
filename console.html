@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.293"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.294"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -5241,7 +5241,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const p = $('#dc-av'), ch = $('.dc-chat'), b = $('#dc-av-front');
             if (p) p.classList.toggle('front', CMP.front); if (ch) ch.classList.toggle('av-front', CMP.front);
             if (b) b.textContent = CMP.front ? '🧍 Avatar to back' : '🧍 Avatar to front';
-            if (CMP.front) cmpNote('front: drag to move, pinch or wheel to zoom, double-tap to reset' + (cmpHasView() ? ' · Shift+drag / twist turns the camera' : ''), false, 6000);
+            if (CMP.front) cmpNote('front: drag to move, pinch or wheel to zoom, double-tap to reset, triple-tap to send back' + (cmpHasView() ? ' · Shift+drag / twist turns the camera' : ''), false, 6000);
         }
         { const b = $('#dc-av-front'); if (b) b.addEventListener('click', () => cmpSetFront(!CMP.front)); }
         const CMP_NOT_HERS = '.dc-bar, .dc-chat-input, #dc-topics, .dc-pop, #dc-compose';
@@ -5251,6 +5251,29 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (cx < r.left || cx > r.right || cy < r.top || cy > r.bottom || !r.width) return false;
             const k = c.width / r.width; return CMP.av.alphaAt((cx - r.left) * k, (cy - r.top) * k, Math.max(2, 8 * k)) > 20;
         }
+        // TRIPLE-TAP ON HER = front <-> back (1.0.294, L 2026-11-21: "can a triple click activate the move avatar to front" ... "had to be on her
+        // not the bubble"). Only short, still taps on the avatar's own opaque pixels count, 3 within 600 ms. While she is behind the chat a
+        // tap on a bubble or any control belongs to the chat (a bubble's own triple-tap still opens its message sheet), never to her.
+        function cmpHitPx(cx, cy) {
+            if (!CMP.av) return false;
+            const c = $('#dc-av-canvas'); if (!c) return false; const r = c.getBoundingClientRect();
+            if (cx < r.left || cx > r.right || cy < r.top || cy > r.bottom || !r.width) return false;
+            const k = c.width / r.width; return CMP.av.alphaAt((cx - r.left) * k, (cy - r.top) * k, Math.max(2, 8 * k)) > 20;
+        }
+        const CMP_TAP = { down: null, times: [] };
+        const CMP_TAP_BACK = CMP_NOT_HERS + ', button, input, textarea, select, a, label, .dc-bub, .dc-choices';
+        document.addEventListener('pointerdown', e => { CMP_TAP.down = e.isPrimary ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: Date.now() } : null; }, true);
+        document.addEventListener('pointerup', e => {
+            const d = CMP_TAP.down; CMP_TAP.down = null;
+            if (!CMP.av || !d || d.id !== e.pointerId || Date.now() - d.t > 400 || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 10) return;
+            const pane = $('#dc-av'); if (!pane || pane.hidden) return;
+            const tgt = e.target && e.target.closest ? e.target : null;
+            if (tgt && tgt.closest(CMP.front ? CMP_NOT_HERS : CMP_TAP_BACK)) return;
+            if (!cmpHitPx(e.clientX, e.clientY)) { CMP_TAP.times = []; return; }
+            const now = Date.now();
+            CMP_TAP.times = CMP_TAP.times.filter(t => now - t < 600); CMP_TAP.times.push(now);
+            if (CMP_TAP.times.length >= 3) { CMP_TAP.times = []; clearTimeout(CMP.resetT); CMP.lastTap = 0; cmpSetFront(!CMP.front); }
+        }, true);
         const cmpPts = () => [...CMP.ptrs.values()];
         const cmpDist = () => { const [a, b] = cmpPts(); return Math.hypot(a.x - b.x, a.y - b.y); };
         const cmpAng = () => { const [a, b] = cmpPts(); return Math.atan2(b.y - a.y, b.x - a.x); };
@@ -5295,7 +5318,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (CMP.ptrs.size) { cmpGStart(); return; }
             if (!moved && e.type === 'pointerup') {
                 const now = Date.now();
-                if (now - CMP.lastTap < 320) { CMP.lastTap = 0; CMP.xf = { x: 0, y: 0, s: 1 }; cmpApplyXf(); if (cmpHasView()) { CMP.av.setView(null); cmpSaveView(); } }
+                if (now - CMP.lastTap < 320) { CMP.lastTap = 0; clearTimeout(CMP.resetT);   // held 330 ms: a third tap = triple-tap (front/back) instead
+                    CMP.resetT = setTimeout(() => { CMP.xf = { x: 0, y: 0, s: 1 }; cmpApplyXf(); if (cmpHasView()) { CMP.av.setView(null); cmpSaveView(); } cmpSaveXf(); }, 330); }
                 else CMP.lastTap = now;
             }
             cmpSaveXf();
