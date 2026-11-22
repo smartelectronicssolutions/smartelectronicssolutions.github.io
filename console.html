@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.290"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.291"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1709,8 +1709,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const wait = pend ? `<div class="dc-wait" data-k="${esc(t.__k || '')}"></div>` + (t.pic ? `<button type="button" class="dc-btn ghost sm" data-pic-x="${esc(t.__k || '')}" style="margin-top:6px" title="stop drawing">✕ cancel</button>` : '') : '';   // 1.0.289: a picture being drawn can be stopped
             // MESSENGER KIT (2026-10-15): reply quote, attachments, reaction, ✓/✓✓ ticks, big lone emoji, YouTube card
             const qt = t.replyTo && t.replyTo.text ? `<div class="dc-quote" data-jump="${esc(t.replyTo.k || '')}" title="tap to jump to it"><b>↩ ${esc(t.replyTo.who || '')}</b> ${esc(String(t.replyTo.text).slice(0, 140))}</div>` : '';
-            const okUrl = u => /^https:\/\/[^\s"'`<>]+$/.test(String(u || ''));
-            const att = Array.isArray(t.att) ? `<div class="dc-att">${t.att.filter(a => a && okUrl(a.url)).map(a => /^image\//.test(a.type || '')
+            const okUrl = u => /^https:\/\/[^\s"'`<>]+$/.test(String(u || '')) || !!(window.__dcPicUrls && window.__dcPicUrls.has(u));   // + a picture this page drew (blob:, memory only)
+            const tAtt = (window.__dcPicAtt && window.__dcPicAtt[t.__k]) || t.att;   // 1.0.291: the bot's pictures live in page memory, like onlinechat
+            const att = (!Array.isArray(tAtt) && t.pic && !pend && !/^[⚠⛔]/.test(String(t.text || ''))) ? `<div class="meta" style="opacity:.7">🖼 shown on the device that drew it (not saved)</div>` : Array.isArray(tAtt) ? `<div class="dc-att">${tAtt.filter(a => a && okUrl(a.url)).map(a => /^image\//.test(a.type || '')
                 ? `<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer"><img src="${esc(a.url)}" loading="lazy" alt="${esc(a.name || 'photo')}"></a>`
                 : /^video\//.test(a.type || '') ? `<video controls playsinline preload="metadata" src="${esc(a.url)}" style="max-width:min(280px,100%);max-height:320px;border-radius:8px;display:block"></video>`   /* 1.0.289: a clip the account's bot made */
                 : /^audio\//.test(a.type || '') ? `<div><a class="file" href="${esc(a.url)}" target="_blank" rel="noopener noreferrer">🎙 ${esc(a.name || 'voice note')}</a><audio controls preload="none" src="${esc(a.url)}"></audio></div>`
@@ -5077,6 +5078,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 pane.classList.toggle('fullbody', !!(av.rig && av.rig.fullbody));
                 const fl = pane.querySelector('.dc-av-float'); if (fl) fl.style.aspectRatio = av.W + ' / ' + av.H;
                 cmpFit(); cmpLoadXf(); cmpLoadView();
+                // 1.0.291 (L 2026-11-21 "when the avatar first loads it's blurry, once I move to another tab it fixes"): the box only takes the
+                // rig's aspect ratio on the NEXT layout, so the canvas was sized for the old box and stretched - fit again once it has settled
+                requestAnimationFrame(() => { cmpFit(); requestAnimationFrame(cmpFit); }); setTimeout(cmpFit, 400); setTimeout(cmpFit, 1500);
                 if (CMP.actx) av.useAnalyser(CMP.actx, CMP.analyser, CMP.audio);
                 av.start();
             } catch (e) {
@@ -5379,10 +5383,13 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const [m, ch, ng] = await Promise.all([rd(`${DC.uid}/chat/bot/sdModel`), rd(`${DC.uid}/chat/bot/charPrompt`), rd(`${DC.uid}/chat/bot/negPrompt`)]);
             return { model: m || (await rd('public/chat/bot/sdModel')) || CMP_SD_MODEL, char: ch || CMP_CHAR, neg: ng || CMP_NEG };
         }
-        async function cmpPicStore(blob, name, type) {   // -> an `att` entry in this account's own Storage (same folder + shape as a chat photo)
-            const F = await cmpFb(), path = `${DC.uid}/console/attach/${new Date().getFullYear()}/${Date.now()}_${name}`;
-            const r = F.storageRef(F.storage, path); await F.uploadBytes(r, blob, { contentType: type });
-            return { name, type, size: blob.size, url: await F.getDownloadURL(r), path };
+        // 1.0.291 (L 2026-11-21: "the send pic saves to the firebase? can it work the same way as the other one did"): like onlinechat, a
+        // picture the bot draws is NOT uploaded and NOT written to the database - it lives in this page's memory (a blob: URL) and is
+        // gone on reload. window.__dcPicAtt[turnKey] feeds the bubble; __dcPicUrls is the allow-list the bubble's URL check reads.
+        window.__dcPicAtt = window.__dcPicAtt || {}; window.__dcPicUrls = window.__dcPicUrls || new Set();
+        async function cmpPicStore(blob, name, type) {
+            const url = URL.createObjectURL(blob); window.__dcPicUrls.add(url);
+            return { name, type, size: blob.size, url };
         }
         const cmpPick = a => a[Math.floor(Math.random() * a.length)];
         async function cmpPicRun(kind, raw, tpc, turns) {
@@ -5419,7 +5426,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 } else {
                     const hq = CMP_HQ_RE.test(req);
                     for (let i = 0; i < count && !run.cancel; i++) {
-                        if (i) await update(pendRef, { text: `${say}\n\n${label(i + 1)}`, att: att.slice() });
+                        if (i) { window.__dcPicAtt[k] = att.slice(); await update(pendRef, { text: `${say}\n\n${label(i + 1)}` }); }
                         run.ctl = new AbortController();
                         const res = await fetch(CMP_SD, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: run.ctl.signal,
                             body: JSON.stringify({ prompt, negative_prompt: c.neg, model: c.model, steps: hq ? 30 : 15, cfg_scale: 7.5, width: hq ? 896 : 512, height: hq ? 1152 : 640 }) });
@@ -5435,7 +5442,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const text = run.cancel ? (att.length ? say + '\n\n⛔ stopped - kept what was done.' : '⛔ cancelled.')
                 : fail ? (att.length ? say + '\n\n⚠ The rest did not come out - sorry!' : kind === 'anim' ? "⚠ The clip didn't come together this time - sorry!" : '⚠ Something went wrong with the picture - sorry!')
                 : say;
-            try { await update(pendRef, { text, att: att.length ? att : null, pending: null, ts: Date.now() }); } catch (_) {}
+            if (att.length) window.__dcPicAtt[k] = att;
+            try { await update(pendRef, { text, pending: null, ts: Date.now() }); } catch (_) {}
             if (stEl && stEl.textContent === stTxt) stEl.textContent = '';
         }
         function cmpPicCancel(k) {
@@ -5485,7 +5493,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 } else CMP.cfg = {};
                 cmpFillPanel(); cmpSync();
             }, () => {});
-            if (window.ResizeObserver) { const ro = new ResizeObserver(() => cmpFit()); const ch = $('.dc-chat'); if (ch) ro.observe(ch); const lg = $('#dc-chat-log'); if (lg) ro.observe(lg); }
+            if (window.ResizeObserver) { const ro = new ResizeObserver(() => cmpFit()); const ch = $('.dc-chat'); if (ch) ro.observe(ch); const lg = $('#dc-chat-log'); if (lg) ro.observe(lg); const sg = $('#dc-av-stage'); if (sg) ro.observe(sg); }
             const ts = $('#dc-chat-target'); if (ts) ts.addEventListener('change', () => cmpSync());
         })(0);
         window.__dcCmp = { state: () => ({ flag: CMP.flag, active: cmpActive(), key: CMP.key, loaded: !!CMP.av, cfg: Object.assign({}, CMP.cfg), acct2d: CMP.acct2d.slice(), acct3d: CMP.acct3d.slice(), front: CMP.front }), say: t => cmpSay(t), front: on => cmpSetFront(on), preview: o => { Object.assign(CMP.cfg, o || {}); cmpSync(); } };   // test hooks (preview = change the settings on this page only, saves nothing)
