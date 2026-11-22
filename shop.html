@@ -397,8 +397,10 @@
         function esc(s = "") {
             return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
         }
-        function sanitize(s) {
-            return String(s || "").trim().replace(/[\.\#\$\[\]\/]/g, "_");
+        // items/<id> = flat records (2026-11-22): name/category/sub are fields, so no key sanitizing
+        function newItemId(name) {
+            const slug = String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 32).replace(/_+$/, "") || "item";
+            return "i_" + slug + "_" + Math.random().toString(36).slice(2, 7);
         }
 
         onAuthStateChanged(auth, user => {
@@ -439,7 +441,7 @@
             if (BASE === nb && inventoryRefLive) return;
             BASE = nb;
             if (inventoryRefLive) off(inventoryRefLive);
-            inventoryRefLive = dbRef("money/inventory");
+            inventoryRefLive = dbRef("items");
             onValue(inventoryRefLive, snap => {
                 inventoryTree = snap.val() || {};
                 refreshFilters();
@@ -456,27 +458,18 @@
         }
 
         function flatten() {
-            const items = [];
-            for (const cat in inventoryTree) {
-                for (const comp in inventoryTree[cat]) {
-                    for (const name in inventoryTree[cat][comp]) {
-                        const e = inventoryTree[cat][comp][name] || {};
-                        items.push({ cat, comp, name, ...e });
-                    }
-                }
-            }
-            return items;
+            return Object.entries(inventoryTree).map(([id, e]) => ({ ...(e || {}), id }));
         }
 
         function refreshFilters() {
             const items = flatten();
-            const cats = [...new Set(items.map(i => i.cat).filter(Boolean))].sort();
+            const cats = [...new Set(items.map(i => i.category).filter(Boolean))].sort();
             const rooms = [...new Set(items.map(i => (i.room || "").trim()).filter(Boolean))].sort();
             const statuses = [...new Set(items.map(i => (i.status || "").trim()).filter(Boolean))].sort();
             const prevCat = catFilter.value, prevComp = compFilter.value;
             // Sub-Category options scoped to the currently selected Category (if any)
-            const compSource = prevCat ? items.filter(i => i.cat === prevCat) : items;
-            const comps = [...new Set(compSource.map(i => i.comp).filter(Boolean))].sort();
+            const compSource = prevCat ? items.filter(i => i.category === prevCat) : items;
+            const comps = [...new Set(compSource.map(i => i.sub).filter(Boolean))].sort();
             catFilter.innerHTML = '<option value="">All Categories</option>' + cats.map(c => `<option value="${esc(c)}" ${c === prevCat ? "selected" : ""}>${esc(c)}</option>`).join("");
             // If the previously-selected sub-category isn't valid under the new cat, reset it
             const compToKeep = comps.includes(prevComp) ? prevComp : "";
@@ -522,8 +515,8 @@
             const personalMode = signedInUID && BASE === signedInUID;
             const withLinksOnly = signedInUID && includeNoLinkCb.checked;
             return items.filter(it => {
-                if (catSel && it.cat !== catSel) return false;
-                if (compSel && it.comp !== compSel) return false;
+                if (catSel && it.category !== catSel) return false;
+                if (compSel && it.sub !== compSel) return false;
                 if (roomSel && (it.room || "") !== roomSel) return false;
                 if (statusSel && personalMode) {
                     if (statusSel === "__untagged") { if ((it.status || "").trim()) return false; }
@@ -534,7 +527,7 @@
                 if (!signedInUID && !it.affiliateUrl) return false;
                 if (withLinksOnly && !it.affiliateUrl) return false;
                 if (q) {
-                    const blob = `${it.name} ${it.cat} ${it.comp} ${it.description || ""} ${it.room || ""} ${it.status || ""}`.toLowerCase();
+                    const blob = `${it.name} ${it.category} ${it.sub} ${it.description || ""} ${it.room || ""} ${it.status || ""}`.toLowerCase();
                     if (!blob.includes(q)) return false;
                 }
                 return true;
@@ -561,7 +554,7 @@
             d.innerHTML = `
                 <img src="${esc(img)}" alt="${esc(it.name)}" loading="lazy">
                 <h3>${esc(it.name)}</h3>
-                <p class="meta">${esc(it.cat)} • ${esc(it.comp)}</p>
+                <p class="meta">${esc(it.category)} • ${esc(it.sub)}</p>
                 <div>
                     ${status ? (forSale
                         ? `<a class="status-badge sell-badge" href="contact.html" title="Contact us to buy this">${esc(status)}</a>`
@@ -578,8 +571,8 @@
                 ${editMode ? `
                     <div class="edit-row">
                         <label>Part Name<input class="eName" value="${esc(it.name)}"></label>
-                        <label>Category<input class="eCat" value="${esc(it.cat)}"></label>
-                        <label>Sub-Category<input class="eComp" value="${esc(it.comp)}"></label>
+                        <label>Category<input class="eCat" value="${esc(it.category)}"></label>
+                        <label>Sub-Category<input class="eComp" value="${esc(it.sub)}"></label>
                         <label>Status<input class="eStatus" value="${esc(status)}" list="statusList" placeholder="free-form (e.g. sell)"></label>
                         <label>Container / Location<input class="eRoom" value="${esc(room)}" list="roomList"></label>
                         <label>Price ($)<input class="ePrice" type="number" step="0.01" value="${esc(it.price || "")}"></label>
@@ -617,7 +610,7 @@
             if (!items.length) { alert("Nothing in the current filter to export."); return; }
             const headers = ["Name","Category","Sub-Category","Status","Room","Price","Cost","Quantity","Description","Image URL"];
             const rows = items.map(it => [
-                it.name, it.cat, it.comp, it.status || "", it.room || "",
+                it.name, it.category, it.sub, it.status || "", it.room || "",
                 it.price || "", it.actualPrice || "", it.quantity || "",
                 (it.description || "").replace(/\n/g, " "),
                 it.imageUrl || ""
@@ -651,9 +644,9 @@
                     basePath: join(BASE, "images", "inventory"),
                     name: it.name,
                     priorPath: it.imageStoragePath,
-                    lockKey: `${BASE}/${it.cat}/${it.comp}/${it.name}`,
+                    lockKey: `${BASE}/items/${it.id}`,
                 });
-                await update(dbRef("money/inventory", it.cat, it.comp, it.name), { imageUrl: url, imageStoragePath: path, img: url, imgPath: path });
+                await update(dbRef("items", it.id), { imageUrl: url, imageStoragePath: path, img: url, imgPath: path });
                 statusEl.textContent = path;
             } catch (e) {
                 console.error(e);
@@ -666,19 +659,19 @@
             if (!confirm(`Remove image for "${it.name}"?`)) return;
             try {
                 await removeStorageImage(it.imageStoragePath);
-                await update(dbRef("money/inventory", it.cat, it.comp, it.name), { imageUrl: null, imageStoragePath: null, img: null, imgPath: null });
+                await update(dbRef("items", it.id), { imageUrl: null, imageStoragePath: null, img: null, imgPath: null });
             } catch (e) { alert("Remove failed: " + (e?.message || e)); }
         }
 
         async function deleteItem(it) {
             if (!confirm(`Delete "${it.name}"?`)) return;
-            try { await remove(dbRef("money/inventory", it.cat, it.comp, it.name)); } catch (e) { alert("Delete failed: " + (e.message || e)); }
+            try { await remove(dbRef("items", it.id)); } catch (e) { alert("Delete failed: " + (e.message || e)); }
         }
 
         async function saveItem(orig, cardEl) {
-            const newCat = sanitize(cardEl.querySelector(".eCat").value);
-            const newComp = sanitize(cardEl.querySelector(".eComp").value);
-            const newName = sanitize(cardEl.querySelector(".eName").value);
+            const newCat = cardEl.querySelector(".eCat").value.trim();
+            const newComp = cardEl.querySelector(".eComp").value.trim();
+            const newName = cardEl.querySelector(".eName").value.trim();
             if (!newCat || !newComp || !newName) return alert("Category, Sub-Category, and Name are required.");
             const newData = {
                 description: cardEl.querySelector(".eDesc").value || "",
@@ -690,24 +683,20 @@
                 status: cardEl.querySelector(".eStatus").value || null,
                 room: cardEl.querySelector(".eRoom").value.trim() || null,
                 part: newName,
+                name: newName,
+                category: newCat,
+                sub: newComp,
             };
             try {
-                if (join(orig.cat, orig.comp, orig.name) !== join(newCat, newComp, newName)) {
-                    // Renamed/moved: spread originals to preserve custom fields, then overlay form data
-                    const { cat: _c, comp: _co, name: _n, ...rest } = orig;
-                    await set(dbRef("money/inventory", newCat, newComp, newName), { ...rest, ...newData });
-                    await remove(dbRef("money/inventory", orig.cat, orig.comp, orig.name));
-                } else {
-                    await update(dbRef("money/inventory", orig.cat, orig.comp, orig.name), newData);
-                }
+                await update(dbRef("items", orig.id), newData);   // rename/recategorize = field edits, the id never changes
             } catch (e) { alert("Save failed: " + (e.message || e)); }
         }
 
         // Add form
         $("addBtn").addEventListener("click", async () => {
-            const cat = sanitize($("addCat").value);
-            const comp = sanitize($("addComp").value);
-            const name = sanitize($("addName").value);
+            const cat = $("addCat").value.trim();
+            const comp = $("addComp").value.trim();
+            const name = $("addName").value.trim();
             const msg = $("addMsg");
             if (!cat || !comp || !name) { msg.textContent = "Category, Sub-Category, and Name are required."; return; }
             const data = {
@@ -720,10 +709,14 @@
                 status: $("addStatus").value || null,
                 room: $("addRoom").value.trim() || null,
                 part: name,
+                name,
+                category: cat,
+                sub: comp,
+                kind: "gear",
                 tags: [],
             };
             try {
-                await set(dbRef("money/inventory", cat, comp, name), data);
+                await set(dbRef("items", newItemId(name)), data);
                 msg.textContent = "Added.";
                 clearAdd();
                 setTimeout(() => msg.textContent = "", 2000);
