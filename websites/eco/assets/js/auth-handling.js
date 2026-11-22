@@ -57,7 +57,7 @@ if (registrationForm) {
 }
 
 async function saveUserData(userId, email, ipAddress) {
-    await update(ref(database, `${userId}/profile`), { email, ipAddress });   // 2026-11-08: merge, never replace the profile
+    await update(ref(database, `${userId}/me`), { email, ipAddress });   // 2026-11-08: merge, never replace the profile
 }
 
 async function getIP() {

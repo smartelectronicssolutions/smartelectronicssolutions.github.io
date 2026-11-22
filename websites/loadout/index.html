@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
-<meta name="version" content="1.0.44">
+<meta name="version" content="1.0.45">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0c0f13"><title>Loadout</title>
 <style>
@@ -699,6 +699,8 @@ const A = {"charSheet": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAwAAAAFAC
 let CAT = {...A.decor};               // furniture catalog {key:{du,w,h,cat,label}} — embedded fallback + DB
 // db + auth imported from the shared firebase-init above
 let BASE = localStorage.getItem("loadout:acct") || "public";  // per-account life data (public = shared demo)
+// wave1: the uid tier moved (games/loadout -> play/loadout, journal -> docs/journal); BASE "public" keeps the old names
+const GL = () => BASE==="public" ? "public/games/loadout" : BASE+"/play/loadout";
 // Images load on first use (2026-10-23): with ~5,400 LimeZu pieces in the catalog, loading every image at boot would stall the game.
 const _catImg={};
 const catImg=new Proxy(_catImg,{get(t,k){if(typeof k!=="string"||k in t)return t[k];const c=CAT[k],src=c&&(c.du||c.url);if(!src)return undefined;const im=new Image();im._src=src;im.src=src;return t[k]=im;}});
@@ -712,7 +714,7 @@ const $=id=>document.getElementById(id);
 // broken/dead image URL -> collapse to the item's name text instead of a broken-image icon
 // image-failure telemetry (2026-09-18): which pictures fail on which device -> {BASE}/loadout/imgfail
 let _imgFails=0;window.imgReport=function(el){try{if(_imgFails++>=40)return;const u=new URL(el.currentSrc||el.src||"",location.href);
-  set(ref(db,(typeof BASE==="string"?BASE:"public")+"/games/loadout/imgfail/"+Date.now()+"_"+_imgFails),{name:el.alt||"",host:u.host,path:u.pathname.slice(0,160),ua:navigator.userAgent.slice(0,140),w:innerWidth,ts:Date.now()}).catch(()=>{});}catch(_){}};
+  set(ref(db,((typeof BASE==="string"&&BASE!=="public")?BASE+"/play/loadout":"public/games/loadout")+"/imgfail/"+Date.now()+"_"+_imgFails),{name:el.alt||"",host:u.host,path:u.pathname.slice(0,160),ua:navigator.userAgent.slice(0,140),w:innerWidth,ts:Date.now()}).catch(()=>{});}catch(_){}};
 window.imgFail=function(el){imgReport(el);const d=document.createElement("div");d.style.cssText="position:absolute;inset:3px;padding:2px;font-size:.5rem;line-height:1.12;word-break:break-word;overflow:hidden;display:flex;align-items:center;justify-content:center;text-align:center";d.textContent=el.alt||"?";el.replaceWith(d);};
 // ---- account login: your inventory + journals + progress; world stays shared ----
 function acctModal(v){$("acctModal").style.display=v?"flex":"none";}
@@ -834,8 +836,8 @@ function moveItem(it,newLoc){const base=it.id;it.loc=newLoc;const upd={[base+"/c
   update(ref(db,BASE+"/items"),upd).catch(e=>console.warn(e));rebuild();}
 // ===== economy (ledger-driven wallet, all on public/loadout/ledger) =====
 let BAL=0;
-onValue(ref(db,BASE+"/games/loadout/ledger"),snap=>{const v=snap.val();
-  if(!v){set(ref(db,BASE+"/games/loadout/ledger/start"),{amt:9999,name:"Test funds",date:Date.now(),source:"loadout"}).catch(()=>{});return;}
+onValue(ref(db,GL()+"/ledger"),snap=>{const v=snap.val();
+  if(!v){set(ref(db,GL()+"/ledger/start"),{amt:9999,name:"Test funds",date:Date.now(),source:"loadout"}).catch(()=>{});return;}
   BAL=Object.values(v).reduce((s,t)=>s+(+t.amt||0),0);   /* game wallet - TEST MODE: HUD shows this until finances are tied in */
   $("money").textContent="$"+Math.max(0,Math.round(BAL)).toLocaleString();
   if($("shop").classList.contains("open"))renderShop();});
@@ -847,7 +849,7 @@ get(ref(db,BASE+"/money/ledger")).then(snap=>{const y=snap.val()||{};let inc=0,e
   for(const yr in y){const es=y[yr]||{};for(const k in es){const e=es[k]||{};const a=+e.amt||0;if(e.type==="income")inc+=a;else exp+=a;}}
   PROFIT=inc-exp;/* TEST MODE: HUD money shows the game wallet (BAL), not real profit - restore this when tying into finances * /}).catch(()=>{}); */
 function ledgerAdd(amt,name){const id="tx"+Date.now().toString(36)+Math.floor(Math.random()*1e3).toString(36);
-  update(ref(db,BASE+"/games/loadout/ledger"),{[id]:{amt,name,date:Date.now(),source:"loadout"}}).catch(()=>{});}
+  update(ref(db,GL()+"/ledger"),{[id]:{amt,name,date:Date.now(),source:"loadout"}}).catch(()=>{});}
 function itemPrice(it){return parseFloat(String(it.price||"").replace(/[^0-9.]/g,""))||0;}
 function buyItem(it){const price=itemPrice(it);
   if(price>BAL){$("shopMsg").textContent="Not enough money — need $"+price.toFixed(0)+", you have $"+BAL.toFixed(0);return;}
@@ -999,13 +1001,13 @@ function dlgLines(id){const n=NPCS[id];const st=storyLines(id);if(st)return st;i
 // a Glade talk line is "Speaker: words" - the name box follows whoever is speaking ("- topic -" lines = The Circle)
 function dlgSay(t){if(dlg&&dlg.talk){const m=/^([^:]{1,24}): ([\s\S]*)$/.exec(t||"");if(m){$("npcName").textContent=m[1]+":";$("npcLine").textContent=m[2];return;}$("npcName").textContent="The Circle:";}$("npcLine").textContent=t;}
 function showDialogue(id){dlg={id,i:0};if(room==="glade"&&STORY.done&&GLADE_SEAT[id]!=null)dlg.talk=gladeTalk();const n=NPCS[id];$("npcName").textContent=n.name+":";dlgSay(dlgLines(id)[0]);$("npcbox").style.display="block";}
-function advDlg(){if(!dlg)return;const lines=dlgLines(dlg.id);dlg.i++;if(dlg.i>=lines.length){$("npcbox").style.display="none";const nn=NPCS[dlg.id];const _sid=dlg.id;dlg=null;storyAfter(_sid);if(nn.jobs){const upd={};for(const j of nn.jobs)if(JOBS[j]&&!JOBSUNLOCKED[j])upd[j]=true;if(Object.keys(upd).length)update(ref(db,BASE+"/games/loadout/jobsUnlocked"),upd).catch(()=>{});}}else dlgSay(lines[dlg.i]);}
+function advDlg(){if(!dlg)return;const lines=dlgLines(dlg.id);dlg.i++;if(dlg.i>=lines.length){$("npcbox").style.display="none";const nn=NPCS[dlg.id];const _sid=dlg.id;dlg=null;storyAfter(_sid);if(nn.jobs){const upd={};for(const j of nn.jobs)if(JOBS[j]&&!JOBSUNLOCKED[j])upd[j]=true;if(Object.keys(upd).length)update(ref(db,GL()+"/jobsUnlocked"),upd).catch(()=>{});}}else dlgSay(lines[dlg.i]);}
 
 // ===== THE CIRCLE - story (2026-09-28, seed = the round-table image) =====
-// Four people, four minds, one fire. Progress is per account: {BASE}/games/loadout/story = {met,lumen,cairn,droplet,done}.
+// Four people, four minds, one fire. Progress is per account: {BASE}/play/loadout/story = {met,lumen,cairn,droplet,done}.
 var STORY={};   // var: presence checks may run before this line (TDZ-safe)
-onValue(ref(db,BASE+"/games/loadout/story"),snap=>{STORY=snap.val()||{};_bgTime=0;});
-function setStory(k){if(STORY[k])return;STORY[k]=Date.now();_bgTime=0;update(ref(db,BASE+"/games/loadout/story"),{[k]:STORY[k]}).catch(()=>{});}
+onValue(ref(db,GL()+"/story"),snap=>{STORY=snap.val()||{};_bgTime=0;});
+function setStory(k){if(STORY[k])return;STORY[k]=Date.now();_bgTime=0;update(ref(db,GL()+"/story"),{[k]:STORY[k]}).catch(()=>{});}
 const MINDS=[["lumen","Lumen","Nick's place"],["cairn","Cairn","Kevin's place"],["droplet","Droplet","your own room"]];
 function mindsLeft(){return MINDS.filter(m=>!STORY[m[0]]);}
 // GLADE TALKS (2026-10-18, L: "at the glade have it just be long conversations about certain things - philosophy for now").
@@ -1021,18 +1023,18 @@ function gladeTalk(){let i=0;try{i=+(localStorage.getItem("loadout:gladeTalk")||
 const MISSIONS={"kvm": {"giver": "kevin", "title": "Remote KVM", "journal": "1791618062098", "reward": 180, "parts": [["Raspberry Pi 4", 55], ["microSD 32 GB", 9], ["HDMI-to-CSI bridge", 28], ["USB power splitter", 15], ["5V 3A power supply", 12], ["HDMI + USB-C cables", 14]], "offer": ["Kevin: Half my calls lately are PCs that won't boot past the logo. I can't see the screen from the truck.", "Kevin: There's a build for that - a Raspberry Pi that pretends to be a keyboard and a monitor. Plug it in, fix it from anywhere.", "Kevin: Bring me the parts and I'll pay you for the trouble. The list is on your Dispatch. The guide's in the journal."], "wait": ["Kevin: Still short a few parts. The supply shop carries all of it."], "done": ["Kevin: That's all of it. Pi, the bridge, the splitter... give me ten minutes.", "Kevin: ...There. I can see a BIOS screen from my driveway. That's never not going to feel like a magic trick.", "Kevin: Here - for the parts and the running around. And hey: next time a box won't boot, call me first. I'll look before you drive."]}, "net": {"giver": "nick", "title": "Full-Speed Home Network", "journal": "1790015155785", "reward": 420, "parts": [["UniFi Cloud Gateway Ultra", 129], ["UniFi Switch Lite 8 PoE", 109], ["UniFi U7 Lite access point", 99], ["UniFi U7 Lite access point (2nd)", 99], ["Cat6 cable spool", 75]], "offer": ["Nick: My sister's house has three mesh pucks fighting each other. Every room is 'one bar'.", "Nick: Wired access points, one router, one network. That's the fix. Fiber comes into the ONT, the gateway does the routing, the APs just do Wi-Fi.", "Nick: Grab the gear for me - list's on your Dispatch. I'll run the cable this weekend and pay you back plus some."], "wait": ["Nick: Need the rest of the network gear. The shop has the UniFi stuff."], "done": ["Nick: Gateway, switch, two APs, a whole spool. Perfect.", "Nick: Ran it Saturday. Every room full speed, no more pucks blinking at each other. She thinks I'm a wizard.", "Nick: Your cut. And Lumen says thanks too - apparently the letters 'travel easier' when the network isn't screaming."]}, "srv": {"giver": "erik", "title": "Media Server", "journal": "1782049979892", "reward": 650, "parts": [["Ryzen CPU", 129], ["B550 motherboard", 99], ["32 GB DDR4 RAM", 59], ["1 TB NVMe SSD", 55], ["8 TB hard drive", 139], ["8 TB hard drive (2nd)", 139], ["650 W power supply", 69], ["Tower case", 59], ["GPU with NVENC", 189]], "offer": ["Erik: I want a media server. Locked down - my own, not somebody's cloud reading my watch history.", "Erik: Jellyfin on real hardware: a decent CPU, two big drives, and a graphics card that can transcode so it doesn't choke on 4K.", "Erik: Collect the components and hand them off. I'll build and harden it. List is on Dispatch; the guide's in the journal."], "wait": ["Erik: Still missing parts. Check the shop - and don't buy a drive from a guy in a parking lot."], "done": ["Erik: CPU, board, RAM, NVMe, two drives, PSU, case, the NVENC card. That's a server.", "Erik: Built it, hardened it, firewall's tight, nothing faces the internet without a tunnel. It transcodes 4K without breaking a sweat.", "Erik: Here's your pay. And the offer stands: if anything of yours ever needs locking down, bring it to me first."]}, "strap": {"giver": "kevin", "title": "Paracord Strap", "journal": "1792328591571", "reward": 60, "parts": [["Paracord - core (14 ft)", 6], ["Paracord - layer 1 (40 ft)", 12], ["Paracord - layer 2 (15 ft)", 6], ["Paracord - layer 3 (10 ft)", 5], ["2 swivel snap clips", 9], ["Jet lighter", 7]], "offer": ["My tool bag strap snapped on a ladder today. Again.", "I want to weave one that steps thick where it carries the weight - cobra, then King Cobra over the middle, a third layer at the shoulder, Prusik loops at the ends so it adjusts.", "Bring me the cord and the clips. The pattern's written down in the journal."], "wait": ["Not yet - cord and clips. The shop keeps them by the counter."], "done": ["Good cord. Give me an evening with it.", "...Thin, then thicker, then thickest right where it bears the load. Cairn says that's the Circle in a strap.", "For your trouble. It'll outlast the bag."]}};
 const JURL="https://luissolutions.us/apps/online/onlinejournal.html?id=";
 var MSTATE={},KIT={};
-onValue(ref(db,BASE+"/games/loadout/missions"),s=>{MSTATE=s.val()||{};},()=>{});
-onValue(ref(db,BASE+"/games/loadout/kit"),s=>{KIT=s.val()||{};},()=>{});
+onValue(ref(db,GL()+"/missions"),s=>{MSTATE=s.val()||{};},()=>{});
+onValue(ref(db,GL()+"/kit"),s=>{KIT=s.val()||{};},()=>{});
 function kitKey(n){return n.replace(/[.#$\[\]\/]/g,"_");}
 function mFor(id){return Object.keys(MISSIONS).find(k=>MISSIONS[k].giver===id&&(MSTATE[k]||{}).st!=="done");}
 function mMissing(k){return MISSIONS[k].parts.filter(([n])=>!(KIT[kitKey(n)]>0)).map(([n])=>n);}
 function missionLines(id){const k=mFor(id);if(!k)return null;const M=MISSIONS[k],st=(MSTATE[k]||{}).st,cl=a=>a.map(l=>l.replace(/^[A-Z][a-z]+: /,""));
   if(!st)return cl(M.offer);const miss=mMissing(k);if(miss.length)return cl(M.wait).concat(["Still need: "+miss.join(", ")+"."]);return cl(M.done);}
 function missionAfter(id){const k=mFor(id);if(!k)return;const M=MISSIONS[k],st=(MSTATE[k]||{}).st;
-  if(!st){MSTATE[k]={st:"active",at:Date.now()};set(ref(db,BASE+"/games/loadout/missions/"+k),MSTATE[k]).catch(()=>{});dayBanner("\u2605 Mission: "+M.title+" \u2014 parts list on Dispatch");return;}
+  if(!st){MSTATE[k]={st:"active",at:Date.now()};set(ref(db,GL()+"/missions/"+k),MSTATE[k]).catch(()=>{});dayBanner("\u2605 Mission: "+M.title+" \u2014 parts list on Dispatch");return;}
   if(mMissing(k).length)return;
-  const upd={};for(const [n] of M.parts){upd[kitKey(n)]=Math.max(0,(KIT[kitKey(n)]||0)-1);}update(ref(db,BASE+"/games/loadout/kit"),upd).catch(()=>{});
-  ledgerAdd(M.reward,"Mission: "+M.title);MSTATE[k]={st:"done",at:Date.now()};set(ref(db,BASE+"/games/loadout/missions/"+k),MSTATE[k]).catch(()=>{});
+  const upd={};for(const [n] of M.parts){upd[kitKey(n)]=Math.max(0,(KIT[kitKey(n)]||0)-1);}update(ref(db,GL()+"/kit"),upd).catch(()=>{});
+  ledgerAdd(M.reward,"Mission: "+M.title);MSTATE[k]={st:"done",at:Date.now()};set(ref(db,GL()+"/missions/"+k),MSTATE[k]).catch(()=>{});
   try{chime(5);}catch(e){}dayBanner("\u2605 "+M.title+" done \u00b7 +$"+M.reward);}
 function missionCards(body,shop){if(!body)return;body.querySelectorAll(".mcard").forEach(x=>x.remove());for(const k in MISSIONS){const M=MISSIONS[k],st=(MSTATE[k]||{}).st;if(st!=="active")continue;
   const d=document.createElement("div");d.className="jobcard mcard";d.style.cssText="border:2px solid #4ab0ff;background:#eef6ff";
@@ -1040,7 +1042,7 @@ function missionCards(body,shop){if(!body)return;body.querySelectorAll(".mcard")
   for(const [n,price] of M.parts){const have=KIT[kitKey(n)]>0;h+="<div>"+(have?"\u2705":"\u2b1c")+" "+esc(n)+(shop&&!have?" \u2014 $"+price:"")+"</div>";}
   h+="</div><a class='btn' style='display:inline-block;margin-right:6px' href='"+JURL+M.journal+"' target='_blank' rel='noopener'>\ud83d\udcd6 Guide</a>";d.innerHTML=h;
   if(shop){for(const [n,price] of M.parts){if(KIT[kitKey(n)]>0)continue;const b=document.createElement("button");b.className="btn buyb";b.textContent="Buy "+n+" $"+price;b.style.margin="2px";
-    b.onclick=()=>{if(BAL<price){dayBanner("Not enough money");return;}ledgerAdd(-price,"Parts: "+n);KIT[kitKey(n)]=(KIT[kitKey(n)]||0)+1;update(ref(db,BASE+"/games/loadout/kit"),{[kitKey(n)]:KIT[kitKey(n)]}).catch(()=>{});try{svBlip&&svBlip();}catch(e){}renderShop();};d.appendChild(b);}}
+    b.onclick=()=>{if(BAL<price){dayBanner("Not enough money");return;}ledgerAdd(-price,"Parts: "+n);KIT[kitKey(n)]=(KIT[kitKey(n)]||0)+1;update(ref(db,GL()+"/kit"),{[kitKey(n)]:KIT[kitKey(n)]}).catch(()=>{});try{svBlip&&svBlip();}catch(e){}renderShop();};d.appendChild(b);}}
   else if(!mMissing(k).length){const t=document.createElement("div");t.style.cssText="margin-top:4px;font-weight:700;color:#1f6b3a";t.textContent="All parts in hand \u2014 go see "+who+".";d.appendChild(t);}
   body.prepend(d);}}
 function storyLines(id){
@@ -1085,10 +1087,10 @@ const LORE={
 };
 // ===== THE LONG SIGNAL - story chapters (2026-10-18, story bible journal 1792377207905) =====
 // Two layers (L: "the base game won't use specifics, the one in my profile can be detailed"): every line has a generic text
-// here; a logged-in player's PRIVATE save may hold {BASE}/games/loadout/storyPack with detailed replacements (same keys).
+// here; a logged-in player's PRIVATE save may hold {BASE}/play/loadout/storyPack with detailed replacements (same keys).
 // The Current is shown, never named: chimes, lights coming on, readings that shouldn't exist.
 var STORYPACK={};
-if(BASE!=="public")onValue(ref(db,BASE+"/games/loadout/storyPack"),s=>{STORYPACK=s.val()||{};},()=>{});
+if(BASE!=="public")onValue(ref(db,GL()+"/storyPack"),s=>{STORYPACK=s.val()||{};},()=>{});
 function SP(key,generic){const v=STORYPACK&&STORYPACK[key];return v==null?generic:v;}
 function storyPop(key,title,paras){$("reader").classList.add("open");$("readerTitle").textContent=SP(key+"_t",title);$("readerBack").style.display="none";
   let h="";for(const pp of SP(key,paras))h+="<p style='margin:8px 0;white-space:pre-wrap'>"+esc(pp)+"</p>";$("readerBody").innerHTML=h;}
@@ -1448,7 +1450,7 @@ function drawStoryTip(){fadeRoomTag();if(editMode)return;let msg=null;
 // ===== Fixtures: computer + bookshelf -> journal reader (live from public/journalArticles) =====
 let JOURNAL={};
 // b44: loaded on first open of the Computer/Bookshelf, not at boot (the journal node is ~780 KB)
-let _jLoad=null;function loadJournal(){return _jLoad||(_jLoad=get(ref(db,BASE+"/journal")).then(snap=>{JOURNAL=snap.val()||{};}).catch(()=>{_jLoad=null;}));}
+let _jLoad=null;function loadJournal(){return _jLoad||(_jLoad=get(ref(db,BASE==="public"?"public/journal":BASE+"/docs/journal")).then(snap=>{JOURNAL=snap.val()||{};}).catch(()=>{_jLoad=null;}));}
 const FIXTURES={
   terminal:{room:"yourroom",x:98,y:120,w:40,h:58,name:"Computer",kind:"lib"},
   bookshelf:{room:"yourroom",x:300,y:120,w:40,h:62,name:"Bookshelf",kind:"books"},
@@ -1824,7 +1826,7 @@ async function ceGrid(){const g=$("ceGrid");if(!g)return;g.innerHTML="";const ca
   for(let i=0;i<opts.length;i++)await addOpt(i);}
 async function openCharEditor(){if(!CE_MAN){try{CE_MAN=await (await fetch("chars/manifest.json")).json();}catch(e){CE_MAN={};}}ceTab="body";ceTabs();await ceGrid();await cePreview();$("charEditor").classList.add("open");}
 function closeCharEditor(){$("charEditor").classList.remove("open");}
-async function ceSaveChar(){await ceApply();try{localStorage.setItem("loadout:char",JSON.stringify(ceSel));}catch(e){}try{await set(ref(db,BASE+"/games/loadout/char"),ceSel);}catch(e){}closeCharEditor();}
+async function ceSaveChar(){await ceApply();try{localStorage.setItem("loadout:char",JSON.stringify(ceSel));}catch(e){}try{await set(ref(db,GL()+"/char"),ceSel);}catch(e){}closeCharEditor();}
 /* The saved look used to arrive only after a Firebase round trip, so every load showed the
    DEFAULT character first and swapped once the network answered. Seed from localStorage and
    composite before touching the network; Firebase still loads next and overrides if it
@@ -1832,7 +1834,7 @@ async function ceSaveChar(){await ceApply();try{localStorage.setItem("loadout:ch
 async function ceLoadSaved(){
   try{const c=JSON.parse(localStorage.getItem("loadout:char")||"null");
       if(c){for(const k in ceSel)if(c[k]!=null)ceSel[k]=c[k];await ceApply();}}catch(e){}
-  try{const v=(await get(ref(db,BASE+"/games/loadout/char"))).val();
+  try{const v=(await get(ref(db,GL()+"/char"))).val();
       if(v){let diff=false;for(const k in ceSel)if(v[k]!=null&&v[k]!==ceSel[k]){ceSel[k]=v[k];diff=true;}
             if(diff){await ceApply();try{localStorage.setItem("loadout:char",JSON.stringify(ceSel));}catch(e){}}}
   }catch(e){}
@@ -1924,11 +1926,11 @@ function rtNow(){const n=new Date();return{m:n.getHours()*60+n.getMinutes()+n.ge
 let DAY={d:1,m:DAY_START,e:E_MAX},_dayLoaded=false,_daySaved=0,_dayShown="",_bannerT=0;
 // LIVE, not read-once (2026-10-18 scar: two open tabs each ran their own clock to 2am -> passed out twice, -$100):
 // every open copy follows the saved day; a newer day / later time / spent energy from another tab wins
-onValue(ref(db,BASE+"/games/loadout/day"),s=>{const v=s.val();
+onValue(ref(db,GL()+"/day"),s=>{const v=s.val();
   if(v&&v.d){const n={d:+v.d||1,m:+v.m||DAY_START,e:(v.e==null?E_MAX:+v.e),rd:v.rd||""};
     if(!_dayLoaded||n.d>DAY.d||(n.d===DAY.d&&(n.m>DAY.m+20||n.e!==Math.round(DAY.e))))DAY=n;}
   _dayLoaded=true;_dayShown="";showDay();},()=>{_dayLoaded=true;showDay();});
-function saveDay(){if(!_dayLoaded)return;_daySaved=Date.now();set(ref(db,BASE+"/games/loadout/day"),{d:DAY.d,m:Math.round(DAY.m),e:Math.round(DAY.e),...(DAY.rd?{rd:DAY.rd}:{})}).catch(()=>{});}
+function saveDay(){if(!_dayLoaded)return;_daySaved=Date.now();set(ref(db,GL()+"/day"),{d:DAY.d,m:Math.round(DAY.m),e:Math.round(DAY.e),...(DAY.rd?{rd:DAY.rd}:{})}).catch(()=>{});}
 addEventListener("pagehide",saveDay);
 function clockText(m){m=REALTIME?Math.floor(m):Math.floor(m/10)*10;let h=Math.floor(m/60)%24;const mm=String(m%60).padStart(2,"0"),ap=h<12?"am":"pm";h=h%12||12;return h+":"+mm+ap;}
 function showDay(){const _r=REALTIME?rtNow():null,t=(_r?WEEK[_r.wd]+" "+_r.d:WEEK[(DAY.d-1)%7]+" "+DAY.d)+" · "+clockText(DAY.m),e=Math.max(0,Math.round(DAY.e));
@@ -2574,7 +2576,7 @@ $("delBtn").addEventListener("click",async()=>{if(!selected)return;
 let paletteOpen=false,paletteMode="add",assignKey=null;
 $("addBtn").addEventListener("click",openPalette);
 $("imgBtn").addEventListener("click",()=>{if(!selected||selected.kind!=="p")return;paletteMode="assign";assignKey=selected.key;$("palTitle").textContent="Choose an image for "+PLACES[assignKey].label;paletteOpen=true;buildPalette();$("palette").classList.add("open");});
-$("storeBtn").addEventListener("click",()=>{if(!selected||selected.kind!=="d")return;const dd=roomDecor[room][selected.id];if(!dd)return;if(dd.store||dd.storeArea){if(dd.storeArea){const inArea=containerLocs().filter(l=>areaOf(l)===dd.storeArea);if(inArea.length&&!confirm("This cabinet holds "+inArea.length+" container(s). Turn off storage and release them to the tray?"))return;inArea.forEach(l=>set(ref(db,BASE+"/games/loadout/cplace/"+l),{area:"tray"}).catch(()=>{}));}else{/* TURNING AN ITEM-CONTAINER OFF SENDS IT TO THE TRAY, NOT ITS CONTENTS TO THE BACKPACK (2026-09-20, L: "that's just a container that I would want to be in the tray"). The old branch emptied it into the bag and the container ceased to exist - which is why it had to ASK first. It now becomes a real loose container carrying its own items, parked in the tray, ready to drop anywhere. Nothing is lost and the drag back undoes it, so the confirm is gone with the loss that justified it. */const loc=dd.storeLoc||("decor:"+room+":"+selected.id);const items=(byLoc[loc]||[]).slice();if(items.length){/* an EMPTY one leaves nothing to preserve - creating a tray container per toggle would just litter the tray, so it simply stops being storage */const nm=(customName(room,selected.id)||((CAT[dd.k]||{}).label)||"Container").slice(0,40);const key="c_"+nm.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"").slice(0,20)+"_"+Date.now().toString(36).slice(-5);set(ref(db,BASE+"/games/loadout/containers/"+key),{name:nm}).catch(()=>{});set(ref(db,BASE+"/games/loadout/cplace/"+key),{area:"tray"}).catch(()=>{});items.forEach(it=>moveItem(it,key));}}delete dd.store;delete dd.storeArea;saveRoom(room);refreshTools();return;}/* ONE KIND OF THING (2026-09-20 remake, L: "no items are particular, they are standings for whatever I want to make them"). No dialog: a tap makes this item a SLOT that holds containers. If it was the old dd.store kind - where the item WAS a container - the container it already is gets placed inside the new slot, so its items travel with it and nothing is stranded. */const aid="d_"+room+"_"+selected.id,nm=customName(room,selected.id)||((CAT[dd.k]||{}).label||"Storage");set(ref(db,"public/games/loadout/areas/"+aid),{name:nm,icon:"🗄️",bg:"cabinet",nw:320,nh:224}).catch(()=>{});if(dd.store){const loc=dd.storeLoc||("decor:"+room+":"+selected.id);if(!CONTAINERS[loc])set(ref(db,BASE+"/games/loadout/containers/"+loc),{name:nm}).catch(()=>{});set(ref(db,BASE+"/games/loadout/cplace/"+loc),{area:aid,x:24,y:24}).catch(()=>{});}dd.storeArea=aid;delete dd.store;delete dd.reader;saveRoom(room);refreshTools();});
+$("storeBtn").addEventListener("click",()=>{if(!selected||selected.kind!=="d")return;const dd=roomDecor[room][selected.id];if(!dd)return;if(dd.store||dd.storeArea){if(dd.storeArea){const inArea=containerLocs().filter(l=>areaOf(l)===dd.storeArea);if(inArea.length&&!confirm("This cabinet holds "+inArea.length+" container(s). Turn off storage and release them to the tray?"))return;inArea.forEach(l=>set(ref(db,GL()+"/cplace/"+l),{area:"tray"}).catch(()=>{}));}else{/* TURNING AN ITEM-CONTAINER OFF SENDS IT TO THE TRAY, NOT ITS CONTENTS TO THE BACKPACK (2026-09-20, L: "that's just a container that I would want to be in the tray"). The old branch emptied it into the bag and the container ceased to exist - which is why it had to ASK first. It now becomes a real loose container carrying its own items, parked in the tray, ready to drop anywhere. Nothing is lost and the drag back undoes it, so the confirm is gone with the loss that justified it. */const loc=dd.storeLoc||("decor:"+room+":"+selected.id);const items=(byLoc[loc]||[]).slice();if(items.length){/* an EMPTY one leaves nothing to preserve - creating a tray container per toggle would just litter the tray, so it simply stops being storage */const nm=(customName(room,selected.id)||((CAT[dd.k]||{}).label)||"Container").slice(0,40);const key="c_"+nm.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"").slice(0,20)+"_"+Date.now().toString(36).slice(-5);set(ref(db,GL()+"/containers/"+key),{name:nm}).catch(()=>{});set(ref(db,GL()+"/cplace/"+key),{area:"tray"}).catch(()=>{});items.forEach(it=>moveItem(it,key));}}delete dd.store;delete dd.storeArea;saveRoom(room);refreshTools();return;}/* ONE KIND OF THING (2026-09-20 remake, L: "no items are particular, they are standings for whatever I want to make them"). No dialog: a tap makes this item a SLOT that holds containers. If it was the old dd.store kind - where the item WAS a container - the container it already is gets placed inside the new slot, so its items travel with it and nothing is stranded. */const aid="d_"+room+"_"+selected.id,nm=customName(room,selected.id)||((CAT[dd.k]||{}).label||"Storage");set(ref(db,"public/games/loadout/areas/"+aid),{name:nm,icon:"🗄️",bg:"cabinet",nw:320,nh:224}).catch(()=>{});if(dd.store){const loc=dd.storeLoc||("decor:"+room+":"+selected.id);if(!CONTAINERS[loc])set(ref(db,GL()+"/containers/"+loc),{name:nm}).catch(()=>{});set(ref(db,GL()+"/cplace/"+loc),{area:aid,x:24,y:24}).catch(()=>{});}dd.storeArea=aid;delete dd.store;delete dd.reader;saveRoom(room);refreshTools();});
 $("readerBtn").addEventListener("click",()=>{if(!selected||selected.kind!=="d")return;const dd=roomDecor[room][selected.id];if(!dd)return;if(dd.reader){delete dd.reader;}else{dd.reader="books";delete dd.store;}saveRoom(room);refreshTools();});
 $("changeBtn").addEventListener("click",()=>{if(!selected||selected.kind!=="d")return;const dd=roomDecor[room][selected.id];if(!dd)return;if(dd.changeStation){delete dd.changeStation;}else{dd.changeStation=true;delete dd.reader;delete dd.store;delete dd.storeArea;}saveRoom(room);refreshTools();});
 $("nameBtn").addEventListener("click",()=>{if(selected&&selected.kind==="door"&&ROOMS[room].doors[selected.idx].to==="van"){renameStruct("van","ENTER VAN");return;}if(!selected||(selected.kind!=="d"&&selected.kind!=="p"))return;const key=selected.kind==="d"?selected.id:selected.key;const base=selected.kind==="d"?((CAT[roomDecor[room][selected.id]?.k]||{}).label||"item"):((PLACES[selected.key]||{}).label||"item");const nn=prompt('Rename "'+base+'"  (leave blank to reset):',customName(room,key)||base);if(nn===null)return;const path="public/games/loadout/names/"+room+"/"+key,val=nn.trim().slice(0,40);if(!NAMES[room])NAMES[room]={};if(val===""){delete NAMES[room][key];remove(ref(db,path)).catch(()=>{});}else{NAMES[room][key]=val;set(ref(db,path),val).catch(()=>{});}refreshTools();});
@@ -2630,13 +2632,13 @@ function addPiece(k){const id=newId();roomDecor[room]=roomDecor[room]||{};
   saveRoom(room);selected={kind:"d",id};refreshTools();closePalette();}
 
 /* ── SAVE / RESUME player position across sessions (public/loadout/playerState) ── */
-function savePlayerState(){set(ref(db,BASE+"/games/loadout/playerState"),{room:room,x:Math.round(player.x),y:Math.round(player.y),dir:player.dir}).catch(()=>{});}
+function savePlayerState(){set(ref(db,GL()+"/playerState"),{room:room,x:Math.round(player.x),y:Math.round(player.y),dir:player.dir}).catch(()=>{});}
 let _psKey="";
 setInterval(()=>{const k=room+":"+Math.round(player.x)+":"+Math.round(player.y);if(k!==_psKey){_psKey=k;savePlayerState();}},3000);
 window.addEventListener("visibilitychange",()=>{if(document.hidden)savePlayerState();});
 window.addEventListener("pagehide",savePlayerState);
 // restore last position, then start the loop (always starts even if the read fails)
-get(ref(db,BASE+"/games/loadout/playerState")).then(s=>{const v=s.val();if(v&&v.room&&ROOMS[v.room]&&v.room!=="store54"){room=v.room;player.x=+v.x||player.x;player.y=+v.y||player.y;player.dir=v.dir||player.dir;}try{$("roomB").textContent=ROOMS[room].name;}catch(e){}/* a story place (Store Fifty-Four) is never resumed into; banner always matches the room */}).catch(()=>{}).finally(()=>{requestAnimationFrame(frame);deepLink();});
+get(ref(db,GL()+"/playerState")).then(s=>{const v=s.val();if(v&&v.room&&ROOMS[v.room]&&v.room!=="store54"){room=v.room;player.x=+v.x||player.x;player.y=+v.y||player.y;player.dir=v.dir||player.dir;}try{$("roomB").textContent=ROOMS[room].name;}catch(e){}/* a story place (Store Fifty-Four) is never resumed into; banner always matches the room */}).catch(()=>{}).finally(()=>{requestAnimationFrame(frame);deepLink();});
 // b44 DEEP LINKS: index.html#street / #van / #glade / #yourroom / #erikhouse ... jumps to that room;
 // #bag (backpack) #jobs #shop #char #yuki #edit open that screen. Read once at load and on hash change.
 function deepLink(){const h=decodeURIComponent(location.hash.slice(1)).toLowerCase();if(!h)return;
@@ -2774,25 +2776,25 @@ const DEFAULT_XY={};VZONES.forEach(z=>DEFAULT_XY[z.loc]={x:z.x,y:z.y});
 function hashStr(s){let h=0;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0;return h;}
 onValue(ref(db,"public/games/loadout/areas"),s=>{const v=s.val();if(!v||!Object.keys(v).length){AREAS={...SEED_AREAS};set(ref(db,"public/games/loadout/areas"),SEED_AREAS).catch(()=>{});}else AREAS=v;
   if($("storage").classList.contains("open"))renderArea();});
-onValue(ref(db,BASE+"/games/loadout/cplace"),s=>{CPLACE=s.val()||{};if($("storage").classList.contains("open"))renderArea();});
+onValue(ref(db,GL()+"/cplace"),s=>{CPLACE=s.val()||{};if($("storage").classList.contains("open"))renderArea();});
 // ITEM ORDER (2026-10-18, L: "can I arrange the items in the grid"): per container, a list of item keys in your save
-// ({BASE}/games/loadout/order/<loc>); the real inventory records are never touched. Unknown items keep their old order at the end.
+// ({BASE}/play/loadout/order/<loc>); the real inventory records are never touched. Unknown items keep their old order at the end.
 var ORDER={};   // var + function decls: renderHotbar can run before this line (module-eval TDZ scar)
 function ikey(it){return it.id;}
 function okey(loc){return String(loc).replace(/[.#$\[\]\/]/g,"_");}
 function sortByOrder(items,loc){const o=ORDER[okey(loc)];if(!Array.isArray(o)||!o.length)return items;const pos=new Map(o.map((k,i)=>[k,i]));
   return items.map((it,i)=>[it,pos.has(ikey(it))?pos.get(ikey(it)):1e6+i]).sort((a,b)=>a[1]-b[1]).map(x=>x[0]);}
-onValue(ref(db,BASE+"/games/loadout/order"),s=>{ORDER=s.val()||{};try{if($("overlay").classList.contains("open"))renderPanel();renderHotbar();}catch(e){}});
+onValue(ref(db,GL()+"/order"),s=>{ORDER=s.val()||{};try{if($("overlay").classList.contains("open"))renderPanel();renderHotbar();}catch(e){}});
 // CONTAINER ITEM SLOT (2026-11-22, L: "the first one dictates the Container item itself... the backpack that holds items is an item aka backpack";
 // then "There will be containers that are not items, don't make it necessary"). OPTIONAL: a container MAY name its own item at
-// {BASE}/games/loadout/containers/<loc>/item = ikey (the item id). Inside an opened container slot 1 is that item (framed + tagged,
+// {BASE}/play/loadout/containers/<loc>/item = ikey (the item id). Inside an opened container slot 1 is that item (framed + tagged,
 // pinned through any sort) or, when none is set, a faint ghost slot. Drop an item on slot 1 = it becomes the container item (and moves
 // in if it lived elsewhere); drag it out to another cell/container = cleared. Nothing is ever set automatically.
 function contKeyOk(loc){return typeof loc==="string"&&loc&&!/[.#$\[\]\/]/.test(loc);}
 function contItemOf(loc){const k=contKeyOk(loc)&&CONTAINERS[loc]&&CONTAINERS[loc].item;if(!k)return null;
   return ITEMS.find(i=>ikey(i)===k&&i.loc===loc&&(i.qty||0)>=1)||null;}
 function contItemSet(loc,it){if(!contKeyOk(loc))return;const v=it?ikey(it):null;CONTAINERS[loc]=Object.assign({},CONTAINERS[loc]||{},{item:v||undefined});if(!v)delete CONTAINERS[loc].item;
-  set(ref(db,BASE+"/games/loadout/containers/"+loc+"/item"),v).catch(()=>{});
+  set(ref(db,GL()+"/containers/"+loc+"/item"),v).catch(()=>{});
   if(it&&it.loc!==loc)moveItem(it,loc);try{svBlip&&svBlip();}catch(e){}const ph=$("phint");if(ph)ph.textContent=it?`Container item: ${it.name}`:"Container item cleared";
   try{renderPanel();}catch(e){}}
 function contItemPin(items,loc,on){if(!on||!loc)return{items,it:null,on:false};const ci=contItemOf(loc);if(!ci||items.indexOf(ci)<0)return{items,it:null,on:true};
@@ -2809,8 +2811,8 @@ function contItemDrop(it,t){const loc=$("invGrid").dataset.loc;if(!loc||!contKey
   return false;}
 function reorderDrop(it,loc,beforeKey){const list=sortByOrder((byLoc[loc]||[]).slice(),loc).map(ikey).filter(k=>k!==ikey(it));
   let i=beforeKey?list.indexOf(beforeKey):-1;if(i<0)i=list.length;list.splice(i,0,ikey(it));ORDER[okey(loc)]=list;
-  set(ref(db,BASE+"/games/loadout/order/"+okey(loc)),list).catch(()=>{});try{svBlip&&svBlip();}catch(e){}renderPanel();try{renderHotbar();}catch(e){}}
-onValue(ref(db,BASE+"/games/loadout/containers"),s=>{CONTAINERS=s.val()||{};if($("storage").classList.contains("open"))renderArea();});
+  set(ref(db,GL()+"/order/"+okey(loc)),list).catch(()=>{});try{svBlip&&svBlip();}catch(e){}renderPanel();try{renderHotbar();}catch(e){}}
+onValue(ref(db,GL()+"/containers"),s=>{CONTAINERS=s.val()||{};if($("storage").classList.contains("open"))renderArea();});
 // which area a container lives in (known van bags default to the van; explicit placement wins)
 function areaOf(loc){const cp=CPLACE[loc];if(cp&&cp.area==="tray")return null;if(cp&&cp.area)return cp.area;if(ZONEMETA[loc])return "van";if(loc==="wardrobe")return "closet";return null;}
 function posOf(loc,areaId){const p=CPLACE[loc];if(p&&p.area===areaId&&p.x!=null)return{x:p.x,y:p.y};const d=DEFAULT_XY[loc];if(d)return d;const h=hashStr(loc);return{x:20+((h%6)*46),y:26+((Math.floor(h/6)%5)*46)};}
@@ -2919,11 +2921,11 @@ function setBackdrop(b){update(ref(db,"public/games/loadout/areas/"+curArea),{bg
 // furniture piece in as a container with art.
 function addContainer(){const nm=(prompt("Name the new container (e.g. Top drawer, Parts bin):")||"").trim().slice(0,40);if(!nm)return;
   const key="c_"+nm.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"").slice(0,20)+"_"+Date.now().toString(36).slice(-5);
-  set(ref(db,BASE+"/games/loadout/containers/"+key),{name:nm}).catch(()=>{});placeContainer(key,(curArea&&AREAS[curArea])?curArea:"tray",40,40);}
+  set(ref(db,GL()+"/containers/"+key),{name:nm}).catch(()=>{});placeContainer(key,(curArea&&AREAS[curArea])?curArea:"tray",40,40);}
 /* `art` is the catalog key, so the chip can BE the desk instead of a generic box. It is the one field this added, and only ever read defensively - an older container without it still renders. */
-function makeContainerFrom(k,area,x,y){const nm=((CAT[k]||{}).label||"Container").slice(0,40);const key="c_"+nm.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"").slice(0,20)+"_"+Date.now().toString(36).slice(-5);set(ref(db,BASE+"/games/loadout/containers/"+key),{name:nm,art:k}).catch(()=>{});/* through placeContainer, never a raw cplace write, so a rail drop onto a one-slot item still swaps */placeContainer(key,area||"tray",x,y);return key;}
+function makeContainerFrom(k,area,x,y){const nm=((CAT[k]||{}).label||"Container").slice(0,40);const key="c_"+nm.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"").slice(0,20)+"_"+Date.now().toString(36).slice(-5);set(ref(db,GL()+"/containers/"+key),{name:nm,art:k}).catch(()=>{});/* through placeContainer, never a raw cplace write, so a rail drop onto a one-slot item still swaps */placeContainer(key,area||"tray",x,y);return key;}
 $("pDel").addEventListener("click",async()=>{const dk=$("pDel").dataset.k||openPlace;if(!canDeleteContainer(dk)){if(dk&&(byLoc[dk]||[]).length)alert("Move its items out first.");return;}
-  if(!await askDelete("this container",(typeof invLabel==="function"?invLabel(dk):"")+" (empty)"))return;remove(ref(db,BASE+"/games/loadout/containers/"+dk)).catch(()=>{});remove(ref(db,BASE+"/games/loadout/cplace/"+dk)).catch(()=>{});$("overlay").classList.remove("open");});
+  if(!await askDelete("this container",(typeof invLabel==="function"?invLabel(dk):"")+" (empty)"))return;remove(ref(db,GL()+"/containers/"+dk)).catch(()=>{});remove(ref(db,GL()+"/cplace/"+dk)).catch(()=>{});$("overlay").classList.remove("open");});
 // double-click / double-tap a title -> it becomes editable; Enter or tapping away saves (2026-10-18)
 function dblEdit(el,can){if(!el)return;let t0=0;const go=()=>{if(can&&!can())return;el.contentEditable="true";el.focus();
     try{const rg=document.createRange();rg.selectNodeContents(el);const s=getSelection();s.removeAllRanges();s.addRange(rg);}catch(_){}};
@@ -2933,7 +2935,7 @@ function dblEdit(el,can){if(!el)return;let t0=0;const go=()=>{if(can&&!can())ret
 dblEdit($("pName"),()=>!!($("pName").dataset.loc||$("pName").dataset.area));dblEdit($("storTitle"),()=>!!curArea);dblEdit($("shopTitle"));
 (function(){const pn=$("pName");if(!pn)return;
   pn.addEventListener("blur",()=>{const ar=pn.dataset.area;if(ar){const v=pn.textContent.trim().replace(/\s+/g," ").slice(0,30);if(v&&AREAS[ar]&&v!==AREAS[ar].name){set(ref(db,"public/games/loadout/areas/"+ar+"/name"),v).catch(()=>{});syncRoomName(ar,v);}else if(!v)pn.textContent=placeLabel(ar);return;}
-    const loc=pn.dataset.loc;if(!loc)return;const v=pn.textContent.trim().replace(/\s+/g," ").slice(0,40);if(v&&v!==locMeta(loc).label){set(ref(db,BASE+"/games/loadout/containers/"+loc),{name:v}).catch(()=>{});syncRoomName(loc,v);}else if(!v){if(String(loc).indexOf("c_")!==0)remove(ref(db,BASE+"/games/loadout/containers/"+loc)).catch(()=>{});pn.textContent=locMeta(loc).label;}});
+    const loc=pn.dataset.loc;if(!loc)return;const v=pn.textContent.trim().replace(/\s+/g," ").slice(0,40);if(v&&v!==locMeta(loc).label){set(ref(db,GL()+"/containers/"+loc),{name:v}).catch(()=>{});syncRoomName(loc,v);}else if(!v){if(String(loc).indexOf("c_")!==0)remove(ref(db,GL()+"/containers/"+loc)).catch(()=>{});pn.textContent=locMeta(loc).label;}});
   pn.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();pn.blur();}else if(e.key==="Escape"){e.preventDefault();const loc=pn.dataset.loc;if(loc)pn.textContent=locMeta(loc).label;pn.blur();}});
 })();
 // CAPACITY: a SPACE holds many containers, an ITEM holds one (2026-09-20, L chose "swap").
@@ -2965,11 +2967,11 @@ function countIn(areaId,depth){if((depth||0)>8)return 0;let n=0;
 function residentsOf(areaId){return containerLocs().filter(l=>areaOf(l)===areaId).concat(nestedIn(areaId));}
 function placeContainer(loc,area,x,y){
   if(isArea(loc))return;   // FLAT (2026-10-18, L: "I don't need ... other containers acting as a container"): Area -> Container -> Item; an area never goes inside another area or the tray
-  if(!area||area==="tray"){set(ref(db,BASE+"/games/loadout/cplace/"+loc),{area:"tray"}).catch(()=>{});return;}
+  if(!area||area==="tray"){set(ref(db,GL()+"/cplace/"+loc),{area:"tray"}).catch(()=>{});return;}
   if(isArea(loc)&&(loc===area||wouldCycle(loc,area))){
     alert('"'+((AREAS[loc]||{}).name||loc)+'" already holds "'+((AREAS[area]||{}).name||area)+'" - putting it inside would make a loop.');return;}
   const p={area:area};if(x!=null)p.x=x;if(y!=null)p.y=y;
-  set(ref(db,BASE+"/games/loadout/cplace/"+loc),p).catch(()=>{});
+  set(ref(db,GL()+"/cplace/"+loc),p).catch(()=>{});
 }
 // CATALOG RAIL: drag a thing from the catalog straight into the tray - being in the tray is what
 // makes it a container (L's model). Rebuilt only when the catalog size changes; it is static otherwise.
@@ -3055,7 +3057,7 @@ function renderShop(){$("shopBal").textContent=BAL.toFixed(0);const body=$("shop
     body.appendChild(c);}}
 
 // ===== STOCK MARKET (b132, L 2026-11-01: "add a stock market simulator in loadout") =====
-// Fictional companies, game money only: trades go through the game wallet (games/loadout/ledger), never the real books.
+// Fictional companies, game money only: trades go through the game wallet (play/loadout/ledger), never the real books.
 // Prices are not saved. They are replayed from a fixed seed, one tick per real minute since MK_EPOCH (the game clock is real
 // time too), so a reload can't re-roll them, the market moves while you're away, and nothing polls the database. Saved per
 // account: games/loadout/market = {holdings:{SYM:{q,c}},realized} (c = average cost). A trade is one multi-path update, so
@@ -3085,7 +3087,7 @@ function mkAdvance(){const to=mkNow();while(MK.t<to){MK.t++;const t=MK.t,days=t/
       if(t%MK_STEP===0){const h=MK.hist[i];h.push(mkPrice(i));if(h.length>MK_POINTS)h.shift();}});
     if(MK.news.length>40)MK.news.splice(0,MK.news.length-40);}}
 let MK_HOLD={},MK_REAL=0,_mkLoaded=false,mkSel=0,mkQty=1,_mkBal=null;
-onValue(ref(db,BASE+"/games/loadout/market"),s=>{const v=s.val()||{};MK_HOLD=v.holdings||{};MK_REAL=+v.realized||0;_mkLoaded=true;if(mkOpen())mkRender();},e=>console.warn(e));
+onValue(ref(db,GL()+"/market"),s=>{const v=s.val()||{};MK_HOLD=v.holdings||{};MK_REAL=+v.realized||0;_mkLoaded=true;if(mkOpen())mkRender();},e=>console.warn(e));
 function mkOpen(){return $("market").classList.contains("open");}
 function mk$(n){return Math.abs(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});}
 function mkPL(n){return (n>0?"▲ +$":n<0?"▼ -$":"$")+mk$(n);}
@@ -3120,7 +3122,7 @@ function mkTrade(side){const k=MK_LIST[mkSel],q=mkQty,msg=$("mktMsg");if(!_mkLoa
   if(side==="buy"){if(tot>BAL){msg.textContent="Not enough money.";mkRender();return;}const oq=h?h.q:0,oc=h?h.c:0;nh={q:oq+q,c:(oq*oc+tot)/(oq+q)};}
   else{if(!h||h.q<q){msg.textContent="You don't own that many.";mkRender();return;}pl=Math.round((p-h.c)*q*100)/100;real=Math.round((MK_REAL+pl)*100)/100;nh=h.q>q?{q:h.q-q,c:h.c}:null;}
   const id="tx"+Date.now().toString(36)+Math.floor(Math.random()*1e3).toString(36);
-  update(ref(db,BASE+"/games/loadout"),{["ledger/"+id]:{amt:side==="buy"?-tot:tot,name:(side==="buy"?"Bought ":"Sold ")+q+" "+k.s+" @ $"+mk$(p),date:Date.now(),source:"loadout"},["market/holdings/"+k.s]:nh,"market/realized":real})
+  update(ref(db,GL()),{["ledger/"+id]:{amt:side==="buy"?-tot:tot,name:(side==="buy"?"Bought ":"Sold ")+q+" "+k.s+" @ $"+mk$(p),date:Date.now(),source:"loadout"},["market/holdings/"+k.s]:nh,"market/realized":real})
     .catch(e=>{console.warn(e);msg.textContent="That trade didn't go through.";});
   msg.textContent=(side==="buy"?"Bought ":"Sold ")+q+" "+k.s+" for $"+mk$(tot)+(side==="sell"?" ("+mkPL(pl)+")":"");mkQty=1;mkRender();}
 function openMarket(){mkRender();$("market").classList.add("open");}
@@ -3142,11 +3144,11 @@ const SEED_JOBS={
  j4:{site:"Grid Gate 7 — Panel Upgrade",miles:120,payout:650,parts:[{name:"U-Shaped Strut to Beam Clamp",qty:1},{name:"Heavy Duty Extension Cord",qty:1}]},
  j5:{site:"Old Depot — Wiring Repair",miles:48,payout:240,parts:[{name:"CE-CPUP",qty:1}]},
 };
-onValue(ref(db,BASE+"/games/loadout/fuel"),s=>{const v=s.val();FUEL=(v==null?100:+v);$("fuel").textContent=Math.round(FUEL)+"%";setFuelVis();if($("jobs").classList.contains("open"))renderJobs();});
-onValue(ref(db,BASE+"/games/loadout/miles"),s=>{MILES=+s.val()||0;if($("jobs").classList.contains("open"))$("jobMiles").textContent=MILES;});
+onValue(ref(db,GL()+"/fuel"),s=>{const v=s.val();FUEL=(v==null?100:+v);$("fuel").textContent=Math.round(FUEL)+"%";setFuelVis();if($("jobs").classList.contains("open"))renderJobs();});
+onValue(ref(db,GL()+"/miles"),s=>{MILES=+s.val()||0;if($("jobs").classList.contains("open"))$("jobMiles").textContent=MILES;});
 onValue(ref(db,"public/games/loadout/jobs"),s=>{const v=s.val();if(v===null){set(ref(db,"public/games/loadout/jobs"),SEED_JOBS).catch(()=>{});return;}JOBS=v||{};if($("jobs").classList.contains("open"))renderJobs();});
 let JOBSUNLOCKED={};
-onValue(ref(db,BASE+"/games/loadout/jobsUnlocked"),s=>{JOBSUNLOCKED=s.val()||{};if($("jobs").classList.contains("open"))renderJobs();});
+onValue(ref(db,GL()+"/jobsUnlocked"),s=>{JOBSUNLOCKED=s.val()||{};if($("jobs").classList.contains("open"))renderJobs();});
 function haveQty(name){return ITEMS.filter(it=>it.name===name).reduce((s,it)=>s+(it.qty||0),0);}
 function openJobs(){renderJobs();$("jobs").classList.add("open");}
 $("jobsBtn")?.addEventListener("click",openJobs);
@@ -3171,14 +3173,14 @@ function completeJob(id){const j=JOBS[id];if(!j)return;const need=Math.round(j.m
   spendEnergy(jc.e);spendTime(jc.t);
   const upd={};for(const p of (j.parts||[])){let n=p.qty;for(const it of ITEMS){if(it.name!==p.name||n<=0)continue;const t=Math.min(n,it.qty||0);if(t>0){it.qty-=t;n-=t;upd[it.id+"/quantity"]=it.qty;}}}
   if(Object.keys(upd).length)update(ref(db,BASE+"/items"),upd).catch(()=>{});
-  set(ref(db,BASE+"/games/loadout/fuel"),Math.max(0,FUEL-need)).catch(()=>{});
-  set(ref(db,BASE+"/games/loadout/miles"),MILES+j.miles).catch(()=>{});
+  set(ref(db,GL()+"/fuel"),Math.max(0,FUEL-need)).catch(()=>{});
+  set(ref(db,GL()+"/miles"),MILES+j.miles).catch(()=>{});
   ledgerAdd(j.payout,"Job: "+j.site);
   remove(ref(db,"public/games/loadout/jobs/"+id)).catch(()=>{});
   $("jobMsg").textContent='✓ Closed "'+j.site+'" — Seth wired you $'+j.payout;}
 function refuel(){const cost=Math.round((100-FUEL)*FUEL_COST);if(cost<=0){$("jobMsg").textContent="Tank's already full.";return;}
   if(cost>BAL){$("jobMsg").textContent="Can't afford fuel ($"+cost+"). Close a ticket first.";return;}
-  ledgerAdd(-cost,"Fuel");set(ref(db,BASE+"/games/loadout/fuel"),100).catch(()=>{});
+  ledgerAdd(-cost,"Fuel");set(ref(db,GL()+"/fuel"),100).catch(()=>{});
   $("jobMsg").textContent="⛽ Filled the tank — $"+cost;}
 
 // ---- inventory transfer panel ----
@@ -3463,7 +3465,7 @@ $("ie_cancel").addEventListener("click",closeItemEdit);
 $("itemEdit").addEventListener("click",e=>{if(e.target===$("itemEdit"))closeItemEdit();});
 $("ie_save").addEventListener("click",async()=>{if(!editItem)return;const it=editItem;const ncat=($("ie_cat").value||it.cat).trim(),ncomp=($("ie_comp").value||it.comp).trim(),nname=($("ie_name").value||it.name).trim();if(!ncat||!ncomp||!nname){$("ie_err").textContent="Name, Category and Container are required.";return;}const val=$("ie_room").value;const nimg=$("ie_img").value.trim();const fields={quantity:+$("ie_qty").value||0,price:$("ie_price").value.trim(),img:nimg,imgPath:(nimg?(pendImgPath||editItem._imgPath||null):null)};fields.name=nname;fields.category=ncat;fields.sub=ncomp;if(val){fields.container=val;fields.room=locMeta(val).label;}else if(it.loc==="bag"){fields.container="bag";}else{fields.container=null;fields.room=null;} /* "(auto)" must NOT eject a carried item from the backpack */$("ie_err").textContent="Saving…";try{await update(ref(db,BASE+"/items/"+it.id),fields);closeItemEdit();}   /* rename/recategorize = field edits; the id never changes */catch(e){$("ie_err").textContent="Save failed: "+((e&&e.message)||e);}});
 $("ie_del").addEventListener("click",async()=>{if(!editItem)return;if(!await askDelete('"'+editItem.name+'"',"Removes it from your real inventory."))return;try{await remove(ref(db,BASE+"/items/"+editItem.id));closeItemEdit();}catch(e){$("ie_err").textContent="Delete failed: "+e;}});
-$("ie_room").addEventListener("change",async function(){if(this.value!=="__new__")return;const cur=(editItem&&editItem.loc&&editItem.loc!=="bag")?editItem.loc:"";const name=(prompt("Name the new container:")||"").trim();if(!name){this.value=cur;return;}const key="c_"+name.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"").slice(0,20)+"_"+Date.now().toString(36).slice(-5);try{await set(ref(db,BASE+"/games/loadout/containers/"+key),{name:name.slice(0,40)});await set(ref(db,BASE+"/games/loadout/cplace/"+key),{area:"tray"});}catch(e){this.value=cur;$("ie_err").textContent="Couldn't create container.";return;}const op=document.createElement("option");op.value=key;op.textContent=name.slice(0,40);const nw=this.querySelector('option[value="__new__"]');this.insertBefore(op,nw);this.value=key;});
+$("ie_room").addEventListener("change",async function(){if(this.value!=="__new__")return;const cur=(editItem&&editItem.loc&&editItem.loc!=="bag")?editItem.loc:"";const name=(prompt("Name the new container:")||"").trim();if(!name){this.value=cur;return;}const key="c_"+name.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"").slice(0,20)+"_"+Date.now().toString(36).slice(-5);try{await set(ref(db,GL()+"/containers/"+key),{name:name.slice(0,40)});await set(ref(db,GL()+"/cplace/"+key),{area:"tray"});}catch(e){this.value=cur;$("ie_err").textContent="Couldn't create container.";return;}const op=document.createElement("option");op.value=key;op.textContent=name.slice(0,40);const nw=this.querySelector('option[value="__new__"]');this.insertBefore(op,nw);this.value=key;});
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 // ===== STARDEW FEEL (2026-10-18): hotbar of the backpack under the screen, 1-9/0/-/= pick a slot, B/Tab opens the
 // backpack, parchment hover tooltip, a soft click on slots =====

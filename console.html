@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.314"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.315"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1037,7 +1037,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                  ✕ = the side pane closes (wide) or back to the chat (phone). A .dc-panel so build() moves it into #dc-sys-col with the rest. -->
             <div class="dc-panel" id="dc-syshead-panel"><span>🖥 Advanced</span><button type="button" id="dc-sys-close" title="close Advanced" aria-label="close Advanced">✕</button></div>
             <!-- PROFILE (L 2026-10-04 "I need a place here to edit my profile info"): the SAME record as the workspace Account card
-                 (auth displayName + {uid}/profile). The member module fills #dc-prof; the People pane shows the same form. -->
+                 (auth displayName + {uid}/me). The member module fills #dc-prof; the People pane shows the same form. -->
             <div class="dc-panel" id="dc-prof-panel">
                 <h4>Profile <span>Account info</span></h4>
                 <div id="dc-prof"><div class="dc-sk-lines"><span class="dc-sk-l" style="width:70%"></span><span class="dc-sk-l" style="width:50%"></span><span class="dc-sk-l" style="width:62%"></span></div></div>
@@ -1466,7 +1466,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             onValue(ref(database, `${DC.base}/chat/favorites`), s => { DC.favs = s.val() || {}; renderChat(DC.chatTurns || {}); });
             onValue(ref(database, `${DC.base}/seen/topics`), s => { const v = s.val() || {}; const norm = o => JSON.stringify(Object.keys(o || {}).sort().map(k => [k, o[k] && o[k].t, o[k] && +o[k].ts, o[k] && o[k].k ? Object.keys(o[k].k).sort().join(',') : ''])); const same = norm(v) === norm(DC.seenCloud) && DC.seenLoaded; DC.seenLoaded = true; DC.seenCloud = v; if (!same && !DC.remote) renderChat(DC.ownTurns || DC.chatTurns || {}); },
                 e => { DC.seenLoaded = true; dcWarn('seen/topics')(e); if (!DC.remote) renderChat(DC.ownTurns || DC.chatTurns || {}); });   // read on another device -> clear here. 2026-11-10 (L: 'the top bubble shakes'): our OWN seen write echoes back here - markSeen already set DC.seenCloud, so an identical echo no longer re-draws (and re-lands) the whole chat
-            onValue(query(ref(database, `${DC.uid}/todos`), limitToLast(80)), s => renderIdeas(s.val() || {}));
+            onValue(query(ref(database, `${DC.uid}/todo/todos`), limitToLast(80)), s => renderIdeas(s.val() || {}));
         });
 
         // --- Droplet chat: a running thread over the same job->tmux relay the workbench uses ---
@@ -1508,7 +1508,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 chip.querySelector('.ins').onclick = e => { e.stopPropagation(); chip.classList.remove('open'); insert(t); };
                 chip.querySelector('.ask').onclick = e => { e.stopPropagation(); chip.classList.remove('open'); const inp = $('#dc-chat-in'); if (inp) { inp.value = t; sendChat(); } };
                 chip.querySelector('.done').onclick = async e => { e.stopPropagation(); chip.classList.remove('open');
-                    try { await update(ref(database, `${DC.uid}/todos/${k}`), { done: true, doneAt: Date.now() }); $('#dc-chat-status').textContent = '✓ done: ' + t.slice(0, 40); }
+                    try { await update(ref(database, `${DC.uid}/todo/todos/${k}`), { done: true, doneAt: Date.now() }); $('#dc-chat-status').textContent = '✓ done: ' + t.slice(0, 40); }
                     catch (err) { $('#dc-chat-status').textContent = '⚠ could not mark done: ' + (err.message || err); } };
             });
             wireStripToggle(box, 'dc_ideas_open');
@@ -7547,7 +7547,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         renderHome(mode); dots();
     }
     // PROFILE FORM (2026-10-04): one html + one wiring, shown in the People pane AND in System > Profile (#dc-prof). Same record as
-    // the workspace Account card: Display name = the auth displayName (updateProfile), Phone/Address/Bio/Website = {uid}/profile
+    // the workspace Account card: Display name = the auth displayName (updateProfile), Phone/Address/Bio/Website = {uid}/me
     // (update() never set() - role lives there too). data-pf attributes, not ids, so both copies can be in the DOM at once.
     function profileHTML() {
         const pf = P.profDraft || P.info || {};
@@ -7565,7 +7565,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
     }
     function wireProfile(root) {
         const q = sel => root.querySelector(sel), save = q('.pf-save'); if (!save || !P.me) return;
-        if (!P.info && !P.infoLoading) { P.infoLoading = true; get(ref(database, `${P.me}/profile`)).then(sn => { P.info = sn.val() || {}; P.infoLoading = false; renderProfiles(); }).catch(() => { P.info = {}; P.infoLoading = false; }); }
+        if (!P.info && !P.infoLoading) { P.infoLoading = true; get(ref(database, `${P.me}/me`)).then(sn => { P.info = sn.val() || {}; P.infoLoading = false; renderProfiles(); }).catch(() => { P.info = {}; P.infoLoading = false; }); }
         const g = k => { const el = q(`[data-pf="${k}"]`); return el ? el.value.trim() : ''; };
         const grab = () => ({ name: g('name'), phoneNumber: g('phone'), address: g('address'), bio: g('bio'), website: g('website') });
         const uidEl = q('.pf-uid'); if (uidEl) uidEl.onclick = async () => { try { await navigator.clipboard.writeText(P.me); uidEl.textContent = 'copied'; setTimeout(() => { uidEl.textContent = P.me; }, 1200); } catch (_) {} };
@@ -7573,7 +7573,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         save.onclick = async () => { const d = grab(), st = q('.pf-st'); st.textContent = 'saving…';
             try { const fields = { phoneNumber: d.phoneNumber, address: d.address, bio: d.bio, website: d.website };
                 if (auth.currentUser && d.name !== (auth.currentUser.displayName || '')) await updateProfile(auth.currentUser, { displayName: d.name });
-                await update(ref(database, `${P.me}/profile`), { ...fields, updatedAt: Date.now() });
+                await update(ref(database, `${P.me}/me`), { ...fields, updatedAt: Date.now() });
                 if (d.name && d.name !== (P.dir[P.me] || '')) { await set(ref(database, `share/directory/${P.me}/name`), d.name); P.dir[P.me] = d.name; P.myName = d.name; }   // the shown name follows
                 P.info = { ...(P.info || {}), ...fields }; P.profDraft = null; renderProfiles(); }
             catch (e) { st.textContent = 'not saved: ' + (e.code || e.message); } };

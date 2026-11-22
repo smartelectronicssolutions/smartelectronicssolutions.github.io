@@ -4,7 +4,7 @@
 <head>
   <script>(function(){try{if(localStorage.getItem("ss-theme")==="light")document.documentElement.classList.add("light")}catch(e){}})();</script>  <!-- saved light/dark before first paint (2026-10-01) -->
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.2">
+    <meta name="version" content="1.0.3">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Text Playback</title>
     <link rel="stylesheet" href="../assets/css/online.css">
@@ -185,6 +185,8 @@
         // with it under "Mine". New saves go to the signed-in uid, or to public when signed out.
         let DB = 'public';
         let UIDBASE = null;
+        // wave1: the uid tier moved to <uid>/docs/library; the public tier keeps public/library
+        const LIB = base => base === 'public' ? 'public/library' : `${base}/docs/library`;
         const scopes = { public: {}, mine: {} };   // raw rows per scope
         let docs = {};                              // 'scope:key' -> {text, title?, createdAt?, source?}
         let unsubPublic = null, unsubMine = null, unsubBooks = null;
@@ -271,7 +273,7 @@
             const scope = sel.slice(0, i), key = sel.slice(i + 1);
             if (scope === 'book') return null;   // chapters are read-only
             const base = scope === 'mine' ? UIDBASE : 'public';
-            return base && key ? `${base}/library/writings/${key}` : null;
+            return base && key ? `${LIB(base)}/writings/${key}` : null;
         }
 
         function renderList() {
@@ -329,7 +331,7 @@
             const sel = savedTexts.value, d = docs[sel]; if (!d) return;
             if (d.lazy && UIDBASE) {
                 display.textContent = 'loading chapter…';
-                try { const snap = await get(ref(database, `${UIDBASE}/library/text/${d.book}/${d.nn}`)); const v = snap.val() || {}; d.text = v.text || ''; d.lazy = false; }
+                try { const snap = await get(ref(database, `${LIB(UIDBASE)}/text/${d.book}/${d.nn}`)); const v = snap.val() || {}; d.text = v.text || ''; d.lazy = false; }
                 catch (e) { display.textContent = 'could not load: ' + (e.message || e); return; }
                 if (savedTexts.value !== sel) return;   // he moved on while it loaded
             }
@@ -350,8 +352,8 @@
             if (unsubBooks) { unsubBooks(); unsubBooks = null; }
             scopes.mine = {}; books = {};
             if (UIDBASE) {
-                unsubBooks = onValue(ref(database, `${UIDBASE}/library/books`), (snapshot) => { books = snapshot.val() || {}; renderList(); });
-                unsubMine = onValue(ref(database, `${UIDBASE}/library/writings`), (snapshot) => {
+                unsubBooks = onValue(ref(database, `${LIB(UIDBASE)}/books`), (snapshot) => { books = snapshot.val() || {}; renderList(); });
+                unsubMine = onValue(ref(database, `${LIB(UIDBASE)}/writings`), (snapshot) => {
                     scopes.mine = snapshot.val() || {};
                     renderList();
                 });
@@ -490,7 +492,7 @@
             const text = textInput.value.trim();
             if (!UIDBASE) { alert('Sign in to save - the public library is read-only from the page.'); return; }   // 2026-11-08 (audit fix #5)
             if (text) {
-                const newTextRef = push(ref(database, `${DB}/library/writings`));
+                const newTextRef = push(ref(database, `${LIB(DB)}/writings`));
                 const title = titleInput.value.trim();
                 const doc = { text, createdAt: Date.now(), source: 'web' };
                 if (title) doc.title = title;

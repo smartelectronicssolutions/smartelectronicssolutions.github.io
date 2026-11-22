@@ -24,7 +24,7 @@ if (registrationForm) {
         if (password !== $("reg-confirm-password").value) { alert("Passwords do not match. Please try again."); return; }
         try {
             const cred = await createUserWithEmailAndPassword(auth, email, password);
-            await update(ref(database, `${cred.user.uid}/profile`), { email });   // 2026-11-08: merge, never replace the profile
+            await update(ref(database, `${cred.user.uid}/me`), { email });   // 2026-11-08: merge, never replace the profile
             alert("Registration Successful");
             registrationForm.reset();
             location.href = back();

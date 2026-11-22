@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="version" content="1.0.1">
+  <meta name="version" content="1.0.2">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>Saved Links</title>
   <link rel="stylesheet" href="../assets/css/online.css" />
@@ -159,6 +159,8 @@
     } from "../assets/js/firebase-init.js";
 
     let DB = "public";
+    // wave1: uid tier = <uid>/hub/links; the public tier keeps public/links
+    const LINKS = () => DB === "public" ? "public/links" : `${DB}/hub/links`;
     let editingKey = null;
     let cachedLinks = [];
     let unsubLinks = null;
@@ -206,7 +208,7 @@
       const url = linkInput.value.trim();
       if (!url) { alert("Enter a URL."); return; }
       const cats = parseCats();
-      push(ref(database, `${DB}/links`), { url, title: titleInput.value.trim() || null, categories: cats.length ? cats : null })
+      push(ref(database, LINKS()), { url, title: titleInput.value.trim() || null, categories: cats.length ? cats : null })
         .then(clearForm)
         .catch((error) => {
           console.error("Error saving link:", error);
@@ -218,7 +220,7 @@
       const url = linkInput.value.trim();
       if (!url || !editingKey) return;
       const cats = parseCats();
-      update(ref(database, `${DB}/links/${editingKey}`), { url, title: titleInput.value.trim() || null, categories: cats.length ? cats : null })
+      update(ref(database, `${LINKS()}/${editingKey}`), { url, title: titleInput.value.trim() || null, categories: cats.length ? cats : null })
         .then(clearForm)
         .catch((error) => {
           console.error("Error updating link:", error);
@@ -228,7 +230,7 @@
 
     deleteBtn.addEventListener("click", () => {
       if (!editingKey || !confirm("Delete this link?")) return;
-      remove(ref(database, `${DB}/links/${editingKey}`)).then(clearForm).catch((error) => {
+      remove(ref(database, `${LINKS()}/${editingKey}`)).then(clearForm).catch((error) => {
         console.error("Error deleting link:", error);
         alert("Failed to delete link.");
       });
@@ -243,7 +245,7 @@
     /* ── data ── */
     function fetchLinks() {
       if (unsubLinks) unsubLinks();
-      const r = ref(database, `${DB}/links`);
+      const r = ref(database, LINKS());
       unsubLinks = onValue(r, (snap) => {
         const data = snap.val();
         if (data) {

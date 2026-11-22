@@ -2,7 +2,7 @@
 <html lang="en">
 
 <head>
-  <meta name="version" content="1.0.3">
+  <meta name="version" content="1.0.4">
   <script>(function(){try{if(localStorage.getItem("ss-theme")==="light")document.documentElement.classList.add("light")}catch(e){}})();</script>  <!-- saved light/dark before first paint (2026-10-01) -->
   <title>Live Notes</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
@@ -104,9 +104,11 @@
     let deletedNotes = [];
     let autoSaveInterval;
     let DATABASE_BASE_PATH = 'public';
-    let curScope = 'public';   // 'private' ({uid}/notes) | 'public' (public/notes) - the loaded note's home, or where a new note goes
+    let curScope = 'public';   // 'private' ({uid}/docs/notes) | 'public' (public/notes) - the loaded note's home, or where a new note goes
     const signedIn = () => DATABASE_BASE_PATH !== 'public';
     const notesRoot = scope => (scope === 'private' && signedIn()) ? DATABASE_BASE_PATH : 'public';
+    // wave1: the uid tier moved to <uid>/docs/notes; the public tier keeps public/notes
+    const notesPath = root => root === 'public' ? 'public/notes' : `${root}/docs/notes`;
     function paintScope() {
       const b = document.getElementById('scope-btn'); if (!b) return;
       if (!signedIn()) { curScope = 'public'; b.textContent = '🌐 Public'; b.disabled = true; b.title = 'Signed out: notes are public. Sign in for private notes.'; return; }
@@ -340,7 +342,7 @@
       }
 
       try {
-        const notesRef = ref(database, `${notesRoot(curScope)}/notes/${nameToSave}`);
+        const notesRef = ref(database, `${notesPath(notesRoot(curScope))}/${nameToSave}`);
         const snapshot = await get(notesRef);
         const existingNote = snapshot.val();
         const rec = { name: nameToSave, note: noteToSave, timestamp, enc: encFlag };
@@ -409,7 +411,7 @@
           await remove(ref(database, path)); st.textContent = `"${name}" unshared.`; return;
         }
         if (cur) { st.textContent = `Someone else already shares a note called "${name}" - rename yours to share it.`; return; }
-        const saved = (await get(ref(database, `${notesRoot(curScope)}/notes/${name}`))).val();
+        const saved = (await get(ref(database, `${notesPath(notesRoot(curScope))}/${name}`))).val();
         if (!saved) { alert('Save the note first - sharing sends the saved copy.'); return; }
         let me = '';
         try { me = (await get(ref(database, `share/directory/${DATABASE_BASE_PATH}/name`))).val() || ''; } catch (e) { }
@@ -421,14 +423,14 @@
     document.getElementById('scope-btn').addEventListener('click', async () => {
       if (!signedIn()) return;
       const to = curScope === 'public' ? 'private' : 'public', name = nameInput.value.trim(), st = document.getElementById('share-status');
-      const here = name ? (await get(ref(database, `${notesRoot(curScope)}/notes/${name}`))).val() : null;
+      const here = name ? (await get(ref(database, `${notesPath(notesRoot(curScope))}/${name}`))).val() : null;
       if (!here) { curScope = to; paintScope(); st.textContent = `New notes will save as ${to === 'public' ? 'Public (anyone can see it in the list)' : 'Private (only you)'}.`; return; }
       if (to === 'public' && !isEncrypted(here.note) && !confirm(`Make "${name}" public? It is not locked, so anyone who opens Notes can read it.`)) return;
-      const there = (await get(ref(database, `${notesRoot(to)}/notes/${name}`))).val();
+      const there = (await get(ref(database, `${notesPath(notesRoot(to))}/${name}`))).val();
       if (there && !confirm(`A ${to} note called "${name}" already exists. Replace it?`)) return;
       try {
-        await set(ref(database, `${notesRoot(to)}/notes/${name}`), { ...here, timestamp: new Date().toISOString() });
-        await remove(ref(database, `${notesRoot(curScope)}/notes/${name}`));
+        await set(ref(database, `${notesPath(notesRoot(to))}/${name}`), { ...here, timestamp: new Date().toISOString() });
+        await remove(ref(database, `${notesPath(notesRoot(curScope))}/${name}`));
         curScope = to; paintScope(); st.textContent = `"${name}" moved to ${to === 'public' ? 'Public' : 'Private'}.`;
       } catch (e) { st.textContent = 'Not moved: ' + (e.code || e.message || e); }
     });
@@ -451,7 +453,7 @@
         }
 
         try {
-          const notesRef = ref(database, `${notesRoot(scope)}/notes`);
+          const notesRef = ref(database, `${notesPath(notesRoot(scope))}`);
           const snapshot = await get(notesRef);
           const notes = snapshot.val();
 
@@ -460,7 +462,7 @@
             if (noteId) {
               const deletedNote = notes[noteId];
               storeDeletedNote(deletedNote.name, deletedNote.note);
-              await set(ref(database, `${notesRoot(scope)}/notes/${noteId}`), null);
+              await set(ref(database, `${notesPath(notesRoot(scope))}/${noteId}`), null);
               if (loadedHere) clearNoteInputs();
               console.log(`Deleted the note with name: ${nameToDelete}`);
             } else {
@@ -496,7 +498,7 @@
         unsub();
         unsub = null;
       }
-      const notesRef = ref(database, `${DATABASE_BASE_PATH}/notes`);
+      const notesRef = ref(database, `${notesPath(DATABASE_BASE_PATH)}`);
       let own = {}, shared = {}, pub = {};
       const draw = () => {
         noteList.innerHTML = '';
@@ -589,7 +591,7 @@
         const lastDeletedNote = deletedNotes.pop();
         const { name, note } = lastDeletedNote;
 
-        const notesRef = ref(database, `${DATABASE_BASE_PATH}/notes/${name}`);
+        const notesRef = ref(database, `${notesPath(DATABASE_BASE_PATH)}/${name}`);
         try {
           await set(notesRef, { name, note, timestamp: new Date().toISOString() });
           console.log(`Undone the deletion of the note with name: ${name}`);
