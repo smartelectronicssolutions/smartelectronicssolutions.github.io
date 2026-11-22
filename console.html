@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.310"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.311"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -7357,21 +7357,21 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
           // › takes it back; any new address (typed, link, same-origin click) clears fwd like a real browser. ⟳ reloads, ⌂ = the hub.
           const hist = [], fwd = [], paintBack = () => { const b = $('#dc-web-back'), f = $('#dc-web-fwd'); if (b) b.disabled = hist.length < 2; if (f) f.disabled = !fwd.length; };
           let backing = false;
-          const go = raw => { let u = String(raw || '').trim(); if (!u) return; if (!/^https?:\/\//i.test(u)) u = (/\s/.test(u) || !/\./.test(u)) ? 'https://html.duckduckgo.com/html/?q=' + encodeURIComponent(u) : 'https://' + u;
-              $('#dc-web-url').value = u; $('#dc-web-frame').src = u; try { localStorage.setItem('dc_web_url', u); } catch (_) {}
+          const go = raw => { let u = String(raw || '').trim(); if (!u) return; if (!/^https?:\/\//i.test(u) && !/^(blob|data|about):/i.test(u)) u = (/\s/.test(u) || !/\./.test(u)) ? 'https://html.duckduckgo.com/html/?q=' + encodeURIComponent(u) : 'https://' + u;
+              $('#dc-web-url').value = u; $('#dc-web-frame').src = u; if (!/^(blob|data):/i.test(u)) try { localStorage.setItem('dc_web_url', u); } catch (_) {}   /* BLOB LINKS (1.0.311, L 11-22 'Not loading' - bar read https://blob:https://luiss...): a page in the frame opened a blob: file, go() glued https:// on the front. blob:/data:/about: now pass through as-is and are never remembered (a blob dies with the page that made it) */
               if (!backing && hist[hist.length - 1] !== u) { hist.push(u); fwd.length = 0; } backing = false; paintBack(); };
           $('#dc-web-back').onclick = () => { if (hist.length < 2) return; fwd.push(hist.pop()); backing = true; go(hist[hist.length - 1]); };
           $('#dc-web-fwd').onclick = () => { if (!fwd.length) return; const u = fwd.pop(); hist.push(u); backing = true; go(u); };
           $('#dc-web-reload').onclick = () => { const f = $('#dc-web-frame'); try { f.contentWindow.location.reload(); } catch (_) { const u = hist[hist.length - 1] || f.src; f.src = 'about:blank'; setTimeout(() => { f.src = u; }, 30); } };
           $('#dc-web-home').onclick = () => go('https://luissolutions.us/hub.html');
           $('#dc-web-frame').addEventListener('load', () => { try { const h = $('#dc-web-frame').contentWindow.location.href;
-              if (h && h !== 'about:blank' && hist[hist.length - 1] !== h) { hist.push(h); fwd.length = 0; $('#dc-web-url').value = h; try { localStorage.setItem('dc_web_url', h); } catch (_) {} paintBack(); } } catch (_) { /* cross-origin: unknowable */ } });
+              if (h && h !== 'about:blank' && hist[hist.length - 1] !== h) { hist.push(h); fwd.length = 0; $('#dc-web-url').value = h; if (!/^(blob|data):/i.test(h)) try { localStorage.setItem('dc_web_url', h); } catch (_) {} paintBack(); } } catch (_) { /* cross-origin: unknowable */ } });
           const openWeb = () => { if (P.unsub) { P.unsub(); P.unsub = null; } if (P.unsubX) { P.unsubX.forEach(f => f()); P.unsubX = null; }
               P.open = null; P.other = null; $('#dc-peer-home').hidden = true; $('#dc-peer-log').hidden = true; $('#dc-peer-form').hidden = true; $('#dc-peer-back').hidden = false;
               $('#dc-peer-web').hidden = false; nm.textContent = '🌐 Browser'; presHead(); { const k = $('#dc-peer-word'); if (k) k.hidden = true; } { const bb = $('#dc-peer-bar'); if (bb) { bb.hidden = true; bb.innerHTML = ''; } }
-              if (!$('#dc-web-frame').src) { let last = ''; try { last = localStorage.getItem('dc_web_url') || ''; } catch (_) {} go(last || 'https://luissolutions.us/hub.html'); } };
+              if (!$('#dc-web-frame').src) { let last = ''; try { last = localStorage.getItem('dc_web_url') || ''; } catch (_) {} if (/^(https?:\/\/)?(blob|data):/i.test(last)) last = ''; go(last || 'https://luissolutions.us/hub.html'); } };
           window.__dcOpenWeb = () => { peerSplit(); openWeb(); };   // the drawer's 🌐 Browser row (#1)
-          window.__dcWebStart = () => { if (!$('#dc-web-frame').src) { let last = ''; try { last = localStorage.getItem('dc_web_url') || ''; } catch (_) {} go(last || 'https://luissolutions.us/hub.html'); } };   // the aside browser (2 panes)
+          window.__dcWebStart = () => { if (!$('#dc-web-frame').src) { let last = ''; try { last = localStorage.getItem('dc_web_url') || ''; } catch (_) {} if (/^(https?:\/\/)?(blob|data):/i.test(last)) last = ''; go(last || 'https://luissolutions.us/hub.html'); } };   // the aside browser (2 panes)
           nm.style.cursor = 'pointer'; nm.style.touchAction = 'manipulation'; nm.style.userSelect = 'none';   // fast taps on a phone each count
           // from ANY People view now (2026-10-22, L: "triple click not working" - it only fired on the People list, not inside a chat)
           nm.addEventListener('click', () => { const now = Date.now(); tp.n = now - tp.t < 650 ? tp.n + 1 : 1; tp.t = now;
