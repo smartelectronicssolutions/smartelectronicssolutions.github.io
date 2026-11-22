@@ -547,7 +547,7 @@
         if (p.group) {
           const st = p.name.split('_')[2]; alpha = eyeA[st];
           if (st === 'closed' && alpha > 0) { /* closed drawn under half */ }
-          if (st !== 'closed') { mask = 1; shx = -P.eyeX * 3.5 * this.K / p.w; shy = -P.eyeY * 2.0 * this.K / p.h; }
+          if (st !== 'closed' && p.gaze !== false) { mask = 1; shx = -P.eyeX * 3.5 * this.K / p.w; shy = -P.eyeY * 2.0 * this.K / p.h; }   // a rig part with "gaze": false (lids + lashes, e.g. the half-blink patch) is not slid by the gaze
           if (alpha <= 0.001) continue;
         }
         if (this.opts.noBg && p.kind === 'bg') continue;          // backdrop mode: character only, page shows through
