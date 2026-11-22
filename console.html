@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.288"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.289"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1164,6 +1164,14 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                         <label class="dc-chk"><input type="checkbox" id="dc-bot-voice-on"> Speak replies</label>
                         <div class="dc-bot-row"><button class="dc-btn sm" id="dc-bot-av-save" type="button">Save avatar</button><span class="meta" id="dc-bot-av-status"></span></div>
                     </div>
+                    <!-- COMPANION EXTRA pictures (1.0.289): the picture settings onlinechat's Persona has; same chat/bot nodes; empty = the defaults -->
+                    <div id="dc-bot-pic" hidden style="margin-top:12px">
+                        <div class="meta" style="margin:0 0 4px;font-weight:600">Pictures</div>
+                        <label>Picture model <input id="dc-bot-pic-model" maxlength="120" placeholder="default"></label>
+                        <label>Character prompt <textarea id="dc-bot-pic-char" rows="4" placeholder="default"></textarea></label>
+                        <label>Negative prompt <textarea id="dc-bot-pic-neg" rows="3" placeholder="default"></textarea></label>
+                        <div class="dc-bot-row"><button class="dc-btn sm" id="dc-bot-pic-save" type="button">Save pictures</button><span class="meta" id="dc-bot-pic-status"></span></div>
+                    </div>
                     <div class="meta" style="margin-top:8px">One bot, both places: these are the settings onlinechat reads too. She also saves memories herself with [MEMORY:key=value].</div>
                 </div>
             </div>
@@ -1685,12 +1693,13 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // the stamp rides the name line too (L, 2026-09-24: "also after where it says Droplet or its name")
             // WAIT LINE (2026-09-24, L: "when I'm waiting for something can it show how much token count then some
             // other useful bit of info about backend"): a pending bubble carries a live line painted by paintWait().
-            const wait = pend ? `<div class="dc-wait" data-k="${esc(t.__k || '')}"></div>` : '';
+            const wait = pend ? `<div class="dc-wait" data-k="${esc(t.__k || '')}"></div>` + (t.pic ? `<button type="button" class="dc-btn ghost sm" data-pic-x="${esc(t.__k || '')}" style="margin-top:6px" title="stop drawing">✕ cancel</button>` : '') : '';   // 1.0.289: a picture being drawn can be stopped
             // MESSENGER KIT (2026-10-15): reply quote, attachments, reaction, ✓/✓✓ ticks, big lone emoji, YouTube card
             const qt = t.replyTo && t.replyTo.text ? `<div class="dc-quote" data-jump="${esc(t.replyTo.k || '')}" title="tap to jump to it"><b>↩ ${esc(t.replyTo.who || '')}</b> ${esc(String(t.replyTo.text).slice(0, 140))}</div>` : '';
             const okUrl = u => /^https:\/\/[^\s"'`<>]+$/.test(String(u || ''));
             const att = Array.isArray(t.att) ? `<div class="dc-att">${t.att.filter(a => a && okUrl(a.url)).map(a => /^image\//.test(a.type || '')
                 ? `<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer"><img src="${esc(a.url)}" loading="lazy" alt="${esc(a.name || 'photo')}"></a>`
+                : /^video\//.test(a.type || '') ? `<video controls playsinline preload="metadata" src="${esc(a.url)}" style="max-width:min(280px,100%);max-height:320px;border-radius:8px;display:block"></video>`   /* 1.0.289: a clip the account's bot made */
                 : /^audio\//.test(a.type || '') ? `<div><a class="file" href="${esc(a.url)}" target="_blank" rel="noopener noreferrer">🎙 ${esc(a.name || 'voice note')}</a><audio controls preload="none" src="${esc(a.url)}"></audio></div>`
                 : `<a class="file" href="${esc(a.url)}" target="_blank" rel="noopener noreferrer">📄 ${esc(a.name || 'file')}</a>`).join('')}</div>` : '';
             const rx = t.react ? `<span class="dc-react" title="${R ? 'reaction' : 'your reaction - tap to remove'}">${esc(t.react)}</span>` : '';
@@ -5169,6 +5178,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // a NEW finished reply from this account's bot (page Local = brainAI 'local', se-hosted = 'yuki' / persona yuki) in the open tab is
         // spoken once; everything already on screen when the companion came up counts as seen (no reading the history back).
         window.__dcCmpTurns = obj => {
+            try { cmpPicOrphans(obj); } catch (_) {}
             if (!cmpActive()) { CMP.seen = null; return; }
             const isBot = t => t && t.s === 'D' && !t.pending && (t.brainAI === 'local' || t.brainAI === 'yuki' || t.persona === 'yuki');
             if (!CMP.seen) { CMP.seen = new Set(Object.keys(obj || {}).filter(k => isBot(obj[k]))); return; }
@@ -5272,6 +5282,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         }
         function cmpFillPanel() {
             const box = $('#dc-bot-av'); if (!box) return;
+            if (CMP.picFlag !== CMP.flag) { CMP.picFlag = CMP.flag; cmpFillPic().catch(() => {}); }   // the picture fields follow the same switch (read once per switch)
             box.hidden = !CMP.flag; if (!CMP.flag) return;
             const c = CMP.cfg, style = c.avatarStyle === '3d' ? '3d' : '2d';
             CMP_PICK['2d'] = CMP_KEY_RE.test(c.avatar || '') ? c.avatar : CMP_DEFAULT;
@@ -5309,6 +5320,142 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 else if (s.state === 'failed') cmpNote('outfit change failed - outfit unchanged', true, 10000); else cmpNote('');
             }, 4000);
         }
+        // ---- PICTURES (1.0.289, L 11-21: "the send pic have that work in here" / "can the image gen be brought over in the same way") ----
+        // Same extra, same target: with the companion flag on and the 🦙 target picked, a picture ask ("send me a pic of...",
+        // "draw yourself...", "close-up", then "more" / "another") never goes to the chat model - like onlinechat, the page asks
+        // Stable Diffusion itself (chat.luissolutions.us/sd/generate) with this account's chat/bot sdModel / charPrompt / negPrompt
+        // (public/chat/bot/sdModel, then onlinechat's defaults). Each picture is uploaded to the account's own Storage
+        // ({uid}/console/attach/<year>/, where chat photos already go) and rides the bot's bubble as `att`, so it survives a
+        // reload and shows on every device. "animate" asks start a clip on the animate proxy the same way. The bubble is pending
+        // ("drawing 1/3…") with a ✕ cancel (POST /sd/interrupt). It works the same whether the bot's words come from the page or
+        // from a daemon: the page draws either way. NOT ported: onlinechat's explicit (NSFW) branch - console pictures use the
+        // prompts as saved, and the default negative prompt keeps nudity out. Encrypted tabs are left alone (no picture there).
+        const CMP_SD = 'https://chat.luissolutions.us/sd/generate', CMP_ANIM = 'https://animate.luissolutions.us', CMP_SD_MODEL = 'meinamix_v12Final';
+        const CMP_IMG_RE = /\b(draw|sketch|paint|generate|make|create|picture|image|photo|selfie|pic|show)\b.{0,60}\b(you\w*)\b|\bclose[- ]?up\b|\bclose[- ]?shot\b|\bnear[- ]?shot\b|\bhead[- ]?shot\b|\bbust[- ]?shot\b|\bhalf[- ]?body\b|\b(send|give|show)\b.{0,25}\b(pic|photo|image|picture|selfie|drawing|sketch)\b/i;
+        const CMP_MORE_RE = /^\s*(more|another\s*(one)?|again|one more|do it again|send more|sure|ok|okay|yes|yeah|yep|go ahead|do it)\s*[!~.]*\s*$/i;
+        const CMP_ANIM_RE = /\banimate\b/i, CMP_HQ_RE = /\b(high.?quality|high.?res(olution)?|hq|4k|detailed|hd|big|large)\b/i;
+        const CMP_CHAR = '(masterpiece:1.4), (best quality:1.4), (solo:1.5), 1girl, (white hair:1.3), long hair, (purple eyes:1.3), (pointy elf ears:1.3), (both ears visible:1.2), (petite:1.4), slender, clothed, dressed, anime style, (perfect anatomy:1.3), (correct proportions:1.3)';   // onlinechat's default character
+        const CMP_NEG = '(worst quality:1.5), (low quality:1.5), (extra limbs:1.6), (extra arms:1.5), (extra ears:1.1), (animal ears:1.3), cat ears, missing ear, asymmetrical ears, bad anatomy, bad hands, ugly, deformed, nude, naked, nsfw, explicit, realistic, 3d, photo, blurry, 2girls, multiple girls, multiple people, duo, group';
+        const CMP_PIC = { runs: {}, last: null, miss: 0, orph: {} };
+        function cmpPicCount(text) {   // "send 3 pics" / "a couple of pictures" - capped at 5 (onlinechat's rule)
+            const W = { one: 1, two: 2, three: 3, four: 4, five: 5, a: 1, an: 1, single: 1, couple: 2, few: 3 };
+            const d = text.match(/\b(?:send|give|show|draw|sketch|make|generate|create|do)\s+(?:me\s+|us\s+)?([1-9])\b|\b([1-9])\s+(?:images?|pictures?|pics?|photos?|selfies?|drawings?|sketches?|shots?)\b/i);
+            if (d) return Math.max(1, Math.min(5, parseInt(d[1] || d[2], 10)));
+            const w = text.match(/\b(?:send|give|show|draw|sketch|make|generate|create|do)\s+(?:me\s+|us\s+)?(one|two|three|four|five|a|an|couple|few)\b|\b(one|two|three|four|five|couple|few)\s+(?:images?|pictures?|pics?|photos?|selfies?|drawings?|sketches?|shots?)\b/i);
+            return w ? Math.max(1, Math.min(5, W[(w[1] || w[2]).toLowerCase()] || 1)) : 1;
+        }
+        function cmpPicScene(req) {
+            const r = req.toLowerCase();
+            if (/close[- ]?up|close[- ]?shot/.test(r)) return '(close-up:1.5), (portrait:1.5), (face focus:1.4), upper body, detailed face, detailed eyes';
+            if (/head[- ]?shot/.test(r)) return '(portrait:1.5), (head and shoulders:1.4), (face focus:1.4), close-up, detailed face';
+            if (/near[- ]?shot/.test(r)) return '(medium close-up:1.4), (portrait:1.3), upper body, detailed face, detailed eyes';
+            if (/bust[- ]?shot|half[- ]?body/.test(r)) return '(bust shot:1.4), (upper body:1.4), from waist up, front view';
+            const s = req.replace(/\b(draw|sketch|paint|generate|make|create|show|send|give|picture|image|photo|selfie|pic|pics|pictures|images|photos|yourself|me|a|an|of|please|your|animate)\b/gi, ' ').replace(/\b[1-9]\b/g, ' ').replace(/[^\p{L}\p{N} ,'-]/gu, ' ').replace(/\s+/g, ' ').trim();
+            return s || 'full body, standing, forest glade, magical light';
+        }
+        // what this message is, for the send path: 'img' | 'anim' | null. Counts plain messages so "more" stops meaning a picture after 3 of them.
+        function cmpPicAsk(raw) {
+            if (!CMP.flag || !DC.uid || DC.remote || DC.guest || cmpTarget() !== 'local' || !raw || raw.startsWith('/')) return null;
+            if (CMP_ANIM_RE.test(raw)) return 'anim';
+            if (CMP_IMG_RE.test(raw) || (CMP_PIC.last !== null && CMP_MORE_RE.test(raw))) return 'img';
+            if (CMP_PIC.last !== null && ++CMP_PIC.miss >= 3) { CMP_PIC.last = null; CMP_PIC.miss = 0; }
+            return null;
+        }
+        async function cmpPicCfg() {
+            const rd = async p => { try { const s = await get(ref(database, p)); return s.exists() && s.val() ? String(s.val()) : ''; } catch (_) { return ''; } };
+            const [m, ch, ng] = await Promise.all([rd(`${DC.uid}/chat/bot/sdModel`), rd(`${DC.uid}/chat/bot/charPrompt`), rd(`${DC.uid}/chat/bot/negPrompt`)]);
+            return { model: m || (await rd('public/chat/bot/sdModel')) || CMP_SD_MODEL, char: ch || CMP_CHAR, neg: ng || CMP_NEG };
+        }
+        async function cmpPicStore(blob, name, type) {   // -> an `att` entry in this account's own Storage (same folder + shape as a chat photo)
+            const F = await cmpFb(), path = `${DC.uid}/console/attach/${new Date().getFullYear()}/${Date.now()}_${name}`;
+            const r = F.storageRef(F.storage, path); await F.uploadBytes(r, blob, { contentType: type });
+            return { name, type, size: blob.size, url: await F.getDownloadURL(r), path };
+        }
+        const cmpPick = a => a[Math.floor(Math.random() * a.length)];
+        async function cmpPicRun(kind, raw, tpc, turns) {
+            const more = kind === 'img' && CMP_PIC.last !== null && CMP_MORE_RE.test(raw) && !CMP_IMG_RE.test(raw), req = more ? CMP_PIC.last : raw;
+            const count = kind === 'img' ? cmpPicCount(raw) : 1;
+            if (kind === 'img') { CMP_PIC.last = req; CMP_PIC.miss = 0; }
+            const say = kind === 'anim' ? cmpPick(['Animating now - give me a few minutes...', 'Okay, rendering a clip for you...', "Hold on, the camera's rolling...", 'Animating - this might take a bit...'])
+                : count > 1 ? cmpPick([`${count} of them? Okay, give me a sec...`, `${count}? Alright, here I go.`, `${count} pictures coming up...`, `Okay! ${count} pics, drawing now.`])
+                : cmpPick(['Alright, just a moment...', "Okay, I'll try my best.", 'Sure, here I go.', 'Okay, here you go.', 'Right now? Okay...']);
+            const pendRef = push(ref(database, turns)), k = pendRef.key, run = CMP_PIC.runs[k] = { cancel: false, ctl: null }, att = [];
+            const label = i => kind === 'anim' ? '🎬 animating… (a few minutes)' : count > 1 ? `🎨 drawing ${i}/${count}…` : '🎨 drawing…';
+            await set(pendRef, { s: 'D', who: DC.botWho || 'Local', text: `${say}\n\n${label(1)}`, ts: Date.now(), pending: true, local: true, brainAI: 'local', pic: kind, ...tpc });
+            const stEl = $('#dc-chat-status'), stTxt = kind === 'anim' ? '🎬 animating…' : '🎨 drawing…'; if (stEl) stEl.textContent = stTxt;   // replaces the send path's "sending…"
+            let fail = '';
+            try {
+                const c = await cmpPicCfg(), prompt = `${c.char}, ${cmpPicScene(req)}`;
+                if (kind === 'anim') {
+                    const st = await fetch(`${CMP_ANIM}/animate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, negative: c.neg }) });
+                    if (!st.ok) throw new Error('start ' + st.status);
+                    const jobId = (await st.json()).jobId; if (!jobId) throw new Error('no jobId');
+                    let url = '';
+                    for (let i = 0; i < 96 && !run.cancel; i++) {   // up to 8 min, every 5 s (onlinechat's numbers)
+                        await new Promise(r => setTimeout(r, 5000));
+                        let s = null; try { const sr = await fetch(`${CMP_ANIM}/animate/${encodeURIComponent(jobId)}`); if (sr.ok) s = await sr.json(); } catch (_) {}
+                        if (s && s.status === 'done') { url = `${CMP_ANIM}/video/${encodeURIComponent(jobId)}`; break; }
+                        if (s && s.status === 'failed') throw new Error(s.error || 'render failed');
+                    }
+                    if (!run.cancel) {
+                        if (!url) throw new Error('render timeout');
+                        // keep the clip with the account when the proxy lets the page read it; else the bubble links the proxy's own copy
+                        try { const b = await (await fetch(url)).blob(); if (!b.size) throw 0; att.push(await cmpPicStore(b, 'bot-clip.mp4', 'video/mp4')); }
+                        catch (_) { att.push({ name: 'bot-clip.mp4', type: 'video/mp4', url }); }
+                    }
+                } else {
+                    const hq = CMP_HQ_RE.test(req);
+                    for (let i = 0; i < count && !run.cancel; i++) {
+                        if (i) await update(pendRef, { text: `${say}\n\n${label(i + 1)}`, att: att.slice() });
+                        run.ctl = new AbortController();
+                        const res = await fetch(CMP_SD, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: run.ctl.signal,
+                            body: JSON.stringify({ prompt, negative_prompt: c.neg, model: c.model, steps: hq ? 30 : 15, cfg_scale: 7.5, width: hq ? 896 : 512, height: hq ? 1152 : 640 }) });
+                        if (!res.ok) throw new Error('SD ' + res.status);
+                        const sd = await res.json(); if (!sd.ok || !sd.image) throw new Error(sd.error || 'no image');
+                        if (run.cancel) break;
+                        const bin = atob(sd.image), u8 = new Uint8Array(bin.length); for (let j = 0; j < bin.length; j++) u8[j] = bin.charCodeAt(j);
+                        att.push(await cmpPicStore(new Blob([u8], { type: 'image/png' }), 'bot-picture.png', 'image/png'));
+                    }
+                }
+            } catch (e) { if (!run.cancel) { fail = String((e && e.message) || e).slice(0, 120); console.warn('[companion] picture failed:', fail); } }
+            delete CMP_PIC.runs[k];
+            const text = run.cancel ? (att.length ? say + '\n\n⛔ stopped - kept what was done.' : '⛔ cancelled.')
+                : fail ? (att.length ? say + '\n\n⚠ The rest did not come out - sorry!' : kind === 'anim' ? "⚠ The clip didn't come together this time - sorry!" : '⚠ Something went wrong with the picture - sorry!')
+                : say;
+            try { await update(pendRef, { text, att: att.length ? att : null, pending: null, ts: Date.now() }); } catch (_) {}
+            if (stEl && stEl.textContent === stTxt) stEl.textContent = '';
+        }
+        function cmpPicCancel(k) {
+            const run = CMP_PIC.runs[k];
+            if (run) { run.cancel = true; try { run.ctl && run.ctl.abort(); } catch (_) {} }
+            try { fetch(CMP_SD.replace('/sd/generate', '/sd/interrupt'), { method: 'POST', keepalive: true }).catch(() => {}); } catch (_) {}
+            if (!run && DC.base && ((DC.chatTurns || {})[k] || {}).pending) update(ref(database, `${DC.base}/chat/turns/${k}`), { text: '⛔ cancelled.', pending: null, ts: Date.now() }).catch(() => {});   // a bubble another page (or a reload) left behind
+        }
+        document.addEventListener('click', e => { const b = e.target.closest && e.target.closest('[data-pic-x]'); if (!b) return; e.preventDefault(); e.stopPropagation(); b.disabled = true; cmpPicCancel(b.dataset.picX); }, true);
+        addEventListener('pagehide', () => { if (Object.keys(CMP_PIC.runs).length) try { navigator.sendBeacon(CMP_SD.replace('/sd/generate', '/sd/interrupt')); } catch (_) {} });
+        // a drawing bubble nobody is drawing any more (the page that started it was closed): say so after 12 min instead of spinning for good
+        function cmpPicOrphans(obj) {
+            if (!CMP.flag || !DC.base) return;
+            for (const [k, t] of Object.entries(obj || {})) {
+                if (!t || !t.pic || !t.pending || CMP_PIC.runs[k] || CMP_PIC.orph[k] || Date.now() - (t.ts || 0) < 12 * 60 * 1000) continue;
+                CMP_PIC.orph[k] = 1;
+                update(ref(database, `${DC.base}/chat/turns/${k}`), { text: "⚠ The picture didn't finish (the page that was drawing it was closed). Ask again.", pending: null }).catch(() => {});
+            }
+        }
+        window.__dcCmpPic = { ask: cmpPicAsk, run: cmpPicRun, cancel: cmpPicCancel, scene: cmpPicScene, count: cmpPicCount };
+        // picture settings: the same chat/bot nodes onlinechat's Persona writes (sdModel, charPrompt, negPrompt)
+        async function cmpFillPic() {
+            const box = $('#dc-bot-pic'); if (!box) return;
+            box.hidden = !CMP.flag; if (!CMP.flag || !DC.uid) return;
+            const rd = async p => { try { return (await get(ref(database, `${DC.uid}/chat/bot/${p}`))).val() || ''; } catch (_) { return ''; } };
+            const [m, ch, ng] = await Promise.all([rd('sdModel'), rd('charPrompt'), rd('negPrompt')]);
+            $('#dc-bot-pic-model').value = m; $('#dc-bot-pic-char').value = ch; $('#dc-bot-pic-neg').value = ng;
+        }
+        { const b = $('#dc-bot-pic-save'); if (b) b.addEventListener('click', async () => {
+            if (!DC.uid || !CMP.flag) return; const st = $('#dc-bot-pic-status'); st.textContent = 'saving…';
+            try { await update(ref(database, `${DC.uid}/chat/bot`), { sdModel: $('#dc-bot-pic-model').value.trim() || null, charPrompt: $('#dc-bot-pic-char').value.trim() || null, negPrompt: $('#dc-bot-pic-neg').value.trim() || null }); st.textContent = '✓ saved'; }
+            catch (e) { st.textContent = 'failed: ' + (e.message || e); }
+        }); }
         // ---- wiring: once signed in, watch the flag; while it is on, watch this account's avatar settings ----
         (function cmpWire(n) {
             if (!DC.uid) { if (n < 120) setTimeout(() => cmpWire(n + 1), 1000); return; }
@@ -5596,6 +5743,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 // to droplet I can't post until local is done"): the reply lands in its own pending bubble whenever
                 // ollama answers, exactly like a Droplet job; the box is yours again the moment it is queued.
                 // one Yuki: L's own login + se up -> the same Yuki runs on se with her tools (job target 'yuki'); else the page answers
+                // COMPANION EXTRA pictures (1.0.289): a picture / animate ask to the account's own bot is drawn by the page (never sent to a
+                // chat model or a daemon) - same on both 🦙 paths. Off unless the extra is on; not for an edit or an encrypted tab.
+                if (target === 'local' && !editTurn && !encOn && window.__dcCmpPic) { let kind = null; try { kind = window.__dcCmpPic.ask(raw); } catch (_) {}
+                    if (kind) { window.__dcCmpPic.run(kind, raw, tpc, turns).catch(() => {}); send.disabled = false; ta.focus(); return; } }
                 const jobTarget = target === 'local' && yukiSe() ? 'yuki' : target;
                 if (target === 'local' && jobTarget === 'local') { localReply(prompt, tpc, turns).catch(() => {}); send.disabled = false; ta.focus(); return; }
                 const jref = push(ref(database, `${DC.base}/jobs`));
