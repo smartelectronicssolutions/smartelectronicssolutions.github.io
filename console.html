@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.301"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.302"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -6082,7 +6082,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 // changes when a turn ENDS (the Stop hook reads the transcript), so a pick looked ignored. Hold the pick
                 // as "(switching…)" until the hook publishes anything newer than the pick - whatever it says wins.
                 let pend = DC.modelPending || null;
-                if (pend && ((mm.modelAt && mm.modelAt > pend.at) || Date.now() - pend.at > 3 * 3600e3)) { pend = DC.modelPending = null; }
+                if (pend && ((mm.modelAt && mm.modelAt > pend.at) || Date.now() - pend.at > 15 * 60e3)) { pend = DC.modelPending = null; }   // 15 min (was 3 h): a switch that took posts its label within a minute or two
                 // 1.0.252 (L 2026-11-18 "when Claude is out what does the model dropdown say?" - it kept saying Opus): when the daemon's
                 // failover had GPT/Copilot answer (meta.poolLabel, newer than the last Claude modelAt), the box names THAT, greyed, with
                 // no "(in use)" on any Claude row. The next Claude reply writes a newer modelAt and this clears by itself.
@@ -7014,8 +7014,13 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const ta = $('#dc-chat-in'); if (!ta) return;
             const held = ta.value; ta.value = '/model ' + v;
             DC.modelPending = { v, at: Date.now() }; if (DC.syncModelSel) DC.syncModelSel();   // show "(switching…)" at once
+            // 2026-11-21 (L: "dropdown still says switching for a long period"): picked from a tab that runs its own model
+            // (Priv = Colibri), "/model opus" went to THAT engine, never reached the session, and the box sat on "(switching…)".
+            // The switch is the main session's, whatever tab is open - same flag the Campfire hand uses.
+            DC.mainSession = true;
             sendChat().then(() => { if (held) ta.value = held; })
-                .catch(() => { DC.modelPending = null; if (DC.syncModelSel) DC.syncModelSel(); });
+                .catch(() => { DC.modelPending = null; if (DC.syncModelSel) DC.syncModelSel(); })
+                .finally(() => { DC.mainSession = false; });
         }); }
         { const se = $('#dc-show-emoji'); if (se) {   // same pattern as Recent: per-device, remembered
             const on = (() => { try { return localStorage.getItem('dc_show_emoji') !== '0'; } catch (_) { return true; } })();
