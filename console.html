@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.285"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.286"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -9,6 +9,15 @@
 <link rel="apple-touch-icon" href="assets/img/console-app-180.png">   <!-- PWA (2026-10-21, L "continue with updates"): Safari share -> Add to Home Screen = full-screen console; manifest.json at the repo root (served as JSON everywhere; .webmanifest came out as octet-stream); no service worker yet -->
 <link rel="stylesheet" href="apps/assets/css/online.css">
 <script>try { if (localStorage.getItem("ss-theme") === "light") document.documentElement.classList.add("light"); } catch (e) {}</script>
+<!-- COMPANION EXTRA (2026-11-21): the 3D avatar engine (apps/online/avatar/avatar3d.js) imports these bare names. Must come
+     before the first module script; nothing is fetched until the 3D avatar is actually loaded. -->
+<script type="importmap">
+{ "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+    "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.5.5/lib/three-vrm.module.js"
+} }
+</script>
 <style>
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe UI", system-ui, sans-serif; }
@@ -902,6 +911,25 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         #dc-peer-form { position: relative; }   /* relative: the shared emoji panel anchors here. Gap/padding come from .dc-chat-input - no pane-only overrides (L 2026-09-28: "why aren't we just using the same styling") */
         #dc-peer.nf #dc-peer-form .dc-emoji { bottom: auto; top: calc(100% - 4px); }
         #dc-peer-in.editing { outline: 2px solid var(--dc-amber); }
+        /* COMPANION EXTRA (2026-11-21, L: onlinechat's avatar + voice inside the console, off by default per account):
+           the signed-in account's own bot (the 🦙 target) stands behind the chat log - same box as onlinechat 1.6.3: centred,
+           one third of the chat pane tall, centred between the top of the log and the composer, faded behind the bubbles. */
+        .dc-av { position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+        .dc-av-float { position: absolute; left: 50%; top: calc(50% + (var(--av-top, 60px) - var(--av-bottom, 90px)) / 2); height: 33.333%;
+            translate: -50% -50%; aspect-ratio: 4 / 5; opacity: 0.42; animation: dcavbob 7s ease-in-out infinite; }
+        .dc-av.fullbody .dc-av-float { opacity: 0.5; }
+        @media (min-width: 900px) { .dc-av-float { opacity: 0.9; } .dc-av.fullbody .dc-av-float { opacity: 0.95; } }
+        .dc-av-stage { position: absolute; inset: 0; transform-origin: 50% 50%; will-change: transform; }
+        .dc-av:not(.fullbody):not(.front) .dc-av-stage { -webkit-mask-image: radial-gradient(ellipse 62% 70% at 50% 42%, #000 52%, transparent 100%); mask-image: radial-gradient(ellipse 62% 70% at 50% 42%, #000 52%, transparent 100%); }
+        .dc-av-stage canvas { width: 100%; height: 100%; display: block; }
+        .dc-av.front { z-index: 3; } .dc-av.front .dc-av-float { opacity: 1; }
+        .dc-chat.av-front .dc-chat-input, .dc-chat.av-front #dc-topics { position: relative; z-index: 5; }
+        .dc-av-note { position: absolute; left: 50%; bottom: calc(var(--av-bottom, 90px) + 6px); translate: -50% 0; font-size: .74rem; padding: 2px 10px; border-radius: 999px;
+            color: var(--text); background: color-mix(in srgb, var(--surface) 85%, transparent); border: 1px solid var(--border); white-space: nowrap; }
+        .dc-av-note:empty { display: none; } .dc-av-note.warn { color: var(--dc-amber); }
+        @keyframes dcavbob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1.8%); } }
+        @media (prefers-reduced-motion: reduce) { .dc-av-float { animation: none; } }
+        #dc-bot-av select { width: 100%; }
     </style>
 </head><body>
 <div id="pc-login"><div class="box" id="login-inline">
@@ -949,6 +977,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     <button class="dc-btn ghost sm" id="dc-chat-clear" title="Archive chat: saves this chat to Droplet's memory (with an ollama summary), then clears the screen">📎 Archive chat</button>
                     <!-- 1.0.234 (L 2026-11-16: "add a reload in the settings dropdown to just reload the page") - the phone app has no browser reload button -->
                     <button class="dc-btn ghost sm" id="dc-reload" title="Reload this page (nothing is archived or cleared)" onclick="location.reload()">🔄 Reload page</button>
+                    <!-- COMPANION EXTRA (2026-11-21): shows only while the avatar is up -->
+                    <button class="dc-btn ghost sm" id="dc-av-front" type="button" hidden title="bring the avatar in front of the chat: drag to move, pinch or wheel to zoom, double-tap to reset (3D: Shift+drag turns the camera, Shift+wheel pans, two-finger twist on a phone)">🧍 Avatar to front</button>
                     <!-- the theme rows moved to System > Look (2026-09-27); no gear shortcut (L: "get rid of the looks button, just go to System") -->
                     <label class="dc-chk" id="dc-model-lbl" title="switch the model of Droplet's running session. Sends /model to its terminal on its own line and posts back whatever the terminal says - including 'not found'. Use it when replies come back as 'you have reached your limit'.">🧠 Model<select id="dc-model" style="margin-left:6px;font:inherit;max-width:120px"><option value="">unknown</option><option value="opus">Opus</option><option value="sonnet">Sonnet</option><option value="haiku">Haiku</option><option value="fable">Fable</option><option value="default">default</option></select></label>
                     <!-- 1.0.253 FORCE MODEL (L 2026-11-19: "force a certain AI mode as default ... reset, not save through page reloads"): overrides every
@@ -968,6 +998,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             <!-- CHAT: the unified surface — talk to Droplet; options live in the ⚙ menu up top -->
             <div class="dc-panel active" id="dc-chat-panel">
                 <div class="dc-chat">
+                    <!-- COMPANION EXTRA (2026-11-21): the account's own bot avatar behind the log - only while the extra is on, the 🦙 target is picked and the bot's avatar setting is on -->
+                    <div id="dc-av" class="dc-av" hidden aria-hidden="true"><div class="dc-av-float"><div id="dc-av-stage" class="dc-av-stage"><canvas id="dc-av-canvas"></canvas></div></div><div id="dc-av-note" class="dc-av-note"></div></div>
                     <div id="dc-topics" class="dc-topics"></div>
                     <div id="dc-topic-toast" class="dc-topic-toast"></div>
                     <div id="dc-nav" class="dc-nav"><button type="button" id="dc-totop" title="previous message" aria-label="previous message">⤒</button><button type="button" id="dc-todown" title="next message" aria-label="next message">⤓</button></div>
@@ -1121,6 +1153,15 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                             paint();
                         })();
                     </script>
+                    <!-- COMPANION EXTRA (2026-11-21): the same avatar + voice options onlinechat's Persona had; shown only when the extra is on for this account -->
+                    <div id="dc-bot-av" hidden style="margin-top:12px">
+                        <div class="meta" style="margin:0 0 4px;font-weight:600">avatar + voice (in chat when 🦙 is picked)</div>
+                        <label class="dc-chk"><input type="checkbox" id="dc-bot-av-on"> show the avatar behind the chat</label>
+                        <label>style <select id="dc-bot-av-style"><option value="2d">2.5D (layered)</option><option value="3d">3D (VRM)</option></select></label>
+                        <label>avatar <select id="dc-bot-av-pick"></select></label>
+                        <label class="dc-chk"><input type="checkbox" id="dc-bot-voice-on"> speak replies in the avatar's voice</label>
+                        <div class="dc-bot-row"><button class="dc-btn sm" id="dc-bot-av-save" type="button">Save avatar</button><span class="meta" id="dc-bot-av-status"></span></div>
+                    </div>
                     <div class="meta" style="margin-top:8px">One bot, both places: these are the settings onlinechat reads too. She also saves memories herself with [MEMORY:key=value].</div>
                 </div>
             </div>
@@ -3541,6 +3582,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const R = DC.remote;
             DC.chatTurns = obj;
             if (!R) checkReplyLanded(obj);
+            if (!R && window.__dcCmpTurns) { try { window.__dcCmpTurns(obj); } catch (_) {} }   // COMPANION EXTRA: speak a new bot reply (no-op while off)
             // 1.0.267 (L 2026-11-20): the send arrow pulses only for pending work in this tab and on the same brain/AI route.
             // Another tab, or another brain/model, must not make this composer look busy. Old pending bubbles without brainAI
             // metadata do not pulse; they still expire from the indicator after the normal 30-minute orphan cutoff.
@@ -4840,6 +4882,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // button silently fell back to the old Yuki chat link (2026-09-23). Function
             // declarations hoist; the const they read does not.
             tsel.classList.toggle('has-mark', tsel.value === 'droplet');
+            if (window.__dcCmpSync) { try { window.__dcCmpSync(); } catch (_) {} }   // COMPANION EXTRA: avatar follows the target (window lookup: no TDZ during module eval)
         }
         window.__dcSyncTarget = syncTarget; window.__dcRenderMeta = m => renderMeta(m); window.__dcState = () => ({ guest: !!DC.guest, daemonOn: !!DC.daemonOn, autoLocal: !!DC.autoLocal, userPicked: !!DC.userPickedTarget, base: DC.base });
         window.__dcUserPicked = () => { DC.userPickedTarget = true; DC.autoLocal = false; };   // 1.0.276: the drawer's brain tap is a hand pick too
@@ -4906,6 +4949,384 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             await update(pendRef, { ...encR, pending: null, ts: Date.now() });
             $('#dc-chat-status').textContent = '';
         }
+        // ---- COMPANION EXTRA (2026-11-21, L: "retire the online chat, take all those capabilities and bring them into the console
+        // app, as an extra - off by default for anyone else but on for me" + "it would work with whichever bot the logged in user
+        // is using, defaults are present as is over there") ------------------------------------------------------------------
+        // Gate: {uid}/console/settings/extras/companion === true (per account, nobody's uid in the code). When on AND the 🦙 target
+        // (that account's own bot) is picked AND its {uid}/chat/bot/avatarOn !== false: the bot's avatar stands behind the chat log
+        // and its replies are spoken in the avatar's voice with lip-sync. Same settings + defaults as onlinechat: chat/bot
+        // avatarStyle ('2d'|'3d'), avatar (2.5D key, default 'male'), avatar3d (default 'default'), voiceOn; account rigs from
+        // Storage {uid}/chat/bot/avatar/<key>/. Engines (apps/online/avatar/avatar.js, avatar3d.js) load only on first need.
+        const CMP = { flag: false, cfg: {}, key: null, av: null, loadId: 0, acct2d: [], acct3d: [], seen: null, wired: false,
+            front: false, xf: { x: 0, y: 0, s: 1 }, ptrs: new Map(), lastTap: 0, resetT: null, g: null,
+            gen: 0, audio: null, actx: null, analyser: null, unlocked: false, denied: false, stopCb: null };
+        const CMP_DIR = 'apps/online/avatar/';
+        const CMP_FEM = /\b(female|zira|samantha|aria|jenny|karen|victoria|susan|moira|tessa|ava|allison)\b/i;
+        const CMP_MALE = /\b(male|david|guy|daniel|alex|fred|aaron|mark|james|tom)\b/i;
+        const CMP_AV = {   // the built-ins, exactly as onlinechat has them
+            male:   { label: 'Male',   base: CMP_DIR + 'mario/',  voice: 'am_michael', dv: CMP_MALE, focus: [560, 520] },
+            female: { label: 'Female', base: CMP_DIR + 'female/', voice: 'af_heart',   dv: CMP_FEM,  focus: [620, 500] },
+            floppy: { label: 'Floppy (retro)', base: CMP_DIR + 'floppy/', voice: 'am_michael', dv: CMP_MALE, focus: [512, 640] } };
+        const CMP_3D = { default: { label: 'Default 3D', vrm: CMP_DIR + 'vrm/default.vrm', voice: 'af_heart', dv: CMP_FEM } };
+        const CMP_DEFAULT = 'male', CMP_KEY_RE = /^[A-Za-z0-9_-]{1,40}$/;
+        const cmpCap = k => k.charAt(0).toUpperCase() + k.slice(1);
+        function cmpDef(k) {
+            if (!k) return null;
+            if (k.startsWith('3d:')) { const n = k.slice(3); return CMP_3D[n] || (DC.uid && CMP_KEY_RE.test(n) ? { label: cmpCap(n) + ' (3D)', storage: true, vrm: true, voice: 'af_heart', dv: CMP_FEM } : null); }
+            return CMP_AV[k] || (DC.uid && CMP_KEY_RE.test(k) ? { label: cmpCap(k), storage: true, voice: 'af_heart', dv: CMP_FEM, focus: [560, 520] } : null);
+        }
+        const cmpWantKey = c => c.avatarStyle === '3d' ? '3d:' + (CMP_KEY_RE.test(c.avatar3d || '') ? c.avatar3d : 'default') : (CMP_KEY_RE.test(c.avatar || '') ? c.avatar : CMP_DEFAULT);
+        const cmpTarget = () => (($('#dc-chat-target') || {}).value || '');
+        const cmpActive = () => !!(CMP.flag && DC.uid && !DC.remote && cmpTarget() === 'local' && CMP.cfg.avatarOn !== false);
+        const cmpFb = () => import('./assets/js/firebase-init.js?v=20261011b');
+        function cmpNote(t, warn, ms) {
+            const n = $('#dc-av-note'); if (!n) return; n.textContent = t || ''; n.classList.toggle('warn', !!warn);
+            clearTimeout(CMP.noteT); if (t && ms !== 0) CMP.noteT = setTimeout(() => { n.textContent = ''; }, ms || 6000);
+        }
+        async function cmpListAcct() {   // this account's own Storage rigs: 2.5D = folders with rig*.json, 3D = folders with model.vrm (onlinechat 1.5.2 rule)
+            CMP.acct2d = []; CMP.acct3d = [];
+            try {
+                const F = await cmpFb(); const root = F.storageRef(F.storage, `${DC.uid}/chat/bot/avatar`);
+                const keys = (await F.listAll(root)).prefixes.map(r => r.name).filter(k => CMP_KEY_RE.test(k));
+                const kinds = await Promise.all(keys.map(k => F.listAll(F.storageRef(F.storage, `${DC.uid}/chat/bot/avatar/${k}`))
+                    .then(l => ({ vrm: l.items.some(i => i.name === 'model.vrm'), rig: l.items.some(i => /^rig.*\.json$/.test(i.name)) })).catch(() => ({ vrm: false, rig: true }))));
+                CMP.acct3d = keys.filter((k, i) => kinds[i].vrm); CMP.acct2d = keys.filter((k, i) => kinds[i].rig || !kinds[i].vrm);
+            } catch (e) { console.warn('[companion] account rigs not listed:', e && e.code); }
+        }
+        // ---- layout: the box sits between the top of the log and the composer (same maths as onlinechat's fitBackdrop) ----
+        function cmpFit() {
+            const pane = $('#dc-av'), chat = $('.dc-chat'), log = $('#dc-chat-log'); if (!pane || pane.hidden || !chat || !log) return;
+            pane.style.setProperty('--av-top', log.offsetTop + 'px');
+            pane.style.setProperty('--av-bottom', Math.max(0, chat.clientHeight - (log.offsetTop + log.offsetHeight)) + 'px');
+            const cv = $('#dc-av-canvas'), st = $('#dc-av-stage'); if (!cv || !st) return;
+            const r = st.getBoundingClientRect(); if (!r.width || !r.height) return;
+            const dpr = Math.min(window.devicePixelRatio || 1, 2), sc = Math.min(1, 2400 / Math.max(r.width * dpr, r.height * dpr));
+            cv.width = Math.round(r.width * dpr * sc); cv.height = Math.round(r.height * dpr * sc);
+        }
+        function cmpLoadEngine2d() {
+            if (window.Live2DAvatar) return Promise.resolve();
+            return CMP.eng2d || (CMP.eng2d = new Promise((res, rej) => { const s = document.createElement('script'); s.src = CMP_DIR + 'avatar.js?v=20261121d'; s.onload = res; s.onerror = () => { CMP.eng2d = null; rej(new Error('avatar engine did not load')); }; document.head.appendChild(s); }));
+        }
+        function cmpStorageResolver(key) {
+            const made = [];
+            const fn = async f => { const F = await cmpFb(); const u = URL.createObjectURL(await F.getBlob(F.storageRef(F.storage, `${DC.uid}/chat/bot/avatar/${key}/${f}`))); made.push(u); return u; };
+            fn.free = () => { made.splice(0).forEach(u => URL.revokeObjectURL(u)); };
+            return fn;
+        }
+        function cmpDrop() {   // hide + free GL; the engines stay cached
+            CMP.loadId++; cmpStopSpeaking(); cmpSetFront(false);
+            if (CMP.av) { try { CMP.av.destroy(); } catch (_) {} CMP.av = null; }
+            CMP.key = null; const p = $('#dc-av'); if (p) p.hidden = true;
+            const fb = $('#dc-av-front'); if (fb) fb.hidden = true;
+        }
+        async function cmpLoad(key) {
+            const pane = $('#dc-av'); if (!pane) return;
+            if (!cmpDef(key)) key = CMP_DEFAULT;
+            const def = cmpDef(key), my = ++CMP.loadId;
+            if (CMP.av) { try { CMP.av.destroy(); } catch (_) {} CMP.av = null; }
+            CMP.key = key; pane.hidden = false; pane.classList.remove('fullbody');
+            const fb = $('#dc-av-front'); if (fb) fb.hidden = false;
+            const old = $('#dc-av-canvas'), cv = document.createElement('canvas'); cv.id = 'dc-av-canvas'; old.replaceWith(cv);
+            cmpFit();
+            const resolve = def.storage && !def.vrm ? cmpStorageResolver(key) : undefined;
+            try {
+                let av;
+                if (def.vrm) {
+                    cmpNote('loading the 3D avatar…', false, 0);
+                    const A3 = await import('./apps/online/avatar/avatar3d.js?v=20261121c');
+                    if (CMP.loadId !== my) return;
+                    const o3 = def.storage
+                        ? { load: async () => { const F = await cmpFb(); return (await F.getBlob(F.storageRef(F.storage, `${DC.uid}/chat/bot/avatar/${key.slice(3)}/model.vrm`))).arrayBuffer(); } }
+                        : { url: def.vrm };
+                    av = await A3.create(cv, o3);
+                    cmpNote('');
+                } else {
+                    await cmpLoadEngine2d();
+                    if (CMP.loadId !== my) return;
+                    const res = window.innerWidth >= 900 && matchMedia('(pointer: fine)').matches ? 'rig@2x.json' : 'rig@1.5x.json';
+                    try { av = await window.Live2DAvatar.create(cv, { base: def.base, resolve, seed: 61, focus: def.focus || [560, 520], noBg: true, rigFile: res }); }
+                    catch (e1) { av = await window.Live2DAvatar.create(cv, { base: def.base, resolve, seed: 61, focus: def.focus || [560, 520], noBg: true }); }
+                }
+                if (resolve) resolve.free();
+                if (CMP.loadId !== my) { av.destroy(); return; }
+                CMP.av = av;
+                pane.classList.toggle('fullbody', !!(av.rig && av.rig.fullbody));
+                const fl = pane.querySelector('.dc-av-float'); if (fl) fl.style.aspectRatio = av.W + ' / ' + av.H;
+                cmpFit(); cmpLoadXf(); cmpLoadView();
+                if (CMP.actx) av.useAnalyser(CMP.actx, CMP.analyser, CMP.audio);
+                av.start();
+            } catch (e) {
+                if (resolve) resolve.free();
+                if (CMP.loadId !== my) return;
+                console.warn('[companion]', key, e && (e.code || e.message));
+                if (def.vrm) { cmpNote('the 3D avatar could not load - showing the default', true, 8000); cmpLoad(def.storage ? '3d:default' : CMP_DEFAULT); return; }
+                if (def.storage) { cmpNote('your avatar could not load - showing the default', true, 8000); cmpLoad(CMP_DEFAULT); return; }
+                cmpNote('the avatar could not load - chat still works', true, 8000);
+            }
+        }
+        function cmpSync() {   // run on: flag change, settings change, target change
+            if (!cmpActive()) { if (CMP.key || !($('#dc-av') || {}).hidden) cmpDrop(); return; }
+            const want = cmpWantKey(CMP.cfg);
+            if (want !== CMP.key) cmpLoad(want);
+        }
+        window.__dcCmpSync = cmpSync;
+        // ---- voice: one <audio> + analyser for the mouth, unlocked inside a tap (iOS); Kokoro in the avatar's voice, device voice as fallback ----
+        function cmpEnsureAudio() {
+            if (!cmpActive()) return;
+            if (!CMP.audio) { CMP.audio = new Audio(); CMP.audio.preload = 'auto'; CMP.audio.setAttribute('playsinline', ''); }
+            try {
+                if (!CMP.actx) { const AC = window.AudioContext || window.webkitAudioContext;
+                    if (AC) { CMP.actx = new AC(); CMP.analyser = CMP.actx.createAnalyser(); CMP.analyser.fftSize = 1024; CMP.analyser.smoothingTimeConstant = 0.5;
+                        CMP.analyser.connect(CMP.actx.destination); CMP.actx.createMediaElementSource(CMP.audio).connect(CMP.analyser);
+                        if (CMP.av) CMP.av.useAnalyser(CMP.actx, CMP.analyser, CMP.audio); } }
+                if (CMP.actx && CMP.actx.state === 'suspended') CMP.actx.resume().catch(() => {});
+            } catch (e) { console.warn('[companion] no WebAudio - voice without lip-sync:', e && e.message); }
+            if (!CMP.unlocked) { CMP.unlocked = true; CMP.audio.src = SILENT_MP3; CMP.audio.play().catch(() => { CMP.unlocked = false; }); }
+        }
+        ['pointerdown', 'keydown'].forEach(ev => document.addEventListener(ev, cmpEnsureAudio, { passive: true }));
+        function cmpStopSpeaking() {
+            CMP.gen++;
+            if (CMP.audio) { try { CMP.audio.pause(); } catch (_) {} }
+            const cb = CMP.stopCb; CMP.stopCb = null; if (cb) cb();
+            if (CMP.av) { try { CMP.av.endWords(); } catch (_) {} }
+        }
+        function cmpSpeakable(t) {   // stage directions / links / emoji are shown, never spoken (onlinechat's speakable, trimmed)
+            return cleanReply(String(t || '')).replace(/```[\s\S]*?```/g, ' ').replace(/https?:\/\/\S+/g, ' link ')
+                .replace(/\*\*[\s\S]{1,300}?\*\*/g, ' ').replace(/\*[\s\S]{1,300}?\*/g, ' ').replace(/(^|\s)_[^_]{1,200}_(?=\s|[.,!?]|$)/g, ' ')
+                .replace(/[(\[]\s*([^()\[\]\d]{1,60})\s*[)\]]/g, (m, inner) => inner.trim().split(/\s+/).length <= 7 ? ' ' : m)
+                .replace(/[#>`|]+/g, ' ').replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]/gu, '').replace(/~+/g, '')
+                .replace(/\s*(?:\.{3,}|…)+\s*/g, ', ').replace(/\s+/g, ' ').trim();
+        }
+        function cmpChunks(t, max = 280) {
+            const out = []; let cur = '';
+            for (const s of (t.match(/[^.!?]+[.!?]*\s*/g) || [t])) { if (cur && (cur + s).length > max) { out.push(cur.trim()); cur = ''; } cur += s; while (cur.length > max) { out.push(cur.slice(0, max)); cur = cur.slice(max); } }
+            if (cur.trim()) out.push(cur.trim());
+            return out;
+        }
+        function cmpMood(text) {   // onlinechat's detectMood -> expression
+            const t = (text || '').toLowerCase();
+            if (/sleepy|tired|rest|night|dream|nap|drowsy|yawn|zzz|bedtime/.test(t)) return ['neutral', 1];
+            if (/wow|amazing|exciting|can't wait|definitely|love it|perfect|wonderful|incredible|omg|really\?|no way/.test(t)) return ['happy', 1];
+            if (/hmm|think|wonder|perhaps|maybe|let me|consider|interesting|curious|actually|suppose|might/.test(t)) return ['thinking', 0.8];
+            return ['happy', 0.6];
+        }
+        function cmpPlay(url, gen) {
+            return new Promise(res => {
+                const a = CMP.audio; let settled = false;
+                const done = ok => { if (settled) return; settled = true; a.onended = a.onerror = null; CMP.stopCb = null; res(ok); };
+                a.onended = () => done(true); a.onerror = () => done(false); CMP.stopCb = () => done(true);
+                a.src = url; if (CMP.actx && CMP.actx.state === 'suspended') CMP.actx.resume().catch(() => {});
+                a.play().catch(() => { cmpNote('tap the page once so the voice can play', true); done(false); });
+            });
+        }
+        async function cmpKokoro(text, gen, voice) {   // true = handled; false = use the device voice
+            if (CMP.denied || !CMP.audio) return false;
+            let tok; try { tok = await (await cmpFb()).auth.currentUser?.getIdToken(); } catch (_) { return false; }
+            if (!tok) return false;
+            const clip = async t => { const r = await fetch(TTS_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Firebase-Token': tok }, body: JSON.stringify({ text: t, voice }) });
+                if (r.status === 403) { CMP.denied = true; throw new Error('not allowed'); } if (!r.ok) throw new Error('HTTP ' + r.status);
+                const b = await r.blob(); if (!b.size) throw new Error('empty clip'); return URL.createObjectURL(b); };
+            const parts = cmpChunks(text); let next = clip(parts[0]);
+            for (let i = 0; i < parts.length; i++) {
+                let url; try { url = await next; } catch (e) { if (i === 0) return false; if (gen === CMP.gen) await cmpDevice(parts.slice(i).join(' '), gen); return true; }
+                if (gen !== CMP.gen) { URL.revokeObjectURL(url); return true; }
+                if (i + 1 < parts.length) { next = clip(parts[i + 1]); next.catch(() => {}); }
+                const ok = await cmpPlay(url, gen); URL.revokeObjectURL(url);
+                if (gen !== CMP.gen) return true; if (!ok && i === 0) return false;
+            }
+            return true;
+        }
+        function cmpDevice(text, gen) {
+            return new Promise(res => {
+                if (!('speechSynthesis' in window) || !window.SpeechSynthesisUtterance) return res(false);
+                try { speechSynthesis.cancel(); } catch (_) {}
+                const u = new SpeechSynthesisUtterance(text), pick = (cmpDef(CMP.key) || CMP_AV[CMP_DEFAULT]).dv;
+                const vs = speechSynthesis.getVoices().filter(v => /^en/i.test(v.lang));
+                u.voice = vs.find(v => pick.test(v.name)) || vs.find(v => v.default) || vs[0] || null; u.rate = 1.02;
+                const words = text.split(/\s+/).filter(Boolean); let wi = 0, timer = null, wd = null, settled = false;
+                const feed = () => { if (gen !== CMP.gen || wi >= words.length) { if (CMP.av) CMP.av.endWords(); return; }
+                    const w = words[wi++], dur = 0.09 + w.length * 0.062; if (CMP.av) CMP.av.pushWord(w, dur); timer = setTimeout(feed, dur * 1000); };
+                const end = ok => { if (settled) return; settled = true; clearTimeout(timer); clearTimeout(wd); if (CMP.av) CMP.av.endWords(); CMP.stopCb = null; res(ok); };
+                u.onstart = () => { if (gen === CMP.gen) feed(); }; u.onend = () => end(true); u.onerror = () => end(false); CMP.stopCb = () => end(true);
+                wd = setTimeout(() => end(true), 6000 + text.length * 110);
+                try { speechSynthesis.speak(u); } catch (_) { end(false); }
+            });
+        }
+        async function cmpSay(text) {
+            cmpStopSpeaking();
+            const gen = CMP.gen, clean = cmpSpeakable(text), m = cmpMood(text);
+            if (CMP.av) CMP.av.setExpression(m[0], m[1]);
+            if (!clean || CMP.cfg.voiceOn === false) return;
+            cmpEnsureAudio();
+            const voice = (cmpDef(CMP.key) || CMP_AV[CMP_DEFAULT]).voice;
+            let ok = await cmpKokoro(clean, gen, voice);
+            if (gen !== CMP.gen) return;
+            if (!ok) await cmpDevice(clean, gen);
+            setTimeout(() => { if (gen === CMP.gen && CMP.av) CMP.av.setExpression('neutral', 1); }, 1800);
+        }
+        // a NEW finished reply from this account's bot (page Local = brainAI 'local', se-hosted = 'yuki' / persona yuki) in the open tab is
+        // spoken once; everything already on screen when the companion came up counts as seen (no reading the history back).
+        window.__dcCmpTurns = obj => {
+            if (!cmpActive()) { CMP.seen = null; return; }
+            const isBot = t => t && t.s === 'D' && !t.pending && (t.brainAI === 'local' || t.brainAI === 'yuki' || t.persona === 'yuki');
+            if (!CMP.seen) { CMP.seen = new Set(Object.keys(obj || {}).filter(k => isBot(obj[k]))); return; }
+            const topic = DC.topic || '';
+            for (const [k, t] of Object.entries(obj || {})) {
+                if (!isBot(t) || CMP.seen.has(k)) continue;
+                CMP.seen.add(k);
+                if ((t.topic || '') !== topic || Date.now() - (t.ts || 0) > 5 * 60 * 1000) continue;
+                const v = encShow(t); if (!v || v.encLocked || !v.text) continue;
+                cmpSay(v.text);
+            }
+        };
+        // ---- Front mode: pinch / move / wheel / double-tap reset (+ 3D camera), saved per avatar per device (onlinechat's keys) ----
+        const cmpXfKey = () => 'vc_avxf3_' + (CMP.key || CMP_DEFAULT), cmpViewKey = () => 'vc_avview_' + (CMP.key || CMP_DEFAULT);
+        const cmpHasView = () => !!(CMP.av && CMP.av.setView);
+        function cmpApplyXf() { const X = CMP.xf, st = $('#dc-av-stage'); X.s = Math.max(0.5, Math.min(4, X.s)); if (st) st.style.transform = (X.x || X.y || X.s !== 1) ? `translate(${X.x}px, ${X.y}px) scale(${X.s})` : ''; }
+        function cmpLoadXf() { let v = null; try { v = JSON.parse(localStorage.getItem(cmpXfKey()) || 'null'); } catch (_) {} CMP.xf = (v && isFinite(v.x) && isFinite(v.y) && isFinite(v.s)) ? { x: +v.x, y: +v.y, s: +v.s } : { x: 0, y: 0, s: 1 }; cmpApplyXf(); }
+        function cmpSaveXf() { clearTimeout(CMP.xfT); CMP.xfT = setTimeout(() => { cmpFit(); try { localStorage.setItem(cmpXfKey(), JSON.stringify(CMP.xf)); } catch (_) {} }, 150); }
+        function cmpLoadView() { if (!cmpHasView()) return; let v = null; try { v = JSON.parse(localStorage.getItem(cmpViewKey()) || 'null'); } catch (_) {} CMP.av.setView(v && isFinite(v.yaw) && isFinite(v.pitch) && isFinite(v.pan) ? v : null); }
+        function cmpSaveView() { clearTimeout(CMP.viewT); CMP.viewT = setTimeout(() => { if (cmpHasView()) try { localStorage.setItem(cmpViewKey(), JSON.stringify(CMP.av.getView())); } catch (_) {} }, 250); }
+        function cmpSetFront(on) {
+            CMP.front = !!on && !!CMP.av;
+            const p = $('#dc-av'), ch = $('.dc-chat'), b = $('#dc-av-front');
+            if (p) p.classList.toggle('front', CMP.front); if (ch) ch.classList.toggle('av-front', CMP.front);
+            if (b) b.textContent = CMP.front ? '🧍 Avatar to back' : '🧍 Avatar to front';
+            if (CMP.front) cmpNote('front: drag to move, pinch or wheel to zoom, double-tap to reset' + (cmpHasView() ? ' · Shift+drag / twist turns the camera' : ''), false, 6000);
+        }
+        { const b = $('#dc-av-front'); if (b) b.addEventListener('click', () => cmpSetFront(!CMP.front)); }
+        const CMP_NOT_HERS = '.dc-bar, .dc-chat-input, #dc-topics, .dc-pop, #dc-compose';
+        function cmpHit(cx, cy) {
+            if (!CMP.front || !CMP.av) return false;
+            const c = $('#dc-av-canvas'), r = c.getBoundingClientRect();
+            if (cx < r.left || cx > r.right || cy < r.top || cy > r.bottom || !r.width) return false;
+            const k = c.width / r.width; return CMP.av.alphaAt((cx - r.left) * k, (cy - r.top) * k, Math.max(2, 8 * k)) > 20;
+        }
+        const cmpPts = () => [...CMP.ptrs.values()];
+        const cmpDist = () => { const [a, b] = cmpPts(); return Math.hypot(a.x - b.x, a.y - b.y); };
+        const cmpAng = () => { const [a, b] = cmpPts(); return Math.atan2(b.y - a.y, b.x - a.x); };
+        const cmpMid = () => { const [a, b] = cmpPts(); return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; };
+        function cmpGStart() {
+            const one = cmpPts()[0], two = CMP.ptrs.size >= 2;
+            CMP.g = { x: CMP.xf.x, y: CMP.xf.y, s: CMP.xf.s, d: two ? cmpDist() : 0, m: two ? cmpMid() : { x: one.x, y: one.y }, v: cmpHasView() ? CMP.av.getView() : null, a: two ? cmpAng() : 0, twist: false };
+            CMP.g.orbit = !!(CMP.g.v && CMP.ptrs.size === 1 && CMP.orbitKey);
+        }
+        document.addEventListener('pointerdown', e => {
+            if (!CMP.front) return;
+            if (!CMP.ptrs.size && e.target.closest && e.target.closest(CMP_NOT_HERS)) return;
+            const joining = CMP.ptrs.size > 0;
+            if (!joining && !cmpHit(e.clientX, e.clientY)) return;
+            e.stopPropagation(); if (e.pointerType === 'mouse') e.preventDefault();
+            CMP.ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY });
+            CMP.orbitKey = !joining && e.shiftKey; cmpGStart();
+        }, true);
+        document.addEventListener('touchstart', e => {
+            if (!CMP.front) return;
+            if (!CMP.ptrs.size && e.target.closest && e.target.closest(CMP_NOT_HERS)) return;
+            if (CMP.ptrs.size > 0 || [...e.changedTouches].some(t => cmpHit(t.clientX, t.clientY))) { e.preventDefault(); e.stopPropagation(); }
+        }, { capture: true, passive: false });
+        document.addEventListener('pointermove', e => {
+            if (!CMP.front || !CMP.ptrs.has(e.pointerId)) return;
+            e.stopPropagation();
+            const p = CMP.ptrs.get(e.pointerId); p.x = e.clientX; p.y = e.clientY; const G = CMP.g;
+            if (G.orbit && CMP.ptrs.size === 1) { CMP.av.setView({ yaw: G.v.yaw - (e.clientX - G.m.x) * 0.01, pitch: G.v.pitch + (e.clientY - G.m.y) * 0.006, pan: G.v.pan }); cmpSaveView(); return; }
+            if (CMP.ptrs.size >= 2 && G.d) {
+                const m = cmpMid(); CMP.xf.s = G.s * cmpDist() / G.d; CMP.xf.x = G.x + (m.x - G.m.x); CMP.xf.y = G.y + (m.y - G.m.y);
+                if (G.v) { let da = cmpAng() - G.a; da = Math.atan2(Math.sin(da), Math.cos(da));
+                    if (!G.twist && Math.abs(da) > 0.17) { G.twist = true; G.a += Math.sign(da) * 0.17; da -= Math.sign(da) * 0.17; }
+                    if (G.twist) { CMP.av.setView({ yaw: G.v.yaw - da, pitch: G.v.pitch, pan: G.v.pan }); cmpSaveView(); } }
+            } else if (CMP.ptrs.size === 1) { CMP.xf.x = G.x + (e.clientX - G.m.x); CMP.xf.y = G.y + (e.clientY - G.m.y); }
+            cmpApplyXf();
+        }, true);
+        function cmpPtrEnd(e) {
+            if (!CMP.ptrs.has(e.pointerId)) return;
+            e.stopPropagation();
+            const p = CMP.ptrs.get(e.pointerId), moved = Math.hypot(p.x - p.x0, p.y - p.y0) > 10;
+            CMP.ptrs.delete(e.pointerId);
+            if (CMP.ptrs.size) { cmpGStart(); return; }
+            if (!moved && e.type === 'pointerup') {
+                const now = Date.now();
+                if (now - CMP.lastTap < 320) { CMP.lastTap = 0; CMP.xf = { x: 0, y: 0, s: 1 }; cmpApplyXf(); if (cmpHasView()) { CMP.av.setView(null); cmpSaveView(); } }
+                else CMP.lastTap = now;
+            }
+            cmpSaveXf();
+        }
+        document.addEventListener('pointerup', cmpPtrEnd, true);
+        document.addEventListener('pointercancel', cmpPtrEnd, true);
+        document.addEventListener('wheel', e => {
+            if (!CMP.front || (e.target.closest && e.target.closest(CMP_NOT_HERS)) || !cmpHit(e.clientX, e.clientY)) return;
+            e.preventDefault(); e.stopPropagation();
+            if (e.shiftKey && cmpHasView()) { const d = e.deltaY || e.deltaX, v = CMP.av.getView(); CMP.av.setView({ yaw: v.yaw, pitch: v.pitch, pan: v.pan - d * 0.0008 }); cmpSaveView(); return; }
+            CMP.xf.s *= Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)); cmpApplyXf(); cmpSaveXf();
+        }, { capture: true, passive: false });
+        // ---- settings: the bot panel's avatar block (same nodes onlinechat's Persona writes) ----
+        const CMP_PICK = { '2d': CMP_DEFAULT, '3d': '3d:default' };
+        function cmpFillPick(style) {
+            const sel = $('#dc-bot-av-pick'); if (!sel) return;
+            const keys = style === '3d' ? [...Object.keys(CMP_3D), ...CMP.acct3d.filter(k => !CMP_3D[k])].map(k => '3d:' + k)
+                                        : [...Object.keys(CMP_AV), ...CMP.acct2d.filter(k => !CMP_AV[k])];
+            sel.innerHTML = keys.filter(k => cmpDef(k)).map(k => `<option value="${attr(k)}">${esc(cmpDef(k).label)}</option>`).join('');
+            const want = CMP_PICK[style]; sel.value = keys.includes(want) ? want : (style === '3d' ? '3d:default' : CMP_DEFAULT);
+        }
+        function cmpFillPanel() {
+            const box = $('#dc-bot-av'); if (!box) return;
+            box.hidden = !CMP.flag; if (!CMP.flag) return;
+            const c = CMP.cfg, style = c.avatarStyle === '3d' ? '3d' : '2d';
+            CMP_PICK['2d'] = CMP_KEY_RE.test(c.avatar || '') ? c.avatar : CMP_DEFAULT;
+            CMP_PICK['3d'] = '3d:' + (CMP_KEY_RE.test(c.avatar3d || '') ? c.avatar3d : 'default');
+            if (CMP.acct3d.indexOf(c.avatar3d) < 0 && CMP_KEY_RE.test(c.avatar3d || '') && !CMP_3D[c.avatar3d]) CMP.acct3d.push(c.avatar3d);   // the saved one is always listed
+            $('#dc-bot-av-on').checked = c.avatarOn !== false; $('#dc-bot-voice-on').checked = c.voiceOn !== false;
+            $('#dc-bot-av-style').value = style; cmpFillPick(style);
+        }
+        { const s = $('#dc-bot-av-style'); if (s) s.addEventListener('change', () => cmpFillPick(s.value === '3d' ? '3d' : '2d')); }
+        { const b = $('#dc-bot-av-save'); if (b) b.addEventListener('click', async () => {
+            if (!DC.uid || !CMP.flag) return;
+            const st = $('#dc-bot-av-status'), style = $('#dc-bot-av-style').value === '3d' ? '3d' : '2d', pick = $('#dc-bot-av-pick').value || '';
+            const w = { avatarOn: $('#dc-bot-av-on').checked, voiceOn: $('#dc-bot-voice-on').checked, avatarStyle: style };
+            if (style === '3d' && pick.startsWith('3d:')) w.avatar3d = pick.slice(3); else if (style === '2d' && pick && !pick.startsWith('3d:')) w.avatar = pick;   // like onlinechat: 2.5D pick -> avatar, 3D pick -> avatar3d
+            st.textContent = 'saving…';
+            try {
+                await update(ref(database, `${DC.uid}/chat/bot`), w);
+                st.textContent = '✓ saved';
+                // OUTFIT: an account-hosted avatar POSTs the saved character prompt like onlinechat's Persona Save (403 = not served for this account, silent)
+                const def = cmpDef(pick);
+                if (def && def.storage) { try {
+                    const ch = (await get(ref(database, `${DC.uid}/chat/bot/charPrompt`))).val();
+                    const tok = ch && await (await cmpFb()).auth.currentUser?.getIdToken();
+                    if (tok) { const r = await fetch('https://api.luissolutions.us/avatar-outfit', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Firebase-Token': tok }, body: JSON.stringify({ text: ch }) });
+                        if (r.status === 202) { st.textContent = '✓ saved - changing outfit…'; cmpPollOutfit(); } else if (r.status === 409) st.textContent = '✓ saved - outfit busy, try in a minute'; }
+                } catch (_) {} }
+            } catch (e) { st.textContent = 'failed: ' + (e.message || e); }
+        }); }
+        function cmpPollOutfit() {
+            clearTimeout(CMP.outfitT);
+            CMP.outfitT = setTimeout(async () => {
+                let s = {}; try { const tok = await (await cmpFb()).auth.currentUser?.getIdToken(); s = await (await fetch('https://api.luissolutions.us/avatar-outfit/status', { headers: { 'X-Firebase-Token': tok } })).json(); } catch (_) { cmpPollOutfit(); return; }
+                if (s.state === 'generating' || s.state === 'extracting') { cmpNote('changing outfit…', false, 0); cmpPollOutfit(); return; }
+                if (s.state === 'done') { cmpNote('new outfit: ' + (s.outfit || ''), false, 8000); if (CMP.key && (cmpDef(CMP.key) || {}).storage) cmpLoad(CMP.key); }
+                else if (s.state === 'failed') cmpNote('outfit change failed - outfit unchanged', true, 10000); else cmpNote('');
+            }, 4000);
+        }
+        // ---- wiring: once signed in, watch the flag; while it is on, watch this account's avatar settings ----
+        (function cmpWire(n) {
+            if (!DC.uid) { if (n < 120) setTimeout(() => cmpWire(n + 1), 1000); return; }
+            if (CMP.wired) return; CMP.wired = true;
+            let unCfg = null;
+            onValue(ref(database, `${DC.uid}/console/settings/extras/companion`), async s => {
+                CMP.flag = s.val() === true;
+                if (unCfg) { unCfg(); unCfg = null; }
+                if (CMP.flag) {
+                    await cmpListAcct();
+                    const keys = ['avatarOn', 'voiceOn', 'avatarStyle', 'avatar', 'avatar3d'];
+                    const offs = keys.map(k => onValue(ref(database, `${DC.uid}/chat/bot/${k}`), v => { CMP.cfg[k] = v.val(); cmpFillPanel(); cmpSync(); }, () => {}));
+                    unCfg = () => offs.forEach(f => { try { f(); } catch (_) {} });
+                } else CMP.cfg = {};
+                cmpFillPanel(); cmpSync();
+            }, () => {});
+            if (window.ResizeObserver) { const ro = new ResizeObserver(() => cmpFit()); const ch = $('.dc-chat'); if (ch) ro.observe(ch); const lg = $('#dc-chat-log'); if (lg) ro.observe(lg); }
+            const ts = $('#dc-chat-target'); if (ts) ts.addEventListener('change', () => cmpSync());
+        })(0);
+        window.__dcCmp = { state: () => ({ flag: CMP.flag, active: cmpActive(), key: CMP.key, loaded: !!CMP.av, cfg: Object.assign({}, CMP.cfg), acct2d: CMP.acct2d.slice(), acct3d: CMP.acct3d.slice(), front: CMP.front }), say: t => cmpSay(t), front: on => cmpSetFront(on), preview: o => { Object.assign(CMP.cfg, o || {}); cmpSync(); } };   // test hooks (preview = change the settings on this page only, saves nothing)
         // ---- OFFLINE OUTBOX (2026-09-19, L) -------------------------------------------
         // Firebase holds writes while the page lives, but a reload or a closed tab drops them.
         // On a phone that is the normal case. So: when the browser says we are offline, the
