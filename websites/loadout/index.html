@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
-<meta name="version" content="1.0.45">
+<meta name="version" content="1.0.46">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0c0f13"><title>Loadout</title>
 <style>
@@ -516,7 +516,7 @@
     <label>Container / Location <span style="opacity:.55">— where it lives in the game</span><select id="ie_room"></select></label>
     <div class="ierow"><label style="flex:1">Quantity<input id="ie_qty" type="number" min="0"></label><label style="flex:1">Price<input id="ie_price" autocomplete="off"></label></div>
     <label>Image URL<input id="ie_img" autocomplete="off"></label>
-    <div class="ierow" style="align-items:center"><input type="file" id="ie_file" accept="image/*" style="display:none"><button type="button" id="ie_upload" style="flex:0 0 auto">Upload image…</button><img id="ie_prev" alt="" style="height:38px;border-radius:5px;display:none;object-fit:cover"></div>
+    <div class="ierow" style="align-items:center"><input type="file" id="ie_file" accept="image/*" style="display:none"><button type="button" id="ie_upload" style="flex:0 0 auto">Upload image…</button><button type="button" id="ie_crop" style="flex:0 0 auto;display:none" title="Crop / reshape this photo">✂ Crop</button><img id="ie_prev" alt="" title="Tap to crop" style="height:38px;border-radius:5px;display:none;object-fit:cover;cursor:pointer"></div>
     <div id="ie_err"></div>
     <div class="ierow"><button id="ie_save">Save</button><button id="ie_del" title="Delete this item">🗑</button><button id="ie_cancel">Cancel</button></div>
   </div></div>
@@ -821,17 +821,40 @@ function rebuild(){byLoc={};for(const it of ITEMS){if((it.qty||0)<1)continue;(by
   if($("storage").classList.contains("open")){renderArea();$("storBag").textContent=(byLoc.bag||[]).length;}
   if($("shop").classList.contains("open"))renderShop();
   if($("jobs").classList.contains("open"))renderJobs();}
-onValue(ref(db,BASE+"/items"),snap=>{const tree=snap.val()||{};const arr=[];   // items/<id> = flat records {name, category, sub, kind, container, ...} (2026-11-22)
+let ITEMS_RAW={};   // the raw records (split-on-move copies every field of the record it splits)
+onValue(ref(db,BASE+"/items"),snap=>{const tree=snap.val()||{};ITEMS_RAW=tree;const arr=[];   // items/<id> = flat records {name, category, sub, kind, container, ...} (2026-11-22)
   for(const id in tree){const v=tree[id]||{};const cat=v.category||"",comp=v.sub||"",name=v.name||id;
     const known=roomToLoc(v.room);const loc=v.container||known||(v.room?cslug(v.room):defaultLoc(comp));
     if(v.room&&!ZONEMETA[loc]&&!CLABEL[loc])CLABEL[loc]=v.room;
-    arr.push({id,cat,comp,name,room:v.room||"",img:viaRelay(v.img||v.imageUrl||""),loc,price:v.price||v.actualPrice||"",qty:+v.quantity||0});}   // 'img' = onlineinventory canonical field; imageUrl = legacy fallback
+    arr.push({id,cat,comp,name,room:v.room||"",img:viaRelay(v.img||v.imageUrl||""),loc,price:v.price||v.actualPrice||"",qty:+v.quantity||0,group:v.group||""});}   // 'img' = onlineinventory canonical field; imageUrl = legacy fallback
   ITEMS=arr;$("loading").style.display="none";rebuild();});
 // RENAME = REAL DATA (2026-10-18, L: "yes change real data, use real data"): renaming a container/area in the game also
 // rewrites the inventory-app 'room' of every item inside it, so both apps show the same name.
 function syncRoomName(loc,name){if(!loc||!name)return;const upd={};for(const it of ITEMS){if(it.loc===loc&&it.room!==name){upd[`${it.id}/room`]=name;it.room=name;}}
   if(Object.keys(upd).length)update(ref(db,BASE+"/items"),upd).catch(e=>console.warn(e));}
-function moveItem(it,newLoc){const base=it.id;it.loc=newLoc;const upd={[base+"/container"]:newLoc};
+/* SPLIT STACKS (L 2026-11-22: "I would want a way to have items in different containers" -> "build split-on-move with the group link and
+   merge-back"). One record = one place still. Moving PART of a stack makes a sibling record in the destination with the same `group` id
+   (the first record's id); moving a record into a container that already holds a sibling MERGES them (quantities add, the moved record goes).
+   actualPrice (what was paid, whole stack) splits by count; price (online now, per unit) is copied as is. */
+const _money=x=>{const n=parseFloat(String(x==null?"":x).replace(/[$,\s]/g,""));return isFinite(n)?n:null;};
+const _m2=n=>(Math.round(n*100)/100).toFixed(2);
+function groupSibs(it){return it&&it.group?ITEMS.filter(x=>x.group===it.group):[it];}
+function groupLine(it){const s=groupSibs(it);if(s.length<2)return"";const tot=s.reduce((a,x)=>a+(x.qty||0),0);return ` · ${tot} total: `+s.map(x=>`${x.qty||0} ${invLabel(x.loc)}`).join(", ");}
+function sibIn(it,dest){return it.group?ITEMS.find(x=>x!==it&&x.group===it.group&&x.loc===dest):null;}
+function splitMove(it,n,dest){const q=it.qty||0;n=Math.max(1,Math.min(q,Math.round(n)||1));
+  if(q<=1||n>=q){moveItem(it,dest);return;}
+  const raw=ITEMS_RAW[it.id]||{},g=raw.group||it.id,ap=_money(raw.actualPrice),part=ap!=null?Math.round(ap*n/q*100)/100:null;
+  const sib=ITEMS.find(x=>x!==it&&(x.group||"")===g&&x.loc===dest);const upd={};
+  upd[it.id+"/quantity"]=q-n;upd[it.id+"/group"]=g;if(part!=null)upd[it.id+"/actualPrice"]=_m2(ap-part);
+  if(sib){const sr=ITEMS_RAW[sib.id]||{};upd[sib.id+"/quantity"]=(+sr.quantity||0)+n;if(part!=null)upd[sib.id+"/actualPrice"]=_m2((_money(sr.actualPrice)||0)+part);}
+  else{const nid=it.id+"_"+Date.now().toString(36),lbl=dest==="bag"?null:locMeta(dest).label;
+    upd[nid]={...raw,quantity:n,container:dest,room:lbl,group:g,addedAt:Date.now(),...(part!=null?{actualPrice:_m2(part)}:{})};}
+  it.qty=q-n;it.group=g;update(ref(db,BASE+"/items"),upd).catch(e=>console.warn(e));rebuild();}
+function moveItem(it,newLoc){const _sib=sibIn(it,newLoc);
+  if(_sib){const sr=ITEMS_RAW[_sib.id]||{},raw=ITEMS_RAW[it.id]||{},a=_money(sr.actualPrice),b=_money(raw.actualPrice);   // MERGE-BACK into the sibling already there
+    const upd={[_sib.id+"/quantity"]:(+sr.quantity||0)+(+raw.quantity||0),[it.id]:null};if(a!=null||b!=null)upd[_sib.id+"/actualPrice"]=_m2((a||0)+(b||0));
+    _sib.qty=(+sr.quantity||0)+(+raw.quantity||0);ITEMS=ITEMS.filter(x=>x!==it);update(ref(db,BASE+"/items"),upd).catch(e=>console.warn(e));rebuild();return;}
+  const base=it.id;it.loc=newLoc;const upd={[base+"/container"]:newLoc};
   if(newLoc!=="bag"){const lbl=locMeta(newLoc).label;it.room=lbl;upd[base+"/room"]=lbl;}else{it.room=null;upd[base+"/room"]=null;}   // into the bag = no room (a stale "Flex Top" stuck after a round trip, 2026-10-18)   // sync the inventory-app 'room' field so the move shows there too
   update(ref(db,BASE+"/items"),upd).catch(e=>console.warn(e));rebuild();}
 // ===== economy (ledger-driven wallet, all on public/loadout/ledger) =====
@@ -3268,7 +3291,25 @@ function recentDest(){try{return JSON.parse(localStorage.getItem("loadout:recent
 function pushRecent(k){try{const r=recentDest().filter(x=>x!==k);r.unshift(k);localStorage.setItem("loadout:recentDest",JSON.stringify(r.slice(0,4)));}catch(_){}}
 function selPick(it,multi){if(multi){if(selSet.has(it))selSet.delete(it);else selSet.add(it);}else{const only=selSet.size===1&&selSet.has(it);selSet.clear();if(!only)selSet.add(it);}
   selItem=selSet.has(it)?{it,mode:null}:(selSet.size?{it:[...selSet].pop(),mode:null}:null);renderPanel();}
-function moveSelected(dest){const items=[...selSet].filter(it=>it.loc!==dest);items.forEach(it=>moveItem(it,dest));pushRecent(dest);
+/* "how many?" (split stacks, 2026-11-22): one stack of 2+ selected -> pick a count before it moves. Several selected = whole records, as before. */
+function askQty(it,cb){let box=$("qtyAsk");if(!box){box=document.createElement("div");box.id="qtyAsk";
+    box.style.cssText="position:fixed;inset:0;z-index:3400;background:rgba(4,6,8,.8);display:none;align-items:center;justify-content:center;font-family:var(--sans);color:var(--text)";
+    box.innerHTML='<div style="background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--edgehi);border-radius:12px;padding:16px;width:min(90vw,300px);text-align:center"><div id="qaT" style="font-weight:700;margin-bottom:10px"></div>'
+      +'<div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:12px"><button type="button" id="qaM">−</button><input id="qaN" type="number" inputmode="numeric" min="1" style="width:4.5em;font:inherit;font-size:18px;text-align:center;padding:6px;border-radius:8px;border:1px solid var(--edgehi);background:var(--bg);color:var(--text)"><button type="button" id="qaP">+</button></div>'
+      +'<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap"><button type="button" id="qaAll"></button><button type="button" id="qaC">Cancel</button><button type="button" id="qaGo" style="background:var(--amber);color:var(--bg);border:none;font-weight:700">Move</button></div></div>';
+    document.body.appendChild(box);box.querySelectorAll("button").forEach(b=>b.style.cssText+=";padding:9px 14px;border-radius:8px;border:1px solid var(--edgehi);background:var(--panel2);color:var(--text);font:inherit;cursor:pointer;min-width:44px");
+    $("qaGo").style.background="var(--amber)";$("qaGo").style.color="var(--bg)";}
+  const q=it.qty||1,N=$("qaN"),set=v=>{N.value=Math.max(1,Math.min(q,Math.round(+v)||1));};
+  $("qaT").textContent=`Move how many ${it.name}? (${q} here)`;$("qaAll").textContent=`All ${q}`;set(1);N.max=q;
+  const done=v=>{box.style.display="none";if(v!=null)cb(v);};
+  $("qaM").onclick=()=>set(+N.value-1);$("qaP").onclick=()=>set(+N.value+1);$("qaAll").onclick=()=>done(q);$("qaC").onclick=()=>done(null);$("qaGo").onclick=()=>{set(N.value);done(+N.value);};
+  N.onkeydown=e=>{if(e.key==="Enter"){set(N.value);done(+N.value);}if(e.key==="Escape")done(null);};
+  box.style.display="flex";setTimeout(()=>{N.focus();N.select();},30);}
+function moveSelected(dest){const _one=[...selSet].filter(it=>it.loc!==dest);
+  if(_one.length===1&&(_one[0].qty||0)>1){const it=_one[0];askQty(it,n=>{splitMove(it,n,dest);pushRecent(dest);
+      $("phint").textContent=`Moved ${n} of ${it.name} → ${placeLabel(placeOf(dest))}${dest!=="bag"?" › "+invLabel(dest):""}`;
+      selSet.clear();selItem=null;$("dcard").classList.remove("show");invClosePick();renderPanel();});return;}
+  const items=_one;items.forEach(it=>moveItem(it,dest));pushRecent(dest);
   $("phint").textContent=items.length?`Moved ${items.length===1?items[0].name:items.length+" items"} → ${placeLabel(placeOf(dest))}${dest!=="bag"?" › "+invLabel(dest):""}`:"Already there";
   selSet.clear();selItem=null;$("dcard").classList.remove("show");invClosePick();renderPanel();}
 function invClosePick(){const pk=$("invPick");if(pk)pk.remove();}
@@ -3364,7 +3405,7 @@ function renderPanel(){if(!$("overlay").classList.contains("open"))return;try{pa
     const want=Math.max(cols*fitRows,Math.ceil((items.length+_gh)/cols)*cols);
     for(let i=items.length+_gh;i<want;i++){const e=document.createElement("div");e.className="it slot0";g.appendChild(e);}}   // Stardew-style empty slots
   const to=$("invTo");to.innerHTML="";
-  if(selItem&&selSet.has(selItem.it)){const it=selItem.it;showDetail(it);$("dMeta").textContent=it.cat+" · "+it.comp+" · in "+placeLabel(placeOf(it.loc))+(it.loc!=="bag"?" › "+invLabel(it.loc):"");}else{$("dcard").classList.remove("show");}
+  if(selItem&&selSet.has(selItem.it)){const it=selItem.it;showDetail(it);$("dMeta").textContent=it.cat+" · "+it.comp+" · in "+placeLabel(placeOf(it.loc))+(it.loc!=="bag"?" › "+invLabel(it.loc):"")+groupLine(it);}else{$("dcard").classList.remove("show");}
   if(selSet.size){const n=selSet.size;const clr=document.createElement("span");clr.className="achip";clr.textContent="Clear";clr.addEventListener("click",()=>{selSet.clear();selItem=null;renderPanel();});
     const mv=document.createElement("button");mv.className="invmove";mv.textContent=`Move ${n} item${n>1?"s":""} to…`;mv.addEventListener("click",invOpenPick);
     to.appendChild(clr);to.appendChild(mv);$("phint").textContent=n>1?`${n} selected · tap more or Move`:"Tap more items to move several";}
@@ -3440,7 +3481,7 @@ function selectItem(it,mode,cell){selItem={it,mode};showDetail(it);
   else b.style.display="none";}
 function doMove(){if(!selItem)return;const s=selItem;selItem=null;$("dcard").classList.remove("show");moveItem(s.it,s.mode==="take"?"bag":openPlace);}
 let detailIt=null;   // the item on the detail card - what ✎ Edit opens (L 2026-10-22: "the edit button doesn't work in some areas" - the backpack dock and other views showed the card without setting selItem)
-function showDetail(it){detailIt=it;const di=$("dImg");di.onerror=function(){di.style.display="none"};di.style.display="";di.src=it.img||"";$("dName").textContent=it.name;$("dMeta").textContent=it.cat+" · "+it.comp;$("dEdit").style.display="";   /* guests edit public items too (L 2026-10-23) */$("dcard").classList.add("show");}
+function showDetail(it){detailIt=it;const di=$("dImg");di.onerror=function(){di.style.display="none"};di.style.display="";di.src=it.img||"";$("dName").textContent=it.name;$("dMeta").textContent=it.cat+" · "+it.comp+groupLine(it);$("dEdit").style.display="";   /* guests edit public items too (L 2026-10-23) */$("dcard").classList.add("show");}
 // ---- per-account item editor (double-click item image or the ✎ Edit button) ----
 let editItem=null,pendImgPath=null;
 function openItemEdit(it){/* guests edit the public items too (L 2026-10-23: "I still want to be able to edit items in loadout when not logged in") - rules allow public writes, photos go to public/images */editItem=it;pendImgPath=null;editItem._imgPath=it.imgPath||"";$("ie_name").value=it.name;$("ie_cat").value=it.cat;$("ie_comp").value=it.comp;$("ie_qty").value=it.qty||0;$("ie_price").value=it.price||"";$("ie_img").value=it.img||"";const _pv=$("ie_prev");if(it.img){_pv.src=it.img;_pv.style.display="";}else{_pv.style.display="none";}
@@ -3461,6 +3502,73 @@ $("ie_file").addEventListener("change",async function(){const f=this.files&&this
   $("dImg").addEventListener("click",()=>{const src=$("dImg").src;if(!src||$("dImg").style.display==="none")return;im.src=src;lb.style.display="flex";});
 })();
 $("dEdit").addEventListener("click",()=>{const it=detailIt||(selItem&&selItem.it);if(it)openItemEdit(it);});
+/* PHOTO CROP EDITOR (L 2026-11-22: "click edit then the image ... bring it up in a simple editor where I can crop or change the shape then save,
+   have it replace with new edit real quick"). Tap the edit-form preview (or ✂ Crop): drag the box to move, drag a corner to resize, pick a shape,
+   rotate, Save. Save = upload the crop (same photo scheme, uploadImage) -> write img/imgPath onto the item right away -> only THEN delete the old
+   file (uploadImage's priorPath deletes before uploading; a failed upload would lose the photo). */
+(function(){
+  const ov=document.createElement("div");ov.id="cropEd";
+  ov.style.cssText="position:fixed;inset:0;z-index:3300;background:rgba(4,6,8,.94);display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:12px;font-family:var(--sans);color:var(--text)";
+  ov.innerHTML='<canvas id="cropCv" style="touch-action:none;max-width:100%;border-radius:8px;background:#111"></canvas>'
+    +'<div id="cropShapes" style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center"></div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center"><button type="button" id="cropRot">↻ Rotate</button><button type="button" id="cropReset">Reset</button><button type="button" id="cropCancel">Cancel</button><button type="button" id="cropSave" style="background:var(--amber);color:var(--bg);border:none;font-weight:700">Save</button></div>'
+    +'<div id="cropMsg" style="font-size:.8rem;color:var(--muted);min-height:1.1em"></div>';
+  document.body.appendChild(ov);
+  ov.querySelectorAll("button").forEach(b=>b.style.cssText+=";padding:9px 14px;border-radius:8px;border:1px solid var(--edgehi);background:var(--panel2);color:var(--text);font:inherit;cursor:pointer");
+  $("cropSave").style.background="var(--amber)";$("cropSave").style.color="var(--bg)";
+  const cv=$("cropCv"),cx=cv.getContext("2d"),SH=[["Free",0],["Square",1],["4:3",4/3],["3:4",3/4]];
+  let src=null,rot=0,ar=0,box=null,sc=1,drag=null,busy=false;
+  SH.forEach(([l,a])=>{const b=document.createElement("button");b.type="button";b.textContent=l;b.dataset.ar=a;b.style.cssText="padding:7px 12px;border-radius:999px;border:1px solid var(--edgehi);background:var(--panel);color:var(--text);font:inherit;cursor:pointer";b.addEventListener("click",()=>{ar=a;fitBox();paintShapes();draw();});$("cropShapes").appendChild(b);});
+  function paintShapes(){$("cropShapes").querySelectorAll("button").forEach(b=>{const on=+b.dataset.ar===ar;b.style.background=on?"var(--amber)":"var(--panel)";b.style.color=on?"var(--bg)":"var(--text)";});}
+  const rw=()=>rot%180?src.height:src.width,rh=()=>rot%180?src.width:src.height;   // rotated image size (image px)
+  function layout(){const mw=Math.min(innerWidth-24,900),mh=innerHeight-190;sc=Math.min(mw/rw(),mh/rh(),1);cv.width=Math.round(rw()*sc);cv.height=Math.round(rh()*sc);}
+  function fitBox(){const W=rw(),H=rh();let w=W*.9,h=H*.9;if(ar){if(w/h>ar)w=h*ar;else h=w/ar;}box={x:(W-w)/2,y:(H-h)/2,w,h};}
+  function draw(){if(!src)return;cx.save();cx.clearRect(0,0,cv.width,cv.height);cx.translate(cv.width/2,cv.height/2);cx.rotate(rot*Math.PI/180);const dw=src.width*sc,dh=src.height*sc;cx.drawImage(src,-dw/2,-dh/2,dw,dh);cx.restore();
+    const b={x:box.x*sc,y:box.y*sc,w:box.w*sc,h:box.h*sc};cx.fillStyle="rgba(0,0,0,.55)";cx.fillRect(0,0,cv.width,b.y);cx.fillRect(0,b.y+b.h,cv.width,cv.height-b.y-b.h);cx.fillRect(0,b.y,b.x,b.h);cx.fillRect(b.x+b.w,b.y,cv.width-b.x-b.w,b.h);
+    cx.strokeStyle="#ffd166";cx.lineWidth=2;cx.strokeRect(b.x,b.y,b.w,b.h);cx.strokeStyle="rgba(255,209,102,.35)";cx.lineWidth=1;for(let i=1;i<3;i++){cx.beginPath();cx.moveTo(b.x+b.w*i/3,b.y);cx.lineTo(b.x+b.w*i/3,b.y+b.h);cx.moveTo(b.x,b.y+b.h*i/3);cx.lineTo(b.x+b.w,b.y+b.h*i/3);cx.stroke();}
+    cx.fillStyle="#ffd166";const k=12;[[b.x,b.y],[b.x+b.w,b.y],[b.x,b.y+b.h],[b.x+b.w,b.y+b.h]].forEach(([x,y])=>cx.fillRect(x-k/2,y-k/2,k,k));}
+  function pt(e){const r=cv.getBoundingClientRect();return{x:(e.clientX-r.left)*(cv.width/r.width)/sc,y:(e.clientY-r.top)*(cv.height/r.height)/sc};}
+  function clamp(){const W=rw(),H=rh(),m=20/sc;box.w=Math.max(m,Math.min(box.w,W));box.h=Math.max(m,Math.min(box.h,H));box.x=Math.max(0,Math.min(box.x,W-box.w));box.y=Math.max(0,Math.min(box.y,H-box.h));}
+  cv.addEventListener("pointerdown",e=>{if(!src)return;const p=pt(e),hit=22/sc;const cs={nw:[box.x,box.y],ne:[box.x+box.w,box.y],sw:[box.x,box.y+box.h],se:[box.x+box.w,box.y+box.h]};
+    let c=null;for(const k in cs)if(Math.abs(p.x-cs[k][0])<hit&&Math.abs(p.y-cs[k][1])<hit){c=k;break;}
+    if(!c&&!(p.x>box.x&&p.x<box.x+box.w&&p.y>box.y&&p.y<box.y+box.h))return;drag={c,p0:p,b0:{...box}};cv.setPointerCapture(e.pointerId);e.preventDefault();});
+  cv.addEventListener("pointermove",e=>{if(!drag)return;const p=pt(e),dx=p.x-drag.p0.x,dy=p.y-drag.p0.y,b0=drag.b0;
+    if(!drag.c){box.x=b0.x+dx;box.y=b0.y+dy;clamp();draw();return;}
+    const fx=drag.c.includes("e")?b0.x:b0.x+b0.w,fy=drag.c.includes("s")?b0.y:b0.y+b0.h;   // the fixed (opposite) corner
+    let mx=(drag.c.includes("e")?b0.x+b0.w:b0.x)+dx,my=(drag.c.includes("s")?b0.y+b0.h:b0.y)+dy;mx=Math.max(0,Math.min(mx,rw()));my=Math.max(0,Math.min(my,rh()));
+    let w=Math.abs(mx-fx),h=Math.abs(my-fy);if(ar){if(w/h>ar)w=h*ar;else h=w/ar;}
+    box={x:mx<fx?fx-w:fx,y:my<fy?fy-h:fy,w,h};clamp();draw();});
+  const end=()=>{drag=null;};cv.addEventListener("pointerup",end);cv.addEventListener("pointercancel",end);
+  async function loadSrc(url){const im=new Image();im.crossOrigin="anonymous";im.decoding="async";
+    try{await new Promise((ok,no)=>{im.onload=ok;im.onerror=no;im.src=url;});return im;}
+    catch(_){const r=await fetch(url,{mode:"cors"});if(!r.ok)throw new Error("could not load the photo ("+r.status+")");const bm=await createImageBitmap(await r.blob());return bm;}}
+  async function open(){if(!editItem)return;const url=$("ie_img").value.trim();if(!url){$("ie_err").textContent="No photo to crop yet - upload one first.";return;}
+    ov.style.display="flex";$("cropMsg").textContent="Loading photo…";src=null;cx.clearRect(0,0,cv.width,cv.height);
+    try{src=await loadSrc(url);rot=0;ar=0;layout();fitBox();paintShapes();draw();$("cropMsg").textContent="Drag the box · drag a corner to resize";}
+    catch(e){$("cropMsg").textContent="Can't edit this photo: "+((e&&e.message)||e)+". Re-upload it first.";}}
+  function close(){if(busy)return;ov.style.display="none";src=null;}
+  $("cropCancel").addEventListener("click",close);
+  $("cropReset").addEventListener("click",()=>{if(!src)return;rot=0;ar=0;layout();fitBox();paintShapes();draw();});
+  $("cropRot").addEventListener("click",()=>{if(!src)return;rot=(rot+90)%360;layout();fitBox();draw();});
+  addEventListener("resize",()=>{if(src&&ov.style.display==="flex"){layout();clamp();draw();}});
+  $("cropSave").addEventListener("click",async()=>{if(!src||!editItem||busy)return;const it=editItem;busy=true;$("cropMsg").textContent="Saving…";
+    try{const W=rw(),H=rh(),full=document.createElement("canvas");full.width=W;full.height=H;const fx=full.getContext("2d");fx.translate(W/2,H/2);fx.rotate(rot*Math.PI/180);fx.drawImage(src,-src.width/2,-src.height/2);
+      const out=document.createElement("canvas");out.width=Math.max(1,Math.round(box.w));out.height=Math.max(1,Math.round(box.h));out.getContext("2d").drawImage(full,box.x,box.y,box.w,box.h,0,0,out.width,out.height);
+      const blob=await new Promise((ok,no)=>out.toBlob(b=>b?ok(b):no(new Error("crop failed")),"image/jpeg",0.92));
+      const file=new File([blob],"crop.jpg",{type:"image/jpeg"});
+      const old=pendImgPath||it._imgPath||"";
+      const r=await uploadImage({file,basePath:BASE+"/images",name:($("ie_name").value||it.name||"item"),priorPath:null});   // old file stays until the item points at the new one
+      await update(ref(db,BASE+"/items/"+it.id),{img:r.url,imgPath:r.path,imageUrl:r.url,imageStoragePath:r.path});
+      it.img=r.url;it.imgPath=r.path;it._imgPath=r.path;pendImgPath=null;$("ie_img").value=r.url;const pv=$("ie_prev");pv.src=r.url;pv.style.display="";
+      const _shared=Object.keys(ITEMS_RAW).some(k=>k!==it.id&&ITEMS_RAW[k]&&(ITEMS_RAW[k].imgPath===old||ITEMS_RAW[k].imageStoragePath===old));   // split siblings share one file
+      if(old&&old!==r.path&&old.indexOf(BASE+"/")===0&&!_shared){try{await removeStorageImage(old);}catch(_){}}   // only our own account's file, and only when nothing else uses it
+      if(detailIt===it)showDetail(it);try{renderPanel();}catch(_){}
+      $("ie_err").textContent="Photo cropped and saved.";busy=false;close();}
+    catch(e){busy=false;$("cropMsg").textContent="Save failed: "+((e&&e.message)||e);}});
+  $("ie_prev").addEventListener("click",open);$("ie_crop").addEventListener("click",open);
+  const syncBtn=()=>{$("ie_crop").style.display=$("ie_img").value.trim()?"":"none";};
+  $("ie_img").addEventListener("input",syncBtn);new MutationObserver(syncBtn).observe($("ie_prev"),{attributes:true,attributeFilter:["src","style"]});
+})();
 $("ie_cancel").addEventListener("click",closeItemEdit);
 $("itemEdit").addEventListener("click",e=>{if(e.target===$("itemEdit"))closeItemEdit();});
 $("ie_save").addEventListener("click",async()=>{if(!editItem)return;const it=editItem;const ncat=($("ie_cat").value||it.cat).trim(),ncomp=($("ie_comp").value||it.comp).trim(),nname=($("ie_name").value||it.name).trim();if(!ncat||!ncomp||!nname){$("ie_err").textContent="Name, Category and Container are required.";return;}const val=$("ie_room").value;const nimg=$("ie_img").value.trim();const fields={quantity:+$("ie_qty").value||0,price:$("ie_price").value.trim(),img:nimg,imgPath:(nimg?(pendImgPath||editItem._imgPath||null):null)};fields.name=nname;fields.category=ncat;fields.sub=ncomp;if(val){fields.container=val;fields.room=locMeta(val).label;}else if(it.loc==="bag"){fields.container="bag";}else{fields.container=null;fields.room=null;} /* "(auto)" must NOT eject a carried item from the backpack */$("ie_err").textContent="Saving…";try{await update(ref(db,BASE+"/items/"+it.id),fields);closeItemEdit();}   /* rename/recategorize = field edits; the id never changes */catch(e){$("ie_err").textContent="Save failed: "+((e&&e.message)||e);}});
