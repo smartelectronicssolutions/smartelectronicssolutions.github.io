@@ -23,6 +23,10 @@ const EXPR_MAP = {
     thinking: { relaxed: 0.25, sad: 0.15, _yaw: -6, _pitch: 5 }, sad: { sad: 1 }, relaxed: { relaxed: 1 },
 };
 const VRM_EXPR = ['happy', 'sad', 'surprised', 'relaxed', 'angry'];
+// hand-on-hip + gesture pose numbers (radians; normalized VRM bones). Tuned against renders of the live gothic model.
+const HIP = { cock: 0.045, cockX: 0.012,
+    luaX: 0, luaY: -0.1, luaZ: -0.95, llaX: 0, llaY: -1.1, llaZ: -1.2, lhX: 0, lhY: 0, lhZ: 0.3, lFing: 0.5,
+    ruaX: 0.45, ruaY: 0, ruaOut: 0.25, rlaBend: 1.2, rlaTwist: -0.9, rhX: 0, rhZ: 0.25 };
 
 function textVisemes(word) {   // crude letters -> A/I/U/E/O/X for the text-timed mouth
     const out = [];
@@ -53,7 +57,7 @@ class Avatar3D {
         this.visW = { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 }; this.amp = 0; this.tts = null; this.fbuf = null;
         const LA = window.Live2DAvatar;   // reuse the 2.5D engine's audio classifier (read-only) when it is on the page
         this.lip = LA && LA.LipSync ? new LA.LipSync() : null; this.features = LA && LA.features;
-        const r = this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, premultipliedAlpha: true, powerPreference: 'high-performance' });
+        const r = this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, premultipliedAlpha: true, powerPreference: 'high-performance', preserveDrawingBuffer: !!(opts && opts.preserve) });
         r.setPixelRatio(1); r.outputColorSpace = THREE.SRGBColorSpace; r.setClearColor(0x000000, 0);
         this.scene = new THREE.Scene();
         this.camera = new THREE.PerspectiveCamera(24, 0.5, 0.05, 50);
@@ -135,22 +139,37 @@ class Avatar3D {
         if (B.spine) B.spine.rotation.set(-0.016 * breath - 0.006 * drift, 0, -0.018 * sway);
         if (B.chest) B.chest.rotation.set(-0.028 * breath, 0, -0.008 * sway);
         if (B.upperChest) { B.upperChest.rotation.x = -0.012 * breath; B.upperChest.rotation.z = -0.004 * sway; }
+        // HIP + GESTURES (2026-11-21, L "hand-on-hip idle with talking gestures"): left hand rests on the hip (weight cocked onto that
+        // side), right arm hangs relaxed and gestures while she talks (this.G from _gest: raise + palm-open + beats).
+        const P = HIP;
         const sw = 0.05 * lag, fw = 0.06 + 0.025 * Math.sin(t * TAU / 5.1 + 0.8) * k;
-        if (B.leftUpperArm) B.leftUpperArm.rotation.set(fw + 0.01 * breath + 0.012 * lag, 0, -1.27 + breath * 0.02 - sw);
-        if (B.rightUpperArm) B.rightUpperArm.rotation.set(fw + 0.01 * breath - 0.012 * lag, 0, 1.27 - breath * 0.02 - sw);
+        if (B.hips) { B.hips.rotation.z += P.cock; B.hips.position.x += P.cockX; }
+        if (B.spine) B.spine.rotation.z += -P.cock * 0.7;
+        if (B.chest) B.chest.rotation.z += -P.cock * 0.35;
+        if (B.leftUpperArm) B.leftUpperArm.rotation.set(P.luaX + 0.01 * breath, P.luaY + 0.01 * lag, P.luaZ + breath * 0.015);
+        if (B.leftLowerArm) B.leftLowerArm.rotation.set(P.llaX, P.llaY, P.llaZ);
+        if (B.leftHand) B.leftHand.rotation.set(P.lhX, P.lhY, P.lhZ);
+        const G = this.G || { w: 0, raise: 0, open: 0, beat: 0, out: 0, fwd: 0 }, gw = G.w;
         const el = 0.30 + 0.03 * Math.sin(t * TAU / 6.2) * k;
-        if (B.leftLowerArm) B.leftLowerArm.rotation.set(0, -el, 0);
-        if (B.rightLowerArm) B.rightLowerArm.rotation.set(0, el + 0.02 * Math.sin(t * TAU / 6.9 + 1) * k, 0);
-        if (B.leftHand) B.leftHand.rotation.set(0, 0.12, -0.2 - 0.03 * lag);
-        if (B.rightHand) B.rightHand.rotation.set(0, -0.12, 0.2 - 0.03 * lag);
+        if (B.rightUpperArm) B.rightUpperArm.rotation.set(
+            fw + 0.01 * breath - 0.012 * lag + gw * (P.ruaX * G.fwd),
+            gw * P.ruaY,
+            1.27 - breath * 0.02 - sw - gw * (P.ruaOut * G.out + 0.05 * G.beat));
+        if (B.rightLowerArm) B.rightLowerArm.rotation.set(
+            gw * P.rlaTwist * G.open,
+            el + 0.02 * Math.sin(t * TAU / 6.9 + 1) * k + gw * (P.rlaBend * G.raise + 0.16 * G.beat),
+            0);
+        if (B.rightHand) B.rightHand.rotation.set(gw * P.rhX * G.open, -0.12 * (1 - gw), 0.2 - 0.03 * lag - gw * (P.rhZ * G.open - 0.12 * G.beat));
         if (B.leftShoulder) B.leftShoulder.rotation.z = 0.035 * breath;
         if (B.rightShoulder) B.rightShoulder.rotation.z = -0.035 * breath;
         // fingers: soft curl, more toward the little finger, each segment a bit more; thumb rests in toward the palm
         const F = this.F || {}, cv = 1 + 0.06 * Math.sin(t * TAU / 4.7) * k;
         for (const side of ['left', 'right']) {
             const s = side === 'left' ? -1 : 1;
+            // left = on the hip: fingers flatter, together; right = opens toward a flat palm while gesturing
+            const cm = side === 'left' ? P.lFing : 1 - 0.65 * gw * G.open;
             [['Index', 0.18], ['Middle', 0.24], ['Ring', 0.3], ['Little', 0.36]].forEach(([f, a]) => {
-                ['Proximal', 'Intermediate', 'Distal'].forEach((seg, i) => { const b = F[side + f + seg]; if (b) b.rotation.set(0, 0, s * a * cv * (1 + i * 0.25)); });
+                ['Proximal', 'Intermediate', 'Distal'].forEach((seg, i) => { const b = F[side + f + seg]; if (b) b.rotation.set(0, 0, s * a * cv * cm * (1 + i * 0.25)); });
             });
             const th = [F[side + 'ThumbMetacarpal'], F[side + 'ThumbProximal'], F[side + 'ThumbDistal']];
             if (th[0]) th[0].rotation.set(0, -s * 0.25, 0);
@@ -159,8 +178,32 @@ class Avatar3D {
         }
     }
 
+    // talking gestures: talk level from the mouth (analyser or text-timed queue); while talking, pick a new gesture
+    // every 1.3-2.8 s (how high, how open, how far out) and add small beats on the syllable loudness.
+    _gest(dt) {
+        const G = this.G || (this.G = { w: 0, raise: 0, open: 0, beat: 0, out: 0, fwd: 0, tr: 0, to: 0, tout: 0, tf: 0, next: 0, ampPrev: 0, pulse: 0 });
+        const a = this.audioEl, speaking = !!(this.tts || (this.analyser && a && !a.paused && !a.ended) || this.amp > 0.08);
+        this.talkHold = speaking ? 0.9 : Math.max(0, (this.talkHold || 0) - dt);   // short pauses between words keep the arm up
+        const on = speaking || this.talkHold > 0;
+        G.w = ease(G.w, on ? 1 : 0, dt, on ? 0.35 : 0.7);
+        G.next -= dt;
+        if (on && G.next <= 0) {
+            const r = Math.random();
+            if (r < 0.45) { G.tr = 0.75 + Math.random() * 0.35; G.to = 0.8 + Math.random() * 0.2; G.tout = 0.2 + Math.random() * 0.4; G.tf = 0.7 + Math.random() * 0.3; }   // open palm, offered
+            else if (r < 0.8) { G.tr = 0.55 + Math.random() * 0.25; G.to = 0.35 + Math.random() * 0.3; G.tout = 0.05 + Math.random() * 0.2; G.tf = 0.4 + Math.random() * 0.3; }   // low explain
+            else { G.tr = 0.95 + Math.random() * 0.15; G.to = 0.6; G.tout = 0.5 + Math.random() * 0.3; G.tf = 0.9; }   // bigger sweep out
+            G.next = 1.3 + Math.random() * 1.5;
+        }
+        G.raise = ease(G.raise, G.tr, dt, 0.32); G.open = ease(G.open, G.to, dt, 0.3);
+        G.out = ease(G.out, G.tout, dt, 0.4); G.fwd = ease(G.fwd, G.tf, dt, 0.35);
+        const rise = Math.max(0, (this.amp || 0) - G.ampPrev); G.ampPrev = this.amp || 0;   // syllable onsets -> beat
+        G.pulse = Math.min(1, G.pulse + rise * 6) * Math.exp(-dt / 0.18);
+        G.beat = ease(G.beat, G.pulse, dt, 0.06) * (this.calm ? 0.3 : 1);
+    }
+
     step(dt) {
         const vrm = this.vrm, B = this.B, I = this.I; this.t += dt; const t = this.t;
+        this._gest(dt);
         this._pose(0.5 + 0.5 * Math.sin(t * 2 * Math.PI / 4.2), t);
         // head: manual (setHead, -1..1) or idle look-arounds (pick a look every 4-10 s, ease in, hold, tiny drift)
         const ex = this.exprTarget;
