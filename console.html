@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.306"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.308"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -923,6 +923,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         .dc-av:not(.fullbody):not(.front) .dc-av-stage { -webkit-mask-image: radial-gradient(ellipse 62% 70% at 50% 42%, #000 52%, transparent 100%); mask-image: radial-gradient(ellipse 62% 70% at 50% 42%, #000 52%, transparent 100%); }
         .dc-av-stage canvas { width: 100%; height: 100%; display: block; }
         .dc-av.front { z-index: 3; } .dc-av.front .dc-av-float { opacity: 1; }
+        /* iPad/iPhone (L 11-22 "tap isn't working with yuki on iPad, moving and resizing"): in front mode her canvas takes the touch itself with
+           touch-action none. Before, the finger landed on the chat log (touch-action pan-y), so Safari claimed a vertical drag as a scroll and
+           cancelled the pointer stream - moving and pinching broke on touch while a mouse worked. */
+        .dc-av.front .dc-av-stage canvas { pointer-events: auto; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
         .dc-chat.av-front .dc-chat-input, .dc-chat.av-front #dc-topics { position: relative; z-index: 5; }
         .dc-av-note { position: absolute; left: 50%; bottom: calc(var(--av-bottom, 90px) + 6px); translate: -50% 0; font-size: .74rem; padding: 2px 10px; border-radius: 999px;
             color: var(--text); background: color-mix(in srgb, var(--surface) 85%, transparent); border: 1px solid var(--border); white-space: nowrap; }
@@ -1376,7 +1380,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // browser or Firefox's clear-on-close lost it. Now every write of a PREF key is mirrored (debounced) to {uid}/console/settings/prefs,
         // and on sign-in the account's copy wins: keys that differ are written into localStorage and the page reloads ONCE (the UI reads
         // localStorage at start-up). Device-shaped things stay local on purpose: pane width/height/side, the open tab, recent emoji.
-        const PREF_KEYS = ['ss-theme', 'dc_theme_name', 'dc_theme_color', 'dc_theme_shape', 'dc_theme_op', 'dc_theme_fs', 'dc_newest_first',
+        const PREF_KEYS = ['ss-theme', 'dc_theme_name', 'dc_theme_color', 'dc_theme_shape', 'dc_theme_op', 'dc_theme_fs', 'dc_theme_font', 'dc_newest_first',   // dc_theme_font added 11-22 (L: 'font and size not applying on another computer')
             'dc_show_emoji', 'dc_show_nabu', 'dc_show_rec', 'dc_show_ideas', 'dc_full_img', 'dc_tts_lang', 'dc_tts_engine', 'dc_brain_keep'];
         const prefKey = k => k.replace(/[.#$\[\]\/]/g, '_');
         let prefT = null, prefDirty = {};
@@ -1401,6 +1405,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // keys this browser has and the account doesn't yet -> add them to the account
             const extra = {}; for (const [k, v] of Object.entries(local)) if (remote[k] === undefined) extra[k] = v;
             if (Object.keys(extra).length) update(ref(database, `${DC.base}/settings/prefs`), extra).catch(() => {});
+            if (changed) { try { applyTheme(); } catch (_) {} }   // 11-22: colour/shape/size/font show at once, even when the one-reload guard below already fired this session
             let once = false; try { once = sessionStorage.getItem('dc_prefs_reloaded') === '1'; } catch (_) {}
             if (changed && !once) { try { sessionStorage.setItem('dc_prefs_reloaded', '1'); } catch (_) {} location.reload(); }
         }
@@ -5264,17 +5269,28 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         const CMP_TAP = { down: null, times: [] };
         const CMP_TAP_BACK = CMP_NOT_HERS + ', button, input, textarea, select, a, label, .dc-bub, .dc-choices';
         document.addEventListener('pointerdown', e => { CMP_TAP.down = e.isPrimary ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: Date.now() } : null; }, true);
+        function cmpTapAt(x, y, target) {   // one short still tap at x,y - shared by pointerup and the touchend backup below
+            const now = Date.now(); if (now - (CMP_TAP.lastAt || 0) < 80) return; CMP_TAP.lastAt = now;   // one finger tap fires both paths on touch
+            const pane = $('#dc-av'); if (!pane || pane.hidden) return;
+            const tgt = target && target.closest ? target : null;
+            if (tgt && tgt.closest(CMP.front ? CMP_NOT_HERS : CMP_TAP_BACK)) return;
+            if (!cmpHitPx(x, y)) { CMP_TAP.times = []; return; }
+            CMP_TAP.times = CMP_TAP.times.filter(t => now - t < 600); CMP_TAP.times.push(now);
+            if (CMP_TAP.times.length >= 3) { CMP_TAP.times = []; clearTimeout(CMP.resetT); CMP.lastTap = 0; cmpSetFront(!CMP.front); }
+        }
         document.addEventListener('pointerup', e => {
             const d = CMP_TAP.down; CMP_TAP.down = null;
             if (!CMP.av || !d || d.id !== e.pointerId || Date.now() - d.t > 400 || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 10) return;
-            const pane = $('#dc-av'); if (!pane || pane.hidden) return;
-            const tgt = e.target && e.target.closest ? e.target : null;
-            if (tgt && tgt.closest(CMP.front ? CMP_NOT_HERS : CMP_TAP_BACK)) return;
-            if (!cmpHitPx(e.clientX, e.clientY)) { CMP_TAP.times = []; return; }
-            const now = Date.now();
-            CMP_TAP.times = CMP_TAP.times.filter(t => now - t < 600); CMP_TAP.times.push(now);
-            if (CMP_TAP.times.length >= 3) { CMP_TAP.times = []; clearTimeout(CMP.resetT); CMP.lastTap = 0; cmpSetFront(!CMP.front); }
+            cmpTapAt(e.clientX, e.clientY, e.target);
         }, true);
+        // touch backup (iPad, L 11-22): Safari can cancel the pointer stream on the pan-y chat log, so a tap on her never reached pointerup.
+        // The raw touch events still arrive - count a short still single-finger touch here too (cmpTapAt drops the duplicate).
+        document.addEventListener('touchstart', e => { const t = e.touches.length === 1 ? e.touches[0] : null; CMP_TAP.tdown = t ? { x: t.clientX, y: t.clientY, t: Date.now() } : null; }, { capture: true, passive: true });
+        document.addEventListener('touchend', e => {
+            const d = CMP_TAP.tdown; CMP_TAP.tdown = null; if (!CMP.av || !d || e.touches.length || e.changedTouches.length !== 1) return;
+            const t = e.changedTouches[0]; if (Date.now() - d.t > 400 || Math.hypot(t.clientX - d.x, t.clientY - d.y) > 10) return;
+            cmpTapAt(t.clientX, t.clientY, e.target);
+        }, { capture: true, passive: true });
         const cmpPts = () => [...CMP.ptrs.values()];
         const cmpDist = () => { const [a, b] = cmpPts(); return Math.hypot(a.x - b.x, a.y - b.y); };
         const cmpAng = () => { const [a, b] = cmpPts(); return Math.atan2(b.y - a.y, b.x - a.x); };
