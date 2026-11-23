@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.319"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.321"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -962,8 +962,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             </select>
             <button class="dc-tab active" data-tab="ch">Chat</button>
             <span id="dc-pins"></span>
-            <!-- 1.0.253 FORCE MODEL (L 2026-11-19): shows while the gear's Force model is set; tap = off. Memory only - a reload clears it. -->
-            <button type="button" id="dc-force-pill" hidden title="every message from every tab goes to this model - tap to turn it off" style="font:inherit;font-size:.72rem;font-weight:700;padding:2px 8px;border-radius:999px;border:0;background:#e8891c;color:#1a1000;cursor:pointer;white-space:nowrap;max-width:46vw;overflow:hidden;text-overflow:ellipsis"></button>   <!-- gear rows dragged up here live here (wirePins); the gear itself sits AFTER them (L, 2026-09-25: "move the gear to the right, after the six dots") -->
+            <!-- 1.0.320: the FORCE MODEL pill went with Force model (L 2026-11-22 "build it and remove the Force model"); 🧠 Model now sets the default for every tab -->
+            <!-- gear rows dragged up here live here (wirePins); the gear itself sits AFTER them (L, 2026-09-25: "move the gear to the right, after the six dots") -->
             <span class="dc-menu">
                 <button id="dc-gear" class="dc-gear" title="chat options">⚙</button>
                 <div id="dc-gear-pop" class="dc-pop" hidden>
@@ -987,10 +987,11 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     <button type="button" class="dc-btn ghost sm" id="dc-fresh-btn" title="write a handoff note, then restart this session fresh to clear the context">🫧 Fresh start</button>
                     
                     <!-- the theme rows moved to System > Look (2026-09-27); no gear shortcut (L: "get rid of the looks button, just go to System") -->
-                    <label class="dc-chk" id="dc-model-lbl" title="switch the model of Droplet's running session. Sends /model to its terminal on its own line and posts back whatever the terminal says - including 'not found'. Use it when replies come back as 'you have reached your limit'.">🧠 Model<select id="dc-model" style="margin-left:6px;font:inherit;max-width:120px"><option value="">unknown</option><option value="opus">Opus</option><option value="sonnet">Sonnet</option><option value="haiku">Haiku</option><option value="fable">Fable</option><option value="default">default</option></select></label>
-                    <!-- 1.0.253 FORCE MODEL (L 2026-11-19: "force a certain AI mode as default ... reset, not save through page reloads"): overrides every
-                         tab's pencil model (and the All view) for messages to Droplet. Kept in page memory only - a reload puts it back to Off. -->
-                    <label class="dc-chk" id="dc-force-lbl" title="send every message, from every tab, to this model - it beats the pencil model on each tab. Resets to Off when the page reloads.">🎯 Force model<select id="dc-force-model" style="margin-left:6px;font:inherit;max-width:130px"><option value="">Off</option></select></label>
+                    <label class="dc-chk" id="dc-model-lbl" title="switch the model of Droplet's running session. Sends /model to its terminal on its own line and posts back whatever the terminal says - including 'not found'. Use it when replies come back as 'you have reached your limit'.">🧠 Model<select id="dc-model" style="margin-left:6px;font:inherit;max-width:120px"><option value="">unknown</option><optgroup id="dc-model-main" label="Main session (Claude)"><option value="opus">Opus</option><option value="sonnet">Sonnet</option><option value="haiku">Haiku</option><option value="fable">Fable</option><option value="default">default</option></optgroup><optgroup id="dc-model-all" label="Every tab without its own model"></optgroup></select></label>
+                    <!-- 1.0.320 ALL MODELS (L 2026-11-22 "can I add all the models there as well" + "remove the Force model"): 🧠 Model lists every
+                         engine. A Claude rung = /model on the main session (as before, and clears the default); any other pick = settings/defaultTabModel,
+                         SAVED, used by every tab with no pencil model (new tabs too). A tab's own pencil model still wins. Force model removed. -->
+
                     <button class="dc-tab" id="dc-sys-tab" data-tab="sys" title="advanced: profile · look/theme · conversation · routines · Chat Bot">🎛<span class="dc-lbl"> Settings</span></button>   <!-- was "Full system & theme" (L 2026-10-04: "change to advanced") -->
                     
                     <span class="dc-size" id="dc-thread-size" title="size of the live thread"></span>
@@ -1461,6 +1462,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 window.addEventListener('focus', chatWake);
             }
             onValue(ref(database, `${DC.base}/settings/tabModel`), s => { DC.tabModels = s.val() || {}; window.dispatchEvent(new Event('dc-tabmodels')); });
+            // 1.0.320: the 🧠 Model default for every tab with no pencil model ('' = follow the main session). Saved, so it survives a reload.
+            onValue(ref(database, `${DC.base}/settings/defaultTabModel`), s => { DC.defaultModel = String(s.val() || ''); if (DC.syncModelSel) DC.syncModelSel(); window.dispatchEvent(new Event('dc-tabmodels')); });
             onValue(ref(database, `${DC.base}/settings/tabEnc`), s => { DC.tabEnc = s.val() || {}; renderTopics(); }, dcWarn('settings/tabEnc'));   // 🔒 encrypted tabs (trial 11-19)
             onValue(ref(database, `${DC.base}/chat/topics`), s => { DC.topicList = s.val() || {}; renderTopics(); });
             onValue(ref(database, `${DC.base}/chat/favorites`), s => { DC.favs = s.val() || {}; renderChat(DC.chatTurns || {}); });
@@ -1790,7 +1793,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // existing name MERGES - deliberately, because that is the only way to undo a fork.
         // TAB EDIT POPUP (2026-10-31, L: "the pencil ... a model select in that popup"): name + model for this tab.
         // The value goes on every job from the tab; the daemon's _tabmodel_job answers it. Empty = the main session.
-        const TAB_MODELS = [['', 'Default (main session)'], ['claude:claude-opus-5-5', 'Claude Opus 5.5'], ['claude:claude-sonnet-5-5', 'Claude Sonnet 5.5'],
+        const TAB_MODELS = [['', 'Default (🧠 Model in the gear)'], ['claude:claude-opus-5-5', 'Claude Opus 5.5'], ['claude:claude-sonnet-5-5', 'Claude Sonnet 5.5'],
             ['claude:claude-haiku-5-5', 'Claude Haiku 5.5'], ['claude:claude-fable-5-2', 'Claude Fable 5.2'],
             ['codex:default', 'Codex (ChatGPT login)'], ['grok:grok-4', 'Grok (xAI API key)'],   // daemon 0.76 (2026-11-15)
             ['copilot:auto', 'Copilot (GitHub login)'],   // daemon 0.85 (2026-11-18): GitHub's quota, chat only
@@ -1836,18 +1839,14 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         const ENGINE_SIGNIN = {
             copilot: 'Copilot (GitHub login): its own conversation, tools + files, no browser. If it answers "not signed in": on the PC run copilot, type /login and enter the code at github.com/login/device.',
             codex: 'Codex (ChatGPT login): its own conversation, tools + files, no browser. If it answers "not signed in": on the PC run codex login.' };
-        // 1.0.253 FORCE MODEL: DC.forceModel (page memory only, never saved) beats the tab's pencil model. '__main' = force the main session.
-        const jobTabModel = n => { let tm = DC.forceModel ? (DC.forceModel === '__main' ? '' : DC.forceModel) : tabModelOf(n); if (tm === BOT_TAB) tm = ''; if (!tm) return ''; if (!DC.kdaemon) return tm; return kdKindOk(tm) ? tm : ''; };
-        { const fsel = document.getElementById('dc-force-model'), pill = document.getElementById('dc-force-pill');
-          const fill = () => { if (!fsel) return; const cur = DC.forceModel || ''; const kdOk = DC.kdaemon && kdTabOk(); fsel.length = 1;
-              for (const [v, t] of [['__main', 'Main session'], ...tabModelList().filter(x => x[0])]) { const setup = kdSetupNeeded(v); if (DC.kdaemon && v !== '__main' && !kdKindOk(v) && !setup) continue;
-                  const o = document.createElement('option'); o.value = v; o.textContent = t + (setup ? ' (set up first)' : ''); o.disabled = setup; fsel.appendChild(o); }   // 1.0.257: same list as the pencil, everyone
-              fsel.value = cur; if (fsel.value !== cur) fsel.value = ''; };
-          const show = () => { const v = DC.forceModel || ''; if (pill) { pill.hidden = !v; pill.textContent = v ? 'FORCED: ' + ((tabModelList().find(x => x[0] === v) || [v, v === '__main' ? 'Main session' : v])[1]) : ''; }
-              if (fsel && fsel.value !== v) fsel.value = v; };
-          if (fsel) { fill(); fsel.addEventListener('pointerdown', fill); fsel.addEventListener('focus', fill);
-              fsel.addEventListener('change', () => { DC.forceModel = fsel.value || ''; show(); }); }
-          if (pill) pill.addEventListener('click', () => { DC.forceModel = ''; show(); }); }
+        // 1.0.320 ALL MODELS (Force model removed, L 2026-11-22): a tab's pencil model wins; a tab with none uses the 🧠 Model default
+        // (DC.defaultModel = settings/defaultTabModel, saved); '' = the main session. The bot tab never falls through to the default.
+        const jobTabModel = n => { let tm = tabModelOf(n); if (tm === BOT_TAB) return ''; if (!tm) tm = DC.defaultModel || ''; if (!tm) return ''; if (!DC.kdaemon) return tm; return kdKindOk(tm) ? tm : ''; };
+        // fills the "Every tab without its own model" group of 🧠 Model - the same list (and the same kdaemon filter) as the pencil picker
+        DC.fillModelAll = () => { const g = document.getElementById('dc-model-all'); if (!g) return;
+            const want = tabModelList().filter(x => x[0]).filter(([v]) => !(DC.kdaemon && !kdKindOk(v) && !kdSetupNeeded(v)));
+            const sig = want.map(x => x[0] + (kdSetupNeeded(x[0]) ? '!' : '')).join('|'); if (g.dataset.sig === sig) return; g.dataset.sig = sig; g.textContent = '';
+            for (const [v, t] of want) { const setup = kdSetupNeeded(v), o = document.createElement('option'); o.value = v; o.textContent = t + (setup ? ' (set up first)' : ''); o.disabled = setup; g.appendChild(o); } };
         function editTab(oldName) {
             const w = document.createElement('div');
             w.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px';
@@ -5692,7 +5691,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (KIT && KIT.hasAtt && KIT.hasAtt()) return 'Attachments cannot be timed yet. Remove them or send now.';
             const tpc = (DC.topic && DC.topic !== FAV_TAB) ? { topic: DC.topic } : {};
             if (tabEncOn(tpc.topic)) return 'Timed send is not available in an encrypted tab yet (trial) - send it now instead.';
-            const tm = ((DC.topic || DC.forceModel) && jobTabModel(DC.topic)) || '';
+            const tm = ((DC.topic || DC.defaultModel) && jobTabModel(DC.topic)) || '';
             const wantPing = !!($('#dc-chat-ping') && $('#dc-chat-ping').checked);
             try {
                 const lref = push(ref(database, `${DC.base}/chat/turns`)), rref = push(ref(database, `${DC.base}/routines`));
@@ -5885,7 +5884,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 const job = target === 'command'
                     ? { kind: 'command', command: raw, code: ykCode, chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing }
                     : { kind: 'prompt', target: jobTarget, rough: raw, enhanced: prompt, ...(encOn ? { rough: (await encF(raw)).text, enhanced: (await encF(prompt)).text, enc: ENC.MARK, encKey: encMode } : {}), chat: true, status: 'queued', createdAt: Date.now(), ping: wantPing,
-                        enhance: !!(enhOn && kdMember() && !encOn), lturn: lref.key, ...tpc, ...(jobTarget === 'droplet' && (sendTab || DC.forceModel) && !DC.mainSession && jobTabModel(sendTab) ? { tabModel: jobTabModel(sendTab) } : {}), ...(editTurn ? { edited: true } : {}) };   // kdaemon: enhance server-side + which turn to annotate
+                        enhance: !!(enhOn && kdMember() && !encOn), lturn: lref.key, ...tpc, ...(jobTarget === 'droplet' && (sendTab || DC.defaultModel) && !DC.mainSession && jobTabModel(sendTab) ? { tabModel: jobTabModel(sendTab) } : {}), ...(editTurn ? { edited: true } : {}) };   // kdaemon: enhance server-side + which turn to annotate
                 await set(jref, job);
                 try { await update(lref, { jobId: jref.key }); } catch (_) {}   // lets a later delete blank the job text as well
                 DC.lastJob = jref.key;
@@ -6115,7 +6114,22 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 // 1.0.218 (L 2026-11-15 "it always says switch to and that's causing confusion"): this control sends /model to a TERMINAL
                 // session - a member's kdaemon has none (claude -p per message), so there it only made dead "/model opus" bubbles
                 // (Erik's, 11-15). Hidden on kdaemon consoles; they pick models per tab instead.
-                if (lbl) lbl.hidden = kdNoSession(); if (kdNoSession()) return;
+                // 1.0.320 ALL MODELS: the box is shown everywhere now. A member kdaemon (no terminal session) gets only the engine group + "Default";
+                // when a default engine is saved (DC.defaultModel) the box shows THAT, since it is what every tab without a pencil model runs.
+                const noSess = kdNoSession(); if (lbl) lbl.hidden = false;
+                if (DC.fillModelAll) DC.fillModelAll();
+                if (!DC.modelMainG) DC.modelMainG = document.getElementById('dc-model-main');
+                if (DC.modelMainG) { if (noSess) DC.modelMainG.remove(); else if (!DC.modelMainG.parentNode) sel.insertBefore(DC.modelMainG, document.getElementById('dc-model-all')); }
+                { const dm = DC.defaultModel || ''; if (dm || noSess) {
+                    const ph = DC.modelPh || (DC.modelPh = sel.querySelector('option[value=\"\"]'));
+                    [...sel.options].forEach(o => { if (o.dataset.base == null) o.dataset.base = o.value === '' ? 'unknown' : o.textContent; o.textContent = o.dataset.base; });
+                    if (ph) { if (noSess) { if (!ph.parentNode) sel.insertBefore(ph, sel.firstChild); ph.textContent = 'Default'; } else ph.remove(); }
+                    sel.style.opacity = ''; sel.value = dm; if (sel.value !== dm) sel.value = '';
+                    const nm = dm ? ((tabModelList().find(x => x[0] === dm) || [dm, dm])[1]) : 'Default';
+                    if (lbl) lbl.title = dm ? 'Every tab without its own pencil model answers on ' + nm + '. ' + (noSess ? 'Pick Default to go back' : 'Pick a Claude model to go back to the main session') + '; a tab with its own pencil model keeps it.'
+                        : 'Pick a model for every tab that has no pencil model of its own (new tabs too). A tab with its own pencil model keeps it.';
+                    return; } }
+                if (noSess) return;
                 // SWITCHING (L 2026-11-09 "I switched to fable and it went back to opus"): the published label only
                 // changes when a turn ENDS (the Stop hook reads the transcript), so a pick looked ignored. Hold the pick
                 // as "(switching…)" until the hook publishes anything newer than the pick - whatever it says wins.
@@ -7050,6 +7064,13 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // put the box back to what Droplet is ACTUALLY in (not blank): the switch has been asked
             // for, not confirmed, and the published value only changes when a reply comes back on it.
             if (!e.isTrusted) return; const v = ms.value;
+            // 1.0.320 ALL MODELS: an engine id ("gemini:...", "codex:default", "local:...") = the saved default for every tab with no
+            // pencil model - no /model is sent. "Default" (member) or a Claude rung clears it, so those tabs follow the main session again.
+            const dmSave = val => { DC.defaultModel = val; try { set(ref(database, `${DC.base}/settings/defaultTabModel`), val || null); } catch (_) {} };
+            if (v.includes(':')) { dmSave(v); if (DC.syncModelSel) DC.syncModelSel();
+                const st = $('#dc-chat-status'); if (st) st.textContent = '🧠 tabs without their own model now use ' + ((tabModelList().find(x => x[0] === v) || [v, v])[1]); return; }
+            if (DC.defaultModel) dmSave('');
+            if (!v || kdNoSession()) { if (DC.syncModelSel) DC.syncModelSel(); return; }
             // 0.84 THE CASCADE (L 2026-11-18): picking a Cascade rung (Opus/Sonnet/Fable) also saves it as the preferred
             // TOP-OF-CHAIN under this login, so the auto-failover starts there and climbs back to it when quota returns.
             if (['opus', 'sonnet', 'fable'].includes(v)) { try { set(ref(database, `${DC.base}/settings/cascadeTop`), v); } catch (_) {} }
