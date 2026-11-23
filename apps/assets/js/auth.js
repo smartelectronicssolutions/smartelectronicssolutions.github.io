@@ -197,7 +197,7 @@ async function mountAccountPicker(user) {
   let dir = {};
   try { dir = (await get(ref(database, "share/directory"))).val() || {}; } catch (_) {}
   let emails = {};   // 2026-10-11 (L: "add the emails of things that have names"): uid -> email, kept in the OWNER's private profile, never in share/
-  try { emails = (await get(ref(database, `${MAIN_UID}/me/accountEmails`))).val() || {}; } catch (_) {}
+  try { emails = (await get(ref(database, `${MAIN_UID}/profile/accountEmails`))).val() || {}; } catch (_) {}
   // A link carrying ?base=<uid> opens that account's tree: show it in the dropdown and remember it as the pick.
   let urlBase = ""; try { urlBase = new URLSearchParams(location.search).get("base") || ""; } catch (_) {}
   if (!/^[A-Za-z0-9_-]{6,64}$/.test(urlBase)) urlBase = "";
