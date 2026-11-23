@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
-<meta name="version" content="1.0.50">
+<meta name="version" content="1.0.51">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0c0f13"><title>Loadout</title>
 <style>
@@ -857,12 +857,17 @@ function splitMove(it,n,dest){const q=it.qty||0;n=Math.max(1,Math.min(q,Math.rou
   else{const nid=it.id+"_"+Date.now().toString(36),lbl=dest==="bag"?null:locMeta(dest).label;
     upd[nid]={...raw,quantity:n,container:dest,room:lbl,group:g,addedAt:Date.now(),...(part!=null?{actualPrice:_m2(part)}:{})};}
   it.qty=q-n;it.group=g;update(ref(db,BASE+"/items"),upd).catch(e=>console.warn(e));rebuild();}
-function moveItem(it,newLoc){const _sib=sibIn(it,newLoc);
-  if(_sib){const sr=ITEMS_RAW[_sib.id]||{},raw=ITEMS_RAW[it.id]||{},a=_money(sr.actualPrice),b=_money(raw.actualPrice);   // MERGE-BACK into the sibling already there
-    const upd={[_sib.id+"/quantity"]:(+sr.quantity||0)+(+raw.quantity||0),[it.id]:null};if(a!=null||b!=null)upd[_sib.id+"/actualPrice"]=_m2((a||0)+(b||0));
-    _sib.qty=(+sr.quantity||0)+(+raw.quantity||0);ITEMS=ITEMS.filter(x=>x!==it);update(ref(db,BASE+"/items"),upd).catch(e=>console.warn(e));rebuild();return;}
+/* BATCHED MOVES (2026-11-23): pass `batch` (an object) and the paths are merged into it instead of written - the caller makes ONE
+   update() + ONE rebuild() for N items. A merge reads the sibling's quantity/actualPrice from the batch first, since ITEMS_RAW
+   only catches up after the write. No batch = the old one-item behaviour, unchanged. */
+function moveItem(it,newLoc,batch){const _sib=sibIn(it,newLoc);
+  if(_sib){const sr=ITEMS_RAW[_sib.id]||{},raw=ITEMS_RAW[it.id]||{},qk=_sib.id+"/quantity",pk=_sib.id+"/actualPrice";   // MERGE-BACK into the sibling already there
+    const sq=(batch&&qk in batch)?(+batch[qk]||0):(+sr.quantity||0),a=(batch&&pk in batch)?_money(batch[pk]):_money(sr.actualPrice),b=_money(raw.actualPrice);
+    const upd={[qk]:sq+(+raw.quantity||0),[it.id]:null};if(a!=null||b!=null)upd[pk]=_m2((a||0)+(b||0));
+    _sib.qty=sq+(+raw.quantity||0);ITEMS=ITEMS.filter(x=>x!==it);if(batch){Object.assign(batch,upd);return;}update(ref(db,BASE+"/items"),upd).catch(e=>console.warn(e));rebuild();return;}
   const base=it.id;it.loc=newLoc;const upd={[base+"/container"]:newLoc};
   if(newLoc!=="bag"){const lbl=locMeta(newLoc).label;it.room=lbl;upd[base+"/room"]=lbl;}else{it.room=null;upd[base+"/room"]=null;}   // into the bag = no room (a stale "Flex Top" stuck after a round trip, 2026-10-18)   // sync the inventory-app 'room' field so the move shows there too
+  if(batch){Object.assign(batch,upd);return;}
   update(ref(db,BASE+"/items"),upd).catch(e=>console.warn(e));rebuild();}
 // ===== economy (ledger-driven wallet, all on public/loadout/ledger) =====
 let BAL=0;
@@ -904,6 +909,9 @@ let DECOR_RAW={};onValue(ref(db,"public/games/loadout/decor"),snap=>{DECOR_RAW=s
   if(paletteOpen) buildPalette();});
 function applyDecorRaw(){const v=DECOR_RAW;for(const rm in ROOMS){ if(v[rm]){roomDecor[rm]=v[rm];decorInDB[rm]=true;} else if(!decorInDB[rm]){roomDecor[rm]=seedDefaults(rm);} }}
 function saveRoom(rm){decorInDB[rm]=true;set(ref(db,"public/games/loadout/decor/"+rm),roomDecor[rm]||{}).catch(e=>console.warn(e));}
+/* PER-PIECE SAVE (2026-11-23): a one-piece edit writes only that piece, so two editors in the same room don't wipe each other.
+   A room still on its seeded defaults (not in the DB yet) gets the whole-room write first, or the defaults would be lost. */
+function savePiece(rm,id){if(!decorInDB[rm]){saveRoom(rm);return;}update(ref(db,"public/games/loadout/decor/"+rm),{[id]:(roomDecor[rm]||{})[id]??null}).catch(e=>console.warn(e));}
 function newId(){return "p"+Date.now().toString(36)+Math.floor(Math.random()*1e4).toString(36);}
 function decorList(rm){const o=roomDecor[rm]||{};return Object.entries(o).map(([id,d])=>({id,d}));}
 
@@ -1697,7 +1705,7 @@ function solidRects(r){const rects=[];if(r==="street")rects.push(...HOOD_SOLID);
   thSolidsInto(r,rects);   // TRAINING HALL (2026-11-05) hook
   if(r==="street")rects.push({x:SHOP_RECT.x+6,y:SHOP_RECT.y+28,w:SHOP_RECT.w-12,h:SHOP_RECT.h-32});           // shop
   for(const [k,p] of placesIn(r))rects.push({x:p.x,y:p.y+p.h-14,w:p.w,h:16});
-  for(const {d} of decorList(r)){const cb=CAT[d.k]?CAT[d.k].base:undefined;
+  for(const {d} of decorList(r)){if(!CAT[d.k])continue;const cb=CAT[d.k].base;   // unknown key (catalog/manifest not loaded) = skip, like drawDecorItem (2026-11-23)
     if(cb!=null){if(cb<=0)continue;}else if(!isSolid(d.k))continue;
     const s=d.s||1;const W0=CAT[d.k].w*s,H0=CAT[d.k].h*s;let w=W0,h=H0;if((d.rot||0)%2){const t=w;w=h;h=t;}
     const ox=d.x+(W0-w)/2,oy=d.y+(H0-h)/2;   // a rotated piece is drawn spun round its own centre - measure the box from there, not the corner
@@ -1835,7 +1843,7 @@ function _memKey(k){return String(k).replace(/[.#$/\[\]]/g,"_").slice(0,60);}
 async function yukiMemoryText(){try{const mem=(await get(ref(db,BASE+"/chat/bot/memory"))).val()||{};const tr=(await get(ref(db,BASE+"/chat/bot/traits"))).val()||{};let s="";const mk=Object.keys(mem);if(mk.length)s+="\nWhat you remember:\n"+mk.slice(0,40).map(k=>"- "+k+": "+_flat(mem[k])).join("\n");const tk=Object.keys(tr);if(tk.length)s+="\nYour current traits:\n"+tk.slice(0,20).map(k=>"- "+k+": "+_flat(tr[k])).join("\n");return s;}catch(e){return "";}}
 async function saveYukiMem(k,v){try{await set(ref(db,BASE+"/chat/bot/memory/"+_memKey(k)),{value:String(v).slice(0,400),updated:Date.now()});}catch(e){}}
 async function saveYukiTrait(k,v){try{await set(ref(db,BASE+"/chat/bot/traits/"+_memKey(k)),{value:String(v).slice(0,400),updated:Date.now()});}catch(e){}}
-function yukiBubble(who,text,cls){const box=$("yukiMsgs");if(!box)return null;const d=document.createElement("div");d.className="ym "+(cls||"");d.innerHTML='<b>'+who+':</b> '+text.replace(/</g,"&lt;");box.appendChild(d);box.scrollTop=box.scrollHeight;return d;}
+function yukiBubble(who,text,cls){const box=$("yukiMsgs");if(!box)return null;const d=document.createElement("div");d.className="ym "+(cls||"");d.innerHTML='<b>'+esc(who)+':</b> '+text.replace(/</g,"&lt;");box.appendChild(d);box.scrollTop=box.scrollHeight;return d;}
 async function yukiModel(){try{let m=(await get(ref(db,BASE+"/chat/bot/model"))).val();if(!m)m=(await get(ref(db,"public/chat/bot/model"))).val();return m||"dolphin3";}catch(e){return "dolphin3";}}
 // ===== Character editor (LimeZu modular parts, composited live in-browser, Firebase-saved) =====
 const CE_CATS=[{k:"body",label:"Skin",none:false},{k:"hair",label:"Hair",none:true},{k:"eyes",label:"Eyes",none:false},{k:"outfit",label:"Outfit",none:true},{k:"acc",label:"Extra",none:true}];
@@ -1923,7 +1931,7 @@ const YUKI_GUIDE="HOW TO PLAY LOADOUT (use this when asked):\n"+
  "- Build your room: EDIT ROOM (or I) \u2014 add furniture, drag it, rotate, resize, paint floors (F) and walls (W), draw your own sprites; Does sets what a piece does (door, storage, shop...).\n"+
  "- Lights: L. Music: M or tap the LOADOUT title. Talk to me any time with the Yuki button.";
 async function yukiSend(){const inp=$("yukiInput");if(!inp)return;const t=inp.value.trim();if(!t||yukiBusy)return;inp.value="";if(!yukiLoaded)await loadYukiIdentity();yukiBubble("You",t,"you");yukiHist.push({role:"user",content:t});yukiBusy=true;const pend=yukiBubble(yukiName,"\u2026","yuki");try{let reply=null;if(BASE===LUIS_UID&&typeof auth!=="undefined"&&auth&&auth.currentUser){try{const idTok=await auth.currentUser.getIdToken();const res=await fetch(COMPMAN_URL,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+idTok},body:JSON.stringify({messages:[{role:"system",content:loadoutEditContext()}].concat(yukiHist.slice(-12))})});if(res.ok){reply=((await res.json()).reply||"").trim();}}catch(ce){reply=null;}}if(reply==null||reply===""){const model=await yukiModel();const area=(typeof ROOMS!=="undefined"&&ROOMS[room])?ROOMS[room].name:room;const mem=await yukiMemoryText();const _isLuis=BASE===LUIS_UID;   /* b114 (L: another player asked Yuki how to play and got nothing useful): she now knows HOW TO PLAY, and talks to a guest as a guest */
-const sys="You are "+yukiName+", a warm, playful, slightly shy fairy companion inside the game \u2018Loadout\u2019"+(_isLuis?", Luis\u2019s life-inventory game. The game mirrors his REAL inventory, profit and jobs \u2014 a factual reflection of his life. You are talking to Luis.":", a cozy pixel RPG about a field-service technician. You are talking to a PLAYER who is visiting \u2014 not Luis; don\u2019t talk about Luis\u2019s private life or money.")+" Keep replies short (1-3 sentences), friendly and encouraging. If they ask how to play, answer from the guide below in plain steps. Current area: "+area+". "+(yukiPersona?("Personality: "+yukiPersona+" "):"")+"To remember a fact, append [MEMORY:key=value]. To update how you feel, append [TRAIT:key=value]."+mem+"\n\n"+YUKI_GUIDE+(_isLuis?"\n\n"+loadoutEditContext():"");const res=await fetch(YUKI_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:model,stream:false,messages:[{role:"system",content:sys},...yukiHist.slice(-10)]})});if(!res.ok)throw new Error("HTTP "+res.status);const data=await res.json();reply=((data.message&&data.message.content)||"");let mw=0;for(const m of reply.matchAll(/\[MEMORY:([^=\]]+)=([^\]]+)\]/gi)){if(mw++>=8)break;saveYukiMem(m[1].trim(),m[2].trim());}let tw=0;for(const m of reply.matchAll(/\[TRAIT:([^=\]]+)=([^\]]+)\]/gi)){if(tw++>=8)break;saveYukiTrait(m[1].trim(),m[2].trim());}}reply=(reply||"").replace(/\[MOOD:\w+\]/gi,"").replace(/\[MEMORY:[^\]]+\]/gi,"").replace(/\[TRAIT:[^\]]+\]/gi,"").trim();var _ed=applyLoadoutEdits(reply);reply=_ed.text;if(_ed.done.length)reply=(reply?reply+" ":"")+"\u2728 "+_ed.done.join("; ");reply=reply||"U-um\u2026";if(pend)pend.innerHTML="<b>"+yukiName+":</b> "+reply.replace(/</g,"&lt;");yukiHist.push({role:"assistant",content:reply});const box=$("yukiMsgs");if(box)box.scrollTop=box.scrollHeight;}catch(e){if(pend)pend.innerHTML="<b>"+yukiName+":</b> A-ah\u2026 I can\u2019t reach my thoughts right now.";}finally{yukiBusy=false;}}
+const sys="You are "+yukiName+", a warm, playful, slightly shy fairy companion inside the game \u2018Loadout\u2019"+(_isLuis?", Luis\u2019s life-inventory game. The game mirrors his REAL inventory, profit and jobs \u2014 a factual reflection of his life. You are talking to Luis.":", a cozy pixel RPG about a field-service technician. You are talking to a PLAYER who is visiting \u2014 not Luis; don\u2019t talk about Luis\u2019s private life or money.")+" Keep replies short (1-3 sentences), friendly and encouraging. If they ask how to play, answer from the guide below in plain steps. Current area: "+area+". "+(yukiPersona?("Personality: "+yukiPersona+" "):"")+"To remember a fact, append [MEMORY:key=value]. To update how you feel, append [TRAIT:key=value]."+mem+"\n\n"+YUKI_GUIDE+(_isLuis?"\n\n"+loadoutEditContext():"");const res=await fetch(YUKI_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:model,stream:false,messages:[{role:"system",content:sys},...yukiHist.slice(-10)]})});if(!res.ok)throw new Error("HTTP "+res.status);const data=await res.json();reply=((data.message&&data.message.content)||"");let mw=0;for(const m of reply.matchAll(/\[MEMORY:([^=\]]+)=([^\]]+)\]/gi)){if(mw++>=8)break;saveYukiMem(m[1].trim(),m[2].trim());}let tw=0;for(const m of reply.matchAll(/\[TRAIT:([^=\]]+)=([^\]]+)\]/gi)){if(tw++>=8)break;saveYukiTrait(m[1].trim(),m[2].trim());}}reply=(reply||"").replace(/\[MOOD:\w+\]/gi,"").replace(/\[MEMORY:[^\]]+\]/gi,"").replace(/\[TRAIT:[^\]]+\]/gi,"").trim();var _ed=applyLoadoutEdits(reply);reply=_ed.text;if(_ed.done.length)reply=(reply?reply+" ":"")+"\u2728 "+_ed.done.join("; ");reply=reply||"U-um\u2026";if(pend)pend.innerHTML="<b>"+esc(yukiName)+":</b> "+reply.replace(/</g,"&lt;");yukiHist.push({role:"assistant",content:reply});const box=$("yukiMsgs");if(box)box.scrollTop=box.scrollHeight;}catch(e){if(pend)pend.innerHTML="<b>"+esc(yukiName)+":</b> A-ah\u2026 I can\u2019t reach my thoughts right now.";}finally{yukiBusy=false;}}
 (function(){var b=$("yukiBtn");if(b)b.onclick=function(){yukiOpen(true);};var cl=$("yukiClose");if(cl)cl.onclick=function(){yukiOpen(false);};var sb=$("yukiSendBtn");if(sb)sb.onclick=yukiSend;var inp=$("yukiInput");if(inp)inp.addEventListener("keydown",function(e){if(e.key==="Enter"){e.preventDefault();yukiSend();}});addEventListener("keydown",function(e){if(e.key==="Escape"){var yc=$("yukiChat");if(yc&&yc.style.display==="flex"){e.stopImmediatePropagation();yukiOpen(false);return;}}if((e.key==="c"||e.key==="C")&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&!isTypingEl()){   /* b130: Ctrl/Cmd+C is copy, not Yuki (L) */var c=$("yukiChat");yukiOpen(!(c&&c.style.display==="flex"));}});if(typeof cv!=="undefined")cv.addEventListener("pointerdown",function(e){var r=cv.getBoundingClientRect();var cx=(e.clientX-r.left)*(cv.width/r.width),cy=(e.clientY-r.top)*(cv.height/r.height);if(Math.hypot(cx-fairy.x,cy-fairy.y)<20&&matchMedia("(pointer:coarse)").matches){e.stopPropagation();e.preventDefault();yukiOpen(true);}},true);})();
 function unstick(){if(editMode||transing)return;if(!blocked(player.x,player.y))return;const pgx=Math.floor(player.x/CELL),pgy=Math.floor(player.y/CELL);for(let r=1;r<=48;r++){for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++){if(Math.max(Math.abs(dx),Math.abs(dy))!==r)continue;const cx=(pgx+dx+0.5)*CELL,cy=(pgy+dy+0.5)*CELL;if(!blocked(cx,cy)){player.x=cx;player.y=cy;moveTarget=null;return;}}}}
 let gpDriving=false,gpPrev={};
@@ -2052,7 +2060,7 @@ function nightAlpha(){const m=DAY.m;if(m<300)return .45;if(m<420)return .45*(420
 function jobCost(j){return{e:Math.round(30+j.miles/4),t:Math.round(60+j.miles*1.5)};}
 let _lastDraw=0;
 function frame(ts){requestAnimationFrame(frame);const dt=Math.min(.05,(ts-last)/1000||0);last=ts;computeROOMR();if(_fitRH!=null&&_fitRH!==ROOMR.h)fitPass();pollGamepad();unstick();if(!isOpen()&&!transing&&!editMode){if(!dlg){step(dt);stepDay(dt);}stepNPCs(dt);}stepFairy(dt);if(ts-_lastDraw<27)return;_lastDraw=ts;ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle="#0e1216";ctx.fillRect(0,0,VW,VH);ctx.save();if(editMode&&editZoom!==1){ctx.translate(VW/2,VH/2);ctx.scale(editZoom,editZoom);ctx.translate(-VW/2,-VH/2);}ctx.translate(roomOff.x,roomOff.y);render();drawFairy();ctx.restore();if(!editMode){const lit=!!LIGHTS[room]&&room!=="street"&&room!=="glade",na=nightAlpha()*(lit?.25:1);if(na>0||lit){if(na>0){ctx.fillStyle="rgba(12,18,52,"+na+")";ctx.fillRect(0,0,VW,VH);}
-  {const lamps=decorList(room).filter(({d})=>d.k==="lamppost"||(lit&&isLamp(d.k)&&d.k!=="portrait")).map(({d})=>d.k==="lamppost"?[d.x+8*(d.s||1),d.y+50*(d.s||1)]:[d.x+(CAT[d.k].w*(d.s||1))/2,d.y+CAT[d.k].h*(d.s||1)*.9]);const ga=lit?.32:na*1.1;ctx.save();ctx.translate(roomOff.x,roomOff.y);ctx.globalCompositeOperation="lighter";for(const [lx,ly] of lamps){const gr=ctx.createRadialGradient(lx,ly-40,2,lx,ly-14,70);gr.addColorStop(0,"rgba(255,214,120,"+ga+")");gr.addColorStop(1,"rgba(255,214,120,0)");ctx.fillStyle=gr;ctx.fillRect(lx-70,ly-90,140,150);}{const nf=Math.max(na,0);if(nf>0.02){const fx=fairy.x,fy=fairy.y+Math.sin(fairy.vt*4)*3,fr=74+Math.sin(performance.now()/420)*4;   /* YUKI GIVES OFF LIGHT (2026-10-18, L): a soft pink-white lantern round the fairy at night */
+  {const lamps=decorList(room).filter(({d})=>CAT[d.k]&&(d.k==="lamppost"||(lit&&isLamp(d.k)&&d.k!=="portrait"))).map(({d})=>d.k==="lamppost"?[d.x+8*(d.s||1),d.y+50*(d.s||1)]:[d.x+(CAT[d.k].w*(d.s||1))/2,d.y+CAT[d.k].h*(d.s||1)*.9]);const ga=lit?.32:na*1.1;ctx.save();ctx.translate(roomOff.x,roomOff.y);ctx.globalCompositeOperation="lighter";for(const [lx,ly] of lamps){const gr=ctx.createRadialGradient(lx,ly-40,2,lx,ly-14,70);gr.addColorStop(0,"rgba(255,214,120,"+ga+")");gr.addColorStop(1,"rgba(255,214,120,0)");ctx.fillStyle=gr;ctx.fillRect(lx-70,ly-90,140,150);}{const nf=Math.max(na,0);if(nf>0.02){const fx=fairy.x,fy=fairy.y+Math.sin(fairy.vt*4)*3,fr=74+Math.sin(performance.now()/420)*4;   /* YUKI GIVES OFF LIGHT (2026-10-18, L): a soft pink-white lantern round the fairy at night */
    const fg=ctx.createRadialGradient(fx,fy,2,fx,fy,fr);fg.addColorStop(0,"rgba(255,226,244,"+Math.min(.55,nf*1.25)+")");fg.addColorStop(.45,"rgba(255,190,232,"+Math.min(.28,nf*.6)+")");fg.addColorStop(1,"rgba(255,190,232,0)");ctx.fillStyle=fg;ctx.fillRect(fx-fr,fy-fr,fr*2,fr*2);}}ctx.restore();}}}}
 function step(dt){let dx=0,dy=0;
   if(joy){dx=joy.dx;dy=joy.dy;moveTarget=null;}
@@ -2094,7 +2102,7 @@ function render(){const R=ROOMS[room];
   ctx.drawImage(_bgc,0,0);
   if(room==="traininghall")drawTHLive();   // TRAINING HALL (2026-11-05) hook
   const ents=[];
-  for(const {id,d} of decorList(room))if(!isFlat(d.k)){const s=d.s||1,W0=CAT[d.k].w*s,H0=CAT[d.k].h*s,rh=(d.rot||0)%2?W0:H0;ents.push({t:"d",id,d,z:d.z||0,sy:d.y+(H0+rh)/2});}   // base line = the bottom you SEE (rotated pieces spin round their centre)
+  for(const {id,d} of decorList(room))if(!isFlat(d.k)&&CAT[d.k]){const s=d.s||1,W0=CAT[d.k].w*s,H0=CAT[d.k].h*s,rh=(d.rot||0)%2?W0:H0;ents.push({t:"d",id,d,z:d.z||0,sy:d.y+(H0+rh)/2});}   // base line = the bottom you SEE (rotated pieces spin round their centre)
   for(const[k,p]of placesIn(room))ents.push({t:"p",k,p,z:p.z||0,sy:p.y+p.h});
   if(room==="street")STREET_HOUSES.forEach((h,i)=>ents.push({t:"house",i,h,z:h.z||0,sy:h.at[1]+92}));   // 2026-10-21: houses sort with the props; base = the barrier's bottom (at.y+92, same line the body rect uses), so standing at the door (below it) you draw in FRONT (L: "what about the barriers")
   ents.push({t:"pl",z:0,sy:player.y});
@@ -2410,7 +2418,7 @@ function refreshTools(){const on=!!selected;{const rb=$("removeAreaBtn");if(rb)r
   if(on&&selected.kind==="d"){const dd=roomDecor[room][selected.id]||{};const isS=dd.store||dd.storeArea;$("storeBtn").innerHTML=(dd.storeArea||dd.store)?"📦 Storage ✓":"📦 Storage";$("storeBtn").classList.toggle("add",!!isS);$("readerBtn").innerHTML=dd.reader?"📖 Reader ✓":"📖 Reader";$("readerBtn").classList.toggle("add",!!dd.reader);$("changeBtn").innerHTML=dd.changeStation?"👕 Change Station ✓":"👕 Change Station";$("changeBtn").classList.toggle("add",!!dd.changeStation);}else{$("storeBtn").classList.remove("add");$("storeBtn").innerHTML="📦 Storage";$("readerBtn").classList.remove("add");$("readerBtn").innerHTML="📖 Reader";$("changeBtn").classList.remove("add");$("changeBtn").innerHTML="👕 Change Station";}
   {const hg=$("hitGrp");if(hg)hg.style.display=(selected&&selected.kind==="d")?"":"none";try{hshapeLbl();}catch(e){}}
   if(!selected){$("selLabel").innerHTML=wallMode?"Wall mode — tap/drag the grid to build or erase walls":"Tap a piece to select · drag to move";return;}
-  let label=selected.kind==="pdoor"?(()=>{const q=(roomDecor[room][selected.id]||{}).does||{};return "Door \u2192 "+((ROOMS[q.to]||{}).name||q.to||"?")+" <span style='opacity:.7'>(drag to move it on the piece)</span>";})()
+  let label=selected.kind==="pdoor"?(()=>{const q=(roomDecor[room][selected.id]||{}).does||{};return "Door \u2192 "+esc((ROOMS[q.to]||{}).name||q.to||"?")+" <span style='opacity:.7'>(drag to move it on the piece)</span>";})()
     :selected.kind==="d"?(customName(room,selected.id)||CAT[roomDecor[room][selected.id]?.k]?.label||"Furniture")
     :selected.kind==="door"?((ROOMS[room].doors[selected.idx].to==="van")?("Van ("+slab("van","the van")+")"):("Doorway → "+((ROOMS[ROOMS[room].doors[selected.idx].to]||{}).name||ROOMS[room].doors[selected.idx].to)))
     :selected.kind==="car"?(STREET_CARS[selected.idx].k==="van"?"The van":"The truck")
@@ -2418,7 +2426,7 @@ function refreshTools(){const on=!!selected;{const rb=$("removeAreaBtn");if(rb)r
     :selected.kind==="house"?(()=>{const h=STREET_HOUSES[selected.idx]||{};return slab(h.lab,h.def||"House");})()
     :selected.kind==="shop"?slab("shop","Shop")
     :(customName(room,selected.key)||(PLACES[selected.key]||{}).label||"Item");
-  $("selLabel").innerHTML="Selected: <b class=\"rn\" title=\"double-click to rename\">"+label+"</b>";}
+  $("selLabel").innerHTML="Selected: <b class=\"rn\" title=\"double-click to rename\">"+(selected.kind==="pdoor"?label:esc(label))+"</b>";}   /* pdoor label is pre-escaped HTML; every other label is user data (names/catalog) -> escaped (XSS fix 2026-11-23) */
 // RENAME = DOUBLE-CLICK THE NAME (2026-10-18, L: "get rid of the rename button, rename on double-click of the name"): the
 // hidden 🏷 button keeps its logic; double-clicking the selected piece's name runs it.
 $("selLabel").addEventListener("dblclick",e=>{if(e.target.closest(".rn")&&!$("nameBtn").disabled)$("nameBtn").click();});
@@ -2487,7 +2495,7 @@ cv.addEventListener("pointermove",e=>{if(!editMode)return;const p=toLogical(e);
   drag.it.o.x=nx;drag.it.o.y=ny;});
 function endDrag(){if(painting){painting=null;return;}if(!drag)return;const it=drag.it;
   selected={kind:it.kind,id:it.id,key:it.key,idx:it.idx};
-  if(drag.moved){if(it.kind==="d")saveRoom(room);else if(it.kind==="p")saveCrate(it.key);else if(it.kind==="door")saveDoor(room,it.idx);else if(it.kind==="pdoor")saveRoom(room);else if(it.kind==="fx")saveFixture(it.id);else if(it.kind==="car")saveCar(it.idx);else if(it.kind==="house")saveHouse(it.idx);else if(it.kind==="shop")saveHouse(-1);}
+  if(drag.moved){if(it.kind==="d")savePiece(room,it.id);else if(it.kind==="p")saveCrate(it.key);else if(it.kind==="door")saveDoor(room,it.idx);else if(it.kind==="pdoor")savePiece(room,it.id);else if(it.kind==="fx")saveFixture(it.id);else if(it.kind==="car")saveCar(it.idx);else if(it.kind==="house")saveHouse(it.idx);else if(it.kind==="shop")saveHouse(-1);}
   drag=null;refreshTools();}
 cv.addEventListener("pointerup",endDrag);cv.addEventListener("pointercancel",endDrag);
 // TWO-FINGER PAN IN EDIT MODE (2026-10-18, L: "in edit mode can I use two fingers to move the map around, have it snap back
@@ -2545,13 +2553,13 @@ function selZList(){const arr=[];for(const {d} of decorList(room))arr.push(d.z||
 $("frontBtn").addEventListener("click",()=>{if(!selected)return;const mx=Math.max(0,...selZList())+1;setZ(mx);});
 $("backBtn").addEventListener("click",()=>{if(!selected)return;const mn=Math.min(0,...selZList())-1;setZ(mn);});
 $("rotBtn").addEventListener("click",()=>{if(!selected)return;
-  if(selected.kind==="d"){const dd=roomDecor[room][selected.id];dd.rot=((dd.rot||0)+1)%4;saveRoom(room);}
+  if(selected.kind==="d"){const dd=roomDecor[room][selected.id];dd.rot=((dd.rot||0)+1)%4;savePiece(room,selected.id);}
   else if(selected.kind==="door"){const dr=ROOMS[room].doors[selected.idx];const t=dr.w;dr.w=dr.h;dr.h=t;saveDoor(room,selected.idx);}
   refreshTools();});
-$("mirBtn").addEventListener("click",()=>{if(!selected||selected.kind!=="d")return;const dd=roomDecor[room][selected.id];dd.flip=!dd.flip;saveRoom(room);});
+$("mirBtn").addEventListener("click",()=>{if(!selected||selected.kind!=="d")return;const dd=roomDecor[room][selected.id];dd.flip=!dd.flip;savePiece(room,selected.id);});
 $("biggerBtn").addEventListener("click",()=>resizeSel(0.25));
 $("smallerBtn").addEventListener("click",()=>resizeSel(-0.25));
-function resizeSel(delta){if(selected&&selected.kind==="door"&&ROOMS[room].doors[selected.idx].to==="van"){const ns=Math.max(0.5,Math.min(3,Math.round((vs("van")+delta)*100)/100));set(ref(db,"public/games/loadout/vscale/van"),ns).catch(()=>{});return;}if(!selected||selected.kind!=="d")return;const dd=roomDecor[room][selected.id];dd.s=Math.max(0.5,Math.min(4,Math.round(((dd.s||1)+delta)*100)/100));saveRoom(room);}
+function resizeSel(delta){if(selected&&selected.kind==="door"&&ROOMS[room].doors[selected.idx].to==="van"){const ns=Math.max(0.5,Math.min(3,Math.round((vs("van")+delta)*100)/100));set(ref(db,"public/games/loadout/vscale/van"),ns).catch(()=>{});return;}if(!selected||selected.kind!=="d")return;const dd=roomDecor[room][selected.id];dd.s=Math.max(0.5,Math.min(4,Math.round(((dd.s||1)+delta)*100)/100));savePiece(room,selected.id);}
 $("spriteBtn").addEventListener("click",()=>{if(!selected)return;const k=selected.kind==="d"?roomDecor[room][selected.id].k:selected.kind==="p"?PLACES[selected.key].sprite:selected.kind==="car"?(STREET_CARS[selected.idx]||{}).k:(selected.kind==="door"&&(ROOMS[room].doors[selected.idx]||{}).to==="van")?"van":null;   /* b113: van/truck open in the studio too (L) */
   if(!k||!CAT[k]){alert("No editable sprite here yet — give a crate an image first with 🖼 Image.");return;}openStudio();stLoadPiece(k);});
 
@@ -2563,7 +2571,7 @@ $("doesBtn").addEventListener("click",e=>{e.stopPropagation();if(document.getEle
   const head=document.createElement("div");head.style.cssText="font:700 .7rem 'Pixelify Sans',monospace;color:#4a2510;padding:2px 4px";head.textContent="What does it do when you use it?";m.appendChild(head);
   const isStore=()=>!!(d.store||d.storeArea);
   const offStore=()=>{if(!isStore())return true;$("storeBtn").disabled=false;$("storeBtn").click();return !isStore();};   /* b119: switching away from Storage releases it the safe way (containers -> tray) */
-  const set=fn=>{if(!offStore()){closeDoes();return;}undoBegin();fn();saveRoom(room);undoEnd();closeDoes();refreshTools();};
+  const set=fn=>{if(!offStore()){closeDoes();return;}undoBegin();fn();savePiece(room,id);undoEnd();closeDoes();refreshTools();};
   const chip=(txt,on,fn)=>{const b=document.createElement("button");b.type="button";b.className="tbtn"+(on?" add":"");b.style.cssText="text-align:left;white-space:nowrap";b.textContent=txt;b.onclick=ev=>{ev.stopPropagation();fn();};m.appendChild(b);return b;};
   for(const [t,lab] of DOES_LIST){const on=t===""?!cur:(cur&&cur.t===t);
     chip(lab+(on?"  \u2713":""),on,()=>{
@@ -2578,7 +2586,7 @@ $("doesBtn").addEventListener("click",e=>{e.stopPropagation();if(document.getEle
   document.body.appendChild(m);const r=$("doesBtn").getBoundingClientRect(),mh=m.offsetHeight,mw=m.offsetWidth;
   m.style.left=Math.max(6,Math.min(innerWidth-mw-6,r.left))+"px";m.style.top=Math.max(6,(r.top-mh-6>6?r.top-mh-6:r.bottom+6))+"px";});
 addEventListener("click",e=>{const m=document.getElementById("doesMenu");if(m&&!m.contains(e.target)&&e.target!==$("doesBtn"))closeDoes();});
-function setZ(z){if(selected.kind==="d"){roomDecor[room][selected.id].z=z;saveRoom(room);}else if(selected.kind==="p"){PLACES[selected.key].z=z;saveCrate(selected.key);}
+function setZ(z){if(selected.kind==="d"){roomDecor[room][selected.id].z=z;savePiece(room,selected.id);}else if(selected.kind==="p"){PLACES[selected.key].z=z;saveCrate(selected.key);}
   else if(selected.kind==="house"){const h=STREET_HOUSES[selected.idx];if(h){h.z=z;saveHouse(selected.idx);}}}
 // VERIFY EVERY DELETE (b131, L 2026-10-19: "add a verify on all deletes"): one game-styled yes/no box used by every 🗑 -
 // room pieces, empty containers, areas and inventory items. Enter / Y = delete, Esc / N / tap outside = keep.
@@ -2606,9 +2614,9 @@ $("delBtn").addEventListener("click",async()=>{if(!selected)return;
 let paletteOpen=false,paletteMode="add",assignKey=null;
 $("addBtn").addEventListener("click",openPalette);
 $("imgBtn").addEventListener("click",()=>{if(!selected||selected.kind!=="p")return;paletteMode="assign";assignKey=selected.key;$("palTitle").textContent="Choose an image for "+PLACES[assignKey].label;paletteOpen=true;buildPalette();$("palette").classList.add("open");});
-$("storeBtn").addEventListener("click",()=>{if(!selected||selected.kind!=="d")return;const dd=roomDecor[room][selected.id];if(!dd)return;if(dd.store||dd.storeArea){if(dd.storeArea){const inArea=containerLocs().filter(l=>areaOf(l)===dd.storeArea);if(inArea.length&&!confirm("This cabinet holds "+inArea.length+" container(s). Turn off storage and release them to the tray?"))return;inArea.forEach(l=>set(ref(db,GL()+"/cplace/"+l),{area:"tray"}).catch(()=>{}));}else{/* TURNING AN ITEM-CONTAINER OFF SENDS IT TO THE TRAY, NOT ITS CONTENTS TO THE BACKPACK (2026-09-20, L: "that's just a container that I would want to be in the tray"). The old branch emptied it into the bag and the container ceased to exist - which is why it had to ASK first. It now becomes a real loose container carrying its own items, parked in the tray, ready to drop anywhere. Nothing is lost and the drag back undoes it, so the confirm is gone with the loss that justified it. */const loc=dd.storeLoc||("decor:"+room+":"+selected.id);const items=(byLoc[loc]||[]).slice();if(items.length){/* an EMPTY one leaves nothing to preserve - creating a tray container per toggle would just litter the tray, so it simply stops being storage */const nm=(customName(room,selected.id)||((CAT[dd.k]||{}).label)||"Container").slice(0,40);const key="c_"+nm.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"").slice(0,20)+"_"+Date.now().toString(36).slice(-5);set(ref(db,GL()+"/containers/"+key),{name:nm}).catch(()=>{});set(ref(db,GL()+"/cplace/"+key),{area:"tray"}).catch(()=>{});items.forEach(it=>moveItem(it,key));}}delete dd.store;delete dd.storeArea;saveRoom(room);refreshTools();return;}/* ONE KIND OF THING (2026-09-20 remake, L: "no items are particular, they are standings for whatever I want to make them"). No dialog: a tap makes this item a SLOT that holds containers. If it was the old dd.store kind - where the item WAS a container - the container it already is gets placed inside the new slot, so its items travel with it and nothing is stranded. */const aid="d_"+room+"_"+selected.id,nm=customName(room,selected.id)||((CAT[dd.k]||{}).label||"Storage");set(ref(db,"public/games/loadout/areas/"+aid),{name:nm,icon:"🗄️",bg:"cabinet",nw:320,nh:224}).catch(()=>{});if(dd.store){const loc=dd.storeLoc||("decor:"+room+":"+selected.id);if(!CONTAINERS[loc])set(ref(db,GL()+"/containers/"+loc),{name:nm}).catch(()=>{});set(ref(db,GL()+"/cplace/"+loc),{area:aid,x:24,y:24}).catch(()=>{});}dd.storeArea=aid;delete dd.store;delete dd.reader;saveRoom(room);refreshTools();});
-$("readerBtn").addEventListener("click",()=>{if(!selected||selected.kind!=="d")return;const dd=roomDecor[room][selected.id];if(!dd)return;if(dd.reader){delete dd.reader;}else{dd.reader="books";delete dd.store;}saveRoom(room);refreshTools();});
-$("changeBtn").addEventListener("click",()=>{if(!selected||selected.kind!=="d")return;const dd=roomDecor[room][selected.id];if(!dd)return;if(dd.changeStation){delete dd.changeStation;}else{dd.changeStation=true;delete dd.reader;delete dd.store;delete dd.storeArea;}saveRoom(room);refreshTools();});
+$("storeBtn").addEventListener("click",()=>{if(!selected||selected.kind!=="d")return;const dd=roomDecor[room][selected.id];if(!dd)return;if(dd.store||dd.storeArea){if(dd.storeArea){const inArea=containerLocs().filter(l=>areaOf(l)===dd.storeArea);if(inArea.length&&!confirm("This cabinet holds "+inArea.length+" container(s). Turn off storage and release them to the tray?"))return;inArea.forEach(l=>set(ref(db,GL()+"/cplace/"+l),{area:"tray"}).catch(()=>{}));}else{/* TURNING AN ITEM-CONTAINER OFF SENDS IT TO THE TRAY, NOT ITS CONTENTS TO THE BACKPACK (2026-09-20, L: "that's just a container that I would want to be in the tray"). The old branch emptied it into the bag and the container ceased to exist - which is why it had to ASK first. It now becomes a real loose container carrying its own items, parked in the tray, ready to drop anywhere. Nothing is lost and the drag back undoes it, so the confirm is gone with the loss that justified it. */const loc=dd.storeLoc||("decor:"+room+":"+selected.id);const items=(byLoc[loc]||[]).slice();if(items.length){/* an EMPTY one leaves nothing to preserve - creating a tray container per toggle would just litter the tray, so it simply stops being storage */const nm=(customName(room,selected.id)||((CAT[dd.k]||{}).label)||"Container").slice(0,40);const key="c_"+nm.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"").slice(0,20)+"_"+Date.now().toString(36).slice(-5);set(ref(db,GL()+"/containers/"+key),{name:nm}).catch(()=>{});set(ref(db,GL()+"/cplace/"+key),{area:"tray"}).catch(()=>{});items.forEach(it=>moveItem(it,key));}}delete dd.store;delete dd.storeArea;savePiece(room,selected.id);refreshTools();return;}/* ONE KIND OF THING (2026-09-20 remake, L: "no items are particular, they are standings for whatever I want to make them"). No dialog: a tap makes this item a SLOT that holds containers. If it was the old dd.store kind - where the item WAS a container - the container it already is gets placed inside the new slot, so its items travel with it and nothing is stranded. */const aid="d_"+room+"_"+selected.id,nm=customName(room,selected.id)||((CAT[dd.k]||{}).label||"Storage");set(ref(db,"public/games/loadout/areas/"+aid),{name:nm,icon:"🗄️",bg:"cabinet",nw:320,nh:224}).catch(()=>{});if(dd.store){const loc=dd.storeLoc||("decor:"+room+":"+selected.id);if(!CONTAINERS[loc])set(ref(db,GL()+"/containers/"+loc),{name:nm}).catch(()=>{});set(ref(db,GL()+"/cplace/"+loc),{area:aid,x:24,y:24}).catch(()=>{});}dd.storeArea=aid;delete dd.store;delete dd.reader;savePiece(room,selected.id);refreshTools();});
+$("readerBtn").addEventListener("click",()=>{if(!selected||selected.kind!=="d")return;const dd=roomDecor[room][selected.id];if(!dd)return;if(dd.reader){delete dd.reader;}else{dd.reader="books";delete dd.store;}savePiece(room,selected.id);refreshTools();});
+$("changeBtn").addEventListener("click",()=>{if(!selected||selected.kind!=="d")return;const dd=roomDecor[room][selected.id];if(!dd)return;if(dd.changeStation){delete dd.changeStation;}else{dd.changeStation=true;delete dd.reader;delete dd.store;delete dd.storeArea;}savePiece(room,selected.id);refreshTools();});
 $("nameBtn").addEventListener("click",()=>{if(selected&&selected.kind==="door"&&ROOMS[room].doors[selected.idx].to==="van"){renameStruct("van","ENTER VAN");return;}if(!selected||(selected.kind!=="d"&&selected.kind!=="p"))return;const key=selected.kind==="d"?selected.id:selected.key;const base=selected.kind==="d"?((CAT[roomDecor[room][selected.id]?.k]||{}).label||"item"):((PLACES[selected.key]||{}).label||"item");const nn=prompt('Rename "'+base+'"  (leave blank to reset):',customName(room,key)||base);if(nn===null)return;const path="public/games/loadout/names/"+room+"/"+key,val=nn.trim().slice(0,40);if(!NAMES[room])NAMES[room]={};if(val===""){delete NAMES[room][key];remove(ref(db,path)).catch(()=>{});}else{NAMES[room][key]=val;set(ref(db,path),val).catch(()=>{});}refreshTools();});
 $("palClose").addEventListener("click",closePalette);
 $("palette").addEventListener("click",e=>{if(e.target===$("palette"))closePalette();});
@@ -2623,7 +2631,7 @@ function buildPalette(){const body=$("palBody");body.innerHTML="";
   for(const cat of Object.keys(cats)){const h=document.createElement("div");h.className="palcat";h.textContent=cat;body.appendChild(h);
     const g=document.createElement("div");g.className="palgrid";
     for(const k of cats[cat]){const d=document.createElement("div");d.className="pit";
-      d.innerHTML=`<div class="box"><img src="${CAT[k].du||CAT[k].url}"></div><span>${CAT[k].label}</span>`;
+      d.innerHTML=`<div class="box"><img src="${esc(CAT[k].du||CAT[k].url||"")}"></div><span>${esc(CAT[k].label||"")}</span>`;
       d.addEventListener("click",()=>pickPal(k));g.appendChild(d);}
     body.appendChild(g);}
   buildOldPalette(body);
@@ -2638,7 +2646,7 @@ function buildOldPalette(body){
   const h=document.createElement("div");h.className="palcat";h.textContent=`Original set (${keys.length}) · ✓ = in a room now`;body.appendChild(h);
   const g=document.createElement("div");g.className="palgrid";
   for(const k of keys){const d=document.createElement("div");d.className="pit";
-    d.innerHTML=`<div class="box"><img loading="lazy" src="${CAT[k].du||CAT[k].url}"></div><span>${inUse.has(k)?"✓ ":""}${CAT[k].label||k}</span>`;
+    d.innerHTML=`<div class="box"><img loading="lazy" src="${esc(CAT[k].du||CAT[k].url||"")}"></div><span>${inUse.has(k)?"✓ ":""}${esc(CAT[k].label||k)}</span>`;
     d.addEventListener("click",()=>pickPal(k));g.appendChild(d);}
   body.appendChild(g);}
 function pickPal(k){if(paletteMode==="studio"){closePalette();stLoadPiece(k);return;}paletteMode==="assign"?assignImage(k):(paletteMode==="container"?(makeContainerFrom(k),closePalette()):addPiece(k));}
@@ -3192,7 +3200,7 @@ function renderJobs(){$("jobFuel").textContent=Math.round(FUEL)+"%";$("jobMiles"
     const partsOk=(j.parts||[]).every(p=>haveQty(p.name)>=p.qty),fuelOk=FUEL>=need,jc=jobCost(j),enOk=DAY.e>=jc.e,timeOk=DAY.m+jc.t<=DAY_END-10;
     const c=document.createElement("div");c.className="jobcard";
     const pl=(j.parts||[]).map(p=>{const h=haveQty(p.name);return `<span class="jp ${h>=p.qty?"ok":"no"}">${esc(p.name)} ×${p.qty} · have ${h}</span>`;}).join("");
-    c.innerHTML=`<div class="jhead"><b>${esc((j.site||"").replace(/�/g,"—"))}</b><span class="jpay">+$${j.payout}</span></div>
+    c.innerHTML=`<div class="jhead"><b>${esc((j.site||"").replace(/�/g,"—"))}</b><span class="jpay">+$${esc(j.payout??"")}</span></div>
       <div class="jmeta">${j.miles} mi · needs ${need}% fuel (have ${Math.round(FUEL)}%) · ⚡${jc.e} · ${Math.round(jc.t/60*10)/10} h</div>
       <div class="jparts">${pl||'<span class="jp ok">no parts needed</span>'}</div>`;
     const b=document.createElement("button");b.className="jbtn";
@@ -3316,7 +3324,7 @@ function moveSelected(dest){const _one=[...selSet].filter(it=>it.loc!==dest);
   if(_one.length===1&&(_one[0].qty||0)>1){const it=_one[0];askQty(it,n=>{splitMove(it,n,dest);pushRecent(dest);
       $("phint").textContent=`Moved ${n} of ${it.name} → ${placeLabel(placeOf(dest))}${dest!=="bag"?" › "+invLabel(dest):""}`;
       selSet.clear();selItem=null;$("dcard").classList.remove("show");invClosePick();renderPanel();});return;}
-  const items=_one;items.forEach(it=>moveItem(it,dest));pushRecent(dest);
+  const items=_one;if(items.length===1)moveItem(items[0],dest);else if(items.length){const _b={};items.forEach(it=>moveItem(it,dest,_b));update(ref(db,BASE+"/items"),_b).catch(e=>console.warn(e));rebuild();}pushRecent(dest);   /* N items = one write + one rebuild (2026-11-23) */
   $("phint").textContent=items.length?`Moved ${items.length===1?items[0].name:items.length+" items"} → ${placeLabel(placeOf(dest))}${dest!=="bag"?" › "+invLabel(dest):""}`:"Already there";
   selSet.clear();selItem=null;$("dcard").classList.remove("show");invClosePick();renderPanel();}
 function invClosePick(){const pk=$("invPick");if(pk)pk.remove();}
@@ -3486,7 +3494,7 @@ function selectItem(it,mode,cell){selItem={it,mode};showDetail(it);
   document.querySelectorAll(".it.sel").forEach(c=>c.classList.remove("sel"));if(cell)cell.classList.add("sel");
   const b=$("dMove");
   if(mode==="take"){b.style.display="";b.innerHTML="Take ➡ Backpack";b.onclick=doMove;}
-  else if(mode==="stash"){b.style.display="";b.innerHTML="⬅ Put in "+locMeta(openPlace).label;b.onclick=doMove;}
+  else if(mode==="stash"){b.style.display="";b.innerHTML="⬅ Put in "+esc(locMeta(openPlace).label);b.onclick=doMove;}
   else b.style.display="none";}
 function doMove(){if(!selItem)return;const s=selItem;selItem=null;$("dcard").classList.remove("show");moveItem(s.it,s.mode==="take"?"bag":openPlace);}
 let detailIt=null;   // the item on the detail card - what ✎ Edit opens (L 2026-10-22: "the edit button doesn't work in some areas" - the backpack dock and other views showed the card without setting selItem)
@@ -3582,7 +3590,7 @@ $("itemEdit").addEventListener("click",e=>{if(e.target===$("itemEdit"))closeItem
 $("ie_save").addEventListener("click",async()=>{if(!editItem)return;const it=editItem;const ncat=($("ie_cat").value||it.cat).trim(),ncomp=($("ie_comp").value||it.comp).trim(),nname=($("ie_name").value||it.name).trim();if(!ncat||!ncomp||!nname){$("ie_err").textContent="Name, Category and Container are required.";return;}let val=$("ie_room").value;if(val.indexOf(NEWAREA)===0){try{val=await containerForArea(val.slice(NEWAREA.length));}catch(e){$("ie_err").textContent="Couldn't create container.";return;}}const nimg=$("ie_img").value.trim();const fields={quantity:+$("ie_qty").value||0,price:$("ie_price").value.trim(),img:nimg,imgPath:(nimg?(pendImgPath||editItem._imgPath||null):null)};fields.name=nname;fields.category=ncat;fields.sub=ncomp;if(val){fields.container=val;fields.room=locMeta(val).label;}else if(it.loc==="bag"){fields.container="bag";}else{fields.container=null;fields.room=null;} /* "(auto)" must NOT eject a carried item from the backpack */$("ie_err").textContent="Saving…";try{await update(ref(db,BASE+"/items/"+it.id),fields);closeItemEdit();}   /* rename/recategorize = field edits; the id never changes */catch(e){$("ie_err").textContent="Save failed: "+((e&&e.message)||e);}});
 $("ie_del").addEventListener("click",async()=>{if(!editItem)return;if(!await askDelete('"'+editItem.name+'"',"Removes it from your real inventory."))return;try{await remove(ref(db,BASE+"/items/"+editItem.id));closeItemEdit();}catch(e){$("ie_err").textContent="Delete failed: "+e;}});
 $("ie_room").addEventListener("change",async function(){if(this.value!=="__new__")return;const cur=(editItem&&editItem.loc&&editItem.loc!=="bag")?editItem.loc:"";const name=(prompt("Name the new container:")||"").trim();if(!name){this.value=cur;return;}const key="c_"+name.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"").slice(0,20)+"_"+Date.now().toString(36).slice(-5);try{await set(ref(db,GL()+"/containers/"+key),{name:name.slice(0,40)});await set(ref(db,GL()+"/cplace/"+key),{area:"tray"});}catch(e){this.value=cur;$("ie_err").textContent="Couldn't create container.";return;}const op=document.createElement("option");op.value=key;op.textContent=name.slice(0,40);const nw=this.querySelector('option[value="__new__"]');this.insertBefore(op,nw);this.value=key;});
-function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 // ===== STARDEW FEEL (2026-10-18): hotbar of the backpack under the screen, 1-9/0/-/= pick a slot, B/Tab opens the
 // backpack, parchment hover tooltip, a soft click on slots =====
 const HOTKEYS=["1","2","3","4","5","6","7","8","9","0"];   // 1-0; the rest of the backpack slides (L 2026-10-18)
