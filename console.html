@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.325"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.327"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1146,8 +1146,15 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 <h4>Chat Bot</h4>   <!-- 1.0.287 (L 11-21 "rename onlinechat bot to Chat Bot"): label only; ids + chat/bot paths unchanged -->
                 <div class="dc-bot">
                     <label>name <input id="dc-bot-name" maxlength="40" placeholder="Local (no name yet)"></label>
+                    <label>brain <select id="dc-bot-brain">
+                        <option value="local">Local (on the home server)</option>
+                        <option value="gemini">Gemini Flash</option>
+                        <option value="claude">Claude Haiku</option>
+                        <option value="gpt">GPT-4o mini</option>
+                    </select></label>
+                    <div class="meta" id="dc-bot-brain-hint" style="margin:-4px 0 6px">Which AI answers for this bot · saved with Save</div>
                     <label>personality <textarea id="dc-bot-pers" rows="9" placeholder="who she is, tone, speech patterns, rules"></textarea></label>
-                    <div class="dc-bot-row"><button type="button" class="dc-btn sm" id="dc-bot-save">Save name + personality</button><span class="meta" id="dc-bot-status"></span></div>
+                    <div class="dc-bot-row"><button type="button" class="dc-btn sm" id="dc-bot-save">Save name, brain + personality</button><span class="meta" id="dc-bot-status"></span></div>
                     <label>memory summary <textarea id="dc-bot-sum" rows="5" placeholder="dense consolidated facts, built from the memories below"></textarea></label>
                     <div class="dc-bot-row"><button type="button" class="dc-btn ghost sm" id="dc-bot-consolidate">consolidate memories → summary</button><button type="button" class="dc-btn ghost sm" id="dc-bot-sum-save">save summary as edited</button></div>
                     <!-- memories fold (L 2026-10-04 "make memories collapsible in advanced"): the line is the toggle, folded by default, remembered -->
@@ -1252,6 +1259,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         const onUserReady = cb => __onAuth(__auth, cb);   // 2026-10-11: was auth.js (its import chain hit a cached broken file on the iPad)
 
         const OLLAMA = 'https://api.luissolutions.us/chat';
+        const BOT_CHAT_URL = 'https://chat.luissolutions.us/chat';   // 1.0.326: bot replies use the chat proxy so {uid}/chat/bot/brain (local | gemini | claude | gpt) works in console too
+        const BOT_BRAIN_NAMES = { local: 'Local (on the home server)', gemini: 'Gemini Flash', claude: 'Claude Haiku', gpt: 'GPT-4o mini' };
         const MODEL = 'qwen3:14b';
         const LIVE_MODEL = 'llama3.2:3b';   // the in-box rewrite. 2026-11-14 (L, Option A): was gemma2:9b (timed 2026-09-25) - 3b (~2.5 GB) fits next to Yuki's qwen3:30b-a3b on the 3090, gemma2 + qwen3:30b did not and every swap cost a 30-47 s cold load
         const $ = s => document.querySelector(s);
@@ -4249,21 +4258,52 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             box.querySelectorAll('.x').forEach(x => x.onclick = async () => { const row = x.parentElement, k = row.dataset.k; if (!window.__dcArm(x, 'forget?')) return;
                 try { await remove(ref(database, `${DC.uid}/chat/bot/memory/${k}`)); row.remove(); botStatus('forgot ' + k); if (n) n.textContent = '(' + box.children.length + ')'; } catch (e) { botStatus('failed: ' + e.message); } });
         }
+        async function fillBotBrain(savedOpt) {
+            const sel = $('#dc-bot-brain'), hint = $('#dc-bot-brain-hint'); if (!sel || !DC.uid) return;
+            let st = { local: true };
+            try {
+                const tok = await __auth.currentUser?.getIdToken();
+                const r = await fetch(BOT_CHAT_URL + '/brains', { headers: tok ? { Authorization: 'Bearer ' + tok } : {} });
+                if (r.ok) st = await r.json();
+            } catch (_) { st = { local: true, down: true }; }
+            let saved = savedOpt;
+            if (!saved) { try { saved = (await get(ref(database, `${DC.uid}/chat/bot/brain`))).val() || 'local'; } catch (_) { saved = 'local'; } }
+            if (!BOT_BRAIN_NAMES[saved]) saved = 'local';
+            for (const o of sel.options) {
+                const k = o.value; let why = '';
+                if (k !== 'local') {
+                    if (!st.allowed) why = 'not on this account';
+                    else if (!st[k]) why = k === 'gemini' ? 'sign-in pending' : 'add API key';
+                }
+                o.disabled = !!why && k !== saved;
+                o.textContent = BOT_BRAIN_NAMES[k] + (why ? ` (${why})` : '');
+            }
+            sel.value = saved;
+            if (hint) hint.textContent = st.down ? 'Brain service is offline right now - Local answers · saved with Save'
+                : (saved !== 'local' && (!st.allowed || !st[saved]) ? 'This brain is not available yet - Local answers until it is · saved with Save'
+                : 'Which AI answers for this bot · saved with Save');
+        }
         async function renderBotPanel() {
             if (!$('#dc-bot-panel') || !DC.uid) return;
             const read = async p => { try { const s = await get(ref(database, `${DC.uid}/chat/bot/${p}`)); return s.exists() ? s.val() : null; } catch (_) { return null; } };
-            const [name, pers, sum, mem] = await Promise.all([read('name'), read('personality'), read('memory_summary'), read('memory')]);
+            const [name, pers, sum, mem, brain] = await Promise.all([read('name'), read('personality'), read('memory_summary'), read('memory'), read('brain')]);
             $('#dc-bot-name').value = name || ''; $('#dc-bot-pers').value = pers || ''; $('#dc-bot-sum').value = sum || '';
             const h = $('#dc-bot-hdr'); if (h) h.textContent = name ? '· ' + name : '';
             paintBotMem(mem || {});
+            fillBotBrain(brain || 'local');
         }
         (function wireBotPanel() {
             const on = (id, fn) => { const el = $('#' + id); if (el) el.onclick = fn; };
             on('dc-bot-save', async () => { if (!DC.uid) return; try {
                 const name = $('#dc-bot-name').value.trim();
+                const brainSel = $('#dc-bot-brain');
+                const brain = (brainSel && BOT_BRAIN_NAMES[brainSel.value]) ? brainSel.value : 'local';
                 await set(ref(database, `${DC.uid}/chat/bot/name`), name || null);
+                await set(ref(database, `${DC.uid}/chat/bot/brain`), brain);
                 await set(ref(database, `${DC.uid}/chat/bot/personality`), $('#dc-bot-pers').value.trim() || null);
-                setBotName(name); const h = $('#dc-bot-hdr'); if (h) h.textContent = name ? '· ' + name : ''; botStatus('saved - Local uses it on the next message');
+                setBotName(name); const h = $('#dc-bot-hdr'); if (h) h.textContent = name ? '· ' + name : '';
+                fillBotBrain(brain);
+                botStatus('saved - bot uses it on the next message');
             } catch (e) { botStatus('failed: ' + e.message); } });
             on('dc-bot-sum-save', async () => { if (!DC.uid) return; try { await set(ref(database, `${DC.uid}/chat/bot/memory_summary`), $('#dc-bot-sum').value.trim() || null); botStatus('summary saved'); } catch (e) { botStatus('failed: ' + e.message); } });
             on('dc-bot-mem-add', async () => { if (!DC.uid) return; const k = memKey($('#dc-bot-mem-k').value), v = $('#dc-bot-mem-v').value.trim().slice(0, 200);
@@ -5009,9 +5049,12 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         }
         window.__dcLocalSystem = uid => { const o = DC.uid; DC.uid = uid; return localSystem().finally(() => { DC.uid = o; }); };   // test hook
         async function localReply(prompt, tpc, turns) {
+            let brain = 'local';
+            if (DC.uid) { try { const b = (await get(ref(database, `${DC.uid}/chat/bot/brain`))).val(); if (BOT_BRAIN_NAMES[b]) brain = b; } catch (_) {} }
+            const brainLabel = brain === 'local' ? 'local' : (BOT_BRAIN_NAMES[brain] || brain);
             const pendRef = push(ref(database, turns));
-            await set(pendRef, { s: 'D', who: DC.botWho || 'Local', text: '…thinking (local)', ts: Date.now(), pending: true, local: true, brainAI: 'local', ...tpc });   // her name on the bubble when she has one
-            $('#dc-chat-status').textContent = '🦙 local: ' + MODEL + '…';
+            await set(pendRef, { s: 'D', who: DC.botWho || 'Local', text: `…thinking (${brainLabel})`, ts: Date.now(), pending: true, local: true, brainAI: 'local', ...tpc });   // her name on the bubble when she has one
+            $('#dc-chat-status').textContent = brain === 'local' ? ('🦙 local: ' + MODEL + '…') : ('🧠 ' + brainLabel + '…');
             const topic = tpc.topic || '';
             const hist = Object.entries(DC.chatTurns || {}).map(([k, t]) => [k, encShow(t)]).filter(([k, t]) => t && !t.pending && !t.encLocked && t.text && (t.topic || '') === topic).sort((a, b) => (a[1].ts || 0) - (b[1].ts || 0)).slice(-12)
                 .map(([k, t]) => ({ role: t.s === 'L' ? 'user' : 'assistant', content: String(t.enhanced || t.text).slice(0, 4000) }));
@@ -5019,16 +5062,19 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             let reply = '';
             try {
                 const sysPrompt = await localSystem();
+                const hdrs = { 'Content-Type': 'application/json' };
+                if (brain !== 'local' && __auth.currentUser) { try { hdrs.Authorization = 'Bearer ' + await __auth.currentUser.getIdToken(); } catch (_) {} }
                 const ctl = new AbortController(); const tmr = setTimeout(() => ctl.abort(), 180000);
-                const res = await fetch(OLLAMA, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctl.signal,
-                    body: JSON.stringify({ model: MODEL, stream: false, messages: [{ role: 'system', content: sysPrompt }, ...hist, { role: 'user', content: prompt }] }) });
+                const res = await fetch(BOT_CHAT_URL, { method: 'POST', headers: hdrs, signal: ctl.signal,
+                    body: JSON.stringify({ model: MODEL, brain, stream: false, messages: [{ role: 'system', content: sysPrompt }, ...hist, { role: 'user', content: prompt }] }) });
                 clearTimeout(tmr);
                 const data = await res.json();
+                if (data.brainNote) console.info('[bot-brain]', data.brainNote);
                 reply = String((data.message && data.message.content) || data.error || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim() || '(empty reply)';
                 // [MEMORY:key=value] tags -> {uid}/chat/bot/memory (Yuki's convention, kept); never shown in the bubble
                 if (DC.uid) for (const [, k, v] of reply.matchAll(/\[MEMORY:([^=\]]+)=([^\]]+)\]/gi)) { try { await set(ref(database, `${DC.uid}/chat/bot/memory/${k.trim().replace(/[.#$\[\]\/]/g, '_')}`), { value: v.trim(), updated: Date.now() }); } catch (_) {} }
                 reply = reply.replace(/\[MEMORY:[^\]]+\]/gi, '').replace(/\[MOOD:\w+\]/gi, '').trim() || '(empty reply)';
-            } catch (e) { reply = '⚠ Local (ollama) failed: ' + (e.name === 'AbortError' ? 'timed out after 3 min' : (e.message || e)); }
+            } catch (e) { reply = `⚠ Bot (${brainLabel}) failed: ` + (e.name === 'AbortError' ? 'timed out after 3 min' : (e.message || e)); }
             let encR; try { encR = await encFields(topic, reply); } catch (_) { encR = { text: '🔒 reply withheld - it could not be encrypted on this device', enc: null, encKey: null }; }   // 🔒 trial 11-19
             await update(pendRef, { ...encR, pending: null, ts: Date.now() });
             $('#dc-chat-status').textContent = '';
