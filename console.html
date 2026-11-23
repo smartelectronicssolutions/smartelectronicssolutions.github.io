@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.324"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.325"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1182,7 +1182,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     <div id="dc-bot-pic" hidden style="margin-top:12px">
                         <div class="meta" style="margin:0 0 4px;font-weight:600">Pictures</div>
                         <label>Picture model <select id="dc-bot-pic-model">   <!-- 1.0.290 (L 2026-11-21 "the model select is an input that says default"): a real picker, same checkpoints as onlinechat; a saved value not listed is added as its own option on load -->
-                            <option value="">Default</option>
+                            <option value="">Default (NoobAI XL 1.1)</option>
+                            <option value="NoobAI-XL-v1.1">NoobAI XL 1.1 (SDXL anime)</option>
+                            <option value="meinamix_v12Final">MeinaMix v12 (SD 1.5)</option>
                             <option value="anything-v3-fp16-pruned">Anything v3 (anime)</option>
                             <option value="ghostmix_v12">GhostMix</option>
                             <option value="dreamshaper_331BakedVae">Dreamshaper</option>
@@ -5444,7 +5446,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // ("drawing 1/3…") with a ✕ cancel (POST /sd/interrupt). It works the same whether the bot's words come from the page or
         // from a daemon: the page draws either way. NOT ported: onlinechat's explicit (NSFW) branch - console pictures use the
         // prompts as saved, and the default negative prompt keeps nudity out. Encrypted tabs are left alone (no picture there).
-        const CMP_SD = 'https://chat.luissolutions.us/sd/generate', CMP_ANIM = 'https://animate.luissolutions.us', CMP_SD_MODEL = 'meinamix_v12Final';
+        const CMP_SD = 'https://chat.luissolutions.us/sd/generate', CMP_ANIM = 'https://animate.luissolutions.us', CMP_SD_MODEL = 'NoobAI-XL-v1.1';
         const CMP_IMG_RE = /\b(draw|sketch|paint|generate|make|create|picture|image|photo|selfie|pic|show)\b.{0,60}\b(you\w*)\b|\bclose[- ]?up\b|\bclose[- ]?shot\b|\bnear[- ]?shot\b|\bhead[- ]?shot\b|\bbust[- ]?shot\b|\bhalf[- ]?body\b|\b(send|give|show)\b.{0,25}\b(pic|photo|image|picture|selfie|drawing|sketch)\b|\b(draw|sketch)\s+(me\s+)?(a|an|the|some)\s+\S|^\s*(please\s+)?(draw|sketch|paint)\s+(me\s+)?(?!(me|on|in|with|it|that|this|well|better|from|for)\b)\S|^(?!.*\b(i|how|what|why|when|should|can|could|to|you|it|was|is)\b)(?!.*\b(a|an|the)\s+(draw|sketch)\s*[.!]*\s*$)\s*(\S+\s+){1,5}(draw|sketch)\s*[.!]*\s*$/i;   /* 1.0.295: "draw a sword" = a thing (cmpPicThing); 1.0.298 (L: "the draw cat didnt work"): "draw cat" with no article, and "red sports car draw" */
         const CMP_MORE_RE = /^\s*(more|another\s*(one)?|again|one more|do it again|send more|sure|ok|okay|yes|yeah|yep|go ahead|do it)\s*[!~.]*\s*$/i;
         const CMP_ANIM_RE = /\banimate\b/i, CMP_HQ_RE = /\b(high.?quality|high.?res(olution)?|hq|4k|detailed|hd|big|large)\b/i;
@@ -5540,10 +5542,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                         if (i) { window.__dcPicAtt[k] = att.slice(); await update(pendRef, { text: `${say}\n\n${label(i + 1)}` }); }
                         run.ctl = new AbortController();
                         const res = await fetch(CMP_SD, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: run.ctl.signal,
-                            // 1.0.293 (L 2026-11-21 "25 steps + upscale pass for every picture (slower, cleaner)"): the normal tier was 15 steps at
-                            // 512x640 with no second pass - small faces and hands came out wrong too often. Now 25 steps + a 1.5x hires pass
-                            // (768x960 out, about 11 s measured on se's 3090). hq stays as onlinechat had it (30 steps, 896x1152, no second pass - it is already large).
-                            body: JSON.stringify({ prompt, negative_prompt: c.neg, model: c.model, steps: hq ? 30 : 25, cfg_scale: 7.5, width: hq ? 896 : 512, height: hq ? 1152 : 640,
+                            // 2026-11-23: direct=true lets yuki-api's LLM prompt director vary pose/angle/lighting/aspect per shot and pick
+                            // native SDXL settings for NoobAI-XL-v1.1 (or SD 1.5 + 1.5x hires fallback when an SD 1.5 checkpoint is chosen).
+                            body: JSON.stringify({ prompt, negative_prompt: c.neg, model: c.model, direct: true, user_request: req, char_prompt: thing ? '' : c.char, is_thing: thing, hq,
+                                steps: hq ? 30 : 25, cfg_scale: 7.5, width: hq ? 896 : 512, height: hq ? 1152 : 640,
                                 ...(hq || CMP_PIC.noHr ? {} : { enable_hr: true, hr_scale: 1.5, hr_second_pass_steps: 12, denoising_strength: 0.4 }) }) });
                         // the upscale pass failing (a missing upscaler, out of memory) must not leave pictures broken: once, retry this
                         // picture without it and stay without it until the page reloads
