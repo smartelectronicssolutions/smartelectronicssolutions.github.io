@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
-<meta name="version" content="1.0.49">
+<meta name="version" content="1.0.50">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0c0f13"><title>Loadout</title>
 <style>
@@ -764,6 +764,13 @@ function cslug(s){const b=String(s||"").trim().toLowerCase().replace(/[^a-z0-9]+
 const CLABEL={cabinet:"Cabinet",desk:"Desk"};let CONTAINERS={};                      // container loc -> display name (from inventory `room`)
 function locMeta(k){if(k&&k.indexOf("decor:")===0){const p=k.split(":"),d=(roomDecor[p[1]]||{})[p[2]];return{label:(CONTAINERS[k]&&CONTAINERS[k].name)||customName(p[1],p[2])||(d&&CAT[d.k]?CAT[d.k].label:"Storage"),icon:"📦"};}if(CONTAINERS[k]&&CONTAINERS[k].name)return{label:CONTAINERS[k].name,icon:"📦"};if(PLACES[k])return{...PLACES[k],label:customName(PLACES[k].room,k)||PLACES[k].label};return ZONEMETA[k]||(CLABEL[k]?{label:CLABEL[k],icon:"📦"}:{label:k,icon:"📦"});}
 function containerLocs(){const s=new Set(Object.keys(byLoc));for(const k in CONTAINERS)s.add(k);return [...s].filter(k=>k!=="bag"&&k.indexOf("decor:")!==0&&!PLACES[k]);}
+/* EMPTY STORAGE AS A MOVE TARGET (2026-11-22, L: "Move to lists empty storage pieces and makes the container when picked"): a storage
+   piece (area d_*) with no container in it is offered in the move lists as "newarea:<id>"; picking it makes a container named after the
+   piece inside it (x40 y40), then the item moves in. Nested areas (cplace[area] set) are left out. */
+const NEWAREA="newarea:";
+function emptyStoreAreas(){const used=new Set(containerLocs().map(areaOf));return Object.keys(AREAS).filter(a=>a.indexOf("d_")===0&&!used.has(a)&&!(CPLACE[a]&&CPLACE[a].area)).map(a=>({a,lab:(AREAS[a]&&AREAS[a].name)||"Storage"}));}
+async function containerForArea(aid){const nm=((AREAS[aid]||{}).name||"Storage").slice(0,40);const key="c_"+nm.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"").slice(0,20)+"_"+Date.now().toString(36).slice(-5);
+  await set(ref(db,GL()+"/containers/"+key),{name:nm});await set(ref(db,GL()+"/cplace/"+key),{area:aid,x:40,y:40});CONTAINERS[key]={name:nm};CPLACE[key]={area:aid,x:40,y:40};return key;}
 const SHOP_RECT={x:830,y:448,w:120,h:92};   // 2026-10-18: centred on the plot next to Seth's Dispatch   // on the street since 2026-09-28 (the yard is gone)
 const DEFAULT_DECOR={
   street:(()=>{const L=[],t=(k,x,y)=>L.push({k,x,y});   // 2026-10-18 symmetric plots; x,y = sprite top-left
@@ -3435,7 +3442,8 @@ $("invQ").addEventListener("keydown",e=>{if(e.key==="Escape"&&e.target.value){e.
 // container side, the hotbar), let go = moved. Dragging a SELECTED item carries every selected item.
 function itemDropTarget(x,y){const el=document.elementFromPoint(x,y);if(!el||!el.closest)return null;
   const cell=el.closest("#invGrid[data-loc] .it");if(cell&&!cell.classList.contains("ptile"))return cell;return el.closest("[data-drop]");}
-function itemDropDo(k,it){const many=selSet.has(it)&&selSet.size>1?[...selSet]:[it];const key=k==="__open"?openPlace:k;
+function itemDropDo(k,it){if(k&&k.indexOf(NEWAREA)===0){containerForArea(k.slice(NEWAREA.length)).then(nk=>itemDropDo(nk,it)).catch(()=>{const ph=$("phint");if(ph)ph.textContent="Couldn't make the container";});return;}   /* empty storage piece: container first */
+  const many=selSet.has(it)&&selSet.size>1?[...selSet]:[it];const key=k==="__open"?openPlace:k;
   if(!key||key===ALL_LOC)return;let n=0;for(const x of many)if(x.loc!==key){moveItem(x,key);n++;}
   selSet.clear();selItem=null;$("dcard").classList.remove("show");
   if(n){try{svBlip&&svBlip();}catch(e){}const ph=$("phint");if(ph)ph.textContent=`Moved ${n>1?n+" items":many[0].name} → ${key==="bag"?"Backpack":invLabel(key)}`;}
@@ -3449,6 +3457,7 @@ function itemDrag(d,it){let st=null;
     // DROP BAR: every container (+ Backpack) as a target while dragging, so a drop spot is always on screen
     const bar=document.createElement("div");bar.className="dropbar";const locs=["bag",...containerLocs().filter(l=>l!=="bag")];
     for(const k of locs){if(k===it.loc)continue;const c=document.createElement("span");c.className="achip";c.dataset.drop=k;c.innerHTML=(k==="bag"?"🎒 Backpack":`${invIcon(k)} ${esc(invLabel(k))}`);bar.appendChild(c);}
+    for(const e of emptyStoreAreas()){const c=document.createElement("span");c.className="achip";c.dataset.drop=NEWAREA+e.a;c.textContent="🗄️ "+e.lab+" (new)";bar.appendChild(c);}
     document.body.appendChild(bar);st.bar=bar;
     /* TOUCH: bar waits for the top edge (L 2026-11-22: "I can't drag across squares on mobile. It pops that list up, maybe leave that until I drag on top area") */
     if(st.touch){bar.style.display="none";const h=document.createElement("div");h.className="drophint";h.textContent="↑ drag up here for containers";document.body.appendChild(h);st.hint=h;}
@@ -3487,6 +3496,7 @@ let editItem=null,pendImgPath=null;
 function openItemEdit(it){/* guests edit the public items too (L 2026-10-23: "I still want to be able to edit items in loadout when not logged in") - rules allow public writes, photos go to public/images */editItem=it;pendImgPath=null;editItem._imgPath=it.imgPath||"";$("ie_name").value=it.name;$("ie_cat").value=it.cat;$("ie_comp").value=it.comp;$("ie_qty").value=it.qty||0;$("ie_price").value=it.price||"";$("ie_img").value=it.img||"";const _pv=$("ie_prev");if(it.img){_pv.src=it.img;_pv.style.display="";}else{_pv.style.display="none";}
   const sel=$("ie_room");sel.innerHTML='<option value="">(auto — by sub-category)</option>';const locs=containerLocs();if(it.loc&&it.loc!=="bag"&&locs.indexOf(it.loc)<0)locs.push(it.loc);
   locs.map(l=>({l,lab:locMeta(l).label})).sort((a,b)=>a.lab.localeCompare(b.lab)).forEach(o=>{const op=document.createElement("option");op.value=o.l;op.textContent=o.lab;sel.appendChild(op);});
+  emptyStoreAreas().sort((a,b)=>a.lab.localeCompare(b.lab)).forEach(e=>{const op=document.createElement("option");op.value=NEWAREA+e.a;op.textContent="🗄️ "+e.lab+" (new)";sel.appendChild(op);});   /* empty storage pieces - container made on Save */
   {const _nw=document.createElement("option");_nw.value="__new__";_nw.textContent="➕ New container…";sel.appendChild(_nw);}
   sel.value=(it.loc&&it.loc!=="bag")?it.loc:"";
   $("ie_err").textContent="";$("itemEdit").style.display="flex";}
@@ -3569,7 +3579,7 @@ $("dEdit").addEventListener("click",()=>{const it=detailIt||(selItem&&selItem.it
 })();
 $("ie_cancel").addEventListener("click",closeItemEdit);
 $("itemEdit").addEventListener("click",e=>{if(e.target===$("itemEdit"))closeItemEdit();});
-$("ie_save").addEventListener("click",async()=>{if(!editItem)return;const it=editItem;const ncat=($("ie_cat").value||it.cat).trim(),ncomp=($("ie_comp").value||it.comp).trim(),nname=($("ie_name").value||it.name).trim();if(!ncat||!ncomp||!nname){$("ie_err").textContent="Name, Category and Container are required.";return;}const val=$("ie_room").value;const nimg=$("ie_img").value.trim();const fields={quantity:+$("ie_qty").value||0,price:$("ie_price").value.trim(),img:nimg,imgPath:(nimg?(pendImgPath||editItem._imgPath||null):null)};fields.name=nname;fields.category=ncat;fields.sub=ncomp;if(val){fields.container=val;fields.room=locMeta(val).label;}else if(it.loc==="bag"){fields.container="bag";}else{fields.container=null;fields.room=null;} /* "(auto)" must NOT eject a carried item from the backpack */$("ie_err").textContent="Saving…";try{await update(ref(db,BASE+"/items/"+it.id),fields);closeItemEdit();}   /* rename/recategorize = field edits; the id never changes */catch(e){$("ie_err").textContent="Save failed: "+((e&&e.message)||e);}});
+$("ie_save").addEventListener("click",async()=>{if(!editItem)return;const it=editItem;const ncat=($("ie_cat").value||it.cat).trim(),ncomp=($("ie_comp").value||it.comp).trim(),nname=($("ie_name").value||it.name).trim();if(!ncat||!ncomp||!nname){$("ie_err").textContent="Name, Category and Container are required.";return;}let val=$("ie_room").value;if(val.indexOf(NEWAREA)===0){try{val=await containerForArea(val.slice(NEWAREA.length));}catch(e){$("ie_err").textContent="Couldn't create container.";return;}}const nimg=$("ie_img").value.trim();const fields={quantity:+$("ie_qty").value||0,price:$("ie_price").value.trim(),img:nimg,imgPath:(nimg?(pendImgPath||editItem._imgPath||null):null)};fields.name=nname;fields.category=ncat;fields.sub=ncomp;if(val){fields.container=val;fields.room=locMeta(val).label;}else if(it.loc==="bag"){fields.container="bag";}else{fields.container=null;fields.room=null;} /* "(auto)" must NOT eject a carried item from the backpack */$("ie_err").textContent="Saving…";try{await update(ref(db,BASE+"/items/"+it.id),fields);closeItemEdit();}   /* rename/recategorize = field edits; the id never changes */catch(e){$("ie_err").textContent="Save failed: "+((e&&e.message)||e);}});
 $("ie_del").addEventListener("click",async()=>{if(!editItem)return;if(!await askDelete('"'+editItem.name+'"',"Removes it from your real inventory."))return;try{await remove(ref(db,BASE+"/items/"+editItem.id));closeItemEdit();}catch(e){$("ie_err").textContent="Delete failed: "+e;}});
 $("ie_room").addEventListener("change",async function(){if(this.value!=="__new__")return;const cur=(editItem&&editItem.loc&&editItem.loc!=="bag")?editItem.loc:"";const name=(prompt("Name the new container:")||"").trim();if(!name){this.value=cur;return;}const key="c_"+name.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"").slice(0,20)+"_"+Date.now().toString(36).slice(-5);try{await set(ref(db,GL()+"/containers/"+key),{name:name.slice(0,40)});await set(ref(db,GL()+"/cplace/"+key),{area:"tray"});}catch(e){this.value=cur;$("ie_err").textContent="Couldn't create container.";return;}const op=document.createElement("option");op.value=key;op.textContent=name.slice(0,40);const nw=this.querySelector('option[value="__new__"]');this.insertBefore(op,nw);this.value=key;});
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
