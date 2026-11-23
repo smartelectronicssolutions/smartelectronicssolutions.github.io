@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.321"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.322"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1842,9 +1842,16 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // 1.0.320 ALL MODELS (Force model removed, L 2026-11-22): a tab's pencil model wins; a tab with none uses the 🧠 Model default
         // (DC.defaultModel = settings/defaultTabModel, saved); '' = the main session. The bot tab never falls through to the default.
         const jobTabModel = n => { let tm = tabModelOf(n); if (tm === BOT_TAB) return ''; if (!tm) tm = DC.defaultModel || ''; if (!tm) return ''; if (!DC.kdaemon) return tm; return kdKindOk(tm) ? tm : ''; };
+        // 1.0.322 FAVOURITES (L 2026-11-22 "Trim the model list to 6-8 favourites, with the rest under More"): 🧠 Model and the pencil
+        // show these + Default + whatever is currently picked; a "More… (N more)" row swaps in the whole list (🧠 Model: until reload).
+        const MODEL_FAVS = new Set(['claude:claude-opus-5-5', 'claude:claude-sonnet-5-5', 'claude:claude-fable-5-2', 'gemini:gemini-4-carbon-high',
+            'gemini:gemini-4-neon-high', 'gemini:gemini-3.8-flash-medium', 'codex:default']);
+        const MODEL_MORE = '__more';
+        const favList = (list, cur, all) => { if (all) return list; const keep = list.filter(x => !x[0] || MODEL_FAVS.has(x[0]) || x[0] === cur);
+            const n = list.length - keep.length; return n > 0 ? keep.concat([[MODEL_MORE, 'More… (' + n + ' more)']]) : keep; };
         // fills the "Every tab without its own model" group of 🧠 Model - the same list (and the same kdaemon filter) as the pencil picker
         DC.fillModelAll = () => { const g = document.getElementById('dc-model-all'); if (!g) return;
-            const want = tabModelList().filter(x => x[0]).filter(([v]) => !(DC.kdaemon && !kdKindOk(v) && !kdSetupNeeded(v)));
+            const want = favList(tabModelList().filter(x => x[0]).filter(([v]) => !(DC.kdaemon && !kdKindOk(v) && !kdSetupNeeded(v))), DC.defaultModel || '', !!DC.modelMore);
             const sig = want.map(x => x[0] + (kdSetupNeeded(x[0]) ? '!' : '')).join('|'); if (g.dataset.sig === sig) return; g.dataset.sig = sig; g.textContent = '';
             for (const [v, t] of want) { const setup = kdSetupNeeded(v), o = document.createElement('option'); o.value = v; o.textContent = t + (setup ? ' (set up first)' : ''); o.disabled = setup; g.appendChild(o); } };
         function editTab(oldName) {
@@ -1862,9 +1869,14 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const name = box.querySelector('#dc-te-name'), sel = box.querySelector('#dc-te-model'), note = box.querySelector('#dc-te-note');
             name.style.cssText = fld; sel.style.cssText = fld; name.value = oldName;
             const kdOk = DC.kdaemon && kdTabOk();
-            for (const [v, t] of tabModelList()) { const setup = kdSetupNeeded(v); if (DC.kdaemon && v && !kdKindOk(v) && !setup) continue;   // member kdaemon: Default + Claude (0.2.30+) + Copilot/Codex when its meta lists them (0.2.33), or granted = "(set up first)"
-                const o = document.createElement('option'); o.value = v; o.textContent = t + (setup ? ' (set up first)' : ''); sel.appendChild(o); }
-            if (DC.cmpFlag && !DC.guest) { const o = document.createElement('option'); o.value = BOT_TAB; o.textContent = '\ud83e\udd99 ' + (DC.botWho || 'Assistant') + ' (your bot)'; sel.appendChild(o); }   // 1.0.292 bot tab
+            // member kdaemon: Default + Claude (0.2.30+) + Copilot/Codex when its meta lists them (0.2.33), or granted = "(set up first)"
+            const peBase = tabModelList().filter(([v]) => !(DC.kdaemon && v && !kdKindOk(v) && !kdSetupNeeded(v)));
+            let peAll = false;   // 1.0.322: favourites first; "More\u2026" swaps in the whole list for this dialog
+            const peFill = () => { sel.length = 0;
+                for (const [v, t] of favList(peBase, tabModelOf(oldName), peAll)) { const setup = v !== MODEL_MORE && kdSetupNeeded(v);
+                    const o = document.createElement('option'); o.value = v; o.textContent = t + (setup ? ' (set up first)' : ''); sel.appendChild(o); }
+                if (DC.cmpFlag && !DC.guest) { const o = document.createElement('option'); o.value = BOT_TAB; o.textContent = '\ud83e\udd99 ' + (DC.botWho || 'Assistant') + ' (your bot)'; sel.appendChild(o); } };   // 1.0.292 bot tab
+            peFill();
             sel.value = tabModelOf(oldName); if (sel.value !== tabModelOf(oldName)) sel.value = '';
             // kdaemon cannot run local: / colibri: / grok: tab models - say so, and keep the saved model through a Save (a rename must not wipe it)
             const lost = tabModelOf(oldName) === BOT_TAB ? (sel.value === BOT_TAB ? '' : BOT_TAB) : DC.kdaemon && tabModelOf(oldName) && !kdKindOk(tabModelOf(oldName)) ? tabModelOf(oldName) : '';
@@ -1878,7 +1890,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 : (DC.kdaemon && !['claude', 'copilot', 'codex'].includes(ek) && (((DC.lastMeta || {}).tabEngineModels || {})[ek])) ? 'Runs on your PC, one message at a time - an answer can take a long time. Your other tabs stay free.'
                 : DC.kdaemon ? 'Its own conversation on this model: reads your folder and memory, not the main chat, same file rules.'
                 : 'Its own side session: reads memory, no main-session chat, and it can use tools and change files.'; };
-            sel.onchange = say; say();
+            sel.onchange = () => { if (sel.value === MODEL_MORE) { peAll = true; const cur = tabModelOf(oldName); peFill(); sel.value = cur; if (sel.value !== cur) sel.value = ''; } say(); };
+            say();
             if (lost === BOT_TAB) note.textContent = 'This tab is set to your own bot, but that extra is off on this account - its messages go by the target picker.\n' + note.textContent;
             else if (lost) note.textContent = 'This tab is set to ' + lost + ', which is not on this daemon yet - its messages go to the main session.\n' + note.textContent;
             // 🔒 ENCRYPT THIS TAB (trial 11-19): new messages in this tab are stored encrypted; the note says which key, honestly
@@ -7064,6 +7077,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // put the box back to what Droplet is ACTUALLY in (not blank): the switch has been asked
             // for, not confirmed, and the published value only changes when a reply comes back on it.
             if (!e.isTrusted) return; const v = ms.value;
+            if (v === '__more') { DC.modelMore = true; if (DC.syncModelSel) DC.syncModelSel(); const st = $('#dc-chat-status'); if (st) st.textContent = '🧠 all models listed - tap 🧠 Model again'; return; }   // 1.0.322 favourites -> whole list
             // 1.0.320 ALL MODELS: an engine id ("gemini:...", "codex:default", "local:...") = the saved default for every tab with no
             // pencil model - no /model is sent. "Default" (member) or a Claude rung clears it, so those tabs follow the main session again.
             const dmSave = val => { DC.defaultModel = val; try { set(ref(database, `${DC.base}/settings/defaultTabModel`), val || null); } catch (_) {} };
