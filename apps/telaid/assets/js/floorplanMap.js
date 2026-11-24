@@ -822,7 +822,7 @@ export function mountRadarMap(root, opts = {}) {
       let su = Math.min(...cs.map(q => q[0])), sv = Math.min(...cs.map(q => q[1])), eu = Math.max(...cs.map(q => q[0])), ev = Math.max(...cs.map(q => q[1]));
       su = Math.max(0, Math.floor(su) - 2); sv = Math.max(0, Math.floor(sv) - 2); eu = Math.min(W, Math.ceil(eu) + 2); ev = Math.min(H, Math.ceil(ev) + 2);
       if (eu <= su || ev <= sv) return;
-      cx.save(); cx.globalAlpha = p.color ? 1 : planMode === "full" ? (light ? 0.95 : 1) : (light ? 0.6 : 0.7);   // a colour sheet = the paper print at full strength (L 2026-11-18 "still having issues making out the map")   // CLEARER LINES (L 2026-11-18 "the lines of the maps need to be clearer"): dim was .45/.4, full dark .85; the lighter-blue background tried first did not help and was reverted cx.globalCompositeOperation = light ? "multiply" : p.color ? "source-over" : "screen";
+      cx.save(); cx.globalAlpha = planMode === "full" ? (p.color ? 1 : light ? 0.95 : 1) : 0.5;   // DIM WORKS AGAIN (L 2026-11-24 "it made the dim option not work"): dim was .7/.6 (barely different from full) and colour sheets ignored it; dim = .5 for every sheet, full unchanged.   // a colour sheet = the paper print at full strength (L 2026-11-18 "still having issues making out the map")   // CLEARER LINES (L 2026-11-18 "the lines of the maps need to be clearer"): dim was .45/.4, full dark .85; the lighter-blue background tried first did not help and was reverted cx.globalCompositeOperation = light ? "multiply" : p.color ? "source-over" : "screen";
       cx.setTransform(a, b, c, d, e, f); cx.drawImage(im, su, sv, eu - su, ev - sv, su, sv, eu - su, ev - sv); cx.restore();
       cx.setTransform(1, 0, 0, 1, 0, 0);
     }
