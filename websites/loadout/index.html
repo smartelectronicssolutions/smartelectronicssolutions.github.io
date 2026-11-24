@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
-<meta name="version" content="1.0.51">
+<meta name="version" content="1.0.53">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0c0f13"><title>Loadout</title>
 <style>
@@ -258,6 +258,8 @@
   .mksum div{background:var(--slot);border:2px solid var(--edge);border-radius:6px;padding:5px 7px;font-size:.72rem;min-width:0}
   .mksum b{display:block;font-size:.92rem;overflow-wrap:anywhere}
   .mkup{color:#1c6b34}.mkdn{color:#b3321a}
+  .mkgrp{font-size:.72rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;opacity:.8;margin:4px 2px 0}
+  .mkqty .tbtn.on{outline:2px solid var(--sv-dk,#5c2e10)}
   .mkrow{display:grid;grid-template-columns:3.6em minmax(0,1fr) auto auto;gap:8px;align-items:center;width:100%;text-align:left;font:inherit;font-size:.8rem;color:var(--text);background:var(--slot);border:2px solid var(--edge);border-radius:6px;padding:6px 8px;cursor:pointer}
   .mkrow.on{border-color:var(--sv-dk,#5c2e10);box-shadow:inset 0 0 0 1px var(--sv-dk,#5c2e10)}
   .mkrow small{display:block;font-size:.7rem;opacity:.8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -593,7 +595,7 @@
 
 <div class="overlay" id="market"><div class="storwrap">
   <div class="storhead"><div class="ic">📈</div><h2>Field Exchange</h2><div class="pill">💰 $<b id="mktCash">0</b></div><button class="closeb" id="mktClose">✕</button></div>
-  <div class="storhint" id="mktHint">Made-up companies, play money. Prices move every minute, even while you're away.</div>
+  <div class="storhint" id="mktHint">Real prices, game money.</div>
   <div id="mktBody">
     <div class="mksum" id="mktSum"></div>
     <div id="mktDetail"><div class="mkhead" id="mktHead"></div><canvas id="mktChart" width="320" height="96"></canvas>
@@ -1925,7 +1927,7 @@ const YUKI_GUIDE="HOW TO PLAY LOADOUT (use this when asked):\n"+
  "- Backpack: the bar of slots under the game; tap a slot, or press B / Tab. On a controller LB / RB move along it; scroll it with the mouse wheel or a swipe.\n"+
  "- Jobs: press J (or Y on a controller) for tickets; take new work at Seth's Dispatch on the street. Jobs pay money.\n"+
  "- Shop + fuel: the shop on the street sells parts; the gas station fills the van (fuel is used driving to jobs).\n"+
- "- Market: press K, the Market button, or the Market app on any computer. Buy and sell made-up stocks with your game money; prices move every minute, even while you're away.\n"+
+ "- Market: press K, the Market button, or the Market app on any computer. Buy and sell REAL stocks (the Eco Lou list) and crypto (BTC, ETH, SOL) at real prices, with game money only. Crypto trades any time; stocks move while the US market is open. You can buy fractions.\n"+
  "- Energy: sleep in a bed to refill it.\n"+
  "- The story: start with 'The Van at Dawn' \u2014 load the van, check the gas, take a ticket. A hint line at the top right says what's next.\n"+
  "- Build your room: EDIT ROOM (or I) \u2014 add furniture, drag it, rotate, resize, paint floors (F) and walls (W), draw your own sprites; Does sets what a piece does (door, storage, shop...).\n"+
@@ -2127,7 +2129,7 @@ function render(){const R=ROOMS[room];
   {if(!dlg&&!isOpen()&&!editMode){const _b=pickInteractable();if(_b)drawPrompt({x:_b.cx-9,y:_b.py,w:18,h:0});}}
   drawStoryTip();
   if(room==="traininghall")drawTHHud();   // TRAINING HALL (2026-11-05) hook
-  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b132",4,H-4);
+  ctx.fillStyle="rgba(255,255,255,.28)";ctx.font="7px 'Pixelify Sans',monospace";ctx.textAlign="left";ctx.fillText("build b133",4,H-4);
   if(editMode)drawEditOverlay();}
 function drawDecorItem(d){const im=catImg[d.k];if(!im||!im.complete)return;const s=d.s||1;const c=CAT[d.k];if(!c)return;const w=c.w*s,h=c.h*s,rot=(d.rot||0),fl=d.flip?-1:1;
   if(rot||d.flip){ctx.save();ctx.translate(Math.round(d.x)+w/2,Math.round(d.y)+h/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fl,1);ctx.imageSmoothingEnabled=false;ctx.drawImage(im,-w/2,-h/2,w,h);ctx.restore();}
@@ -3124,45 +3126,75 @@ function mkAdvance(){const to=mkNow();while(MK.t<to){MK.t++;const t=MK.t,days=t/
       MK.x[i]+=MK_PULL*(trend-MK.x[i])+k.vol/Math.sqrt(MK_PERDAY)*z+shock;
       if(t%MK_STEP===0){const h=MK.hist[i];h.push(mkPrice(i));if(h.length>MK_POINTS)h.shift();}});
     if(MK.news.length>40)MK.news.splice(0,MK.news.length-40);}}
-let MK_HOLD={},MK_REAL=0,_mkLoaded=false,mkSel=0,mkQty=1,_mkBal=null;
+let MK_HOLD={},MK_REAL=0,_mkLoaded=false,mkSel="",mkQty=1,mkStep=1,_mkBal=null;
 onValue(ref(db,GL()+"/market"),s=>{const v=s.val()||{};MK_HOLD=v.holdings||{};MK_REAL=+v.realized||0;_mkLoaded=true;if(mkOpen())mkRender();},e=>console.warn(e));
+// 1.0.52 REAL PRICES (L 2026-11-23: "make the stock reflect the same stocks ... on the economy website, also the crypto ... with
+// just game money"): se svc-market-prices (Yahoo every 5 min) writes public/marketPrices =
+// {updatedAt,q:{SYM:{n,k:"stock"|"crypto",p,prev,ch,hist,open}}} - the eco Strategy tickers + watchlist + BTC/ETH/SOL. One
+// listener, deltas only. Game money only: trades go through the game wallet like before. The made-up companies above (MK_LIST)
+// stay as LEGACY rows only while you still hold them (sell-only), so nothing you own disappears.
+let RQ={},RQ_AT=0,_rqLoaded=false;
+onValue(ref(db,"public/marketPrices"),s=>{const v=s.val()||{};RQ=v.q||{};RQ_AT=+v.updatedAt||0;_rqLoaded=true;if(mkOpen())mkRender();},e=>{console.warn(e);_rqLoaded=true;});
+function mkRows(){const st=[],cr=[],lg=[];Object.keys(RQ).sort().forEach(s=>{const q=RQ[s];if(!q||!(+q.p>0))return;
+    const r={s,n:q.n||s,k:q.k==="crypto"?"crypto":"stock",p:+q.p,ch:+q.ch||0,hist:Array.isArray(q.hist)?q.hist.map(Number):[],open:!!q.open};(r.k==="crypto"?cr:st).push(r);});
+  MK_LIST.forEach((k,i)=>{const h=MK_HOLD[k.s];if(h&&h.q>0)lg.push({s:k.s,n:k.n,k:"legacy",p:mkPrice(i),ch:mkChange(i),hist:MK.hist[i].slice(),open:true});});
+  return st.concat(cr,lg);}
+function mkQround(q){return Math.round(q*1e6)/1e6;}
+function mkQfmt(q){return (+q).toLocaleString("en-US",{maximumFractionDigits:6});}
+function mkStale(){const m=RQ_AT?(Date.now()-RQ_AT)/60000:Infinity;if(!isFinite(m))return 0;return m>30?Math.round(m):0;}   // crypto posts every 5 min around the clock, so >30 min old = the service is behind
 function mkOpen(){return $("market").classList.contains("open");}
 function mk$(n){return Math.abs(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});}
 function mkPL(n){return (n>0?"▲ +$":n<0?"▼ -$":"$")+mk$(n);}
 function mkCls(n){return n>0?"mkup":n<0?"mkdn":"";}
-function mkAgo(t){const m=MK.t-t;return m<60?m+"m ago":m<MK_PERDAY?Math.floor(m/60)+"h ago":Math.floor(m/MK_PERDAY)+"d ago";}
 function mkPct(c){return Math.abs(c)<.05?"0.0%":(c>0?"▲ +":"▼ -")+Math.abs(c).toFixed(1)+"%";}
 function mkChange(i){const h=MK.hist[i],p=mkPrice(i),o=h.length?h[0]:p;return o?(p-o)/o*100:0;}
 function mkRender(){mkAdvance();_mkBal=BAL;$("mktCash").textContent=Math.max(0,Math.round(BAL)).toLocaleString();
-  let val=0,cost=0;MK_LIST.forEach((k,i)=>{const h=MK_HOLD[k.s];if(h){val+=h.q*mkPrice(i);cost+=h.q*h.c;}});const open=val-cost;
+  const rows=mkRows(),by={};rows.forEach(r=>by[r.s]=r);
+  let val=0,cost=0;rows.forEach(r=>{const h=MK_HOLD[r.s];if(h){val+=h.q*r.p;cost+=h.q*h.c;}});const open=val-cost;
   $("mktSum").innerHTML='<div>Holdings<b>$'+mk$(val)+'</b></div><div>Open gain/loss<b class="'+mkCls(open)+'">'+mkPL(open)+'</b></div><div>Banked gain/loss<b class="'+mkCls(MK_REAL)+'">'+mkPL(MK_REAL)+'</b></div>';
-  const list=$("mktList");list.innerHTML="";MK_LIST.forEach((k,i)=>{const h=MK_HOLD[k.s],ch=mkChange(i),pl=h?(mkPrice(i)-h.c)*h.q:0,b=document.createElement("button");
-    b.type="button";b.className="mkrow"+(i===mkSel?" on":"");b.dataset.sym=k.s;
-    b.innerHTML='<b>'+k.s+'</b><span><small>'+esc(k.n)+'</small><small>'+(h?h.q+' owned · <span class="'+mkCls(pl)+'">'+mkPL(pl)+'</span>':'none owned')+'</small></span><span class="mkr">$'+mk$(mkPrice(i))+'</span><span class="mkr '+(Math.abs(ch)<.05?"":mkCls(ch))+'">'+mkPct(ch)+'</span>';
-    b.onclick=()=>{mkSel=i;mkQty=1;$("mktMsg").textContent="";mkRender();};list.appendChild(b);});
-  const k=MK_LIST[mkSel],p=mkPrice(mkSel),h=MK_HOLD[k.s],ch=mkChange(mkSel),maxBuy=Math.max(0,Math.floor(BAL/p)),q=mkQty,tot=Math.round(p*q*100)/100;
-  $("mktHead").innerHTML='<b>'+k.s+' · '+esc(k.n)+'</b><span>$'+mk$(p)+' <span class="'+(Math.abs(ch)<.05?"":mkCls(ch))+'">'+mkPct(ch)+' today</span>'+(h?' · avg $'+mk$(h.c):'')+'</span>';
-  mkChart(mkSel,h?h.c:0);
-  const qb=$("mktQty");qb.innerHTML="";const add=(t,f)=>{const b=document.createElement("button");b.type="button";b.className="tbtn";b.textContent=t;b.onclick=()=>{mkQty=Math.max(1,f(mkQty));mkRender();};qb.appendChild(b);};
-  add("-10",v=>v-10);add("-1",v=>v-1);const lab=document.createElement("b");lab.id="mktQ";lab.textContent=q;qb.appendChild(lab);add("+1",v=>v+1);add("+10",v=>v+10);add("Max",()=>maxBuy);if(h)add("All",()=>h.q);
-  const bb=$("mktBuy"),sb=$("mktSell");bb.textContent="Buy "+q+" · $"+mk$(tot);sb.textContent="Sell "+q+" · $"+mk$(tot);bb.disabled=tot>BAL||!_mkLoaded;sb.disabled=!h||h.q<q||!_mkLoaded;
-  $("mktNews").innerHTML=MK.news.slice(-4).reverse().map(n=>'<div class="'+(n.up?"mkup":"mkdn")+'">'+(n.up?"▲":"▼")+' '+esc(n.txt)+' · '+mkAgo(n.t)+'</div>').join("");}
-function mkChart(i,avg){const c=$("mktChart"),g=c.getContext("2d"),W=c.width,H=c.height,pts=MK.hist[i].concat(mkPrice(i));g.clearRect(0,0,W,H);
+  const stale=mkStale(),anyOpen=rows.some(r=>r.k==="stock"&&r.open);
+  $("mktHint").textContent=!_rqLoaded?"Loading real prices…":!rows.length?"No prices yet - the price service on the server hasn't posted.":
+    "Real prices, game money. Stocks: "+(anyOpen?"market open":"market closed")+" · crypto trades 24/7"+(stale?" · prices are "+stale+" min old (still tradable at the last price)":"")+".";
+  if(!by[mkSel])mkSel=rows.length?rows[0].s:"";
+  const list=$("mktList");list.innerHTML="";let grp="";
+  rows.forEach(r=>{const g=r.k==="crypto"?"Crypto":r.k==="legacy"?"Old made-up stocks (sell only)":"Stocks";
+    if(g!==grp){grp=g;const hd=document.createElement("div");hd.className="mkgrp";hd.textContent=g;list.appendChild(hd);}
+    const h=MK_HOLD[r.s],pl=h?(r.p-h.c)*h.q:0,b=document.createElement("button");
+    b.type="button";b.className="mkrow"+(r.s===mkSel?" on":"");b.dataset.sym=r.s;
+    b.innerHTML='<b>'+esc(r.s)+'</b><span><small>'+esc(r.n)+'</small><small>'+(h?mkQfmt(h.q)+' owned · <span class="'+mkCls(pl)+'">'+mkPL(pl)+'</span>':'none owned')+'</small></span><span class="mkr">$'+mk$(r.p)+'</span><span class="mkr '+(Math.abs(r.ch)<.05?"":mkCls(r.ch))+'">'+mkPct(r.ch)+'</span>';
+    b.onclick=()=>{mkSel=r.s;mkStep=r.k==="crypto"?.01:1;mkQty=mkStep;$("mktMsg").textContent="";mkRender();};list.appendChild(b);});
+  const r=by[mkSel];if(!r){$("mktHead").innerHTML="";$("mktQty").innerHTML="";$("mktBuy").disabled=$("mktSell").disabled=true;$("mktNews").innerHTML="";return;}
+  const gr=r.k==="crypto"?1e-6:1e-3,p=r.p,h=MK_HOLD[r.s],maxBuy=mkQround(Math.floor(BAL/p/gr)*gr),q=mkQty,tot=Math.round(p*q*100)/100;
+  const closed=r.k==="stock"&&!r.open;
+  $("mktHead").innerHTML='<b>'+esc(r.s)+' · '+esc(r.n)+'</b><span>$'+mk$(p)+' <span class="'+(Math.abs(r.ch)<.05?"":mkCls(r.ch))+'">'+mkPct(r.ch)+' today</span>'+(closed?' · <span class="mkdn">market closed</span>':'')+(h?' · avg $'+mk$(h.c):'')+'</span>';
+  mkChart(r,h?h.c:0);
+  const qb=$("mktQty");qb.innerHTML="";const add=(t,f,on)=>{const b=document.createElement("button");b.type="button";b.className="tbtn"+(on?" on":"");b.textContent=t;b.onclick=()=>{f();mkRender();};qb.appendChild(b);};
+  if(r.k!=="legacy")(r.k==="crypto"?[.001,.01,.1,1]:[.1,1,10]).forEach(s=>add("×"+s,()=>{mkStep=s;mkQty=s;},mkStep===s));
+  add("−",()=>{mkQty=Math.max(mkStep,mkQround(mkQty-mkStep));});const lab=document.createElement("b");lab.id="mktQ";lab.textContent=mkQfmt(q);qb.appendChild(lab);add("+",()=>{mkQty=mkQround(mkQty+mkStep);});
+  if(r.k!=="legacy"){[100,1000].forEach(a=>add("$"+(a>=1000?a/1000+"k":a),()=>{mkQty=Math.max(gr,mkQround(Math.floor(a/p/gr)*gr));}));if(maxBuy>0)add("Max",()=>{mkQty=maxBuy;});}
+  if(h)add("All",()=>{mkQty=h.q;});
+  const bb=$("mktBuy"),sb=$("mktSell");bb.textContent="Buy "+mkQfmt(q)+" · $"+mk$(tot);sb.textContent="Sell "+mkQfmt(q)+" · $"+mk$(tot);
+  bb.disabled=r.k==="legacy"||tot>BAL||!_mkLoaded||!(q>0);sb.disabled=!h||h.q<q-1e-9||!_mkLoaded||!(q>0);
+  const mv=rows.filter(x=>x.k!=="legacy"&&Math.abs(x.ch)>=.05).sort((a,b)=>Math.abs(b.ch)-Math.abs(a.ch)).slice(0,4);
+  $("mktNews").innerHTML=mv.map(x=>'<div class="'+(x.ch>0?"mkup":"mkdn")+'">'+(x.ch>0?"▲":"▼")+' '+esc(x.n)+' ('+esc(x.s)+') '+(x.ch>0?"up ":"down ")+Math.abs(x.ch).toFixed(1)+'% today</div>').join("");}
+function mkChart(r,avg){const c=$("mktChart"),g=c.getContext("2d"),W=c.width,H=c.height,pts=r.hist.filter(v=>v>0).concat(r.p);g.clearRect(0,0,W,H);
   let lo=Math.min(...pts),hi=Math.max(...pts);if(avg){lo=Math.min(lo,avg);hi=Math.max(hi,avg);}if(hi-lo<.01){hi+=.5;lo-=.5;}
   const X=n=>Math.round(2+n*(W-5)/Math.max(1,pts.length-1)),Y=v=>Math.round(H-13-(v-lo)/(hi-lo)*(H-22));
   g.fillStyle="#4a2a14";for(let y=9;y<H-10;y+=20)g.fillRect(0,y,W,1);
   const up=pts[pts.length-1]>=pts[0];g.fillStyle=up?"#7fe08a":"#ff8a6b";
   for(let n=1;n<pts.length;n++){let x0=X(n-1),y0=Y(pts[n-1]);const x1=X(n),y1=Y(pts[n]),st=Math.max(x1-x0,Math.abs(y1-y0),1);for(let j=0;j<=st;j++)g.fillRect(Math.round(x0+(x1-x0)*j/st),Math.round(y0+(y1-y0)*j/st),2,2);}
   if(avg){g.fillStyle="#f9c46e";const y=Y(avg);for(let x=0;x<W;x+=8)g.fillRect(x,y,4,1);}
-  g.fillStyle="#f9c46e";g.font="9px 'Pixelify Sans',monospace";g.textAlign="left";g.fillText("24h  $"+mk$(lo)+" - $"+mk$(hi)+(avg?"  (dashes = your cost)":""),3,H-2);}
-function mkTrade(side){const k=MK_LIST[mkSel],q=mkQty,msg=$("mktMsg");if(!_mkLoaded){msg.textContent="Market is still loading.";return;}
-  mkAdvance();const p=mkPrice(mkSel),tot=Math.round(p*q*100)/100,h=MK_HOLD[k.s];let nh,real=MK_REAL,pl=0;
-  if(side==="buy"){if(tot>BAL){msg.textContent="Not enough money.";mkRender();return;}const oq=h?h.q:0,oc=h?h.c:0;nh={q:oq+q,c:(oq*oc+tot)/(oq+q)};}
-  else{if(!h||h.q<q){msg.textContent="You don't own that many.";mkRender();return;}pl=Math.round((p-h.c)*q*100)/100;real=Math.round((MK_REAL+pl)*100)/100;nh=h.q>q?{q:h.q-q,c:h.c}:null;}
+  g.fillStyle="#f9c46e";g.font="9px 'Pixelify Sans',monospace";g.textAlign="left";g.fillText((r.k==="legacy"?"24h":"today")+"  $"+mk$(lo)+" - $"+mk$(hi)+(avg?"  (dashes = your cost)":""),3,H-2);}
+function mkTrade(side){const msg=$("mktMsg");if(!_mkLoaded){msg.textContent="Market is still loading.";return;}
+  mkAdvance();const r=mkRows().find(x=>x.s===mkSel);if(!r){msg.textContent="Pick a stock first.";return;}
+  const q=mkQround(mkQty),p=r.p,tot=Math.round(p*q*100)/100,h=MK_HOLD[r.s];let nh,real=MK_REAL,pl=0;
+  if(!(q>0)){msg.textContent="Pick an amount first.";return;}
+  if(side==="buy"){if(r.k==="legacy"){msg.textContent="Those are old made-up stocks - you can only sell them.";return;}if(tot>BAL){msg.textContent="Not enough money.";mkRender();return;}const oq=h?h.q:0,oc=h?h.c:0;nh={q:mkQround(oq+q),c:Math.round((oq*oc+tot)/(oq+q)*1e4)/1e4};}
+  else{if(!h||h.q<q-1e-9){msg.textContent="You don't own that many.";mkRender();return;}pl=Math.round((p-h.c)*q*100)/100;real=Math.round((MK_REAL+pl)*100)/100;const left=mkQround(h.q-q);nh=left>0?{q:left,c:h.c}:null;}
   const id="tx"+Date.now().toString(36)+Math.floor(Math.random()*1e3).toString(36);
-  update(ref(db,GL()),{["ledger/"+id]:{amt:side==="buy"?-tot:tot,name:(side==="buy"?"Bought ":"Sold ")+q+" "+k.s+" @ $"+mk$(p),date:Date.now(),source:"loadout"},["market/holdings/"+k.s]:nh,"market/realized":real})
+  update(ref(db,GL()),{["ledger/"+id]:{amt:side==="buy"?-tot:tot,name:(side==="buy"?"Bought ":"Sold ")+mkQfmt(q)+" "+r.s+" @ $"+mk$(p),date:Date.now(),source:"loadout"},["market/holdings/"+r.s]:nh,"market/realized":real})
     .catch(e=>{console.warn(e);msg.textContent="That trade didn't go through.";});
-  msg.textContent=(side==="buy"?"Bought ":"Sold ")+q+" "+k.s+" for $"+mk$(tot)+(side==="sell"?" ("+mkPL(pl)+")":"");mkQty=1;mkRender();}
+  msg.textContent=(side==="buy"?"Bought ":"Sold ")+mkQfmt(q)+" "+r.s+" for $"+mk$(tot)+(side==="sell"?" ("+mkPL(pl)+")":"");mkQty=mkStep;mkRender();}
 function openMarket(){mkRender();$("market").classList.add("open");}
 function closeMarket(){$("market").classList.remove("open");}
 $("mktBtn").addEventListener("click",openMarket);
