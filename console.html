@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.330"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.332"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -540,7 +540,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
            gone - a waiting tab now BLINKS (a slow fade of the whole chip) in the console's own accent. It is a different motion
            from .unread on purpose: unread = a ring that spreads outward + a dot ("look here"), waiting = the chip itself
            fading in and out ("working"). When a tab is both, the blink wins until the reply lands. Reduced motion = outline only. */
-        .dc-topic.thinking { color: var(--dc-purple); border-color: var(--dc-purple); animation: dcWait 0.7s ease-in-out infinite; }   /* 1.0.329 (L 11-24 "make the tab think flashing be faster"): 1.4s -> 0.7s */
+        .dc-topic.thinking { color: var(--dc-purple); border-color: var(--dc-purple); animation: dcWait 1.4s ease-in-out infinite; }
+        /* 1.0.331 BROWSER-BUSY (L 11-24 "the tab that's open... blink faster when that tab is working in a browser"): the assistant's
+           browser-tool hook writes console/browserBusy = {tab, at}; that tab's thinking chip blinks 4x faster for 30 s after the last mark */
+        .dc-topic.thinking.browser { animation-duration: .35s; }
         @keyframes dcWait { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
         /* green ONLY when the reply has truly landed (2026-11-16 L): while a tab is still thinking, suppress the unread green colour + dot so it never reads "ready" mid-generation; the thinking blink wins until the reply lands. */
         .dc-topic.unread.thinking { color: var(--dc-purple); border-color: var(--dc-purple); }
@@ -1451,6 +1454,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             onValue(ref(database, `${DC.base}/memoryIndex`), s => { DC.memory = s.val() || []; });
             onValue(ref(database, `${DC.base}/meta`), s => renderMeta(s.val() || {}));
             onValue(ref(database, '.info/connected'), s => { DC.fbConnected = s.val() === true; if (DC.fbConnected) setTimeout(outboxFlush, 600); });
+            onValue(ref(database, `${DC.base}/browserBusy`), s => { DC.browserBusy = s.val() || null; paintBrowserBusy(); });   // 1.0.331 browser-busy chip
+            if (!DC._bbTimer) DC._bbTimer = setInterval(paintBrowserBusy, 5000);   // drops the fast blink 30 s after the last mark
             onValue(ref(database, `${DC.base}/waiting`), s => { DC.waiting = s.val() || {}; paintNow(); });   // "waiting on you" (ops\droplet-console\waiting.py)
             onValue(ref(database, `${DC.base}/routines`), s => renderRoutines(s.val() || {}));
             onValue(ref(database, `${DC.base}/pings/settings`), s => { const on = (s.val() || {}).enabled !== false; $('#dc-pg-enabled').checked = on; paintPingRow(on); });
@@ -2139,6 +2144,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 b.className = 'dc-topic' + (!DC.remote && DC.topic === name ? ' on' : '') + (waiting ? ' thinking' : '');
                 if (waiting) dcPulseSync(b);   // 1.0.223: every waiting thing fades on one shared beat
                 if (waiting) b.title = 'a reply is on its way in this tab';
+                if (waiting && dcBrowserOn(name)) { b.classList.add('browser'); b.title = 'working in the browser for this tab'; }   // 1.0.331
                 const un = name === '' ? Object.values(DC._unreadN || {}).reduce((a, b) => a + b, 0) : ((DC._unreadN || {})[name] || 0);
                 b.innerHTML = esc(label) + (un ? `<span class="n">${un}</span>` : '');
                 b.title = (b.title ? b.title + ' · ' : '') + (un ? un + ' unread · ' : '') + n + ' messages';
@@ -3595,6 +3601,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // ONE BEAT FOR EVERY WAITING THING (1.0.223): an animation started at any moment is given a negative delay equal to "how far
         // into the 1.4 s beat the clock is right now", so every element lands on the same phase no matter when its class was added
         // or its chip was re-drawn. Set once per element, at the moment it starts (changing it later would make it jump).
+        // 1.0.331 browser-busy: is this tab's work in the browser right now? (mark younger than 30 s, same tab; '' = All)
+        function dcBrowserOn(name) { const bb = DC.browserBusy; return !!(bb && bb.at && Date.now() - bb.at < 30000 && (bb.tab || '') === (name || '')); }
+        function paintBrowserBusy() { try { document.querySelectorAll('.dc-topic.thinking').forEach(b => b.classList.toggle('browser', dcBrowserOn(b.dataset.name || ''))); } catch (_) { } }
         function dcPulseSync(el) { try { el.style.animationDelay = (-(Date.now() % 1400)) + 'ms'; } catch (_) { } }
         // TWO SOUNDS (1.0.223): allDone = nothing else is still thinking -> the two wood knocks as before ("tok-tok").
         // Others still thinking -> ONE softer, lower knock ("tok"): something landed, more is coming.
