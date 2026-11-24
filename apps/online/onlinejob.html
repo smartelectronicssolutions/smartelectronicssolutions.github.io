@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="version" content="1.0.20">
+  <meta name="version" content="1.0.21">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>Jobs</title>
   <link rel="stylesheet" href="../assets/css/online.css" />
@@ -313,11 +313,11 @@
     import {
       auth, onAuthStateChanged, database, storage,
       ref as dbRef, set, get, onValue, remove, update,
-      uploadBytesResumable, uploadBytes, getDownloadURL,
+      uploadBytesResumable, uploadBytes, getDownloadURL, getMetadata,
       deleteObject, listAll, storageRef, basePathFor
     } from "../assets/js/firebase-init.js";
 
-    import { resizeImg, stampImg, unstampImg } from "../assets/js/imgupload.js?v=20261003a";   // THE photo rules - one copy for every app (2026-10-03)
+    import { resizeImg, stampImg, unstampImg, readPhotoMeta, prefixTakenName, suffixTakenName, photoUploadMeta, photoRecordMeta } from "../assets/js/imgupload.js?v=20261124a";   // THE photo rules + EXIF/GPS/naming (2026-11-24)
     import { accessToken, isTokenExpired } from "../assets/js/microsoftAuth.js";
     // onIdTokenChanged isn't re-exported by firebase-init.js; pull it straight
     // from the (already-loaded) Firebase auth module so a dropped/expired token
@@ -1596,7 +1596,8 @@
         const blob = await res.blob();
         const newBlob = await transformFn(blob);
         const sRef = storageRef(storage, item.fullPath);
-        await uploadBytes(sRef, newBlob, { contentType: "image/jpeg" });
+        let prevMeta = {}; try { prevMeta = (await getMetadata(sRef))?.customMetadata || {}; } catch (_) {}
+        await uploadBytes(sRef, newBlob, { contentType: "image/jpeg", customMetadata: prevMeta });
         const newUrl = bustUrl(await getDownloadURL(sRef));
         item.url = newUrl;
         document.getElementById("modalImage").src = newUrl;
@@ -1622,20 +1623,20 @@
       const files = timerFileUploader.files; if (!files.length) { alert("Select an image."); return; }
       const project = projectInput.value.trim(); if (!project) { alert("Enter a project first."); return; }
       const file = files[0], markup = timerMarkupText.value.trim(), name = timerImageNameInput.value.trim(), taskName = taskNameInput.value.trim();
-      const ext = file.name.split(".").pop();
+      const meta = await readPhotoMeta(file);
       const slugify = s => s.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
       const rawBase = name || markup || taskName || file.name.split(".").slice(0, -1).join(".");
-      const base = slugify(rawBase) || "image";
-      let final = `${base}.${ext}`;
-      let blob = await resizeImg(file, 2048); if (markup) blob = await stampImg(blob, markup);
+      const base = prefixTakenName(slugify(rawBase) || "image", meta);
+      let final = `${base}.jpg`;
+      let blob = await resizeImg(file, 2048, meta); if (markup) blob = await stampImg(blob, markup, meta);
       const folder = getActiveImageFolder();
       const existing = (await listAll(storageRef(storage, folder))).items.map(i => i.name);
-      let n = 1; while (existing.includes(final)) { final = `${base}_${n++}.${ext}`; }
-      await uploadToStorage(blob, `${folder}/${final}`);
+      let n = 1; while (existing.includes(final)) { final = `${base}_${n++}.jpg`; }
+      await uploadToStorage(blob, `${folder}/${final}`, photoUploadMeta(meta));
       await loadTimerImages(project); timerFileUploader.value = "";
     }
 
-    function uploadToStorage(blob, path) { return new Promise((resolve, reject) => { const r = storageRef(storage, path); const t = uploadBytesResumable(r, blob); t.on("state_changed", null, reject, async () => resolve(await getDownloadURL(r))); }); }
+    function uploadToStorage(blob, path, uploadMeta = { contentType: "image/jpeg" }) { return new Promise((resolve, reject) => { const r = storageRef(storage, path); const t = uploadBytesResumable(r, blob, uploadMeta); t.on("state_changed", null, reject, async () => resolve(await getDownloadURL(r))); }); }
 
     function enableClickCopy(row) {
       for (const cell of row.cells) { cell.addEventListener("click", function () { if (!this._cc) this._cc = 0; this._cc++; clearTimeout(this._ct); this._ct = setTimeout(() => this._cc = 0, 500); if (this._cc === 4) { navigator.clipboard.writeText(this.innerText.trim()).then(() => { const o = this.style.backgroundColor; this.style.backgroundColor = "lightblue"; setTimeout(() => this.style.backgroundColor = o, 1000); }); this._cc = 0; } }); }
@@ -1872,7 +1873,8 @@
             const res = await fetch(img.url, { cache: "reload" }); const blob = await res.blob();
             const stamped = await stampImg(blob, text);
             const sRef = storageRef(storage, img.path);
-            await uploadBytes(sRef, stamped, { contentType: "image/jpeg" });
+            let prevMeta = {}; try { prevMeta = (await getMetadata(sRef))?.customMetadata || {}; } catch (_) {}
+            await uploadBytes(sRef, stamped, { contentType: "image/jpeg", customMetadata: prevMeta });
             const newUrl = bustUrl(await getDownloadURL(sRef));
             const imgs = [...images]; imgs[idx] = { ...imgs[idx], url: newUrl, markup: text }; d.images = imgs;
             await set(dbRef(database, `${basePath}/images`), imgs);
@@ -1891,7 +1893,8 @@
             const res = await fetch(img.url, { cache: "reload" }); const blob = await res.blob();
             const cropped = await unstampImg(blob);
             const sRef = storageRef(storage, img.path);
-            await uploadBytes(sRef, cropped, { contentType: "image/jpeg" });
+            let prevMeta = {}; try { prevMeta = (await getMetadata(sRef))?.customMetadata || {}; } catch (_) {}
+            await uploadBytes(sRef, cropped, { contentType: "image/jpeg", customMetadata: prevMeta });
             const newUrl = bustUrl(await getDownloadURL(sRef));
             const imgs = [...images]; imgs[idx] = { ...imgs[idx], url: newUrl, markup: "" }; d.images = imgs;
             await set(dbRef(database, `${basePath}/images`), imgs);
@@ -1916,18 +1919,20 @@
       // Unique filename: customer_list_id(.jpg). If that device already has a photo
       // with the same base name, pick the first free _2/_3/... (collision-safe even
       // after deletes — never overwrites an existing photo).
+      const meta = await readPhotoMeta(file);
       const usedNames = new Set(toImgArray(d.images).map(i => ((i?.path || "").split("/").pop() || "").toLowerCase()));
-      const baseNm = [custPart, listName, label].filter(Boolean).join("_").toLowerCase();
+      const rawBaseNm = [custPart, listName, label].filter(Boolean).join("_").toLowerCase();
+      const baseNm = suffixTakenName(rawBaseNm, meta);
       let fname = `${baseNm}.jpg`, nDup = 2;
       while (usedNames.has(fname)) { fname = `${baseNm}_${nDup++}.jpg`; }
       const path = `${folder}/${fname}`;
       try {
-        let blob = await resizeImg(file, 2048);
-        if (applyMarkup) blob = await stampImg(blob, autoText);
-        await uploadBytes(storageRef(storage, path), blob, { contentType: "image/jpeg" });
+        let blob = await resizeImg(file, 2048, meta);
+        if (applyMarkup) blob = await stampImg(blob, autoText, meta);
+        await uploadBytes(storageRef(storage, path), blob, photoUploadMeta(meta));
         const url = await getDownloadURL(storageRef(storage, path));
         const imgs = [...toImgArray(d.images)];
-        imgs.push({ url, path, note: "", markup: autoText });
+        imgs.push({ url, path, note: "", markup: autoText, ...photoRecordMeta(meta) });
         d.images = imgs;
         await set(dbRef(database, `${basePath}/images`), imgs);
         renderDeviceTable();
@@ -2061,12 +2066,20 @@
 
     async function uploadDailyImage(key, file, t, basePath) {
       const safeProj = sanitize(currentProjectName || currentProject);
-      const path = `${DB}/tasks/images/${safeProj}/daily/${key}/${Date.now()}.jpg`;
+      const meta = await readPhotoMeta(file);
+      const stem = (file.name || "").replace(/\.[^.]+$/, "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || String(Date.now());
+      const base = prefixTakenName(stem, meta);
+      const folder = `${DB}/tasks/images/${safeProj}/daily/${key}`;
+      const used = new Set(toImgArray(t.images).map(i => ((i?.path || "").split("/").pop() || "").toLowerCase()));
+      let fname = `${base}.jpg`, n = 2;
+      while (used.has(fname.toLowerCase())) { fname = `${base}_${n++}.jpg`; }
+      const path = `${folder}/${fname}`;
+      const blob = await resizeImg(file, 2048, meta);
       const sRef = storageRef(storage, path);
-      await uploadBytes(sRef, file);
+      await uploadBytes(sRef, blob, photoUploadMeta(meta));
       const url = await getDownloadURL(sRef);
       if (!Array.isArray(t.images)) t.images = toImgArray(t.images);
-      t.images.push({ url, path, note: "" });
+      t.images.push({ url, path, note: "", ...photoRecordMeta(meta) });
       await set(dbRef(database, `${basePath}/images`), t.images);
       renderDailyTasks();
     }

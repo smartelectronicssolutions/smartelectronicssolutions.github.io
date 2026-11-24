@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="version" content="1.0.3">
+  <meta name="version" content="1.0.4">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Job Details Tracker</title>
   <link rel="stylesheet" id="stylesheet" href="../assets/css/online.css" />
@@ -534,7 +534,7 @@
       basePathFor
     } from "../assets/js/firebase-init.js";
 
-    import { resizeImg, stampImg } from "../assets/js/imgupload.js?v=20261003a";
+    import { resizeImg, stampImg, readPhotoMeta, prefixTakenName, suffixTakenName, photoUploadMeta } from "../assets/js/imgupload.js?v=20261124a";
     import { sensorMetaOf, patchSensor, readOnce as readTask } from "../telaid/assets/js/telaid-data.js?v=20261006b";   // the Sensors list (2026-10-05)   // THE photo rules - one copy for every app (2026-10-03)
 
     import {
@@ -951,22 +951,25 @@
           }
         }
 
-        let blob = await resizeImage(file, 2048);
+        const meta = await readPhotoMeta(file);
+        let blob = await resizeImg(file, 2048, meta);
         if (!skipMarkup) {
           const labelBase = getPhotoLabelPrefix() || safeProjectName;
-          blob = await addTextToImage(
+          blob = await stampImg(
             blob,
             `${labelBase} - ${paddedNum} - ${serial}`,
+            meta,
           );
         }
 
         const prefix = getPhotoNamePrefix() || safeProjectName;
-        const desired = `${prefix}_${paddedNum}-${serial}.jpg`;
+        const desired = `${suffixTakenName(`${prefix}_${paddedNum}-${serial}`, meta)}.jpg`;
         const uniqueName = await getUniqueFilename(folderPath, desired);
 
         await uploadBytes(
           storageRef(storage, `${folderPath}/${uniqueName}`),
           blob,
+          photoUploadMeta(meta),
         );
 
         const placeholderRef = storageRef(storage, `${folderPath}/.init.txt`);
@@ -1017,19 +1020,21 @@
       }
 
       try {
+        const meta = await readPhotoMeta(file);
         const baseName = nameInput || sanitize(rawMarkup);
-        let blob = await resizeImage(file, 2048);
+        let blob = await resizeImg(file, 2048, meta);
 
-        if (rawMarkup) blob = await addTextToImage(blob, rawMarkup);
+        if (rawMarkup) blob = await stampImg(blob, rawMarkup, meta);
 
         const folder = `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}`;
         const prefix = getPhotoNamePrefix() || safeProjectName;
-        const desired = `${prefix}_${baseName}.jpg`;
+        const desired = `${prefixTakenName(`${prefix}_${baseName}`, meta)}.jpg`;
         const uniqueName = await getUniqueFilename(folder, desired);
 
         await uploadBytes(
           storageRef(storage, `${folder}/${uniqueName}`),
           blob,
+          photoUploadMeta(meta),
         );
 
         const placeholderRef = storageRef(storage, `${folder}/.init.txt`);
@@ -1374,16 +1379,17 @@
       const folderPath = `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}/siteImages`;
 
       try {
-        let blob = await resizeImage(file, 2048);
+        const meta = await readPhotoMeta(file);
+        let blob = await resizeImg(file, 2048, meta);
 
-        const timestamp = Date.now();
         const prefix = getPhotoNamePrefix() || safeProjectName;
-        const desiredName = `${prefix}_site_${timestamp}.jpg`;
+        const desiredName = `${prefixTakenName(`${prefix}_site`, meta)}.jpg`;
         const uniqueName = await getUniqueFilename(folderPath, desiredName);
 
         await uploadBytes(
           storageRef(storage, `${folderPath}/${uniqueName}`),
           blob,
+          photoUploadMeta(meta),
         );
 
         try {

@@ -4,7 +4,7 @@
 <head>
   <script>(function(){try{if(localStorage.getItem("ss-theme")==="light")document.documentElement.classList.add("light")}catch(e){}})();</script>  <!-- saved light/dark before first paint (2026-10-01) -->
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.2">
+    <meta name="version" content="1.0.3">
     <title>Photo Upload & Show</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <link rel="stylesheet" href="../assets/css/online.css">
@@ -190,10 +190,10 @@
 
     <script type="module">
         import {
-            storage, storageRef, getDownloadURL, listAll, deleteObject, onAuthStateChanged, auth,
+            storage, storageRef, getDownloadURL, getMetadata, listAll, deleteObject, onAuthStateChanged, auth,
             getBlob, uploadBytes, database, get, ref, set, update, basePathFor
         } from '../assets/js/firebase-init.js';
-        import { resizeImg, stampImg, unstampImg, thumbOf, forgetThumb } from '../assets/js/imgupload.js?v=20261004c';   // THE photo rules - one copy for every app (2026-10-03); + unstamp / thumbs (2026-10-04)
+        import { resizeImg, stampImg, unstampImg, thumbOf, forgetThumb, readPhotoMeta, injectExif, prefixTakenName, photoUploadMeta } from '../assets/js/imgupload.js?v=20261124a';   // THE photo rules + EXIF/GPS/naming (2026-11-24)
 
         /* ===============================
            STATE
@@ -404,10 +404,11 @@
         ================================ */
         const loadImg = blob => new Promise((res, rej) => { const i = new Image(), u = URL.createObjectURL(blob); i.onload = () => { URL.revokeObjectURL(u); res(i); }; i.onerror = () => { URL.revokeObjectURL(u); rej(new Error("Invalid image")); }; i.src = u; });
         const toJpeg = c => new Promise((res, rej) => c.toBlob(b => b ? res(b) : rej(new Error("encode failed")), "image/jpeg", 0.92));
-        async function rotateImg(blob, deg) { const img = await loadImg(blob), q = Math.abs(deg) % 180 === 90, c = document.createElement("canvas"); c.width = q ? img.height : img.width; c.height = q ? img.width : img.height; const g = c.getContext("2d"); g.translate(c.width / 2, c.height / 2); g.rotate(deg * Math.PI / 180); g.drawImage(img, -img.width / 2, -img.height / 2); return toJpeg(c); }
+        async function rotateImg(blob, deg) { const meta = await readPhotoMeta(blob); const img = await loadImg(blob), q = Math.abs(deg) % 180 === 90, c = document.createElement("canvas"); c.width = q ? img.height : img.width; c.height = q ? img.width : img.height; const g = c.getContext("2d"); g.translate(c.width / 2, c.height / 2); g.rotate(deg * Math.PI / 180); g.drawImage(img, -img.width / 2, -img.height / 2); return injectExif(await toJpeg(c), meta); }
         async function rewrite(p, fn, patch) {
-            const sref = storageRef(storage, p.fullPath); let blob = await getBlob(sref); blob = await fn(blob, p);
-            await uploadBytes(sref, blob, { contentType: "image/jpeg" }); const url = bust(await getDownloadURL(sref));
+            const sref = storageRef(storage, p.fullPath); let prevMeta = {}; try { prevMeta = (await getMetadata(sref))?.customMetadata || {}; } catch (_) {}
+            let blob = await getBlob(sref); blob = await fn(blob, p);
+            await uploadBytes(sref, blob, { contentType: "image/jpeg", customMetadata: prevMeta }); const url = bust(await getDownloadURL(sref));
             await syncRecords(p.fullPath, { url, ...patch }); await forgetThumb({ path: p.fullPath }); p.url = url; p.rec = (await recordRefs(p.fullPath))[0] || null; return p;
         }
         // label = the shared bar; a photo that already carries one (the record says so) loses it first, so bars never stack
@@ -417,7 +418,8 @@
         async function movePhoto(p, newPath) {
             if (newPath === p.fullPath) return p;
             const from = storageRef(storage, p.fullPath), to = storageRef(storage, newPath), blob = await getBlob(from);
-            await uploadBytes(to, blob, { contentType: blob.type || "image/jpeg" }); const url = bust(await getDownloadURL(to));
+            let prevMeta = {}; try { prevMeta = (await getMetadata(from))?.customMetadata || {}; } catch (_) {}
+            await uploadBytes(to, blob, { contentType: blob.type || "image/jpeg", customMetadata: prevMeta }); const url = bust(await getDownloadURL(to));
             await syncRecords(p.fullPath, { path: newPath, url }); await deleteObject(from); await forgetThumb({ path: p.fullPath });
             p.fullPath = newPath; p.name = newPath.split("/").pop(); p.ref = to; p.url = url; p.rec = (await recordRefs(newPath))[0] || null; return p;
         }
@@ -436,9 +438,9 @@
                 const existing = new Set((await listAll(storageRef(storage, folderPath))).items.map(i => i.name));
                 for (const file of list) {
                     showLoading(`Uploading ${done + failed + 1} / ${list.length}…`);
-                    try { const base = typed || sanitize(label) || sanitize(file.name.replace(/\.[^.]+$/, "")) || "image"; let name = `${base}.jpg`, n = 2; while (existing.has(name)) name = `${base}_${n++}.jpg`; existing.add(name);
-                        let blob = await resizeImg(file, maxW); if (label) blob = await stampImg(blob, label);
-                        await uploadBytes(storageRef(storage, `${folderPath}/${name}`), blob, { contentType: "image/jpeg" }); done++; }
+                    try { const meta = await readPhotoMeta(file); const rawBase = typed || sanitize(label) || sanitize(file.name.replace(/\.[^.]+$/, "")) || "image"; const base = prefixTakenName(rawBase, meta); let name = `${base}.jpg`, n = 2; while (existing.has(name)) name = `${base}_${n++}.jpg`; existing.add(name);
+                        let blob = await resizeImg(file, maxW, meta); if (label) blob = await stampImg(blob, label, meta);
+                        await uploadBytes(storageRef(storage, `${folderPath}/${name}`), blob, photoUploadMeta(meta)); done++; }
                     catch (e) { console.error("[gallery] upload", e); failed++; }
                 }
             } catch (e) { console.error("[gallery] upload", e); alert("Upload failed: " + (e?.message || e)); } finally { hideLoading(); }

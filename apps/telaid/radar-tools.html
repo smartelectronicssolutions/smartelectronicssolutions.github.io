@@ -3,7 +3,7 @@
   <head>
     <script>(function(){try{if(localStorage.getItem("ss-theme")==="light")document.documentElement.classList.add("light")}catch(e){}})();</script>
     <meta charset="UTF-8" />
-    <meta name="version" content="1.0.1">
+    <meta name="version" content="1.0.2">
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1.0, user-scalable=no"
@@ -319,7 +319,7 @@
         deleteObject,
       } from "../assets/js/firebase-init.js";
 
-      import { resizeImg, stampImg } from "../assets/js/imgupload.js?v=20261003a";   // THE photo rules - one copy for every app (2026-10-03)
+      import { resizeImg, stampImg, readPhotoMeta, prefixTakenName, suffixTakenName, photoUploadMeta, photoRecordMeta } from "../assets/js/imgupload.js?v=20261124a";   // THE photo rules + EXIF/GPS/naming (2026-11-24)
       import { initImageModule } from "./assets/js/imageModule.js?v=20261003b";
       // THE SENSORS LIST (2026-10-04): device data lives in the "Sensors" device list on the meta-owner task; the data layer
       // reads it (sensorMeta as the fallback) and mirrors every write back to sensorMeta for the SES apps
@@ -1165,7 +1165,8 @@
             if (!proceed) return;
           }
 
-          let blob = await resizeImage(file, CONFIG.IMAGE_MAX_WIDTH);
+          const meta = await readPhotoMeta(file);
+          let blob = await resizeImg(file, CONFIG.IMAGE_MAX_WIDTH, meta);
 
           if (!skipMarkup) {
             const labelBase = (
@@ -1173,26 +1174,27 @@
               state.currentProjectName ||
               state.currentProject
             ).trim();
-            blob = await addTextToImage(
+            blob = await stampImg(
               blob,
               `${labelBase} ${paddedNum} - ${serial}`,
+              meta,
             );
           }
 
           const filename = await getUniqueFilename(
             folderPath,
-            `${prefix}_${paddedNum}-${serial}.jpg`,
+            `${suffixTakenName(`${prefix}_${paddedNum}-${serial}`, meta)}.jpg`,
           );
           await uploadBytes(
             storageRef(storage, `${folderPath}/${filename}`),
             blob,
-            { contentType: "image/jpeg" },
+            photoUploadMeta(meta),
           );
           // LIVE marker (2026-10-03): tells any open radar map to re-list this folder - see telaid-data watchJob
           set(dbRef(database, `${state.basePath}/tasks/${state.metaOwnerTaskId}/photosAt`), { at: Date.now(), sub: "sensors", name: filename }).catch(() => {});
 
           // the photo onto the sensor's row too (Jobs / Details / Gallery see it as a device photo) - no-op without a list
-          try { await linkSensorPhoto(state.basePath, state.metaOwnerTaskId, Number(num), { url: await getDownloadURL(storageRef(storage, `${folderPath}/${filename}`)), path: `${folderPath}/${filename}`, note: "", markup: skipMarkup ? "" : `${(state.currentCustomerName || state.currentProjectName || state.currentProject).trim()} ${paddedNum} - ${serial}` }); } catch (e) { console.warn("[radar-tools] photo not linked to the row", e?.code || e); }
+          try { await linkSensorPhoto(state.basePath, state.metaOwnerTaskId, Number(num), { url: await getDownloadURL(storageRef(storage, `${folderPath}/${filename}`)), path: `${folderPath}/${filename}`, note: "", markup: skipMarkup ? "" : `${(state.currentCustomerName || state.currentProjectName || state.currentProject).trim()} ${paddedNum} - ${serial}`, ...photoRecordMeta(meta) }); } catch (e) { console.warn("[radar-tools] photo not linked to the row", e?.code || e); }
           await patchSensorMeta({   // field-level (see saveSensorMeta) - keeps labeledAt and anything else on the record
             [`${num}/serial`]: $("serialNumber")?.value.trim() || "",
             [`${num}/m1`]: $("sensorMetaM1")?.value.trim() || "",
@@ -1231,7 +1233,8 @@
         }
 
         try {
-          let blob = await resizeImage(file, CONFIG.IMAGE_MAX_WIDTH);
+          const meta = await readPhotoMeta(file);
+          let blob = await resizeImg(file, CONFIG.IMAGE_MAX_WIDTH, meta);
 
           const projectLabel = (state.currentProjectName || "").trim();
 
@@ -1240,17 +1243,17 @@
               ? `${projectLabel} - ${markup}`
               : markup;
 
-            blob = await addTextToImage(blob, finalMarkup);
+            blob = await stampImg(blob, finalMarkup, meta);
           }
           const folderPath = getImagesPath("deliverables");
           const filename = await getUniqueFilename(
             folderPath,
-            `${imageName}.jpg`,
+            `${prefixTakenName(imageName, meta)}.jpg`,
           );
           await uploadBytes(
             storageRef(storage, `${folderPath}/${filename}`),
             blob,
-            { contentType: "image/jpeg" },
+            photoUploadMeta(meta),
           );
           // LIVE marker (2026-10-03): tells any open radar map to re-list this folder - see telaid-data watchJob
           set(dbRef(database, `${state.basePath}/tasks/${state.metaOwnerTaskId}/photosAt`), { at: Date.now(), sub: "deliverables", name: filename }).catch(() => {});
