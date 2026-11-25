@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.344"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.345"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1161,7 +1161,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                      the nightly chat-prune routine on se deletes share/chat messages older than this; 0 = keep forever -->
                 <label class="dc-chk" style="margin-top:10px;display:block" title="the daemon prunes member-chat messages older than this every night (0 = keep forever)">👥 Member chat keeps <input type="number" id="dc-chat-keep" min="0" max="3650" step="1" style="width:5.5em;font:inherit;font-size:16px;margin:0 4px"> days <small style="opacity:.6">(0 = forever · default 90)</small></label>
                 <div class="lk-row" title="which voice reads a reply aloud when you tap Play. Auto guesses from the text."><span class="lk-l">Voice language</span><select id="dc-tts-lang" style="font:inherit"><option value="auto">Auto</option><option value="en">English</option><option value="es">Español</option></select></div>   <!-- moved from the gear (L, 2026-09-27: "language can also go in there") -->
-                <div class="lk-row" title="ticked: every reply that lands, in any tab, is read aloud right away. If something is already playing it waits its turn. This device only. Unticked (default): replies play only when you tap Play."><label class="dc-chk lk-chip"><input type="checkbox" id="dc-autoplay"> 🔊 Auto-play replies</label> <button type="button" id="dc-autoplay-stop" class="lk-chip" title="stop the reply being read now and drop the ones waiting (auto-play stays on for the next reply)" style="font:inherit;cursor:pointer">■ Stop</button></div>   <!-- 1.0.334 (L 2026-11-24) -->
+                <div class="lk-row" title="ticked: every reply that lands, in any tab, is read aloud right away. If something is already playing it waits its turn. This device only. Unticked (default): replies play only when you tap Play."><label class="dc-chk lk-chip"><input type="checkbox" id="dc-autoplay"> 🔊 Auto-play replies</label> <button type="button" id="dc-pb-prev" class="lk-chip" title="play the reply before this one (tap again to keep going back)" style="font:inherit;cursor:pointer;min-width:36px" aria-label="previous reply">&lt;</button> <button type="button" id="dc-autoplay-stop" class="lk-chip" title="Stop while it reads (drops the waiting ones); Play to hear the last one again" style="font:inherit;cursor:pointer;min-width:36px" aria-label="play / stop">&#9654;</button></div>   <!-- 1.0.334 (L 2026-11-24) -->
             </div>
             <div class="dc-panel" id="dc-rt-panel">
                 <div id="dc-rtlist"></div>
@@ -2480,6 +2480,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             stopSpeak();
             let t = cleanReply(String(text || '')).replace(/^#+\s*/gm, '').replace(/[*_`>]+/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/https?:\/\/\S+/g, 'link').replace(/\s+/g, ' ').trim();
             if (!t) return false;
+            try { dcPbNote(text, key); } catch (_) {}   // 1.0.345 playback row
             const chunks = t.match(/[^.!?]+[.!?]+[\s"')\]]*|[^.!?]+$/g) || [t];   // sentence chunks: iOS drops long utterances
             const voices = speechSynthesis.getVoices() || [];
             // LANGUAGE (2026-09-19, L): this used to be hardwired to English, so a Spanish reply
@@ -2531,6 +2532,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // Unload the element + clear the media session whenever reading finishes or is stopped (the element itself is
         // kept, so the iOS tap-unlock still holds for the next read).
         function clearNowPlaying() {
+            DC.pbBusy = false; try { dcPbSync(); } catch (_) {}   // 1.0.345: Stop -> Play when reading ends
             const a = DC.ttsAudio; if (!a) return;
             try { a.pause(); a.removeAttribute('src'); a.load(); } catch (_) {}
             try { if (navigator.mediaSession) { navigator.mediaSession.metadata = null; navigator.mediaSession.playbackState = 'none'; } } catch (_) {}
@@ -7327,7 +7329,22 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 ls.addEventListener('change', () => { try { localStorage.setItem('dc_tts_lang', ls.value); } catch (_) {} });
             } }
         { const sb = $('#dc-autoplay-stop');   // 1.0.335 (L 2026-11-24 "a way to stop the talking when it is on auto ... add a stop button there"): stops the read now + clears the queue; the checkbox stays as it is
-            if (sb) sb.addEventListener('click', () => { DC.autoQ = []; clearTimeout(DC.autoT); stopSpeak(); const st = $('#dc-chat-status'); if (st) st.textContent = '■ stopped - auto-play waits for the next reply'; }); }
+            if (sb) sb.addEventListener('click', () => {   // 1.0.345 (L 2026-11-25 "have the stop turn to play after pressed, maybe a < button")
+                const st = $('#dc-chat-status');
+                if (DC.pbBusy || DC.speakingKey) { DC.autoQ = []; clearTimeout(DC.autoT); stopSpeak(); if (st) st.textContent = '\u25a0 stopped - \u25b6 Play hears it again'; }
+                else { const it = DC.pbText ? { text: DC.pbText, k: DC.pbKey } : dcPbReplies().pop(); if (it) speakText(it.text, it.k); else if (st) st.textContent = 'nothing to play yet'; }
+                dcPbSync(); }); }
+        { const pv = $('#dc-pb-prev'); if (pv) pv.addEventListener('click', () => {
+                const L = dcPbReplies(), i = L.findIndex(t => t.k === DC.pbKey), it = i > 0 ? L[i - 1] : i === -1 ? L[L.length - 1] : null;
+                const st = $('#dc-chat-status');
+                if (!it) { if (st) st.textContent = 'no earlier reply in this tab'; return; }
+                DC.autoQ = []; clearTimeout(DC.autoT); speakText(it.text, it.k); }); }
+        function dcPbNote(text, key) { DC.pbText = String(text || ''); DC.pbKey = key || ''; DC.pbBusy = true; dcPbSync(); }
+        function dcPbSync() { const sb = document.getElementById('dc-autoplay-stop'); if (sb) sb.textContent = (DC.pbBusy || DC.speakingKey) ? '\u25a0' : '\u25b6'; }
+        function dcPbReplies() {   // finished replies (Droplet + the bot) in the open tab, oldest first; the star view / All = every tab
+            const tp = (!DC.topic || DC.topic === FAV_TAB) ? null : DC.topic;
+            return Object.entries(DC.chatTurns || {}).filter(([, t]) => t && t.s === 'D' && !t.pending && !t.enc && t.text && (tp === null || (t.topic || '') === tp))
+                .sort((a, c) => (a[1].ts || 0) - (c[1].ts || 0)).map(([k, t]) => ({ k, text: t.text })); }
         { const ap = $('#dc-autoplay');   // 1.0.334 auto-play replies (this device only)
             if (ap) { ap.checked = autoPlayOn();
                 ap.addEventListener('change', () => { try { localStorage.setItem('dc_autoplay', ap.checked ? '1' : '0'); } catch (_) {}
