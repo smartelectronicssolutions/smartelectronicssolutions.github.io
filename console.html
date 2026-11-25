@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.339"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.340"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1856,6 +1856,11 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // picker itself is left alone (not changed, not saved). Never sent to a daemon as a tab model (jobTabModel drops it).
         // Not in All / Favorites (no tab), not for guests or a remote view, and only while the extra is on (DC.cmpFlag).
         const BOT_TAB = 'bot';
+        // 1.0.340 TAB ICONS (L 2026-11-25 "replace the # on tabs that have a selected model... emoji for different models"):
+        // a tab with a pencil model shows that engine's emoji instead of '#'; a tab with none (main session / default) keeps '#'.
+        const TAB_ICONS = [['bot', '\u{1F916}'], ['gemini', '\u2728'], ['claude', '\u{1F9E0}'], ['copilot', '\u{1F419}'], ['codex', '\u{1F300}'], ['colibri', '\u{1F426}'], ['grok', '\u26A1'], ['ollama', '\u{1F3E0}'], ['local', '\u{1F3E0}']];
+        const tabIcon = n => { const m = String(tabModelOf(n) || '').toLowerCase(); if (!m) return '#'; const k = m.split(':')[0]; const hit = TAB_ICONS.find(([p]) => k === p || k.startsWith(p)); return hit ? hit[1] : '\u{1F539}'; };
+        addEventListener('dc-tabmodels', () => { try { if (typeof renderTopics === 'function') renderTopics(); } catch (_) {} });   // a pencil change redraws the icons
         const botTabOn = n => !!(n && n !== '\u2605' && DC.cmpFlag && !DC.guest && !DC.remote && tabModelOf(n) === BOT_TAB);
         const effTarget = () => botTabOn(DC.topic) ? 'local' : ((($('#dc-chat-target') || {}).value) || 'droplet');
         window.__dcBotTab = { on: botTabOn, eff: effTarget };
@@ -2160,7 +2165,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 names.sort((a, b) => ((a in ord) ? ord[a] : 1e6 + pos.get(a)) - ((b in ord) ? ord[b] : 1e6 + pos.get(b))); }
             DC.topicOrder = ['', ...names, FAV_TAB];   // swipe order = chip order; ★ favorites is the last stop
             const phone = DC.isPhone();
-            const ct = document.querySelector('.dc-tab[data-tab="ch"]'); if (ct) { ct.textContent = !DC.topic ? 'All' : (DC.topic === FAV_TAB ? FAV_TAB + ' Favorites' : '# ' + DC.topic); ct.title = phone ? 'swipe the chat left/right to change topic - tap here to pick or add one' : ''; }
+            const ct = document.querySelector('.dc-tab[data-tab="ch"]'); if (ct) { ct.textContent = !DC.topic ? 'All' : (DC.topic === FAV_TAB ? FAV_TAB + ' Favorites' : tabIcon(DC.topic) + ' ' + DC.topic); ct.title = phone ? 'swipe the chat left/right to change topic - tap here to pick or add one' : ''; }
             const tin = $('#dc-chat-in'); if (tin) { if (!DC.basePlaceholder) DC.basePlaceholder = tin.placeholder; tin.placeholder = (DC.topic === FAV_TAB ? 'sends to All · ' : DC.topic ? '# ' + DC.topic + ' · ' : '') + (phone ? 'type here…' : DC.basePlaceholder); }
             bar.innerHTML = '';
             const chip = (label, name, n) => { const b = document.createElement('button'); b.type = 'button';
@@ -2176,7 +2181,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 if (name && name !== FAV_TAB) b.dataset.name = name;
                 b.onclick = () => { if (DC._tabSwallow) return; setTopic(name); }; return b; };
             bar.appendChild(chip('All', '', turns.length));
-            for (const nm of names) { const c = chip('# ' + nm, nm, counts[nm] || 0);
+            for (const nm of names) { const c = chip(tabIcon(nm) + ' ' + nm, nm, counts[nm] || 0);
                 // SHARED BY ME (2026-09-28, L: "if a tab is being shared have it show... the outline like the person receiving it"):
                 // same teal dashed outline the other person's chip has, so both sides see the same tab the same way.
                 const _sh = (window.__dcMyShares || []).find(x => x.topic === nm);
@@ -2261,7 +2266,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         function showTopicLabel(order, j, skipped) {
             const toast = $('#dc-topic-toast'); if (!toast) return;
             placeUnderTop(toast);
-            toast.innerHTML = esc(order[j] === FAV_TAB ? FAV_TAB + ' Favorites' : order[j] ? '# ' + order[j] : 'All') + `<small>${j + 1} / ${order.length}${skipped ? ' \u00b7 skipped to unread' : ''}</small><button type="button" class="cx">✕ close</button>`;
+            toast.innerHTML = esc(order[j] === FAV_TAB ? FAV_TAB + ' Favorites' : order[j] ? tabIcon(order[j]) + ' ' + order[j] : 'All') + `<small>${j + 1} / ${order.length}${skipped ? ' \u00b7 skipped to unread' : ''}</small><button type="button" class="cx">✕ close</button>`;
             toast.querySelector('.cx').onclick = () => { toast.classList.remove('show'); closeConsole(); };
             toast.classList.add('show'); clearTimeout(DC.toastT); DC.toastT = setTimeout(() => toast.classList.remove('show'), 1800);
         }
