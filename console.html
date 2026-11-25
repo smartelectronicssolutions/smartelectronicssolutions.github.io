@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.348"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.350"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -492,6 +492,17 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         .dc-bub .dc-fav:hover { opacity: 1; }
         .dc-bub .dc-fold { float: right; margin: -8px 0 0 2px; border: 0; background: transparent; color: inherit; opacity: 0.55; cursor: pointer; font-size: calc(1.25rem * var(--dc-fs, 1)); font-weight: 700; line-height: 1; padding: 0; min-width: 40px; min-height: 36px; display: flex; align-items: center; justify-content: center; position: relative; z-index: 2; }   /* 1.0.343 fold, left of the star; 1.0.347: z-index so the .who line no longer covers it (taps went to the name line, so it never reopened), bigger + bolder arrow (L "too thin") */
         .dc-bub .dc-fold:hover { opacity: 1; }
+        .dc-bub .dc-mpin { float: right; margin: -8px 0 0 0; border: 0; background: transparent; color: inherit; opacity: 0.3; cursor: pointer; font-size: calc(0.85rem * var(--dc-fs, 1)); line-height: 1; padding: 0; min-width: 32px; min-height: 36px; display: flex; align-items: center; justify-content: center; position: relative; z-index: 2; filter: grayscale(1); }   /* 1.0.349 pin (L 2026-11-25 "the pin for pinning messages could go there"), left of the fold arrow */
+        .dc-bub .dc-mpin:hover { opacity: 1; } .dc-bub .dc-mpin.on { opacity: 1; filter: none; }
+        .dc-bub.folded .dc-mpin { margin-top: -8px; margin-bottom: -8px; min-height: 36px; }
+        .dc-mpins { display: flex; flex-direction: column; gap: 2px; margin: 2px 4px 0; padding: 3px 6px; border: 1px solid var(--border); border-left: 3px solid var(--dc-amber); border-radius: 8px; background: var(--surface); font-size: calc(0.8rem * var(--dc-fs, 1)); }
+        .dc-mpins[hidden] { display: none; }
+        .dc-mpins .pr { display: flex; align-items: center; gap: 4px; min-height: 30px; }
+        .dc-mpins .pj { flex: 1; min-width: 0; text-align: left; border: 0; background: transparent; color: var(--text); padding: 4px 2px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font: inherit; }
+        .dc-mpins .pj b { font-weight: 600; opacity: .7; margin-right: 4px; }
+        .dc-mpins .px, .dc-mpins .pm { border: 0; background: transparent; color: var(--muted); cursor: pointer; min-width: 30px; min-height: 30px; padding: 0; font: inherit; }
+        .dc-mpins .pm { align-self: flex-start; min-width: 0; padding: 2px 4px; font-size: .9em; }
+        .dc-chat.newest-first .dc-mpins { order: 4; }
         .dc-bub.folded { white-space: nowrap; overflow: hidden; padding-top: 8px; padding-bottom: 8px; flex-shrink: 0; }   /* 1.0.347 (L "one line of text with a ... at the end"): just the message's first line, cut with an ellipsis; flex-shrink 0: overflow:hidden drops a flex item's min-height, so the log squeezed it to a 16 px sliver */
         .dc-bub.folded .who { display: none; }
         .dc-bub.folded .dc-fav, .dc-bub.folded .dc-fold { margin-top: -8px; margin-bottom: -8px; min-height: 36px; }
@@ -1048,6 +1059,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     <div id="dc-topic-toast" class="dc-topic-toast"></div>
                     <div id="dc-nav" class="dc-nav"><button type="button" id="dc-totop" title="previous message" aria-label="previous message">⤒</button><button type="button" id="dc-todown" title="next message" aria-label="next message">⤓</button></div>
                     <!-- 1.0.171 (L 2026-11-10: "get rid of the recent ideas section altogether"): the 💡 ideas strip, its phone button and its Look toggle are gone -->
+                    <div id="dc-mpins" class="dc-mpins" hidden></div>
                     <div class="dc-chat-log" id="dc-chat-log"><div class="dc-skel" aria-label="loading"><div class="dc-sk-b" style="width:62%"><i></i><i></i></div><div class="dc-sk-b me" style="width:40%"><i></i><i></i></div><div class="dc-sk-b" style="width:78%"><i></i><i></i></div><div class="dc-sk-b me" style="width:52%"><i></i><i></i></div><div class="dc-sk-b" style="width:70%"><i></i><i></i></div></div></div>
                     <div class="dc-resize" id="dc-resize" title="drag to resize the typing box · double-tap to reset"></div>
                     <div id="dc-compose" class="dc-compose" hidden></div>   <!-- messenger kit: "replying to" + attachments waiting to send -->
@@ -1162,7 +1174,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                      the nightly chat-prune routine on se deletes share/chat messages older than this; 0 = keep forever -->
                 <label class="dc-chk" style="margin-top:10px;display:block" title="the daemon prunes member-chat messages older than this every night (0 = keep forever)">👥 Member chat keeps <input type="number" id="dc-chat-keep" min="0" max="3650" step="1" style="width:5.5em;font:inherit;font-size:16px;margin:0 4px"> days <small style="opacity:.6">(0 = forever · default 90)</small></label>
                 <div class="lk-row" title="which voice reads a reply aloud when you tap Play. Auto guesses from the text."><span class="lk-l">Voice language</span><select id="dc-tts-lang" style="font:inherit"><option value="auto">Auto</option><option value="en">English</option><option value="es">Español</option></select></div>   <!-- moved from the gear (L, 2026-09-27: "language can also go in there") -->
-                <div class="lk-row" title="ticked: every reply that lands, in any tab, is read aloud right away. If something is already playing it waits its turn. This device only. Unticked (default): replies play only when you tap Play."><label class="dc-chk lk-chip"><input type="checkbox" id="dc-autoplay"> 🔊 Auto-play replies</label> <button type="button" id="dc-pb-prev" class="lk-chip" title="play the reply before this one (tap again to keep going back)" style="font:inherit;cursor:pointer;min-width:36px" aria-label="previous reply">&lt;</button> <button type="button" id="dc-autoplay-stop" class="lk-chip" title="Stop while it reads (drops the waiting ones); Play to hear the last one again" style="font:inherit;cursor:pointer;min-width:36px" aria-label="play / stop">&#9654;</button> <button type="button" id="dc-pb-next" class="lk-chip" title="play the reply after this one" style="font:inherit;cursor:pointer;min-width:36px" aria-label="next reply">&gt;</button></div>   <!-- 1.0.334 (L 2026-11-24) -->
+                <div class="lk-row" title="ticked: every reply that lands, in any tab, is read aloud right away. If something is already playing it waits its turn. This device only. Unticked (default): replies play only when you tap Play."><label class="dc-chk lk-chip"><input type="checkbox" id="dc-autoplay"> 🔊 Auto-play</label> <button type="button" id="dc-pb-prev" class="lk-chip" title="play the reply before this one (tap again to keep going back)" style="font:inherit;cursor:pointer;min-width:36px" aria-label="previous reply">&lt;</button> <button type="button" id="dc-autoplay-stop" class="lk-chip" title="Stop while it reads (drops the waiting ones); Play to hear the last one again" style="font:inherit;cursor:pointer;min-width:36px" aria-label="play / stop">&#9654;</button> <button type="button" id="dc-pb-next" class="lk-chip" title="play the reply after this one" style="font:inherit;cursor:pointer;min-width:36px" aria-label="next reply">&gt;</button></div>   <!-- 1.0.334 (L 2026-11-24) -->
             </div>
             <div class="dc-panel" id="dc-rt-panel">
                 <div id="dc-rtlist"></div>
@@ -1522,6 +1534,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             onValue(ref(database, `${DC.base}/settings/tabEnc`), s => { DC.tabEnc = s.val() || {}; renderTopics(); }, dcWarn('settings/tabEnc'));   // 🔒 encrypted tabs (trial 11-19)
             onValue(ref(database, `${DC.base}/chat/topics`), s => { DC.topicList = s.val() || {}; renderTopics(); });
             onValue(ref(database, `${DC.base}/chat/favorites`), s => { DC.favs = s.val() || {}; renderChat(DC.chatTurns || {}); });
+            onValue(ref(database, `${DC.base}/chat/pins`), s => { DC.pins = s.val() || {}; renderChat(DC.chatTurns || {}); }, dcWarn('chat/pins'));   // 1.0.349 📌 pins: shared by every device
             onValue(ref(database, `${DC.base}/seen/topics`), s => { const v = s.val() || {}; const norm = o => JSON.stringify(Object.keys(o || {}).sort().map(k => [k, o[k] && o[k].t, o[k] && +o[k].ts, o[k] && o[k].k ? Object.keys(o[k].k).sort().join(',') : ''])); const same = norm(v) === norm(DC.seenCloud) && DC.seenLoaded; DC.seenLoaded = true; DC.seenCloud = v; if (!same && !DC.remote) renderChat(DC.ownTurns || DC.chatTurns || {}); },
                 e => { DC.seenLoaded = true; dcWarn('seen/topics')(e); if (!DC.remote) renderChat(DC.ownTurns || DC.chatTurns || {}); });   // read on another device -> clear here. 2026-11-10 (L: 'the top bubble shakes'): our OWN seen write echoes back here - markSeen already set DC.seenCloud, so an identical echo no longer re-draws (and re-lands) the whole chat
             onValue(query(ref(database, `${DC.uid}/todo/todos`), limitToLast(80)), s => renderIdeas(s.val() || {}));
@@ -1800,9 +1813,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             else { bodyHtml = richBody(cardBody, me, tidy); if (mk) { if (!DC.richMemo || ++DC.richMemoN > 600) { DC.richMemo = {}; DC.richMemoN = 1; } DC.richMemo[mk] = { src: cardBody, me, tidy, html: bodyHtml }; } }
             // 1.0.343 FOLD (L 2026-11-25 "to the left of the star... shrinks that message to one line"): per-viewer, kept in localStorage.
             const foldOn = !!(!t.pending && t.__k && dcFolded(t.__k));
+            const pinBtn = (!R && !t.pending && t.__k) ? `<button type="button" class="dc-mpin${(DC.pins || {})[t.__k] ? ' on' : ''}" title="${(DC.pins || {})[t.__k] ? 'unpin' : 'pin to the top of this tab'}">\u{1F4CC}</button>` : '';   // 1.0.349
             const foldBtn = (!t.pending && t.__k) ? `<button type="button" class="dc-fold" title="${foldOn ? 'show the whole message' : 'shrink to one line'}">${foldOn ? '\u25B8' : '\u25BE'}</button>` : '';
-            if (foldOn) return { cls: `dc-bub ${me ? 'me' : 'drop'} folded${t.persona === 'yuki' ? ' yuki' : ''}`, html: `${favBtn}${foldBtn}<span class="who">${who}${time ? ' \u00b7 ' + time : ''}</span><span class="dc-snip">${esc(String(cardBody || '').replace(/\s+/g, ' ').slice(0, 160))}</span>` };
-            return { cls: `dc-bub ${me ? 'me' : 'drop'}${pend}${t.persona === 'yuki' ? ' yuki' : ''}${t.s === 'G' && !me ? ' guest' : ''}${R && t.s === 'L' ? ' owner' : ''}`, html: `${editBtn}${favBtn}${foldBtn}<span class="who">${who}${time ? ' · ' + time : ''}${tick}${tag}${tp}</span>${qt}${bodyHtml}${att}${lp}${wait}${choices}${snapBox}${enh}${rx}<div class="ts">${time}</div>` };
+            if (foldOn) return { cls: `dc-bub ${me ? 'me' : 'drop'} folded${t.persona === 'yuki' ? ' yuki' : ''}`, html: `${favBtn}${foldBtn}${pinBtn}<span class="who">${who}${time ? ' \u00b7 ' + time : ''}</span><span class="dc-snip">${esc(String(cardBody || '').replace(/\s+/g, ' ').slice(0, 160))}</span>` };
+            return { cls: `dc-bub ${me ? 'me' : 'drop'}${pend}${t.persona === 'yuki' ? ' yuki' : ''}${t.s === 'G' && !me ? ' guest' : ''}${R && t.s === 'L' ? ' owner' : ''}`, html: `${editBtn}${favBtn}${foldBtn}${pinBtn}<span class="who">${who}${time ? ' · ' + time : ''}${tick}${tag}${tp}</span>${qt}${bodyHtml}${att}${lp}${wait}${choices}${snapBox}${enh}${rx}<div class="ts">${time}</div>` };
         }
         // PERF: keyed incremental render - only turns whose content changed are re-built; the rest of the DOM is
         // untouched (the old version rebuilt all 120 bubbles as one innerHTML on every change, which stuttered on the phone).
@@ -2471,6 +2485,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 }
                 await set(ref(database, `${DC.base}/chat/turns/${k}`), null);
                 if ((DC.favs || {})[k]) await set(ref(database, `${DC.base}/chat/favorites/${k}`), null);   // a deleted reply leaves favorites too
+                if ((DC.pins || {})[k]) await set(ref(database, `${DC.base}/chat/pins/${k}`), null);   // ... and pins
                 $('#dc-chat-status').textContent = cancelled ? 'deleted — cancelling…' : 'message deleted';
             } catch (e) { $('#dc-chat-status').textContent = '⚠ could not delete: ' + (e.message || e); }
         }
@@ -2806,6 +2821,37 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             dcToggleFold(k); renderChat(DC.chatTurns || {}); });
         function dcFolds() { if (!window.__dcFolds) { try { window.__dcFolds = JSON.parse(localStorage.getItem('dc_folds') || '{}') || {}; } catch (_) { window.__dcFolds = {}; } } return window.__dcFolds; }
         function dcFolded(k) { return !!dcFolds()[k]; }
+        // 1.0.349 PINS (L 2026-11-25): 📌 on a bubble = {topic, text (first line, plain), at} at <base>/chat/pins/<k>; the strip above the log
+        // lists the open tab's pins (All = every pin, newest pin first, 3 then +N); tap = jump + flash, ✕ = unpin. Encrypted turns store no text.
+        function renderPins(R) {
+            const box = document.getElementById('dc-mpins'); if (!box) return;
+            const P = DC.pins || {}, cur = DC.topic || '';
+            const ks = (R || DC.remote || cur === FAV_TAB) ? [] : Object.keys(P).filter(k => P[k] && (!cur || (P[k].topic || '') === cur)).sort((a, b) => (P[b].at || 0) - (P[a].at || 0));
+            if (!ks.length) { box.hidden = true; box.innerHTML = ''; return; }
+            const open = !!DC.pinsOpen, show = open ? ks : ks.slice(0, 3);
+            box.innerHTML = show.map(k => { const p = P[k]; return `<div class="pr" data-pk="${esc(k)}"><button type="button" class="pj" title="jump to this message">\u{1F4CC} ${!cur && p.topic ? '<b># ' + esc(p.topic) + '</b>' : ''}${esc(String(p.text || '').replace(/\s+/g, ' ').slice(0, 160) || 'message')}</button><button type="button" class="px" title="unpin">\u2715</button></div>`; }).join('')
+                + (ks.length > 3 ? `<button type="button" class="pm">${open ? 'show less' : '+' + (ks.length - 3) + ' more'}</button>` : '');
+            box.hidden = false;
+        }
+        document.getElementById('dc-mpins') && document.getElementById('dc-mpins').addEventListener('click', async e => {
+            if (e.target.closest('.pm')) { DC.pinsOpen = !DC.pinsOpen; renderPins(); return; }
+            const row = e.target.closest('[data-pk]'); if (!row) return; const k = row.dataset.pk;
+            if (e.target.closest('.px')) { if (!DC.base) return; await snapUndo('unpinned', [`${DC.base}/chat/pins/${k}`]);
+                try { await set(ref(database, `${DC.base}/chat/pins/${k}`), null); } catch (err) { $('#dc-chat-status').textContent = '\u26A0 could not unpin: ' + (err.message || err); } return; }
+            const log = document.getElementById('dc-chat-log'); const el = log && log.querySelector(`[data-k="${CSS.escape(k)}"]`);
+            if (!el) { $('#dc-chat-status').textContent = (DC.chatTurns || {})[k] ? 'that pinned message is not shown here - try the All tab' : 'that pinned message is older than what is loaded (or was deleted)'; return; }
+            el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.classList.add('dc-flash'); setTimeout(() => el.classList.remove('dc-flash'), 1400);
+        });
+        document.getElementById('dc-chat-log') && document.getElementById('dc-chat-log').addEventListener('click', async e => {
+            const b = e.target.closest && e.target.closest('.dc-mpin'); if (!b) return; e.stopPropagation();
+            const el = b.closest('[data-k]'); const k = el && el.dataset.k; if (!k || !DC.base || DC.remote) return;
+            const on = !!(DC.pins || {})[k];
+            const src = encShow((DC.topic === FAV_TAB ? (DC.favs || {}) : (DC.chatTurns || {}))[k] || (DC.chatTurns || {})[k]) || {};
+            const txt = src.enc || src.encLocked ? '\u{1F512} message' : String(src.text || '').replace(/\s+/g, ' ').slice(0, 160);
+            await snapUndo(on ? 'unpinned' : 'pinned', [`${DC.base}/chat/pins/${k}`]);
+            try { await set(ref(database, `${DC.base}/chat/pins/${k}`), on ? null : { text: txt, at: Date.now(), ...(src.topic ? { topic: src.topic } : {}) }); }
+            catch (err) { $('#dc-chat-status').textContent = '\u26A0 could not pin: ' + (err.message || err); }
+        }, true);   // capture, like the star: stays out of the triple-tap counter
         function dcToggleFold(k) { const f = dcFolds(); if (f[k]) delete f[k]; else f[k] = 1; try { localStorage.setItem('dc_folds', JSON.stringify(f)); } catch (_) {} }
         document.getElementById('dc-chat-log') && document.getElementById('dc-chat-log').addEventListener('click', async e => {
             const b = e.target.closest && e.target.closest('.dc-fav'); if (!b) return; e.stopPropagation();
@@ -3793,6 +3839,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 DC._unread[cur] = false;   // the open tab's own chip never shows the mark (the bar hides it anyway)
             }
             renderTopics();
+            renderPins(R);
             const log = $('#dc-chat-log');
             const favView = DC.topic === FAV_TAB;
             if (favView) { const f = DC.favs || {}; obj = Object.fromEntries(Object.keys(f).sort((a, b) => (f[a].ts || 0) - (f[b].ts || 0)).map(k => [k, f[k]])); }   // ★ view: the saved favorites, oldest first
