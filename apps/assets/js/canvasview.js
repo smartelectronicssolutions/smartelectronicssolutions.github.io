@@ -35,7 +35,7 @@ export function mountCanvasView(cv, opts) {
   const o = Object.assign({ pad: 14, minZoom: 0.8, maxZoom: 160, flipY: false, sliders: null, slVar: "--sl-h", holdMs: 480, dblclickReset: true, resize: true, panNeedsShift: false }, opts);
   const view = { s: 1, ox: 0, oy: 0, dpr: 1 }, base = { s: 1, ox: 0, oy: 0, dpr: 1 };
   let W = null, fitted = false, raf = 0, slHeld = null;
-  const ptr = new Map(); let drag = null, pinch = null, mid = null, moved = false, press = null, mov = null;   // mov = {kind:"pan"} | {kind:"drag", target}
+  const ptr = new Map(); let drag = null, pinch = null, mid = null, moved = false, press = null, mov = null, down = null, pend = null;   // mov = {kind:"pan"} | {kind:"drag", target}; down = where the press started (the 6 css px deadzone is measured from it); pend = a grab waiting for that deadzone
 
   const draw = () => { o.draw(); syncSliders(); };
   const requestDraw = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; draw(); }); };
@@ -77,9 +77,10 @@ export function mountCanvasView(cv, opts) {
     if (i.ex > 1 && slHeld !== "x") sl.x.value = Math.round(Math.max(0, Math.min(1, (-view.ox - i.left) / i.ex)) * 1000);
     if (i.ey > 1 && slHeld !== "y") sl.y.value = Math.round(Math.max(0, Math.min(1, (-view.oy - i.top) / i.ey)) * 1000);
   }
+  const slClear = () => { slHeld = null; };
   if (o.sliders) for (const [axis, el] of [["x", o.sliders.x], ["y", o.sliders.y]]) {
     if (!el) continue;
-    el.addEventListener("pointerdown", () => { slHeld = axis; }); el.addEventListener("pointerup", () => { slHeld = null; }); el.addEventListener("pointercancel", () => { slHeld = null; });
+    el.addEventListener("pointerdown", () => { slHeld = axis; addEventListener("pointerup", slClear, { once: true }); addEventListener("pointercancel", slClear, { once: true }); }); el.addEventListener("pointerup", () => { slHeld = null; }); el.addEventListener("pointercancel", () => { slHeld = null; });
     el.addEventListener("input", () => { const i = slInfo(); if (!i) return; const t = Number(el.value) / 1000;
       if (axis === "x") { if (i.ex > 1) view.ox = -i.left - t * i.ex; } else if (i.ey > 1) view.oy = -i.top - t * i.ey; requestDraw(); });
   }
@@ -99,10 +100,10 @@ export function mountCanvasView(cv, opts) {
   cv.addEventListener("pointerdown", e => {
     try { cv.setPointerCapture(e.pointerId); } catch (_) {} ptr.set(e.pointerId, toC(e)); moved = false;
     if (ptr.size === 1) {
-      drag = toC(e); clearTimeout(press); press = null; mov = null;
+      drag = toC(e); down = drag; pend = null; clearTimeout(press); press = null; mov = null;
       if (e.button === 1 || e.shiftKey) { e.preventDefault(); moved = true; mov = { kind: "pan" }; return; }
       const target = fitted && o.hit ? o.hit(drag[0], drag[1], e) : null;
-      if (target != null && o.grab && o.grab(target, e)) { mov = { kind: "drag", target }; cv.style.cursor = "grabbing"; return; }
+      if (target != null && o.grab && o.grab(target, e)) { pend = target; cv.style.cursor = "grabbing"; return; }   // a grab starts moving only past the deadzone, so a click with a 1 px twitch is still a tap (2026-11-25)
       const what = o.hold ? o.hold(target, e) : (target == null && e.pointerType === "touch" ? "pan" : null);
       if (what) press = setTimeout(() => { press = null; if (moved) return; moved = true; buzz();
         if (what === "pan") { mov = { kind: "pan" }; cv.style.cursor = "grabbing"; }
@@ -110,17 +111,20 @@ export function mountCanvasView(cv, opts) {
         else if (typeof what === "function") { drag = null; what(target); }
         requestDraw(); }, o.holdMs);
     }
-    if (ptr.size === 2) { clearTimeout(press); press = null; mov = null; cv.style.cursor = ""; const [a, b] = [...ptr.values()]; pinch = Math.hypot(a[0] - b[0], a[1] - b[1]); mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; }
+    if (ptr.size === 2) { clearTimeout(press); press = null; mov = null; pend = null; cv.style.cursor = ""; const [a, b] = [...ptr.values()]; pinch = Math.hypot(a[0] - b[0], a[1] - b[1]); mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; }
   });
   cv.addEventListener("pointermove", e => {
     if (!ptr.has(e.pointerId)) return; const p = toC(e); ptr.set(e.pointerId, p);
     if (ptr.size === 2 && pinch) { const [a, b] = [...ptr.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]), m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
       if (mid) { view.ox += m[0] - mid[0]; view.oy += m[1] - mid[1]; } zoomAt(m[0], m[1], d / pinch); pinch = d; mid = m; moved = true; return; }
-    if (!drag) return; const dx = p[0] - drag[0], dy = p[1] - drag[1];
+    if (!drag) return;
+    const far = down && Math.hypot(p[0] - down[0], p[1] - down[1]) > 6 * view.dpr;   // 6 CSS px from where the press began (was 6 device px per event: 2 px on a 3x phone, and slow drifts never tripped it)
+    if (pend) { if (!far) return; mov = { kind: "drag", target: pend }; pend = null; drag = down; }
+    const dx = p[0] - drag[0], dy = p[1] - drag[1];
     if (mov) { moved = true;
       if (mov.kind === "pan") { view.ox += dx; view.oy += dy; } else o.onDrag?.(mov.target, dx / view.s, (o.flipY ? -dy : dy) / view.s);
       drag = p; requestDraw(); return; }
-    if (Math.abs(dx) + Math.abs(dy) > 6) { moved = true; clearTimeout(press); press = null; }
+    if (!moved && far) { moved = true; clearTimeout(press); press = null; }
     if (e.pointerType === "touch") { drag = p; return; }   // one finger without a hold: the browser scrolls the page, the map stays put
     if (!moved) return; if (o.panNeedsShift && !e.shiftKey) return;   // panNeedsShift (the budget galaxy): a plain mouse drag does nothing - Shift (or the middle button) pans
     view.ox += dx; view.oy += dy; drag = p; requestDraw();   // a mouse drag pans
@@ -128,19 +132,22 @@ export function mountCanvasView(cv, opts) {
   const up = e => {
     ptr.delete(e.pointerId); clearTimeout(press); press = null;
     if (ptr.size < 2) { pinch = null; mid = null; drag = ptr.size ? [...ptr.values()][0] : null; }
-    if (!ptr.size) { const m = mov; mov = null; cv.style.cursor = ""; if (m?.kind === "drag") o.onDragEnd?.(m.target, moved); requestDraw(); }
+    if (!ptr.size) { const m = mov; mov = null; pend = null; cv.style.cursor = ""; if (m?.kind === "drag") o.onDragEnd?.(m.target, moved); requestDraw(); }
   };
   cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
   if (o.dblclickReset) cv.addEventListener("dblclick", reset);
   cv.addEventListener("click", e => { if (moved) { moved = false; return; } if (!fitted) return; const [mx, my] = toC(e); o.onTap?.(o.hit ? o.hit(mx, my, e) : null, mx, my, e); });
 
   // ---- size changes ----
-  const onResize = () => fit(true); if (o.resize) addEventListener("resize", onResize);
+  const onResize = () => { const r = cv.getBoundingClientRect(), d = window.devicePixelRatio || 1;   // same size + same dpr = nothing to re-fit (2026-11-25)
+    if (fitted && d === view.dpr && Math.round(r.width * d) === cv.width && Math.round(r.height * d) === cv.height) { draw(); return; }
+    fit(true); };
+  if (o.resize) addEventListener("resize", onResize);
   let lastW = 0, lastH = 0;
   const ro = o.resize && typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => { const r = cv.getBoundingClientRect(); if (r.width && (r.width !== lastW || r.height !== lastH)) { lastW = r.width; lastH = r.height; fit(true); } }) : null;
   ro?.observe(cv);
 
   return { view, base, get world() { return W; }, get fitted() { return fitted; }, get moving() { return ptr.size > 0; }, get held() { return mov; },
     fit, draw, requestDraw, zoomAt, centerOn, reset, toC, P, unP, syncSliders,
-    destroy() { ro?.disconnect(); removeEventListener("resize", onResize); } };
+    destroy() { ro?.disconnect(); removeEventListener("resize", onResize); removeEventListener("pointerup", slClear); removeEventListener("pointercancel", slClear); } };
 }
