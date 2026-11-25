@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.343"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.344"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -490,6 +490,11 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         .dc-bub .dc-fav { float: right; margin: -8px -10px 0 8px; border: 0; background: transparent; color: inherit; opacity: 0.35; cursor: pointer; font-size: calc(1.05rem * var(--dc-fs, 1)); line-height: 1; padding: 0; min-width: 36px; min-height: 36px; display: flex; align-items: center; justify-content: center; position: relative; z-index: 1; border-radius: 50%; }   /* 36px touch target (2026-09-18) */
         .dc-bub .dc-fav.on { opacity: 1; color: var(--dc-amber); }
         .dc-bub .dc-fav:hover { opacity: 1; }
+        .dc-bub .dc-fold { float: right; margin: -8px 0 0 2px; border: 0; background: transparent; color: inherit; opacity: 0.35; cursor: pointer; font-size: calc(0.95rem * var(--dc-fs, 1)); line-height: 1; padding: 0; min-width: 32px; min-height: 36px; display: flex; align-items: center; justify-content: center; }   /* 1.0.343 fold, left of the star */
+        .dc-bub .dc-fold:hover { opacity: 1; }
+        .dc-bub.folded { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-top: 6px; padding-bottom: 6px; }
+        .dc-bub.folded .dc-fav, .dc-bub.folded .dc-fold { margin-top: -6px; margin-bottom: -6px; min-height: 30px; }
+        .dc-bub.folded .dc-snip { margin-left: 6px; opacity: 0.8; }
         .dc-topic.fav { color: var(--dc-amber); } .dc-topic.fav.on { border-color: var(--dc-amber); background: color-mix(in srgb, var(--dc-amber) 12%, transparent); }
         .dc-bub .dc-edit { float: right; margin: -8px -10px 0 6px; border: 0; background: transparent; color: inherit; opacity: 0.65; cursor: pointer; font-size: calc(1rem * var(--dc-fs, 1)); line-height: 1; padding: 8px 10px; min-width: 34px; min-height: 32px; border-radius: 8px; position: relative; z-index: 2; }   /* above the .who line - it overlapped the pencil's middle band (09-26) */   /* bigger hit area - L 09-26: 'hard to click with a mouse' */
         .dc-bub .dc-edit:hover { opacity: 1; background: rgba(255,255,255,.08); }
@@ -1792,7 +1797,11 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (jumbo) bodyHtml = `<span class="dc-jumbo">${esc(bt)}</span>`;
             else if (mm && mm.src === cardBody && mm.me === me && mm.tidy === tidy) bodyHtml = mm.html;
             else { bodyHtml = richBody(cardBody, me, tidy); if (mk) { if (!DC.richMemo || ++DC.richMemoN > 600) { DC.richMemo = {}; DC.richMemoN = 1; } DC.richMemo[mk] = { src: cardBody, me, tidy, html: bodyHtml }; } }
-            return { cls: `dc-bub ${me ? 'me' : 'drop'}${pend}${t.persona === 'yuki' ? ' yuki' : ''}${t.s === 'G' && !me ? ' guest' : ''}${R && t.s === 'L' ? ' owner' : ''}`, html: `${editBtn}${favBtn}<span class="who">${who}${time ? ' · ' + time : ''}${tick}${tag}${tp}</span>${qt}${bodyHtml}${att}${lp}${wait}${choices}${snapBox}${enh}${rx}<div class="ts">${time}</div>` };
+            // 1.0.343 FOLD (L 2026-11-25 "to the left of the star... shrinks that message to one line"): per-viewer, kept in localStorage.
+            const foldOn = !!(!t.pending && t.__k && dcFolded(t.__k));
+            const foldBtn = (!t.pending && t.__k) ? `<button type="button" class="dc-fold" title="${foldOn ? 'show the whole message' : 'shrink to one line'}">${foldOn ? '\u25B8' : '\u25BE'}</button>` : '';
+            if (foldOn) return { cls: `dc-bub ${me ? 'me' : 'drop'} folded${t.persona === 'yuki' ? ' yuki' : ''}`, html: `${favBtn}${foldBtn}<span class="who">${who}${time ? ' \u00b7 ' + time : ''}</span><span class="dc-snip">${esc(String(cardBody || '').replace(/\s+/g, ' ').slice(0, 160))}</span>` };
+            return { cls: `dc-bub ${me ? 'me' : 'drop'}${pend}${t.persona === 'yuki' ? ' yuki' : ''}${t.s === 'G' && !me ? ' guest' : ''}${R && t.s === 'L' ? ' owner' : ''}`, html: `${editBtn}${favBtn}${foldBtn}<span class="who">${who}${time ? ' · ' + time : ''}${tick}${tag}${tp}</span>${qt}${bodyHtml}${att}${lp}${wait}${choices}${snapBox}${enh}${rx}<div class="ts">${time}</div>` };
         }
         // PERF: keyed incremental render - only turns whose content changed are re-built; the rest of the DOM is
         // untouched (the old version rebuilt all 120 bubbles as one innerHTML on every change, which stuttered on the phone).
@@ -2788,6 +2797,13 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (DC.editKey) { ta.value = ''; setEditMode(''); } if (sel) sel.value = 'droplet'; DC.noBotOnce = true; ta.value = text; DC.mainSession = true; Promise.resolve(sendChat()).catch(() => {}).finally(() => { DC.mainSession = false; }); if (sel && was) sel.value = was; return true; };   // flag held until the send resolves: sendChat reads it AFTER its awaits (2026-11-21, it was dropped at once and a tab's own model could take the hand)   // main session, never a tab's model: only it knows the Campfire steps
         window.__dcConfirmDelete = confirmDelete;   // test hook
         window.__dcMsgSheet = (k, ext) => confirmDelete(k, ext);   // the 👥 pane's triple-tap
+        document.getElementById('dc-chat-log') && document.getElementById('dc-chat-log').addEventListener('click', e => {   // 1.0.343 fold toggle
+            const b = e.target.closest && e.target.closest('.dc-fold'); if (!b) return; e.stopPropagation();
+            const el = b.closest('[data-k]'); const k = el && el.dataset.k; if (!k) return;
+            dcToggleFold(k); renderChat(DC.chatTurns || {}); });
+        function dcFolds() { if (!window.__dcFolds) { try { window.__dcFolds = JSON.parse(localStorage.getItem('dc_folds') || '{}') || {}; } catch (_) { window.__dcFolds = {}; } } return window.__dcFolds; }
+        function dcFolded(k) { return !!dcFolds()[k]; }
+        function dcToggleFold(k) { const f = dcFolds(); if (f[k]) delete f[k]; else f[k] = 1; try { localStorage.setItem('dc_folds', JSON.stringify(f)); } catch (_) {} }
         document.getElementById('dc-chat-log') && document.getElementById('dc-chat-log').addEventListener('click', async e => {
             const b = e.target.closest && e.target.closest('.dc-fav'); if (!b) return; e.stopPropagation();
             const el = b.closest('[data-k]'); const k = el && el.dataset.k; if (!k || !DC.base) return;
