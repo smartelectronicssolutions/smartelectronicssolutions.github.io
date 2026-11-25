@@ -1154,8 +1154,19 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     <label>name <input id="dc-bot-name" maxlength="40" placeholder="Local (no name yet)"></label>
                     <label>brain <select id="dc-bot-brain">
                         <option value="local">Local (on the home server)</option>
-                        <option value="gemini">Gemini Flash</option>
-                        <option value="claude">Claude Haiku</option>
+                        <optgroup label="Gemini">
+                            <option value="gemini:gemini-3.8-flash-medium">Gemini 3.8 Flash</option>
+                            <option value="gemini:gemini-4-neon-high">Gemini 4 Neon</option>
+                            <option value="gemini:gemini-4-carbon-high">Gemini 4 Carbon</option>
+                            <option value="gemini:gemini-4-argon-high">Gemini 4 Argon</option>
+                            <option value="gemini:gemini-4-hydrogen-high">Gemini 4 Hydrogen</option>
+                        </optgroup>
+                        <optgroup label="Claude (Max plan)">
+                            <option value="claude:claude-haiku-5-5">Claude Haiku 5.5</option>
+                            <option value="claude:claude-sonnet-5-5">Claude Sonnet 5.5</option>
+                            <option value="claude:claude-opus-5-5">Claude Opus 5.5</option>
+                            <option value="claude:claude-fable-5-2">Claude Fable 5.2</option>
+                        </optgroup>
                         <option value="gpt">GPT-4o mini</option>
                     </select></label>
                     <div class="meta" id="dc-bot-brain-hint" style="margin:-4px 0 6px">Which AI answers for this bot · saved with Save</div>
@@ -1266,7 +1277,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
 
         const OLLAMA = 'https://api.luissolutions.us/chat';
         const BOT_CHAT_URL = 'https://chat.luissolutions.us/chat';   // 1.0.326: bot replies use the chat proxy so {uid}/chat/bot/brain (local | gemini | claude | gpt) works in console too
-        const BOT_BRAIN_NAMES = { local: 'Local (on the home server)', gemini: 'Gemini Flash', claude: 'Claude Haiku', gpt: 'GPT-4o mini' };
+        const BOT_BRAIN_NAMES = { local: 'Local (on the home server)', gemini: 'Gemini (default)', claude: 'Claude (default)', gpt: 'GPT-4o mini', 'gemini:gemini-3.8-flash-medium': 'Gemini 3.8 Flash', 'gemini:gemini-4-neon-high': 'Gemini 4 Neon', 'gemini:gemini-4-carbon-high': 'Gemini 4 Carbon', 'gemini:gemini-4-argon-high': 'Gemini 4 Argon', 'gemini:gemini-4-hydrogen-high': 'Gemini 4 Hydrogen', 'claude:claude-haiku-5-5': 'Claude Haiku 5.5', 'claude:claude-sonnet-5-5': 'Claude Sonnet 5.5', 'claude:claude-opus-5-5': 'Claude Opus 5.5', 'claude:claude-fable-5-2': 'Claude Fable 5.2' };   // 2026-11-25: '<provider>:<model>' picks; bare 'gemini'/'claude' = the server's default model (older saves)
         const MODEL = 'qwen3:14b';
         const LIVE_MODEL = 'llama3.2:3b';   // the in-box rewrite. 2026-11-14 (L, Option A): was gemma2:9b (timed 2026-09-25) - 3b (~2.5 GB) fits next to Yuki's qwen3:30b-a3b on the 3090, gemma2 + qwen3:30b did not and every swap cost a 30-47 s cold load
         const $ = s => document.querySelector(s);
@@ -4315,19 +4326,22 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             } catch (_) { st = { local: true, down: true }; }
             let saved = savedOpt;
             if (!saved) { try { saved = (await get(ref(database, `${DC.uid}/chat/bot/brain`))).val() || 'local'; } catch (_) { saved = 'local'; } }
+            if (st.defaults && st.defaults[saved] && BOT_BRAIN_NAMES[saved + ':' + st.defaults[saved]]) saved = saved + ':' + st.defaults[saved];   // older bare pick -> its default model
+            if (saved !== 'local' && ![...sel.options].some(o => o.value === saved)) { const f = [...sel.options].find(o => o.value.startsWith(saved.split(':')[0] + ':')); if (f) saved = f.value; }   // service offline: still show a real option
             if (!BOT_BRAIN_NAMES[saved]) saved = 'local';
             for (const o of sel.options) {
-                const k = o.value; let why = '';
+                const k = o.value, p = k.split(':')[0], m = k.slice(p.length + 1); let why = '';
                 if (k !== 'local') {
                     if (!st.allowed) why = 'not on this account';
-                    else if (!st[k]) why = k === 'gemini' ? 'sign-in pending' : 'add API key';
+                    else if (!st[p]) why = p === 'gemini' ? 'sign-in pending' : p === 'claude' ? 'Claude CLI missing' : 'add API key';
+                    else if (m && st.choices && st.choices[p] && !st.choices[p].includes(m)) why = 'not offered';
                 }
                 o.disabled = !!why && k !== saved;
                 o.textContent = BOT_BRAIN_NAMES[k] + (why ? ` (${why})` : '');
             }
             sel.value = saved;
             if (hint) hint.textContent = st.down ? 'Brain service is offline right now - Local answers · saved with Save'
-                : (saved !== 'local' && (!st.allowed || !st[saved]) ? 'This brain is not available yet - Local answers until it is · saved with Save'
+                : (saved !== 'local' && (!st.allowed || !st[saved.split(':')[0]]) ? 'This brain is not available yet - Local answers until it is · saved with Save'
                 : 'Which AI answers for this bot · saved with Save');
         }
         async function renderBotPanel() {
