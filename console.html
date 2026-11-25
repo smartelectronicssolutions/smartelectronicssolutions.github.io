@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.336"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.337"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -425,6 +425,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         /* 1.0.x (L 2026-11-24: 'get rid of the x after the up green circle, it's unneeded'): bar close hidden everywhere;
            Esc + closeConsole() still work (closeConsole clicks the hidden button). */
         .dc-bar #dc-x { display: none; }
+        /* 1.0.337 (L 2026-11-24: one status dot - daemon heartbeat + context %): hide separate daemon pill everywhere */
+        .dc-bar #dc-daemon { display: none; }
         @media (max-width: 640px), (max-height: 480px) {
             .dc-topics { display: none; }               /* phone: no strip - swipe the chat, or tap the pill in the bar */
             .dc-topics.open { display: flex; }
@@ -433,11 +435,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             .dc-bar { padding: 5px 8px; gap: 4px 6px; }
             .dc-bar select.dc-brand { max-width: 7.5em; font-size: calc(0.88rem * var(--dc-fs, 1)); }      /* phone: short labels (set by JS) */
             .dc-bar .dc-tab { padding: 5px 8px; font-size: calc(0.78rem * var(--dc-fs, 1)); }
-            .dc-bar #dc-daemon { display: none; }        /* droplet pill is the one that matters */
-            .dc-bar #dc-droplet { font-size: 0; padding: 5px; gap: 0; }   /* just the status dot while up */
-            .dc-bar #dc-droplet .d { margin: 0; }
-            .dc-bar #dc-droplet.peek { font-size: calc(0.68rem * var(--dc-fs, 1)); padding: 3px 9px; gap: 6px; }   /* tapped while up: the % shows for 3 s (1.0.217) */
-            .dc-bar #dc-droplet.clk { font-size: calc(0.68rem * var(--dc-fs, 1)); padding: 3px 9px; gap: 6px; }   /* not up: the pill is the wake button, so it says so */
+            .dc-bar #dc-droplet { font-size: calc(0.68rem * var(--dc-fs, 1)); padding: 3px 7px; gap: 5px; }   /* 1.0.337 (L 2026-11-24): show dot + % on phone too */
             /* 1.0.243 (L 2026-11-17: "the close button is still there"): the strip's "✕ close" chip no longer shows on a phone (it stays display:none
                everywhere); closing the console on a phone = the "✕ close" in the swipe label. */
             .dc-pop { left: auto; right: -60px; min-width: 220px; }
@@ -3026,7 +3024,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // DAEMON RESTART (L 2026-11-09 "reset daemon from double click on daemon online indicator"): two taps on the green
         // pill within 400 ms queue {kind:'restart'} - kdaemon 0.2.20+ only, and only while it beats (a dead daemon reads no jobs).
         // Hand-rolled double-tap: iOS Safari's dblclick is unreliable.
-        { const pill = document.getElementById('dc-daemon'); let lastTap = 0;
+        { const pill = document.getElementById('dc-droplet'); let lastTap = 0;
           if (pill) pill.addEventListener('click', () => {
             const now = Date.now(), dbl = now - lastTap < 400; lastTap = dbl ? 0 : now; if (!dbl) return;
             const m = DC.lastMeta || {}, cur = ((String(m.version || '').match(/kdaemon\s+([\d.]+)/) || [])[1]) || '';
@@ -3040,7 +3038,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 say('restarting daemon…'); pill.lastChild.textContent = 'restarting…';
             }).catch(err => say('could not queue the restart: ' + (err.code || err.message)));
           });
-          pill && (pill.title = 'double-tap = restart the daemon (online, 0.2.20+)'); }
+          }
         document.getElementById('dc-kd-update-btn') && document.getElementById('dc-kd-update-btn').addEventListener('click', e => {
             const b = e.currentTarget, cur = b.dataset.cur || '?', selfReload = !!b.dataset.self, L = KDAEMON_LATEST;
             const name = DC.instName || 'Droplet';
@@ -6167,15 +6165,31 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (DC.waking && st !== 'up' && st !== 'starting') st = 'waking';
             DC.dropletState = st;
             const drp = $('#dc-droplet');
-            drp.className = 'dc-pill ' + (st === 'up' ? 'on' : (st === 'starting' || st === 'waking') ? 'busy clk' : 'off clk');
-            drp.lastChild.textContent = ({ up: 'up', starting: 'starting…', waking: 'waking…',
-                dead: '▲ wake Droplet', down: '▲ wake Droplet' })[st] || st;   // the pill IS the wake button when not up (L, 2026-09-25)
-            // CONTEXT METER (2026-11-01, from LumenChat): how full the main session is. Orange at the 200K fresh-start mark, red at 300K.
-            { const cx = Number(m.contextTokens) || 0, on = st === 'up' && cx > 0; if (on) drp.lastChild.textContent = `up · ${Math.round(cx / 10000)}%`;
-                drp.style.color = on && cx >= 300000 ? '#e05555' : on && cx >= 200000 ? '#e0a030' : ''; drp.title = on ? `context ${Math.round(cx / 1000)}K of 1M - a fresh session is cheaper past 300K` : drp.title; }
-            drp.title = st === 'up' ? "Droplet's terminal session on se is live"
-                : (st === 'starting' || st === 'waking') ? 'session launching - claude not drawn yet (tap to re-wake if it sticks)'
-                : 'tap to relaunch the Droplet session on se';
+            const cx = Number(m.contextTokens) || 0, pct = cx > 0 ? Math.round(cx / 10000) : 0;
+            // 1.0.337 (L 2026-11-24: one status dot with daemon heartbeat + context %): dot tracks daemon heartbeat first; % stays visible
+            if (!dOn) {
+                drp.className = 'dc-pill off';
+                drp.lastChild.textContent = 'offline';
+                drp.style.color = '';
+                drp.title = 'daemon offline (no heartbeat)';
+            } else if (st === 'starting' || st === 'waking') {
+                drp.className = 'dc-pill busy clk';
+                drp.lastChild.textContent = st === 'waking' ? 'waking…' : 'starting…';
+                drp.style.color = '';
+                drp.title = 'daemon online · session launching (tap to re-wake if it sticks)';
+            } else if (st !== 'up') {
+                drp.className = 'dc-pill off clk';
+                drp.lastChild.textContent = '▲ wake';
+                drp.style.color = '';
+                drp.title = 'daemon online · session down (tap to wake Droplet · double-tap to restart daemon)';
+            } else {
+                drp.className = 'dc-pill on';
+                drp.lastChild.textContent = cx > 0 ? `${pct}%` : 'online';
+                drp.style.color = cx >= 300000 ? '#e05555' : cx >= 200000 ? '#e0a030' : '';
+                drp.title = cx > 0
+                    ? `daemon online · context ${pct}% (${Math.round(cx / 1000)}K of 1M) · double-tap to restart daemon`
+                    : 'daemon online · Droplet live · double-tap to restart daemon';
+            }
             // kdaemon (a user's own portable daemon): Droplet runs per message (claude -p), no wake; enhance runs
             // on THEIR daemon and is greyed out until it detects ollama on their PC.
             DC.kdaemon = m.daemonKind === 'kdaemon';
@@ -6208,7 +6222,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     + (DC.kdaemon ? ' · ollama ' + (DC.ollamaUp ? 'detected' : 'not detected') : '');
                 ad.title = full || 'no version reported';
             }
-            if (kdNoSession()) { drp.className = 'dc-pill ' + (dOn ? 'on' : 'off'); drp.lastChild.textContent = 'per msg'; }
+            if (kdNoSession()) { drp.className = 'dc-pill ' + (dOn ? 'on' : 'off'); drp.lastChild.textContent = dOn ? (cx > 0 ? `${pct}%` : 'online') : 'offline'; drp.style.color = dOn && cx >= 300000 ? '#e05555' : dOn && cx >= 200000 ? '#e0a030' : ''; drp.title = dOn ? 'daemon online · per-message mode · double-tap to restart daemon' : 'daemon offline (no heartbeat)'; }
             // a kdaemon runs only its owner's Droplet: the CompMan target is L's fleet, so hide it there (a kdaemon would route it to Droplet anyway)
             const cmOpt = document.querySelector('#dc-chat-target option[value="compman"]'); if (cmOpt) { const noCm = !!DC.kdaemon && !(kdOwner() && kdAb('hooks', 'compman')); cmOpt.hidden = noCm; if (noCm && $('#dc-chat-target').value === 'compman') $('#dc-chat-target').value = 'droplet'; }
             // 🦙 Local used to be hidden for every kdaemon user. 2026-09-19 (L: anyone in the Louverse can participate): it stays offered -
@@ -6643,11 +6657,12 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // the pill is the wake button when not up (L, 2026-09-25). UP: on a phone the pill is just the dot (font-size 0), so the context %
         // was invisible - a tap now opens it for 3 s, "up · 37% · 370K of 1M" (1.0.217, L 2026-11-15: "show up momentarily when I click there")
         $('#dc-droplet').onclick = () => { const p = $('#dc-droplet');
-            if (DC.dropletState && DC.dropletState !== 'up') { dcWake(); return; }
+            const stEl = $('#dc-chat-status');
+            if (!DC.daemonOn) { const msg = 'daemon offline - no heartbeat'; if (stEl) { stEl.textContent = msg; clearTimeout(stEl._peekT); stEl._peekT = setTimeout(() => { if (stEl.textContent === msg) stEl.textContent = ''; }, 3000); } return; }
+            if (!kdNoSession() && DC.dropletState && DC.dropletState !== 'up') { dcWake(); return; }
             const cx = Number((DC.lastMeta || {}).contextTokens) || 0;
-            const st = $('#dc-chat-status'); const msg = cx ? `context ${Math.round(cx / 10000)}% · ${Math.round(cx / 1000)}K of 1M` + (cx >= 300000 ? ' - a fresh start is due' : cx >= 200000 ? ' - fresh start on the next 10-min break' : '') : 'up - no context reading yet';
-            p.classList.add('peek'); clearTimeout(p._peekT); p._peekT = setTimeout(() => p.classList.remove('peek'), 3000);
-            if (st) { st.textContent = msg; clearTimeout(st._peekT); st._peekT = setTimeout(() => { if (st.textContent === msg) st.textContent = ''; }, 3000); } };
+            const msg = cx ? `daemon online · context ${Math.round(cx / 10000)}% · ${Math.round(cx / 1000)}K of 1M` + (cx >= 300000 ? ' - a fresh start is due' : cx >= 200000 ? ' - fresh start on the next 10-min break' : '') : 'daemon online - no context reading yet';
+            if (stEl) { stEl.textContent = msg; clearTimeout(stEl._peekT); stEl._peekT = setTimeout(() => { if (stEl.textContent === msg) stEl.textContent = ''; }, 3000); } };
         // Workbench tab retired 2026-09-11 — its enhance lives inline in the Chat now (computeEnhance).
         $('#dc-pg-enabled').onchange = e => { paintPingRow(e.target.checked); set(ref(database, `${DC.base}/pings/settings`), { channel: 'telegram_dm', enabled: e.target.checked }); };
         // FULL SYSTEM AS A SIDE PANE (L 2026-10-04): on a wide screen System opens beside the chat like 👥 - one side pane at a time
