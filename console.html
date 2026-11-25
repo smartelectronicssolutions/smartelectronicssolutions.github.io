@@ -5059,7 +5059,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             + "You have no tools, no file or device access. If asked for something only Droplet can do - run commands, change files, read records or apps - say so in one line instead of pretending. "
             + "Keep replies short, plain text, no headers or tables. "
             + "MEMORY: to save a fact about the person, append [MEMORY:key=value] at the end of your reply. Use it for names, preferences, recurring topics. /no_think";
-        async function localSystem() {
+        async function localSystem(brain = 'local') {   // brain: the inventory list rides only on Local (cloud brains have read-only tools, and agy's argv caps the prompt)
             const base = DC.guest ? LOCAL_SYS_GUEST : LOCAL_SYS;
             if (!DC.uid) return base;
             const read = async p => { try { const s = await get(ref(database, p)); return s.exists() ? s.val() : null; } catch (_) { return null; } };
@@ -5086,7 +5086,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 // DAILY SNAPSHOT (L 11-25: "feed Yuki the read-only daily snapshot"): optional text the owner's server writes once a day
                 // (jobs, to-dos, breakfast, habits, budget, where things are). Text only - the bot gets no tools and can't change records.
                 const snap = String((await read(`${DC.uid}/chat/bot/snapshot`)) || '').trim().slice(0, 6000);
-                const inv = String((await read(`${DC.uid}/chat/bot/snapshot_inventory`)) || '').trim().slice(0, 12000);
+                const inv = brain === 'local' ? String((await read(`${DC.uid}/chat/bot/snapshot_inventory`)) || '').trim().slice(0, 12000) : '';
                 if (snap) parts.push('TODAY (a read-only snapshot of their day; use it when they ask what is on their plate, about jobs, to-dos, '
                     + 'breakfast, habits or money; it is from the time shown, so say so if it may be stale, and offer that Droplet can check live):\n' + snap);
                 if (inv) parts.push('WHERE THEIR THINGS ARE (container: items; answer "where is my X" from this; if it is not listed, say you do not see it):\n' + inv);
@@ -5101,7 +5101,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             }
             return parts.join('\n\n');
         }
-        window.__dcLocalSystem = uid => { const o = DC.uid; DC.uid = uid; return localSystem().finally(() => { DC.uid = o; }); };   // test hook
+        window.__dcLocalSystem = (uid, brain) => { const o = DC.uid; DC.uid = uid; return localSystem(brain).finally(() => { DC.uid = o; }); };   // test hook
         async function localReply(prompt, tpc, turns) {
             let brain = 'local';
             if (DC.uid) { try { const b = (await get(ref(database, `${DC.uid}/chat/bot/brain`))).val(); if (BOT_BRAIN_NAMES[b]) brain = b; } catch (_) {} }
@@ -5115,7 +5115,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (hist.length && hist[hist.length - 1].role === 'user') hist.pop();   // the turn we just wrote - re-added below as the prompt
             let reply = '';
             try {
-                const sysPrompt = await localSystem();
+                const sysPrompt = await localSystem(brain);
                 const hdrs = { 'Content-Type': 'application/json' };
                 if (brain !== 'local' && __auth.currentUser) { try { hdrs.Authorization = 'Bearer ' + await __auth.currentUser.getIdToken(); } catch (_) {} }
                 const ctl = new AbortController(); const tmr = setTimeout(() => ctl.abort(), 180000);
