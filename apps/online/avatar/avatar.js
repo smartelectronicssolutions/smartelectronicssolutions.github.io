@@ -13,6 +13,7 @@
  *   opts.noBg = true                   // skip the room plate (character floats over the page)
  *   opts.focus = [x, y]                // rig point kept in view when the stage crops the art (cover fit)
  *   opts.resolve = file => Promise<url> // optional: where rig/part files come from (default base + file)
+ *   opts.pose = 'name' | index         // optional: force a pose from part.poses[] (default: random per load)
  * 2026-11-13 voice build: mouth follows rig.mouth.line (refine_mouth.py) - per-column gap with closed corners, lower lip
  * blends into the jaw drop (no shear/doubled line), visemes crossfade instead of stepping.
  *
@@ -141,14 +142,31 @@
                    uShift: gl.getUniformLocation(prog, 'uShift'), uMask: gl.getUniformLocation(prog, 'uMask') };
       gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
       gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+      // POSE VARIANTS (2026-11-26): any part may list `poses: [{file, x, y, w, h, name?}, ...]` (e.g. body poses in the same
+      // outfit). Pick one variant per load (opts.pose by index or name, else random) before hashing and loading PNGs so only
+      // the selected pose image is fetched. Rigs without `poses` are untouched.
+      this.pose = null;
+      const parts = rig.parts.map(p => {
+        if (!Array.isArray(p.poses) || !p.poses.length) return p;
+        const n = p.poses.length;
+        const pick = typeof this.opts.pose === 'number'
+          ? p.poses[((this.opts.pose % n) + n) % n]
+          : typeof this.opts.pose === 'string'
+            ? (p.poses.find(v => v && v.name === this.opts.pose) || p.poses[0])
+            : p.poses[Math.floor(Math.random() * n)];
+        if (!pick || !pick.file) return p;
+        if (pick.name) this.pose = pick.name;
+        return { ...p, file: pick.file, x: pick.x != null ? pick.x : p.x, y: pick.y != null ? pick.y : p.y,
+                 w: pick.w != null ? pick.w : p.w, h: pick.h != null ? pick.h : p.h, ...(pick.pivot ? { pivot: pick.pivot } : {}) };
+      });
       // cache-bust the layers by the rig's own geometry: rig.json is no-cache but PNGs are cached a day, so a rebuilt rig
       // (e.g. bust -> full body, 2026-11-14) used to draw new geometry over OLD cached pictures = torn, floating-head avatar
-      let hv = 0; for (const ch of JSON.stringify(rig.parts)) hv = (Math.imul(hv, 31) + ch.charCodeAt(0)) | 0;
+      let hv = 0; for (const ch of JSON.stringify(parts)) hv = (Math.imul(hv, 31) + ch.charCodeAt(0)) | 0;
       // blob:/data: URLs (account rigs from Storage, opts.resolve) can't take a query - they're never cached anyway
       const bust = u => /^(blob|data):/.test(u) ? u : u + (u.indexOf('?') < 0 ? '?' : '&') + 'rv=' + (hv >>> 0).toString(36);
-      const imgs = await Promise.all(rig.parts.map(async p => loadImg(bust(await url(p.file)))));
+      const imgs = await Promise.all(parts.map(async p => loadImg(bust(await url(p.file)))));
       const so = { closed: 0, half: 1, open: 2 };
-      this.parts = rig.parts.map((p, i) => this._mkPart(p, imgs[i]))
+      this.parts = parts.map((p, i) => this._mkPart(p, imgs[i]))
         .sort((a, b) => (a.z - b.z) || ((so[a.name.split('_')[2]] || 0) - (so[b.name.split('_')[2]] || 0)));
       this.byName = {}; for (const p of this.parts) this.byName[p.name] = p;
       // LIMBS (2026-11-21, opt-in; first user = Floppy, L: "have his hands wave up and down, mostly stay down"): rig.limbs =
