@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.372"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.374"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1043,7 +1043,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     <button type="button" class="dc-btn ghost sm" id="dc-fresh-btn" title="write a handoff note, then restart this session fresh to clear the context">🫧 Fresh start</button>
                     
                     <!-- the theme rows moved to System > Look (2026-09-27); no gear shortcut (L: "get rid of the looks button, just go to System") -->
-                    <label class="dc-chk" id="dc-model-lbl" title="switch the model of Droplet's running session. Sends /model to its terminal on its own line and posts back whatever the terminal says - including 'not found'. Use it when replies come back as 'you have reached your limit'.">🧠 Model<select id="dc-model" style="margin-left:6px;font:inherit;max-width:120px"><option value="">unknown</option><optgroup id="dc-model-main" label="Main session (Claude)"><option value="opus">Opus</option><option value="sonnet">Sonnet</option><option value="haiku">Haiku</option><option value="fable">Fable</option><option value="default">default</option></optgroup><optgroup id="dc-model-all" label="Every tab without its own model"></optgroup></select></label>
+                    <label class="dc-chk" id="dc-model-lbl" title="switch the model of Droplet's running session. Sends /model to its terminal on its own line and posts back whatever the terminal says - including 'not found'. Use it when replies come back as 'you have reached your limit'.">🧠 Model<select id="dc-model" style="margin-left:6px;font:inherit;max-width:120px"><option value="">unknown</option><option value="opus" data-g="main">Opus</option><option value="sonnet" data-g="main">Sonnet</option><option value="haiku" data-g="main">Haiku</option><option value="fable" data-g="main">Fable</option><option value="default" data-g="main">default</option></select></label>
                     <!-- 1.0.320 ALL MODELS (L 2026-11-22 "can I add all the models there as well" + "remove the Force model"): 🧠 Model lists every
                          engine. A Claude rung = /model on the main session (as before, and clears the default); any other pick = settings/defaultTabModel,
                          SAVED, used by every tab with no pencil model (new tabs too). A tab's own pencil model still wins. Force model removed. -->
@@ -1964,10 +1964,13 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         const favList = (list, cur, all) => { if (all) return list; const keep = list.filter(x => !x[0] || MODEL_FAVS.has(x[0]) || x[0] === cur);
             const n = list.length - keep.length; return n > 0 ? keep.concat([[MODEL_MORE, 'More… (' + n + ' more)']]) : keep; };
         // fills the "Every tab without its own model" group of 🧠 Model - the same list (and the same kdaemon filter) as the pencil picker
-        DC.fillModelAll = () => { const g = document.getElementById('dc-model-all'); if (!g) return;
+        // 1.0.372 (L 2026-11-26 "Clean the dropdown ... get rid of that just give me the options"): no group headers any more -
+        // one flat list. The engine options carry data-g="all" (the main-session rungs data-g="main") so they can still be swapped.
+        DC.fillModelAll = () => { const g = document.getElementById('dc-model'); if (!g) return;
             const want = favList(tabModelList().filter(x => x[0]).filter(([v]) => !(DC.kdaemon && !kdKindOk(v) && !kdSetupNeeded(v))), DC.defaultModel || '', !!DC.modelMore);
-            const sig = want.map(x => x[0] + (kdSetupNeeded(x[0]) ? '!' : '')).join('|'); if (g.dataset.sig === sig) return; g.dataset.sig = sig; g.textContent = '';
-            for (const [v, t] of want) { const setup = kdSetupNeeded(v), o = document.createElement('option'); o.value = v; o.textContent = t + (setup ? ' (set up first)' : ''); o.disabled = setup; g.appendChild(o); } };
+            const sig = want.map(x => x[0] + (kdSetupNeeded(x[0]) ? '!' : '')).join('|'); if (g.dataset.sig === sig) return; g.dataset.sig = sig;
+            g.querySelectorAll('option[data-g="all"]').forEach(o => o.remove());
+            for (const [v, t] of want) { const setup = kdSetupNeeded(v), o = document.createElement('option'); o.value = v; o.dataset.g = 'all'; o.textContent = t + (setup ? ' (set up first)' : ''); o.disabled = setup; g.appendChild(o); } };
         function editTab(oldName) {
             const w = document.createElement('div');
             w.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px';
@@ -6575,8 +6578,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 // when a default engine is saved (DC.defaultModel) the box shows THAT, since it is what every tab without a pencil model runs.
                 const noSess = kdNoSession(); if (lbl) lbl.hidden = false;
                 if (DC.fillModelAll) DC.fillModelAll();
-                if (!DC.modelMainG) DC.modelMainG = document.getElementById('dc-model-main');
-                if (DC.modelMainG) { if (noSess) DC.modelMainG.remove(); else if (!DC.modelMainG.parentNode) sel.insertBefore(DC.modelMainG, document.getElementById('dc-model-all')); }
+                if (!DC.modelMainOpts) DC.modelMainOpts = [...sel.querySelectorAll('option[data-g="main"]')];   // 1.0.372 flat list: the main-session rungs
+                if (noSess) DC.modelMainOpts.forEach(o => o.remove());
+                else if (DC.modelMainOpts.length && !DC.modelMainOpts[0].parentNode) { const first = sel.querySelector('option[data-g="all"]'); DC.modelMainOpts.forEach(o => sel.insertBefore(o, first)); }
                 { const dm = DC.defaultModel || ''; if (dm || noSess) {
                     const ph = DC.modelPh || (DC.modelPh = sel.querySelector('option[value=\"\"]'));
                     [...sel.options].forEach(o => { if (o.dataset.base == null) o.dataset.base = o.value === '' ? 'unknown' : o.textContent; o.textContent = o.dataset.base; });
