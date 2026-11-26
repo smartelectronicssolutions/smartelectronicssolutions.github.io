@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="version" content="1.0.9">
+  <meta name="version" content="1.0.10">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Online Journal</title>
   <link rel="stylesheet" href="../assets/css/online.css" />
@@ -518,6 +518,7 @@
             <button class="btn-outline" id="clearFormBtn" type="button">Cancel</button>
           </div>
 
+          <details id="journalSteHint" class="ste-hint" hidden><summary></summary><ul></ul></details>
           <div id="sections"></div>
           <div class="status-line" id="statusLine"></div>
         </section>
@@ -572,6 +573,7 @@
     </div>
   </main>
 
+  <script src="../assets/js/ste-hints.js?v=20261126" defer></script>
   <script type="module">
     import { auth, database, ref, set, get, remove, onAuthStateChanged, storage, storageRef, deleteObject, uploadBytes, getDownloadURL } from "../assets/js/firebase-init.js";
     // onIdTokenChanged is not re-exported by firebase-init.js; pull it from the same pinned SDK build.
@@ -615,6 +617,41 @@
     const descriptionInput = document.getElementById("description");
     const tagsInput = document.getElementById("tags");
     const sectionsContainer = document.getElementById("sections");
+    const editorPanelEl = document.getElementById("editorPanel");
+    const journalSteHint = document.getElementById("journalSteHint");
+    let _jrnSteTimer = 0;
+    function refreshJournalSte() {
+      if (!window.SESte || !journalSteHint) return;
+      const allHints = [];
+      if (descriptionInput && descriptionInput.value) {
+        allHints.push(...window.SESte.check(descriptionInput.value, { prefix: "[Desc]" }));
+      }
+      (sections || []).forEach((sec, si) => {
+        if (!sec) return;
+        const pfx = `[Sec ${si + 1}]`;
+        if (sec.summary) allHints.push(...window.SESte.check(sec.summary, { prefix: pfx }));
+        if (Array.isArray(sec.steps) && sec.steps.length) {
+          allHints.push(...window.SESte.check(sec.steps.join("\n"), { mode: "steps", prefix: `${pfx} steps` }));
+        }
+        (sec.content || []).forEach((item) => {
+          if (!item) return;
+          if (item.type === "text" && item.value) {
+            allHints.push(...window.SESte.check(item.value, { prefix: pfx }));
+          } else if (item.type === "list" && Array.isArray(item.items) && item.items.length) {
+            allHints.push(...window.SESte.check(item.items.join("\n"), { prefix: `${pfx} list` }));
+          }
+        });
+      });
+      window.SESte.render(journalSteHint, allHints);
+    }
+    if (editorPanelEl) {
+      editorPanelEl.addEventListener("input", (ev) => {
+        const t = ev && ev.target;
+        if (!t || t.id === "title" || t.id === "tags" || (t.classList && (t.classList.contains("ci-mono") || t.classList.contains("ci-src") || t.classList.contains("ci-href") || t.classList.contains("ci-label")))) return;
+        clearTimeout(_jrnSteTimer);
+        _jrnSteTimer = setTimeout(refreshJournalSte, 350);
+      });
+    }
     const statusLine = document.getElementById("statusLine");
     const editorTitle = document.getElementById("editorTitle");
     const addSectionBtn = document.getElementById("addSection");
@@ -918,6 +955,7 @@
           renderSections();
         };
       });
+      refreshJournalSte();
     }
 
     /* ── save ── */

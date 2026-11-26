@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.374"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.375"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -542,6 +542,15 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         .dc-bub .dc-choice.dc-multi-send { border-style: dashed; }
         .dc-bub .dc-cf-opts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
         .dc-bub .dc-choices.answered { color: var(--dc-green); font-size: 0.82rem; }   /* a Droplet confirm card after the tap */
+        .dc-bub .dc-choices.stale .dc-choice { opacity: 0.62; border-style: dashed; }
+        .dc-bub .dc-choices.superseded { color: var(--muted); font-size: 0.8rem; margin-top: 6px; }
+        .dc-tl-pop { position: absolute; right: 10px; top: 42px; z-index: 60; width: min(340px, calc(100% - 20px)); max-height: 280px; overflow-y: auto; background: var(--dc-panel, var(--surface, #16213a)); color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; box-shadow: 0 8px 24px rgba(0,0,0,.42); display: grid; gap: 6px; }
+        .dc-tl-hd { display: flex; align-items: center; justify-content: space-between; font-size: 0.78rem; color: var(--muted); }
+        .dc-tl-hd button { background: none; border: 0; color: inherit; cursor: pointer; font-size: 0.95rem; padding: 2px 6px; }
+        .dc-tl-row { display: flex; align-items: center; gap: 6px; font-size: 0.82rem; min-width: 0; }
+        .dc-tl-row a { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; color: var(--dc-purple, var(--primary)); }
+        .dc-tl-row a:hover { text-decoration: underline; }
+        .dc-tl-row .dc-tl-cp { flex: none; background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 6px; padding: 2px 6px; font-size: 0.74rem; cursor: pointer; }
         /* ⤓ latest pill: floats over the chat log when scrolled away from the newest message.
            Wears --dc-purple, the theme's LEAD token (current tab, send button) - it shipped in --dc-green,
            which each theme remaps to a second colour, so the pill looked off-theme (L, 2026-09-24). */
@@ -1041,6 +1050,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     <!-- FRESH START (L 2026-11-16): two taps write a handoff + restart the session clean (console/freshNow). Under Reload, labelled
                          just "Fresh start" (1.0.290, L 2026-11-21: "move fresh start to under reload just as fresh start"); same id + handler. -->
                     <button type="button" class="dc-btn ghost sm" id="dc-fresh-btn" title="write a handoff note, then restart this session fresh to clear the context">🫧 Fresh start</button>
+                    <button type="button" class="dc-btn ghost sm" id="dc-tl-btn" title="latest links in this tab (pinned first, up to 6)">🔗 Tab links</button>
                     
                     <!-- the theme rows moved to System > Look (2026-09-27); no gear shortcut (L: "get rid of the looks button, just go to System") -->
                     <label class="dc-chk" id="dc-model-lbl" title="switch the model of Droplet's running session. Sends /model to its terminal on its own line and posts back whatever the terminal says - including 'not found'. Use it when replies come back as 'you have reached your limit'.">🧠 Model<select id="dc-model" style="margin-left:6px;font:inherit;max-width:120px"><option value="">unknown</option><option value="opus" data-g="main">Opus</option><option value="sonnet" data-g="main">Sonnet</option><option value="haiku" data-g="main">Haiku</option><option value="fable" data-g="main">Fable</option><option value="default" data-g="main">default</option></select></label>
@@ -1563,7 +1573,14 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             onValue(ref(database, `${DC.base}/settings/tabModel`), s => { DC.tabModels = s.val() || {}; window.dispatchEvent(new Event('dc-tabmodels')); });
             // 1.0.320: the 🧠 Model default for every tab with no pencil model ('' = follow the main session). Saved, so it survives a reload.
             onValue(ref(database, `${DC.base}/settings/defaultTabModel`), s => { DC.defaultModel = String(s.val() || ''); if (DC.syncModelSel) DC.syncModelSel(); window.dispatchEvent(new Event('dc-tabmodels')); });
-            onValue(ref(database, `${DC.base}/settings/tabEnc`), s => { DC.tabEnc = s.val() || {}; renderTopics(); }, dcWarn('settings/tabEnc'));   // 🔒 encrypted tabs (trial 11-19)
+            onValue(ref(database, `${DC.base}/settings/tabEnc`), s => {
+                DC.tabEnc = s.val() || {}; DC.tabEncReady = true; draftPurgeEncDisk();
+                const ta0 = $('#dc-chat-in');
+                if (ta0 && !ta0.value && !DC.editKey && !DC.remote && DC.topic !== FAV_TAB) {
+                    const bd = draftGet(DC.topic || ''); if (bd) draftApplyToBox(bd);
+                }
+                renderTopics();
+            }, dcWarn('settings/tabEnc'));   // 🔒 encrypted tabs (trial 11-19)
             onValue(ref(database, `${DC.base}/chat/topics`), s => { DC.topicList = s.val() || {}; renderTopics(); });
             onValue(ref(database, `${DC.base}/chat/favorites`), s => { DC.favs = s.val() || {}; renderChat(DC.chatTurns || {}); });
             onValue(ref(database, `${DC.base}/chat/pins`), s => { DC.pins = s.val() || {}; if (DC.ownTurns && DC.withPins) DC.ownTurns = DC.withPins({ ...DC.ownTurns }); renderChat(DC.chatTurns || {}); }, dcWarn('chat/pins'));   // 1.0.349 📌 pins: shared by every device
@@ -1809,12 +1826,16 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 const opts = []; const re = /^\s{2}(\d{1,2})\.\s+(.+?)\s*$/gm;   /* 2026-11-12 (L): two-digit options so long lists fit one card */ let m;
                 while ((m = re.exec(t.text || ''))) opts.push([m[1], m[2]]);
                 if (askDrop && opts.length >= 2) cardBody = body.replace(/^\s{2}\d{1,2}\.\s+.+$\n?/gm, '').replace(/\n{3,}/g, '\n\n').trimEnd();
+                const cardLockedView = askDrop && (R || DC.topic === FAV_TAB);
+                const cardStaleCls = (askDrop && t.__superseded) ? ' stale' : '';
+                const cardStaleHint = (askDrop && t.__superseded) ? ' (older question — tap twice to send)' : '';
                 if (askDrop && t.answered) choices = `<div class="dc-choices answered">✓ ${esc(t.answered)}</div>`;
+                else if (cardLockedView && opts.length >= 2) choices = `<div class="dc-choices superseded">${opts.map(([n, l]) => `${n}. ${esc(l)}`).join(' · ')}</div>`;
                 else if (askMulti && opts.length >= 2) {
                     const sel = (DC.multiSel || {})[t.__k || ''] || new Set();
-                    choices = `<div class="dc-choices multi" data-k="${esc(t.__k || '')}">${opts.map(([n, l]) => `<button type="button" class="dc-choice dc-multi${sel.has(n) ? ' on' : ''}" aria-pressed="${sel.has(n)}" data-n="${n}" data-say="${esc(l)}" title="pick or unpick: ${esc(l)}">${sel.has(n) ? '☑' : '☐'} ${n} · ${esc(l)}</button>`).join('')}<button type="button" class="dc-choice dc-multi-send"${sel.size ? '' : ' disabled'} title="send every pick as one message">Send ${sel.size || ''} ➤</button></div>`;
+                    choices = `<div class="dc-choices multi${cardStaleCls}" data-k="${esc(t.__k || '')}">${opts.map(([n, l]) => `<button type="button" class="dc-choice dc-multi${sel.has(n) ? ' on' : ''}" aria-pressed="${sel.has(n)}" data-n="${n}" data-say="${esc(l)}" title="pick or unpick: ${esc(l)}${cardStaleHint}">${sel.has(n) ? '☑' : '☐'} ${n} · ${esc(l)}</button>`).join('')}<button type="button" class="dc-choice dc-multi-send"${sel.size ? '' : ' disabled'} title="send every pick as one message${cardStaleHint}">Send ${sel.size || ''} ➤</button></div>`;
                 }
-                else if (opts.length >= 2) choices = `<div class="dc-choices" data-k="${esc(t.__k || '')}">${opts.map(([n, l]) => `<button type="button" class="dc-choice" data-n="${n}"${askDrop ? ` data-say="${esc(l)}"` : ''} title="${askDrop ? 'answer: ' + esc(l) : "answer the terminal's menu with " + n}">${n} · ${esc(l)}</button>`).join('')}</div>`;
+                else if (opts.length >= 2) choices = `<div class="dc-choices${cardStaleCls}" data-k="${esc(t.__k || '')}">${opts.map(([n, l]) => `<button type="button" class="dc-choice" data-n="${n}"${askDrop ? ` data-say="${esc(l)}"` : ''} title="${askDrop ? 'answer: ' + esc(l) + cardStaleHint : "answer the terminal's menu with " + n}">${n} · ${esc(l)}</button>`).join('')}</div>`;
             }
             // the stamp rides the name line too (L, 2026-09-24: "also after where it says Droplet or its name")
             // WAIT LINE (2026-09-24, L: "when I'm waiting for something can it show how much token count then some
@@ -1859,6 +1880,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         DC.bubbleSig = {};
         DC.richMemo = {}; DC.richMemoN = 0;   // 2026-11-17 review #4: formatted body per turn key (see bubbleHtml); emptied after 600 new entries so it cannot grow without end
         // ---- TOPIC TABS: one thread; each turn may carry `topic`; the strip filters the view. All = everything. ----
+        const FAV_TAB = '\u2605';
         DC.topicList = {};
         DC.isPhone = () => { try { return window.matchMedia('(max-width: 640px), (max-height: 480px)').matches; } catch (_) { return false; } };
         try { DC.topic = localStorage.getItem('dc_topic') || ''; } catch (_) { DC.topic = ''; }
@@ -1866,18 +1888,208 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         DC.deepTab = (() => { try { const q = new URLSearchParams(location.search); return q.has('dc') ? q.get('dc') : null; } catch (_) { return null; } })();
         if (DC.deepTab !== null) { DC.topic = DC.deepTab; try { localStorage.setItem('dc_topic', DC.topic); } catch (_) {} }
         const topicKey = n => String(n || '').replace(/[.#$\[\]\/]/g, '_');
-        function setTopic(n) { saveTabSpot(); exitRemote(); const bar0 = $('#dc-topics'); if (bar0) bar0.classList.remove('open'); DC.topic = n || ''; try { localStorage.setItem('dc_topic', DC.topic); } catch (_) {} DC.bubbleSig = {}; DC.chipGone = {}; const l = $('#dc-chat-log'); if (l) l.innerHTML = ''; renderChat(DC.ownTurns || DC.chatTurns || {}); chipReaim();
-            window.dispatchEvent(new CustomEvent('dc-topic', { detail: DC.topic })); }   // the 👥 pane's Share bar follows the tab you are on (L 2026-09-27: swiping tabs did not change it)
+        // PER-TAB UNSENT DRAFTS + STALE CARD GUARD + TAB LINKS (2026-11-26, Fable+Carbon review):
+        // Drafts live in DC.drafts (memory) and mirror to localStorage (24h TTL) ONLY after settings/tabEnc loads and NEVER for 🔒 encrypted tabs.
+        const DRAFT_TTL_MS = 24 * 60 * 60 * 1000;
+        const tabEncRaw = n => !!(n && DC.tabEnc && DC.tabEnc[topicKey(n)]);
+        function draftStoreKey() { return DC.uid ? 'dc_drafts_' + DC.uid : ''; }
+        function draftReadDisk() {
+            const sk = draftStoreKey(); if (!sk) return {};
+            try {
+                const raw = JSON.parse(localStorage.getItem(sk) || '{}');
+                if (!raw || typeof raw !== 'object') return {};
+                const now = Date.now(), clean = {};
+                for (const [k, rec] of Object.entries(raw)) {
+                    if (rec && typeof rec === 'object' && typeof rec.t === 'string' && rec.t && (now - (rec.at || 0) < DRAFT_TTL_MS)) clean[k] = rec;
+                }
+                return clean;
+            } catch (_) { return {}; }
+        }
+        function draftSyncDisk() {
+            const sk = draftStoreKey(); if (!sk || !DC.tabEncReady || DC.remote || DC.guest) return;
+            try {
+                const prev = draftReadDisk(), now = Date.now(), out = {};
+                for (const [k, v] of Object.entries(DC.drafts || {})) {
+                    if (k === FAV_TAB || tabEncRaw(k) || !v || !String(v).length) continue;
+                    const s = String(v).slice(0, 4096);
+                    const oldAt = (prev[k] && prev[k].t === s && prev[k].at) ? prev[k].at : now;
+                    out[k] = { t: s, at: oldAt };
+                }
+                localStorage.setItem(sk, JSON.stringify(out));
+            } catch (_) {}
+        }
+        function draftPurgeEncDisk() {
+            const sk = draftStoreKey(); if (!sk) return;
+            try {
+                const raw = JSON.parse(localStorage.getItem(sk) || '{}');
+                if (!raw || typeof raw !== 'object') return;
+                const now = Date.now(); let dirty = false;
+                for (const k of Object.keys(raw)) {
+                    const rec = raw[k];
+                    if (k === FAV_TAB || tabEncRaw(k) || !rec || typeof rec.t !== 'string' || (now - (rec.at || 0) >= DRAFT_TTL_MS)) {
+                        delete raw[k]; dirty = true;
+                    }
+                }
+                if (dirty) localStorage.setItem(sk, JSON.stringify(raw));
+            } catch (_) {}
+        }
+        function draftSet(tpc, val) {
+            if (DC.remote || tpc === FAV_TAB || tpc === undefined || tpc === null) return;
+            DC.drafts = DC.drafts || {};
+            const k = String(tpc || '');
+            const s = String(val || '').slice(0, 4096);
+            if (s) DC.drafts[k] = s; else delete DC.drafts[k];
+            draftSyncDisk();
+        }
+        function draftGet(tpc) {
+            if (DC.remote || tpc === FAV_TAB || tpc === undefined || tpc === null) return '';
+            DC.drafts = DC.drafts || {};
+            const k = String(tpc || '');
+            if (Object.prototype.hasOwnProperty.call(DC.drafts, k)) return DC.drafts[k] || '';
+            if (DC.tabEncReady && !tabEncRaw(k)) {
+                const disk = draftReadDisk();
+                if (disk[k] && disk[k].t) { DC.drafts[k] = String(disk[k].t).slice(0, 4096); return DC.drafts[k]; }
+            }
+            return '';
+        }
+        function draftApplyToBox(text) {
+            const ta = $('#dc-chat-in'); if (!ta || DC.remote) return;
+            DC._draftMute = true;
+            try {
+                if (window.__dcLiveReset) window.__dcLiveReset();
+                ta.value = String(text || '');
+                ta.dispatchEvent(new Event('keyup'));
+                if (typeof paintPickStrip === 'function') paintPickStrip();
+            } finally { DC._draftMute = false; }
+        }
+        function isCardStale(turnKey, turnsObj) {
+            const all = turnsObj || DC.chatTurns || {};
+            const t = turnKey && all[turnKey];
+            if (!t) return false;
+            if (DC.remote || DC.topic === FAV_TAB) return true;
+            const keys = Object.keys(all);
+            const idx = keys.indexOf(turnKey);
+            const tpc = t.topic || '';
+            if (idx >= 0) {
+                for (let i = idx + 1; i < keys.length; i++) {
+                    const u = all[keys[i]];
+                    if (u && u.s === 'L' && !u.sched && (u.topic || '') === tpc) return true;
+                }
+                return false;
+            }
+            const ts0 = +(t.ts || 0);
+            return ts0 > 0 && keys.some(k => {
+                const u = all[k];
+                return u && u.s === 'L' && !u.sched && (u.topic || '') === tpc && +(u.ts || 0) > ts0;
+            });
+        }
+        function collectTabLinks(maxN) {
+            const cap = maxN || 6;
+            const R = DC.remote, favView = !R && DC.topic === FAV_TAB;
+            const src = favView ? (DC.favs || {}) : (DC.chatTurns || {});
+            const cur = DC.topic || '';
+            const keys = Object.keys(src).filter(k => src[k] && (R || favView || !cur || (src[k].topic || '') === cur));
+            const P = (!R && !favView && DC.pins) ? DC.pins : {};
+            const pinKeys = Object.keys(P).filter(k => P[k] && src[k] && (!cur || (P[k].topic || '') === cur))
+                .sort((a, b) => (P[b].at || 0) - (P[a].at || 0));
+            const ordered = [...pinKeys, ...keys.slice().reverse()];
+            const seen = new Set(), out = [];
+            const urlRx = /https?:\/\/[^\s"'`<>\)\]]+/g;
+            for (const k of ordered) {
+                if (out.length >= cap) break;
+                const t = encShow(src[k]);
+                if (!t || t.encLocked) continue;
+                const isPin = !!P[k];
+                const urls = [];
+                const txt = String(t.text || '');
+                let m; urlRx.lastIndex = 0;
+                while ((m = urlRx.exec(txt)) !== null) {
+                    const u = m[0].replace(/[.,;:!?)]+$/, '');
+                    if (u) urls.push(u);
+                }
+                if (Array.isArray(t.att)) {
+                    for (const a of t.att) { if (a && /^https:\/\//.test(String(a.url || ''))) urls.push(String(a.url)); }
+                }
+                for (const u of urls) {
+                    if (seen.has(u)) continue;
+                    seen.add(u);
+                    out.push({ url: u, label: shortUrl(esc(u)), pinned: isPin });
+                    if (out.length >= cap) break;
+                }
+            }
+            return out;
+        }
+        function closeTabLinksPop() { const p = document.querySelector('.dc-tl-pop'); if (p) p.remove(); }
+        function toggleTabLinksPop() {
+            const host = $('.dc-chat'); if (!host) return;
+            const ex = host.querySelector('.dc-tl-pop'); if (ex) { ex.remove(); return; }
+            const links = collectTabLinks(6);
+            const pop = document.createElement('div'); pop.className = 'dc-tl-pop';
+            const tname = DC.remote ? (DC.remote.name + ' · # ' + DC.remote.topic) : (DC.topic === FAV_TAB ? '★ Favorites' : ('# ' + (DC.topic || 'All')));
+            pop.innerHTML = `<div class="dc-tl-hd"><span>🔗 Recent links in ${esc(tname)}</span><button type="button" class="dc-tl-x" title="close">✕</button></div>`
+                + (links.length ? links.map((it, idx) => `<div class="dc-tl-row"><a href="${esc(it.url)}" target="_blank" rel="noopener noreferrer" title="${esc(it.url)}">${it.pinned ? '📌 ' : ''}${it.label}</a><button type="button" class="dc-tl-cp" data-idx="${idx}" title="copy link">Copy</button></div>`).join('')
+                : '<div style="font-size:0.8rem;color:var(--muted)">No links in the loaded messages of this tab yet.</div>');
+            host.appendChild(pop);
+            pop.querySelector('.dc-tl-x').onclick = () => pop.remove();
+            pop.querySelectorAll('.dc-tl-cp').forEach(btn => {
+                btn.onclick = async e => {
+                    e.stopPropagation();
+                    const item = links[+btn.dataset.idx]; if (!item) return;
+                    const ok = await dcCopyText(item.url);
+                    btn.textContent = ok ? '✓' : '!';
+                    setTimeout(() => { btn.textContent = 'Copy'; }, 1200);
+                };
+            });
+        }
+        window.__dcDrafts = { get: draftGet, set: draftSet, apply: draftApplyToBox, sync: draftSyncDisk, purgeEnc: draftPurgeEncDisk };
+        window.__dcIsCardStale = isCardStale;
+        window.__dcCollectTabLinks = collectTabLinks;
+        function setTopic(n) {
+            saveTabSpot();
+            closeTabLinksPop();
+            const wasRemote = !!DC.remote;
+            const wasCarry = !!DC._carry; DC._carry = false;
+            const prevTopic = DC.topic || '';
+            const ta0 = $('#dc-chat-in');
+            const carriedText = (wasCarry && !wasRemote && !DC.editKey && ta0) ? ta0.value : '';
+            if (DC.editKey) { DC._preEditDraft = ''; setEditMode('', true); }
+            else if (!wasRemote && !wasCarry && prevTopic !== FAV_TAB && ta0) { draftSet(prevTopic, ta0.value); }
+            if (wasCarry && prevTopic !== FAV_TAB) draftSet(prevTopic, '');
+            exitRemote(true);
+            const bar0 = $('#dc-topics'); if (bar0) bar0.classList.remove('open');
+            DC.topic = n || '';
+            try { localStorage.setItem('dc_topic', DC.topic); } catch (_) {}
+            if (wasCarry) {
+                if (DC.topic !== FAV_TAB) {
+                    const ex = draftGet(DC.topic);
+                    const merged = (ex && ex !== carriedText) ? (ex + '\n' + carriedText) : carriedText;
+                    draftSet(DC.topic, merged);
+                    draftApplyToBox(merged);
+                }
+            } else {
+                draftApplyToBox(DC.topic === FAV_TAB ? '' : draftGet(DC.topic));
+            }
+            DC.bubbleSig = {}; DC.chipGone = {};
+            const l = $('#dc-chat-log'); if (l) l.innerHTML = '';
+            renderChat(DC.ownTurns || DC.chatTurns || {}); chipReaim();
+            window.dispatchEvent(new CustomEvent('dc-topic', { detail: DC.topic }));
+        }   // the 👥 pane's Share bar follows the tab you are on (L 2026-09-27: swiping tabs did not change it)
         // SHARED TABS, ONE SHARE (2026-09-27, L: "share = bring Kev into my tab chat; unshare takes him out; he shares and I see his
         // tab"): the owner's {owner}/console/guests/<topic>/<me> lets me read THAT tab (rules: a query pinned to the one topic) and
         // add my own lines to it (s:'G'). Here the console shows it like any tab: a 📺 chip, the live conversation, my box writes into it.
         DC.remote = null;
         function enterRemote(r) {
             if (!r || !r.owner || !r.topic) return;
-            saveTabSpot(); exitRemote();
+            closeTabLinksPop();
+            if (!DC.remote) {
+                const ta0 = $('#dc-chat-in');
+                if (DC.editKey) { DC._preEditDraft = ''; setEditMode('', true); }
+                else if (ta0 && DC.topic !== FAV_TAB) draftSet(DC.topic || '', ta0.value);
+            }
+            saveTabSpot(); exitRemote(true);
             DC.remote = r; DC.bubbleSig = {};
             // VIEW-ONLY (L 2026-09-27: "he sees it as an uneditable tab... the talking stays in the other panel"): the box locks
-            { const ta = $('#dc-chat-in'); if (ta) { ta.disabled = true; ta.dataset.ph = ta.placeholder; ta.placeholder = `👀 ${r.name || 'their'} · # ${r.topic} - view only. Talk to ${r.name || 'them'} in 👥`; }
+            { const ta = $('#dc-chat-in'); if (ta) { DC._draftMute = true; ta.value = ''; DC._draftMute = false; ta.disabled = true; ta.dataset.ph = ta.placeholder; ta.placeholder = `👀 ${r.name || 'their'} · # ${r.topic} - view only. Talk to ${r.name || 'them'} in 👥`; }
               const sb = $('#dc-chat-send'); if (sb) sb.disabled = true; $('.dc-chat') && $('.dc-chat').classList.add('viewonly'); }
             const l = $('#dc-chat-log'); if (l) l.innerHTML = '<div style="color:var(--muted);font-size:.85rem;text-align:center;margin-top:20px">opening ' + esc(r.name || '') + ' · # ' + esc(r.topic) + '…</div>';
             DC.remoteUnsub = onValue(query(ref(database, `${r.owner}/console/chat/turns`), orderByChild('topic'), equalTo(r.topic), limitToLast(200)),
@@ -1885,13 +2097,14 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 () => { if (DC.remote === r) { exitRemote(); $('#dc-chat-status').textContent = `# ${r.topic} isn't shared with you any more`; renderChat(DC.ownTurns || {}); } });
             renderTopics();
         }
-        function exitRemote() {
+        function exitRemote(skipRestore) {
             if (!DC.remote) return;
             saveTabSpot();
             try { DC.remoteUnsub && DC.remoteUnsub(); } catch (_) {}
             DC.remote = null; DC.remoteUnsub = null; DC.bubbleSig = {}; const l = $('#dc-chat-log'); if (l) l.innerHTML = '';
             { const ta = $('#dc-chat-in'); if (ta) { ta.disabled = false; if (ta.dataset.ph) ta.placeholder = ta.dataset.ph; }
               const sb = $('#dc-chat-send'); if (sb) sb.disabled = false; $('.dc-chat') && $('.dc-chat').classList.remove('viewonly'); }
+            if (!skipRestore && DC.topic !== FAV_TAB) draftApplyToBox(draftGet(DC.topic || ''));
         }
         window.__dcEnterRemote = r => { if (typeof openDropletConsole === 'function') { try { openDropletConsole(); } catch (_) {} } enterRemote(r); };
         window.__dcExitRemote = () => { exitRemote(); renderChat(DC.ownTurns || {}); };
@@ -2119,6 +2332,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 await set(ref(database, `${DC.base}/chat/topics/${topicKey(oldName)}`), null);
                 try { if (window.__dcTabShare && window.__dcTabShare.move) await window.__dcTabShare.move(oldName, nm); }   // 1.0.279: shares follow the new name
                 catch (e) { console.warn('rename: shares', e); }
+                { const oldD = draftGet(oldName); draftSet(oldName, ''); if (oldD) draftSet(nm, oldD); }
                 setTopic(nm);
                 if (status) status.textContent = `# ${oldName} → # ${nm} · ${keys.length} message${keys.length === 1 ? '' : 's'} carried`
                     + (inflight ? ` · ${inflight} reply still on its way redirected` : '');
@@ -2179,6 +2393,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     const p = {}; for (const k of Object.keys(ss)) if (k.startsWith(tkey + '__') || k.startsWith('codex_' + tkey + '__') || k === 'cascade__' + tkey || k === 'codex_cascade__' + tkey) p[k] = null;
                     if (Object.keys(p).length) await update(ref(database, `${DC.base}/settings/tabSession`), p);
                 } catch (e) { console.warn('tab model/thread cleanup failed', e); }
+                draftSet(name, '');
                 setTopic('');
                 if (status) status.textContent = tk.length
                     ? `# ${name} removed · ${tk.length} message${tk.length === 1 ? '' : 's'} kept, now untagged in All`
@@ -2273,6 +2488,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             fc.innerHTML = FAV_TAB + `<span class="n">${nf}</span>`; fc.title = 'favorites - replies you starred, kept even after Archive chat'; fc.onclick = () => setTopic(FAV_TAB); bar.appendChild(fc);
             { const fs = document.createElement('button'); fs.type = 'button'; fs.className = 'dc-topic'; fs.textContent = '🔍'; fs.title = 'search this tab (the messages loaded on screen)';
               fs.onclick = () => { bar.classList.remove('open'); window.__dcKit && window.__dcKit.openFind(); }; bar.appendChild(fs); }   // messenger kit
+            if (collectTabLinks(1).length) {
+                const tl = document.createElement('button'); tl.type = 'button'; tl.className = 'dc-topic'; tl.textContent = '🔗'; tl.title = 'recent links in this tab (pinned first)';
+                tl.onclick = e => { e.stopPropagation(); bar.classList.remove('open'); toggleTabLinksPop(); }; bar.appendChild(tl);
+            }
             const add = document.createElement('button'); add.type = 'button'; add.className = 'dc-topic'; add.textContent = '+ topic'; add.title = 'new topic tab - same chat, just a label to keep ideas apart';
             // PHONE: the floating New-topic box, not an input inside the strip - the keyboard opening blurred the in-strip input,
             // and blur-with-nothing-typed removes it = "it just flashed real quick but never lets me enter a name" (L 2026-09-27)
@@ -2371,6 +2590,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             }
             if (j >= order.length) { newTopicBox(); return; }   // one more swipe LEFT past the last tab = make a new topic
             if (j < 0) { showTopicLabel(order, i); if (third) openTopicBar(); return; }    // nothing before All - still show the label (it carries the close X)
+            { const taC = $('#dc-chat-in'); if (taC && taC.value.trim() && DC.lockN >= 3 && !DC.editKey) { DC._carry = true; DC.lockN = 0; } }
             setTopic(order[j]);
             if (third) openTopicBar();
             showTopicLabel(order, j, jumped && Math.abs(j - i) > 1);
@@ -2443,11 +2663,17 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             pill.addEventListener('touchcancel', () => { ok = false; }, { passive: true });
         })();
         // EDIT YOUR LAST MESSAGE: ✎ loads it into the box; ▲ becomes ↻; sending replaces the text and re-sends it flagged `edited`.
-        function setEditMode(key) {
-            DC.editKey = key || ''; const ta = $('#dc-chat-in'), wrap = $('.dc-chat-input'), send = $('#dc-chat-send'), st = $('#dc-chat-status');
+        function setEditMode(key, skipRestore) {
+            const wasEdit = !!DC.editKey;
+            const ta = $('#dc-chat-in'), wrap = $('.dc-chat-input'), send = $('#dc-chat-send'), st = $('#dc-chat-status');
+            if (key && !wasEdit) { DC._preEditDraft = (ta && !DC.remote && DC.topic !== FAV_TAB) ? ta.value : ''; }
+            DC.editKey = key || '';
             if (wrap) wrap.classList.toggle('editing', !!key); if (send) send.textContent = key ? '↻' : '▲';
-            if (key) { const t = encShow((DC.chatTurns || {})[key]); if (ta) { ta.value = (t && !t.encLocked && t.text) || ''; ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } if (st) st.textContent = '✎ editing your last message · Esc to cancel'; }
-            else if (st && st.textContent.startsWith('✎ editing')) st.textContent = '';
+            if (key) { const t = encShow((DC.chatTurns || {})[key]); if (ta) { DC._draftMute = true; ta.value = (t && !t.encLocked && t.text) || ''; DC._draftMute = false; ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } if (st) st.textContent = '✎ editing your last message · Esc to cancel'; }
+            else {
+                if (st && st.textContent.startsWith('✎ editing')) st.textContent = '';
+                if (wasEdit && !skipRestore) { const prev = DC._preEditDraft || ''; DC._preEditDraft = ''; draftApplyToBox(prev); }
+            }
         }
         document.getElementById('dc-chat-log') && document.getElementById('dc-chat-log').addEventListener('click', e => {
             // only the ✎ itself starts an edit - a tap anywhere on the message used to, and kept loading his last message
@@ -2455,7 +2681,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (!e.target.closest || !e.target.closest('.dc-edit')) return;
             const el = e.target.closest('[data-k]'); if (!el) return;
             setEditMode(el.dataset.k); });
-        document.getElementById('dc-chat-in') && document.getElementById('dc-chat-in').addEventListener('keydown', e => { if (e.key === 'Escape' && DC.editKey) { e.stopPropagation(); e.target.value = ''; setEditMode(''); } });
+        document.getElementById('dc-chat-in') && document.getElementById('dc-chat-in').addEventListener('keydown', e => { if (e.key === 'Escape' && DC.editKey) { e.stopPropagation(); setEditMode(''); } });
         // CANCEL AN EDIT BY TAPPING OUTSIDE (2026-09-20, L: "when I go to edit but I want to back out,
         // other than not changing the text, maybe just clicking outside the chat window does the same").
         // Escape already did this, which is no use on a phone - the only way out was to re-send the text
@@ -2465,9 +2691,17 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // The input row is excluded whole - the send button, the enhance box and the target picker all
         // live in it, and tapping any of them plainly means "carry on with this edit".
         document.addEventListener('pointerdown', e => {
+            const pop = document.querySelector('.dc-tl-pop');
+            if (pop && (!e.target.closest || (!e.target.closest('.dc-tl-pop') && !e.target.closest('#dc-tl-btn')))) pop.remove();
             if (!DC.editKey) return;
-            if (e.target.closest && e.target.closest('.dc-chat-input')) return;
-            const ta = $('#dc-chat-in'); if (ta) ta.value = '';
+            if (e.target.closest && (e.target.closest('.dc-chat-input') || e.target.closest('.dc-tl-pop') || e.target.closest('#dc-tl-btn'))) return;
+            if (e.target.closest && e.target.closest('#dc-topics .dc-topic')) {
+                const restore = DC._preEditDraft || ''; DC._preEditDraft = '';
+                setEditMode('', true);
+                if (!DC.remote && DC.topic !== FAV_TAB) draftSet(DC.topic || '', restore);
+                draftApplyToBox(restore);
+                return;
+            }
             setEditMode('');            // same end state as Escape: edit dropped, original message untouched
         }, true);
         window.__dcSetEditMode = setEditMode;   // test hook
@@ -2865,7 +3099,11 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // a Campfire post handed over from the 👥 pane: the normal send path to Droplet, whatever the target pick says
         window.__dcSayDroplet = (text, topic) => { const ta = $('#dc-chat-in'), sel = $('#dc-chat-target'); if (!ta) return false; if (sendChatBusy) { const st = $('#dc-chat-status'); if (st) st.textContent = '⏳ still sending the previous message - try again in a sec'; return false; } const was = sel ? sel.value : '';
             if (topic !== undefined) DC.sendTopicOnce = topic;   // '' = untagged, shows in All (2026-11-02)
-            if (DC.editKey) { ta.value = ''; setEditMode(''); } if (sel) sel.value = 'droplet'; DC.noBotOnce = true; ta.value = text; DC.mainSession = true; Promise.resolve(sendChat()).catch(() => {}).finally(() => { DC.mainSession = false; }); if (sel && was) sel.value = was; return true; };   // flag held until the send resolves: sendChat reads it AFTER its awaits (2026-11-21, it was dropped at once and a tab's own model could take the hand)   // main session, never a tab's model: only it knows the Campfire steps
+            if (DC.editKey) { setEditMode('', true); }
+            const keepDraft = (!DC.remote && DC.topic !== FAV_TAB && ta.value) ? ta.value : '';
+            if (sel) sel.value = 'droplet'; DC.noBotOnce = true; DC._draftMute = true; ta.value = text; DC.mainSession = true;
+            Promise.resolve(sendChat()).catch(() => {}).finally(() => { DC.mainSession = false; DC._draftMute = false; if (keepDraft && !ta.value && !DC.editKey) draftApplyToBox(keepDraft); });
+            if (sel && was) sel.value = was; return true; };   // flag held until the send resolves: sendChat reads it AFTER its awaits (2026-11-21, it was dropped at once and a tab's own model could take the hand)   // main session, never a tab's model: only it knows the Campfire steps
         window.__dcConfirmDelete = confirmDelete;   // test hook
         window.__dcMsgSheet = (k, ext) => confirmDelete(k, ext);   // the 👥 pane's triple-tap
         document.getElementById('dc-chat-log') && document.getElementById('dc-chat-log').addEventListener('click', e => {   // 1.0.343 fold toggle
@@ -2927,6 +3165,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // the triple-tap counter, and an in-progress edit is dropped first so the digit can never overwrite a message.
         document.getElementById('dc-chat-log') && document.getElementById('dc-chat-log').addEventListener('click', e => {
             const b = e.target.closest && e.target.closest('.dc-choice'); if (!b) return; e.stopPropagation(); e.preventDefault();
+            if (DC.remote || DC.topic === FAV_TAB) return;
             const ta = $('#dc-chat-in'); if (!ta) return;
             const mwrap = b.closest('.dc-choices.multi');
             if (mwrap) {                                // MULTI-PICK: a tap toggles; Send posts all picks as one message
@@ -2940,24 +3179,47 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 }
                 const picked = [...mwrap.querySelectorAll('.dc-multi')].filter(x => sel.has(x.dataset.n));
                 if (!picked.length) return;
+                if (k && isCardStale(k)) {
+                    const arm = DC._staleArm;
+                    if (!(arm && arm.k === k && arm.id === 'multi' && Date.now() < arm.until)) {
+                        DC._staleArm = { k, id: 'multi', until: Date.now() + 3500 };
+                        const st = $('#dc-chat-status'); if (st) st.textContent = '⏳ older question — tap Send again within 3s to confirm';
+                        return;
+                    }
+                    DC._staleArm = null;
+                }
                 if (sendChatBusy) { const st = $('#dc-chat-status'); if (st) st.textContent = '⏳ still sending the previous message - tap Send again in a sec'; return; }
-                if (DC.editKey) { ta.value = ''; setEditMode(''); }
+                if (DC.editKey) { setEditMode('', true); }
+                const keepDraftM = (!DC.remote && DC.topic !== FAV_TAB && ta.value) ? ta.value : '';
                 const tsel = $('#dc-chat-target'); const was = tsel ? tsel.value : '';
                 if (tsel) tsel.value = 'droplet'; DC.noBotOnce = true;
                 const say = picked.length === 1 ? picked[0].dataset.say : 'Picked:\n' + picked.map(x => `${x.dataset.n}. ${x.dataset.say}`).join('\n');
                 { const ct = k && (DC.chatTurns || {})[k]; if (ct) DC.sendTopicOnce = ct.topic || ''; }   // the answer goes to the card's tab
-                ta.value = say; sendChat();
+                DC._draftMute = true; ta.value = say;
+                Promise.resolve(sendChat()).finally(() => { DC._draftMute = false; if (keepDraftM && !ta.value && !DC.editKey) draftApplyToBox(keepDraftM); });
                 if (k) update(ref(database, `${DC.base}/chat/turns/${k}`), { answered: picked.map(x => x.dataset.say).join(' + ') }).catch(() => {});
                 if (tsel && was) tsel.value = was;
                 mwrap.querySelectorAll('.dc-choice').forEach(x => { x.disabled = true; }); delete DC.multiSel[k];
                 return;
             }
+            const wCard = b.closest('.dc-choices'), kCard = wCard && wCard.dataset ? wCard.dataset.k : '';
+            if (b.dataset.say && kCard && isCardStale(kCard)) {
+                const arm = DC._staleArm;
+                if (!(arm && arm.k === kCard && arm.id === b.dataset.n && Date.now() < arm.until)) {
+                    DC._staleArm = { k: kCard, id: b.dataset.n, until: Date.now() + 3500 };
+                    const st = $('#dc-chat-status'); if (st) st.textContent = '⏳ older question — tap again within 3s to send';
+                    return;
+                }
+                DC._staleArm = null;
+            }
             if (sendChatBusy) { const st = $('#dc-chat-status'); if (st) st.textContent = '⏳ still sending the previous message - tap again in a sec'; return; }
-            if (DC.editKey) { ta.value = ''; setEditMode(''); }
+            if (DC.editKey) { setEditMode('', true); }
+            const keepDraftS = (!DC.remote && DC.topic !== FAV_TAB && ta.value) ? ta.value : '';
             const sel = $('#dc-chat-target'); const was = sel ? sel.value : '';
             if (sel) sel.value = 'droplet'; DC.noBotOnce = true;           // the menu is on Droplet's terminal - the answer goes there whatever the target pick
-            if (b.dataset.say) { const w0 = b.closest('.dc-choices'), k0 = w0 && w0.dataset ? w0.dataset.k : '', ct = k0 && (DC.chatTurns || {})[k0]; if (ct) DC.sendTopicOnce = ct.topic || ''; }   // a Droplet card's answer goes to the card's tab
-            ta.value = b.dataset.say || b.dataset.n; sendChat();         // reads the target synchronously before its first await
+            if (b.dataset.say) { const ct = kCard && (DC.chatTurns || {})[kCard]; if (ct) DC.sendTopicOnce = ct.topic || ''; }   // a Droplet card's answer goes to the card's tab
+            DC._draftMute = true; ta.value = b.dataset.say || b.dataset.n;
+            Promise.resolve(sendChat()).finally(() => { DC._draftMute = false; if (keepDraftS && !ta.value && !DC.editKey) draftApplyToBox(keepDraftS); });         // reads the target synchronously before its first await
             if (b.dataset.say) {                        // a Droplet confirm card: remember the answer on the turn so the card closes everywhere
                 const wrap = b.closest('.dc-choices'), k = wrap && wrap.dataset ? wrap.dataset.k : '';
                 if (k) update(ref(database, `${DC.base}/chat/turns/${k}`), { answered: b.dataset.say }).catch(() => {});
@@ -3047,6 +3309,16 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (picks.length) s.querySelector('.lbl').textContent = picks.length === 1 ? `#${picks[0].n}: ${picks[0].label}` : `${picks.length} picked: ${picks.map(p => '#' + p.n).join(', ')}`;
         }
         $('#dc-chat-in') && $('#dc-chat-in').addEventListener('input', paintPickStrip);
+        $('#dc-chat-in') && $('#dc-chat-in').addEventListener('input', () => {
+            if (DC._draftMute || DC.editKey || DC.remote || DC.topic === FAV_TAB) return;
+            const ta = $('#dc-chat-in'); if (ta) draftSet(DC.topic || '', ta.value);
+        });
+        $('#dc-tl-btn') && $('#dc-tl-btn').addEventListener('click', e => {
+            e.stopPropagation();
+            const gp = $('#dc-gear-pop'), gb = $('#dc-gear');
+            if (gp && !gp.hidden) { gp.hidden = true; if (gb) gb.classList.remove('open'); }
+            toggleTabLinksPop();
+        });
 
         // SITE CHAT (2026-10-21, console build-up step 3 - L: "site chat in the console"): the public onlinechat room
         // (public/messages: plain text, world-writable - the yuki-chat-bridge on se reads + redacts it). A reply is pushed as
@@ -3746,7 +4018,6 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 if (ghost) ghost.style.right = (gap + 8) + 'px'; };
             place(); try { const ro = new ResizeObserver(place); ro.observe(ta); ro.observe(wrap); } catch (_) { addEventListener('resize', place); }
         })();
-        const FAV_TAB = '\u2605';
         // SUGGESTED REPLY (2026-09-26, L: "I want one of the tab options to be some sort of suggestion of what I would reply
         // to the last message with"). When the newest turn in the open tab is a finished Droplet reply, gemma2 (local, 0 Claude
         // tokens) drafts the one line L would most likely send back; it becomes the FIRST Tab / caret option, shown as "↩ ...".
@@ -3935,8 +4206,16 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             for (const k of keys) if (obj[k] && obj[k].s === 'L') obj[k].__last = (k === DC.lastLKey);
             // the TAIL turn (nothing after it in this view): only it may show menu buttons - an answered menu is
             // gone from the terminal, and a "1" sent later would just be a plain message (2026-09-24)
-            for (const k of Object.keys(obj)) if (obj[k]) obj[k].__tail = false;
+            for (const k of Object.keys(obj)) if (obj[k]) { obj[k].__tail = false; obj[k].__superseded = false; }
             if (keys.length && obj[keys[keys.length - 1]]) obj[keys[keys.length - 1]].__tail = true;
+            { const seenUserByTopic = {};
+              const allK = Object.keys(obj);
+              for (let idx = allK.length - 1; idx >= 0; idx--) {
+                  const u = obj[allK[idx]]; if (!u) continue;
+                  const ut = u.topic || '';
+                  u.__superseded = !!(seenUserByTopic[ut] || R || favView);
+                  if (u.s === 'L' && !u.sched) seenUserByTopic[ut] = true;
+              } }
             const nf = newestFirst();
             $('.dc-chat') && $('.dc-chat').classList.toggle('newest-first', nf);
             { const bd = $('#dc-console .dc-body'); if (bd) bd.classList.toggle('dc-nb', !nf); }   // #1: phone panel above the chat when newest is at the bottom
@@ -6176,7 +6455,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             try {
                 const editKey = DC.editKey || ''; const editTurn = editKey ? (DC.chatTurns || {})[editKey] : null;
                 if (editTurn && raw === String((encShow(editTurn) || editTurn).text || '').trim()) {   // edit with no change: nothing to resend
-                    ta.value = ''; setEditMode(''); send.disabled = false; return; }
+                    setEditMode(''); send.disabled = false; return; }
                 const tpc = editTurn ? (editTurn.topic ? { topic: editTurn.topic } : {}) : forcedTopic !== undefined ? (forcedTopic ? { topic: forcedTopic } : {}) : (sendTopic ? { topic: sendTopic } : {});   // an edit keeps its turn's topic; else the tab active when Send was pressed (★ view sends untagged)
                 // 🔒 ENCRYPTED TAB (trial 11-19): one key mode per send, so his turn and the job match. A ⌘ command stays plain (it must run).
                 // Checked BEFORE anything is taken or written: no crypto = nothing sent, words back in the box, never into the outbox.
@@ -7513,9 +7792,16 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // ORDER MATTERS: sendChat (the onclick / the keydown registered first) runs FIRST and starts the flush; these two listeners ran
             // second and ABORTED the very request the flush was waiting on - so the last sentence never got its pass at Send. (Review 2026-09-25.)
             sendBtn && sendBtn.addEventListener('click', () => { if (flushing) return; clearTimeout(timer); if (ctl) ctl.abort(); hideGhost(); lastRewrite = null; stable = 0; lastSrc = ''; });
+            const liveReset = () => {
+                clearTimeout(timer); clearTimeout(dictTimer); clearTimeout(deferredTimer);
+                deferredApply = null; dictUntil = 0; dictFrom = -1;
+                if (ctl && !flushing) { try { ctl.abort(); } catch (_) {} }
+                hideGhost(); lastRewrite = null; lastFix = null; stable = 0; lastSrc = '';
+            };
             const liveState = () => ({ stable, lastSrc, hasRewrite: !!lastRewrite, flushing, inflight: !!inflight });
             if (hooks) { window.__dcLiveFix = w => fixFor(String(w || '').toLowerCase()) || null;   // test hooks
-                window.__dcLiveState = liveState; }
+                window.__dcLiveState = liveState;
+                window.__dcLiveReset = liveReset; }
             // Send calls this: give the unrewritten tail its pass now (3+ words), but never wait longer than `ms`. A request already in
             // the air for exactly this tail (the ". " trigger fired a second ago) is waited for, not aborted and asked again.
             const liveFlush = ms => { if (!on()) return Promise.resolve(); clearTimeout(timer); flushing = true; forceApply = true;
