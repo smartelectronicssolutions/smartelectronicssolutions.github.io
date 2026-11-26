@@ -186,7 +186,8 @@
         }
 
         .add-grid input,
-        .add-grid textarea {
+        .add-grid textarea,
+        .add-grid select {
             padding: 6px 10px;
             border: 1px solid var(--border);
             border-radius: 6px;
@@ -215,7 +216,8 @@
         }
 
         .edit-row input,
-        .edit-row textarea {
+        .edit-row textarea,
+        .edit-row select {
             width: 100%;
             box-sizing: border-box;
             padding: 4px 6px;
@@ -317,8 +319,10 @@
                 <label>Quantity<input id="addQty" type="number" min="0" value="0"></label>
                 <label>Status<input id="addStatus" placeholder="e.g. sell, keep, donate" list="statusList"></label>
                 <datalist id="statusList"></datalist>
-                <label>Container / Location<input id="addRoom" placeholder="e.g. Tech Pac, Pro Pac, Truck Toolbox" list="roomList"></label>
-                <datalist id="roomList"></datalist>
+                <label>Container / Location
+                    <select id="addContainer"><option value="">(None)</option></select>
+                    <input id="addContainerNew" placeholder="New container name..." style="display:none;margin-top:4px;">
+                </label>
                 <label style="grid-column:1/-1;">Affiliate URL<input id="addAff" type="url" placeholder="https://amzn.to/..."></label>
                 <label>ASIN<input id="addAsin"></label>
                 <label style="grid-column:1/-1;">Description<textarea id="addDesc" rows="2"></textarea></label>
@@ -371,13 +375,105 @@
         } from "./assets/js/firebase-init.js";
         import { uploadImage, removeStorageImage } from "./assets/js/imgupload.js";
 
-        let BASE = null, signedInUID = null, affiliateTag = "", inventoryRefLive = null;
-        let inventoryTree = {};
+        let BASE = null, signedInUID = null, affiliateTag = "", inventoryRefLive = null, loadoutContainersRef = null;
+        let inventoryTree = {}, loadoutContainers = {};
         let editMode = false;
 
         const $ = id => document.getElementById(id);
         const join = (...p) => p.filter(Boolean).join("/").replace(/\/+/g, "/");
         const dbRef = (...p) => ref(database, join(BASE, ...p));
+        const loadoutBase = () => BASE === "public" ? "public/games/loadout" : join(BASE, "play", "loadout");
+        const ZONE_LABELS = {
+            shelf: "Shelving", toolbox: "Truck Toolbox", dewalt: "DeWalt Bag", toolbag: "Tool Bag",
+            techpac: "Tech Pac Wheeler", veto: "Pro Pac (Veto)", backpack: "Backpack",
+            bag: "Backpack (Carry)", cabinet: "Cabinet", desk: "Desk",
+        };
+        function roomToLoc(r) {
+            if (!r) return null;
+            const s = String(r).toLowerCase();
+            if (s.includes("tech pac")) return "techpac";
+            if (s.includes("pro pac") || s.includes("veto")) return "veto";
+            if (s.includes("dewalt")) return "dewalt";
+            if (s.includes("truck") || s.includes("toolbox")) return "toolbox";
+            if (s.includes("tool bag")) return "toolbag";
+            if (s.includes("backpack")) return "backpack";
+            return null;
+        }
+        function cslug(s) {
+            const b = String(s || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+            return "c:" + (b || "misc");
+        }
+        function newContainerKey(name) {
+            const slug = String(name || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 20) || "box";
+            return "c_" + slug + "_" + Date.now().toString(36).slice(-5);
+        }
+        function findContainerByName(name) {
+            const want = String(name || "").trim().toLowerCase();
+            if (!want) return null;
+            for (const [k, v] of Object.entries(loadoutContainers)) {
+                if (v && typeof v === "object" && String(v.name || "").trim().toLowerCase() === want) return k;
+            }
+            return null;
+        }
+        function itemContainerKey(it) {
+            const c = (it && it.container != null) ? String(it.container).trim() : "";
+            if (c) return c;
+            const r = (it && it.room != null) ? String(it.room).trim() : "";
+            if (!r) return "";
+            return findContainerByName(r) || roomToLoc(r) || cslug(r);
+        }
+        function containerLabel(key, fallbackRoom = "") {
+            const k = String(key || "").trim();
+            if (!k) return String(fallbackRoom || "").trim();
+            const entry = loadoutContainers[k];
+            if (entry && typeof entry === "object" && entry.name) return String(entry.name).trim();
+            if (ZONE_LABELS[k]) return ZONE_LABELS[k];
+            return String(fallbackRoom || "").trim() || k;
+        }
+        function containerOptions(items) {
+            const map = new Map();
+            for (const [k, v] of Object.entries(loadoutContainers)) {
+                if (!k || k.startsWith("decor:")) continue;
+                map.set(k, (v && typeof v === "object" && v.name) ? String(v.name).trim() : (ZONE_LABELS[k] || k));
+            }
+            for (const it of items) {
+                const k = itemContainerKey(it);
+                if (k && !map.has(k)) map.set(k, containerLabel(k, it.room));
+            }
+            return [...map.entries()].map(([key, label]) => ({ key, label })).sort((a, b) => a.label.localeCompare(b.label));
+        }
+        function containerSelectHtml(opts, selectedKey) {
+            let html = '<option value="">(None)</option>';
+            let seen = false;
+            for (const o of opts) {
+                const sel = o.key === selectedKey ? " selected" : "";
+                if (sel) seen = true;
+                html += `<option value="${esc(o.key)}"${sel}>${esc(o.label)}</option>`;
+            }
+            if (selectedKey && !seen) {
+                html += `<option value="${esc(selectedKey)}" selected>${esc(containerLabel(selectedKey))}</option>`;
+            }
+            html += '<option value="__new__">＋ New container…</option>';
+            return html;
+        }
+        async function resolveContainerPick(selVal, newNameRaw, orig = null) {
+            if (selVal === "__new__") {
+                const label = String(newNameRaw || "").trim();
+                if (!label) return { error: "Enter a name for the new container." };
+                const existing = findContainerByName(label);
+                if (existing) return { container: existing, room: containerLabel(existing, label) };
+                const key = newContainerKey(label);
+                await set(ref(database, join(loadoutBase(), "containers", key)), { name: label });
+                loadoutContainers[key] = { name: label };
+                return { container: key, room: label };
+            }
+            if (!selVal) return { container: null, room: null };
+            if (orig && selVal === itemContainerKey(orig) && !orig.container) {
+                return { container: null, room: orig.room || null };
+            }
+            if (selVal === "bag") return { container: "bag", room: null };
+            return { container: selVal, room: containerLabel(selVal) };
+        }
 
         const grid = $("productGrid");
         const emptyState = $("emptyState");
@@ -441,12 +537,20 @@
             if (BASE === nb && inventoryRefLive) return;
             BASE = nb;
             if (inventoryRefLive) off(inventoryRefLive);
+            if (loadoutContainersRef) off(loadoutContainersRef);
+            loadoutContainers = {};
             inventoryRefLive = dbRef("items");
             onValue(inventoryRefLive, snap => {
                 inventoryTree = snap.val() || {};
                 refreshFilters();
                 render();
             });
+            loadoutContainersRef = ref(database, join(loadoutBase(), "containers"));
+            onValue(loadoutContainersRef, snap => {
+                loadoutContainers = snap.val() || {};
+                refreshFilters();
+                render();
+            }, () => { loadoutContainers = {}; });
             get(dbRef("settings/affiliateTag")).then(s => { affiliateTag = s.val() || ""; render(); }).catch(() => { });
             addCard.style.display = signedInUID ? "block" : "none";
             includeNoLinkWrap.style.display = signedInUID ? "inline-flex" : "none";
@@ -464,7 +568,7 @@
         function refreshFilters() {
             const items = flatten();
             const cats = [...new Set(items.map(i => i.category).filter(Boolean))].sort();
-            const rooms = [...new Set(items.map(i => (i.room || "").trim()).filter(Boolean))].sort();
+            const contOpts = containerOptions(items);
             const statuses = [...new Set(items.map(i => (i.status || "").trim()).filter(Boolean))].sort();
             const prevCat = catFilter.value, prevComp = compFilter.value;
             // Sub-Category options scoped to the currently selected Category (if any)
@@ -476,14 +580,19 @@
             compFilter.innerHTML = '<option value="">All Sub-Categories</option>' + comps.map(c => `<option value="${esc(c)}" ${c === compToKeep ? "selected" : ""}>${esc(c)}</option>`).join("");
             const roomFilterEl = $("roomFilter");
             const prevRoom = roomFilterEl.value;
-            roomFilterEl.innerHTML = '<option value="">All Containers</option>' + rooms.map(r => `<option value="${esc(r)}" ${r === prevRoom ? "selected" : ""}>${esc(r)}</option>`).join("");
+            roomFilterEl.innerHTML = '<option value="">All Containers</option>' + contOpts.map(o => `<option value="${esc(o.key)}" ${o.key === prevRoom ? "selected" : ""}>${esc(o.label)}</option>`).join("");
             const statusFilterEl = $("statusFilter");
             const prevStatus = statusFilterEl.value;
             statusFilterEl.innerHTML = '<option value="">All Statuses</option>'
                 + '<option value="__untagged" ' + (prevStatus === "__untagged" ? "selected" : "") + '>(untagged)</option>'
                 + statuses.map(s => `<option value="${esc(s)}" ${s === prevStatus ? "selected" : ""}>${esc(s)}</option>`).join("");
-            // Datalists for the Add form
-            $("roomList").innerHTML = rooms.map(r => `<option value="${esc(r)}">`).join("");
+            // Add-form Container select + Status datalist
+            const addContEl = $("addContainer");
+            if (addContEl) {
+                const prevAdd = addContEl.value;
+                addContEl.innerHTML = containerSelectHtml(contOpts, prevAdd === "__new__" ? "" : prevAdd);
+                if (prevAdd === "__new__") addContEl.value = "__new__";
+            }
             $("statusList").innerHTML = statuses.map(s => `<option value="${esc(s)}">`).join("");
             // Summary: total + per-status counts (auto-built, no hardcoded statuses)
             const counts = {}; let total = 0, untagged = 0;
@@ -517,7 +626,7 @@
             return items.filter(it => {
                 if (catSel && it.category !== catSel) return false;
                 if (compSel && it.sub !== compSel) return false;
-                if (roomSel && (it.room || "") !== roomSel) return false;
+                if (roomSel && itemContainerKey(it) !== roomSel) return false;
                 if (statusSel && personalMode) {
                     if (statusSel === "__untagged") { if ((it.status || "").trim()) return false; }
                     else if ((it.status || "").trim() !== statusSel) return false;
@@ -527,7 +636,8 @@
                 if (!signedInUID && !it.affiliateUrl) return false;
                 if (withLinksOnly && !it.affiliateUrl) return false;
                 if (q) {
-                    const blob = `${it.name} ${it.category} ${it.sub} ${it.description || ""} ${it.room || ""} ${it.status || ""}`.toLowerCase();
+                    const cLbl = containerLabel(itemContainerKey(it), it.room);
+                    const blob = `${it.name} ${it.category} ${it.sub} ${it.description || ""} ${it.room || ""} ${cLbl} ${it.status || ""}`.toLowerCase();
                     if (!blob.includes(q)) return false;
                 }
                 return true;
@@ -536,19 +646,21 @@
 
         function render() {
             const filtered = currentFiltered();
+            const contOpts = containerOptions(flatten());
             grid.innerHTML = "";
             emptyState.style.display = filtered.length ? "none" : "block";
             resultCount.textContent = filtered.length ? `${filtered.length} item${filtered.length === 1 ? "" : "s"}` : "";
-            filtered.forEach(it => grid.appendChild(card(it)));
+            filtered.forEach(it => grid.appendChild(card(it, contOpts)));
         }
 
-        function card(it) {
+        function card(it, contOpts) {
             const pr = parseFloat(it.price);
             const img = (it.img && it.img.trim()) ? it.img : ((it.imageUrl && it.imageUrl.trim()) ? it.imageUrl : `assets/img/database/${encodeURIComponent(it.name)}.png`);
             const link = it.affiliateUrl ? `${it.affiliateUrl}${affiliateTag ? (it.affiliateUrl.includes("?") ? "&" : "?") + "tag=" + affiliateTag : ""}` : "";
             const status = (it.status || "").trim();
             const forSale = status.toLowerCase() === "sell";
-            const room = (it.room || "").trim();
+            const cKey = itemContainerKey(it);
+            const room = containerLabel(cKey, it.room);
             const d = document.createElement("div");
             d.className = "product-item";
             d.innerHTML = `
@@ -574,7 +686,10 @@
                         <label>Category<input class="eCat" value="${esc(it.category)}"></label>
                         <label>Sub-Category<input class="eComp" value="${esc(it.sub)}"></label>
                         <label>Status<input class="eStatus" value="${esc(status)}" list="statusList" placeholder="free-form (e.g. sell)"></label>
-                        <label>Container / Location<input class="eRoom" value="${esc(room)}" list="roomList"></label>
+                        <label>Container / Location
+                            <select class="eContainer">${containerSelectHtml(contOpts, cKey)}</select>
+                            <input class="eContainerNew" placeholder="New container name..." style="display:none;margin-top:4px;">
+                        </label>
                         <label>Price ($)<input class="ePrice" type="number" step="0.01" value="${esc(it.price || "")}"></label>
                         <label>Cost ($)<input class="eCost" type="number" step="0.01" value="${esc(it.actualPrice || "")}"></label>
                         <label>Quantity<input class="eQty" type="number" value="${esc(it.quantity || 0)}"></label>
@@ -595,6 +710,12 @@
             d.querySelector("img").addEventListener("error", function () { if (!this.dataset.f) { this.dataset.f = 1; this.src = "assets/img/default.png"; } });
             if (editMode) {
                 const edit = d.querySelector(".edit-row");
+                const eSel = d.querySelector(".eContainer"), eNew = d.querySelector(".eContainerNew");
+                eSel.addEventListener("change", () => {
+                    const isNew = eSel.value === "__new__";
+                    eNew.style.display = isNew ? "" : "none";
+                    if (isNew) eNew.focus();
+                });
                 d.querySelector(".editBtn").addEventListener("click", () => edit.classList.toggle("open"));
                 d.querySelector(".cancelBtn").addEventListener("click", () => edit.classList.remove("open"));
                 d.querySelector(".delBtn").addEventListener("click", () => deleteItem(it));
@@ -610,10 +731,10 @@
             if (!items.length) { alert("Nothing in the current filter to export."); return; }
             const headers = ["Name","Category","Sub-Category","Status","Room","Price","Cost","Quantity","Description","Image URL"];
             const rows = items.map(it => [
-                it.name, it.category, it.sub, it.status || "", it.room || "",
+                it.name, it.category, it.sub, it.status || "", containerLabel(itemContainerKey(it), it.room),
                 it.price || "", it.actualPrice || "", it.quantity || "",
                 (it.description || "").replace(/\n/g, " "),
-                it.imageUrl || ""
+                it.img || it.imageUrl || ""
             ]);
             const csv = [headers, ...rows].map(r => r.map(c => {
                 const s = String(c ?? "");
@@ -673,6 +794,12 @@
             const newComp = cardEl.querySelector(".eComp").value.trim();
             const newName = cardEl.querySelector(".eName").value.trim();
             if (!newCat || !newComp || !newName) return alert("Category, Sub-Category, and Name are required.");
+            const picked = await resolveContainerPick(
+                cardEl.querySelector(".eContainer").value,
+                cardEl.querySelector(".eContainerNew").value,
+                orig
+            );
+            if (picked.error) return alert(picked.error);
             const newData = {
                 description: cardEl.querySelector(".eDesc").value || "",
                 price: cardEl.querySelector(".ePrice").value || "",
@@ -681,7 +808,8 @@
                 affiliateUrl: cardEl.querySelector(".eAff").value || "",
                 asin: cardEl.querySelector(".eAsin").value || "",
                 status: cardEl.querySelector(".eStatus").value || null,
-                room: cardEl.querySelector(".eRoom").value.trim() || null,
+                container: picked.container,
+                room: picked.room,
                 part: newName,
                 name: newName,
                 category: newCat,
@@ -693,12 +821,19 @@
         }
 
         // Add form
+        $("addContainer").addEventListener("change", () => {
+            const isNew = $("addContainer").value === "__new__";
+            $("addContainerNew").style.display = isNew ? "" : "none";
+            if (isNew) $("addContainerNew").focus();
+        });
         $("addBtn").addEventListener("click", async () => {
             const cat = $("addCat").value.trim();
             const comp = $("addComp").value.trim();
             const name = $("addName").value.trim();
             const msg = $("addMsg");
             if (!cat || !comp || !name) { msg.textContent = "Category, Sub-Category, and Name are required."; return; }
+            const picked = await resolveContainerPick($("addContainer").value, $("addContainerNew").value);
+            if (picked.error) { msg.textContent = picked.error; return; }
             const data = {
                 description: $("addDesc").value || "",
                 price: $("addPrice").value || "",
@@ -707,7 +842,8 @@
                 affiliateUrl: $("addAff").value || "",
                 asin: $("addAsin").value || "",
                 status: $("addStatus").value || null,
-                room: $("addRoom").value.trim() || null,
+                container: picked.container,
+                room: picked.room,
                 part: name,
                 name,
                 category: cat,
@@ -725,7 +861,9 @@
 
         $("addClearBtn").addEventListener("click", clearAdd);
         function clearAdd() {
-            ["addCat","addComp","addName","addPrice","addCost","addAff","addAsin","addDesc","addRoom"].forEach(id => $(id).value = "");
+            ["addCat","addComp","addName","addPrice","addCost","addAff","addAsin","addDesc","addContainerNew"].forEach(id => $(id).value = "");
+            $("addContainer").value = "";
+            $("addContainerNew").style.display = "none";
             $("addQty").value = 0;
             $("addStatus").value = "";
         }
