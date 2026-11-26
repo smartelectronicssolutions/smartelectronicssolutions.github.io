@@ -9,7 +9,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="version" content="1.0.2">
+  <meta name="version" content="1.0.4">
   <title>Music</title>
 
   <link rel="stylesheet" href="../assets/css/online.css" />
@@ -137,6 +137,7 @@
             <input id="search-in" type="search" placeholder="Artist, album or song" autocomplete="off" />
             <button type="submit">Search</button>
           </form>
+          <p id="search-scope" class="note hidden"></p>
           <div id="search-out"></div>
         </section>
 
@@ -165,6 +166,9 @@
     const mmss = (s) => { s = Math.max(0, Math.floor(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
 
     let UID = null, ST = null, LIB = [], unsub = [], lastTab = "queue", browseReq = "", searchReq = "", volBusy = 0;
+    // 1.0.3 (L 11-26: 'I click an artist and choose search, should search what I've narrowed it down to'): SCOPE = the
+    // artist/album open in Browse. Search then filters its loaded songs + albums on the page (instant, no svc trip).
+    let SCOPE = null;
     const node = (p) => ref(database, `${UID}/play/music/${p}`);
 
     function toast(msg) {
@@ -263,7 +267,8 @@
       ["queue", "search", "artists", "browse"].forEach((t) => $(`tab-${t}`).classList.toggle("hidden", t !== name));
       document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === name));
       if (name !== "browse") lastTab = name;
-      if (name === "search") $("search-in").focus();
+      if (name === "artists" || name === "queue") SCOPE = null;
+      if (name === "search") { renderScope(); $("search-in").focus(); }
     }
     document.querySelectorAll(".tabs button").forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
     $("b-back").onclick = () => showTab(lastTab);
@@ -289,10 +294,26 @@
     }
 
     // ---------- search ----------
+    function renderScope() {
+      const el = $("search-scope");
+      el.classList.toggle("hidden", !SCOPE);
+      if (!SCOPE) return;
+      el.innerHTML = `Searching in <b>${esc(SCOPE.name)}</b> <button id="scope-all" type="button">All music</button>`;
+      $("scope-all").onclick = () => { SCOPE = null; renderScope(); $("search-out").innerHTML = ""; $("search-in").focus(); };
+      $("search-in").placeholder = `Song or album in ${SCOPE.name}`;
+    }
     $("search-form").onsubmit = (e) => {
       e.preventDefault();
       const q = $("search-in").value.trim(); if (!q) return;
       searchReq = String(Date.now());
+      if (SCOPE) {
+        const low = q.toLowerCase(), hit = (...v) => v.some((x) => String(x || "").toLowerCase().includes(low));
+        renderSearch({ q, id: searchReq, artists: [],
+          albums: (SCOPE.albums || []).filter((a) => hit(a.t)).map((a) => ({ ...a, a: a.a || SCOPE.name })),
+          tracks: (SCOPE.tracks || []).filter((t) => hit(t.t, t.al, t.a)) });
+        return;
+      }
+      $("search-in").placeholder = "Artist, album or song";
       $("search-out").innerHTML = `<p class="note">Searching...</p>`;
       cmd({ op: "search", q, id: searchReq });
     };
@@ -347,6 +368,9 @@
       if (!b || b.req !== browseReq) return;
       $("br-title").textContent = b.name || "";
       const tr = b.tracks || [];
+      SCOPE = b;
+      // 1.0.3: tap = play the page's own list by ids (the svc's re-query could order or skip differently -> wrong song)
+      const playList = (i) => cmd({ op: "play", kind: "tracks", ids: tr.map((t) => t.id), start: i }, `Playing ${tr[i] ? tr[i].t : b.name}`);
       if (b.kind === "artist") {
         const al = b.albums || [];
         $("br-sub").textContent = `${al.length} album${al.length === 1 ? "" : "s"} · ${tr.length} song${tr.length === 1 ? "" : "s"}`;
@@ -358,14 +382,14 @@
           (tr.length ? `<div class="sec">Songs</div><div id="br-tracks">${tr.map((t, i) => trackRow(t, i, {})).join("")}</div>` : "");
         $("br-out").querySelectorAll("[data-album]").forEach((el) => (el.onclick = () => openBrowse("album", el.dataset.album, el.querySelector(".t").textContent)));
         const bt = $("br-tracks");
-        if (bt) wireTracks(bt, tr, (i) => cmd({ op: "play", kind: "artist", id: b.id, start: i }, `Playing ${b.name}`));
+        if (bt) wireTracks(bt, tr, playList);
       } else {
         $("br-sub").textContent = [b.by, b.y, `${tr.length} songs`].filter(Boolean).join(" · ");
         $("br-actions").innerHTML = `<button id="ba-play">▶ Play album</button><button id="ba-add">＋ Add album</button>`;
         $("ba-play").onclick = () => cmd({ op: "play", kind: "album", id: b.id }, `Playing ${b.name}`);
         $("ba-add").onclick = () => cmd({ op: "add", kind: "album", id: b.id }, `Added ${b.name}`);
         $("br-out").innerHTML = `<div id="br-tracks">${tr.map((t, i) => trackRow(t, i, { numbered: true })).join("")}</div>`;
-        wireTracks($("br-tracks"), tr, (i) => cmd({ op: "play", kind: "album", id: b.id, start: i }, `Playing ${b.name}`));
+        wireTracks($("br-tracks"), tr, playList);
       }
       if (tr.some((t) => t.c === "wav")) $("br-sub").textContent += " · WAV songs skip (Sonos can't play them)";
     }
