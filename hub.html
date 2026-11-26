@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.75">
+    <meta name="version" content="1.0.76">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Control Hub</title>
     <link rel="stylesheet" href="assets/css/master.css">
@@ -867,7 +867,7 @@
                 // 1.0.75 VM + container switches (svc-systems 1.16). Repaints keep the armed switch (virtArm) and the sent-not-yet-seen state (virtPend).
                 function paintVirt() {
                     const el = $('#sy-virt'); if (!el) return;
-                    const show = !member && cur === 'se' && (virt.vms || virt.ctrs);
+                    const show = !member && cur === 'se' && (virt.vms || virt.ctrs || virt.errors);   // RTDB drops empty arrays: show the errors even with no lists
                     el.hidden = !show; if (!show) return;
                     if (virtArm && Date.now() > virtArm.until) virtArm = null;
                     const busy = new Set(virt.busy || []);
@@ -884,7 +884,8 @@
                         const bootTip = kind === 'vm' ? (x.bootMode === 'StartIfRunning' ? 'Starts with se only if it was running at shutdown - tap to make it always start' : x.boot ? `Starts with se${x.delay ? ' after ' + x.delay + ' s' : ''}` : 'Does not start with se')
                             : (x.boot ? `Restart policy: ${x.policy}` : 'Restart policy: no (stays off after a reboot)');
                         const sub = kind === 'vm' ? `${esc(st)}${x.boot && x.delay ? ' · boot delay ' + x.delay + ' s' : ''}${x.bootMode === 'StartIfRunning' ? ' · boot: if running' : ''}` : esc(st);
-                        return `<tr><td class="nm">${esc(x.name)}<div class="sub">${sub}</div></td><td class="c">${sw(kind, x, 'power', on, false, on ? 'Running - tap twice to stop' : 'Stopped - tap twice to start')}</td><td class="c">${sw(kind, x, 'boot', x.boot, kind === 'vm' && x.bootMode === 'StartIfRunning', bootTip)}</td></tr>`;
+                        const lock = VIRT_CRIT[`${kind}:${x.name}`] ? ' <span title="protected - turning it off asks twice more" style="font-size:.7rem">🛡</span>' : '';
+                        return `<tr><td class="nm">${esc(x.name)}${lock}<div class="sub">${sub}</div></td><td class="c">${sw(kind, x, 'power', on, false, on ? 'Running - tap twice to stop' : 'Stopped - tap twice to start')}</td><td class="c">${sw(kind, x, 'boot', x.boot, kind === 'vm' && x.bootMode === 'StartIfRunning', bootTip)}</td></tr>`;
                     };
                     const err = virt.errors || {};
                     let o = `<div class="sy-h">Virtual machines · ${ago(virt.at)}</div>`;
@@ -902,11 +903,30 @@
                     if (lg.length) o += `<table class="sy-tbl">${lg.map(l => `<tr><td>${l.ok ? '✅' : '⚠️'} ${esc(l.name)} · ${esc(l.what)}${l.msg ? `<br><span style="color:#f87171">${esc(l.msg)}</span>` : ''}</td><td style="white-space:nowrap;color:var(--muted)">${ago(l.at)}</td></tr>`).join('')}</table>`;
                     el.innerHTML = o;
                 }
+                // PROTECTED (Fable+Carbon review 11-26, L "fix all of it"): turning one of these OFF (power or at boot) needs a red 3rd tap with the reason.
+                var VIRT_CRIT = {   // var, not const: paintVirt can run before this line (module TDZ scar)
+                    'ctr:cloudflared': 'takes luissolutions.us and every tunnelled site offline',
+                    'ctr:site': 'takes luissolutions.us (hub, console) offline',
+                    'ctr:npm': 'breaks the reverse proxy for the local sites',
+                    'ctr:vaultwarden': 'takes your password vault offline',
+                    'ctr:ollama-gate': 'cuts the local models off from the sites',
+                    'vm:dc1': 'takes the LOU domain down (sign-ins, DNS standby)',
+                    'vm:agent-vm': 'stops the Telegram bots (CompMan, Tutor, Analyst)'
+                };
                 $('#sy-virt').addEventListener('click', e => {
                     const b = e.target.closest('.sy-sw'); if (!b || b.classList.contains('busy')) return;
                     const kind = b.dataset.vk, name = b.dataset.vn, what = b.dataset.vw, on = b.dataset.von !== '1';
                     const k2 = `${kind}:${name}:${what}`;
                     const go = () => { virtArm = null; virtPend[k2] = Date.now(); req({ host: 'se', action: 'virt', kind, name, what, on }, `${name}: ${what === 'power' ? (on ? 'start' : (kind === 'vm' ? 'shut down' : 'stop')) : 'at boot ' + (on ? 'on' : 'off')} sent`); paintVirt(); };
+                    const crit = !on && VIRT_CRIT[`${kind}:${name}`];
+                    const verb = what === 'boot' ? 'turn off At boot for' : (kind === 'vm' ? 'shut down' : 'stop');
+                    if (crit) {   // two arming taps, then the send: tap 1 -> warning, tap 2 -> last chance, tap 3 -> go
+                        if (virtArm && virtArm.k === k2 && Date.now() < virtArm.until) {
+                            if (virtArm.step >= 2) return go();
+                            virtArm = { k: k2, step: 2, until: Date.now() + 5000, ask: `⚠ Last tap: ${verb} ${name}. This ${crit}.` };
+                        } else virtArm = { k: k2, step: 1, until: Date.now() + 5000, ask: `⚠ ${name} is protected: turning it off ${crit}. Tap twice more to ${verb} it.` };
+                        paintVirt(); setTimeout(paintVirt, 5100); return;
+                    }
                     if (what === 'boot') return go();
                     if (virtArm && virtArm.k === k2 && Date.now() < virtArm.until) return go();
                     virtArm = { k: k2, until: Date.now() + 4000, ask: `Tap again to ${on ? 'start' : (kind === 'vm' ? 'shut down' : 'stop')} ${name}` };

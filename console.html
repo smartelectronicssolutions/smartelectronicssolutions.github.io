@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.376"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.377"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1314,6 +1314,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
 <script type="module">
         import { database, ref, onValue, push, set, update, remove, get, query, limitToLast, auth as __auth, onAuthStateChanged as __onAuth } from './assets/js/firebase-init.js?v=20261011b';
         import { orderByChild, equalTo } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js';   // shared-tab (guest) reads
+        // PHOTO FIX WHEN se IS DOWN (handoff #1 + 11-26 review): load the resize helper at page start, so a photo sent after the page's
+        // host (luissolutions.us = se) went away still has it. If it never loaded, the senders below upload the original file instead.
+        // firebase-init.js is a static import, so its later dynamic import() comes from the module map, no network.
+        window.__dcImgUpP = window.__dcImgUpP || import('./apps/assets/js/imgupload.js').catch(e => { console.warn('[console] imgupload preload failed', e); return null; });
         // 1.0.278 TWO-TAP CONFIRM (L 2026-11-21 "keep the click method all around ... the remove tab button changes then you press it
         // again in a certain time"): no browser confirm() boxes. First tap turns the button red with the question, a second tap inside
         // 3 s does it, otherwise it goes back. window.__dcArm(btn, text) -> true only on the second tap. Shared with the other modules.
@@ -1493,6 +1497,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             let changed = false;
             for (const k of PREF_KEYS) { const rv = remote[prefKey(k)]; if (rv === undefined || rv === null) continue;
                 let lv = null; try { lv = localStorage.getItem(k); } catch (_) {}
+                if (rv === '') { if (lv !== null) { try { localStorage.removeItem(k); changed = true; } catch (_) {} } continue; }   // '' = cleared on another device (removeItem hook) -> remove, never store '' (11-26 review: '' flipped newest-first + forced a reload)
                 if (String(rv) !== lv) { try { localStorage.setItem(k, String(rv)); changed = true; } catch (_) {} } }
             DC.prefsReady = true;
             // keys this browser has and the account doesn't yet -> add them to the account
@@ -4503,7 +4508,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 S.att.push(a); paint();
                 try {
                     let up = null;
-                    if (img) { const { uploadImage } = await import('./apps/assets/js/imgupload.js');   // resized JPEG, same helper as the 👥 pane
+                    if (img) { const IU = await window.__dcImgUpP; const uploadImage = IU && IU.uploadImage;   // resized JPEG, same helper as the 👥 pane (preloaded; missing -> the catch below sends the original)
                         // PHOTO FALLBACK (2026-10-25, L: "sometimes I take a picture on my phone and it doesn't load in"): a big iPhone
                         // photo can fail the in-browser resize (decode/memory) - send the original file instead of dropping it.
                         try { up = await uploadImage({ file: f, basePath: `${DC.uid}/console/attach`, name: 'chat-photo', lockKey: 'kit-' + Date.now() + Math.random(), maxW: DC.fullImg ? 10000 : 2048, quality: DC.fullImg ? 0.95 : 0.9 }); }
@@ -6983,7 +6988,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (r.length < 12 || r.split(/\s+/).length < 3 || /^```/.test(r)) return '';
             try {
                 const res = await fetch(OLLAMA, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ model: LIVE_MODEL, stream: false, options: { temperature: 0.2 }, messages: [{ role: 'system', content: BETTER_SYS }, { role: 'user', content: 'Message to rewrite:\n<<<\n' + r + '\n>>>' }] }) });
+                    body: JSON.stringify({ model: LIVE_MODEL, stream: false, keep_alive: '30m', options: { temperature: 0.2, num_ctx: 4096, num_predict: 256 }, messages: [{ role: 'system', content: BETTER_SYS }, { role: 'user', content: 'Message to rewrite:\n<<<\n' + r + '\n>>>' }] }) });
+                if (!res.ok) return '';   // same options as the live enhance (11-26 review): no model reload after Send
                 const data = await res.json();
                 let b = String((data.message && data.message.content) || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim().replace(/^["'“”]+|["'“”]+$/g, '').trim();
                 const norm = s => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -9088,8 +9094,16 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         const tid = P.open, other = P.other, box = $('#dc-peer-in'); if (!tid) return;
         const cap = (box.value || '').trim(); const ph = box.placeholder; box.placeholder = '📷 sending the photo…'; box.disabled = true;
         try {
-            const { uploadImage } = await import('./apps/assets/js/imgupload.js');
-            const up = await uploadImage({ file, basePath: `${P.me}/images/chat`, name: 'chat-photo' });
+            const IU = await (window.__dcImgUpP || import('./apps/assets/js/imgupload.js').catch(() => null));   // preloaded at page start (se-down fix)
+            let up = null;
+            try { up = await IU.uploadImage({ file, basePath: `${P.me}/images/chat`, name: 'chat-photo' }); }
+            catch (e) {   // helper missing (host down) or the resize failed: send the original, same folder
+                console.warn('peer photo: helper failed, sending the original', e);
+                const m = await import('./assets/js/firebase-init.js?v=20261011b');
+                const path = `${P.me}/images/chat/${Date.now()}_${String(file.name || 'photo.jpg').replace(/[^\w.\-]+/g, '_').slice(-80)}`;
+                const r = m.storageRef(m.storage, path); await m.uploadBytes(r, file, { contentType: file.type || 'image/jpeg' });
+                up = { url: await m.getDownloadURL(r), path };
+            }
             const text = cap || '📷 photo', ts = Date.now(), e2e = isE2EThread(tid);
             await push(ref(database, `share/chat/${tid}/messages`), { from: P.me, name: P.myName, text: e2e ? await encText(sendSecret(), text) : text, ...(e2e ? { enc: encMode() } : {}), img: up.url, imgPath: up.path, ts });
             const tab = tid.startsWith('tab-'), prevMine = P.index[tid] || {};
