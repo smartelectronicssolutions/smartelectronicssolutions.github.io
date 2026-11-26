@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.368"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.371"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1465,6 +1465,13 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             Storage.prototype.setItem = function (k, v) { _set.call(this, k, v);
                 if (this === window.localStorage && PREF_KEYS.includes(k) && DC.base && DC.prefsReady) {
                     prefDirty[prefKey(k)] = String(v); clearTimeout(prefT);
+                    prefT = setTimeout(() => { const d = prefDirty; prefDirty = {}; update(ref(database, `${DC.base}/settings/prefs`), d).catch(() => {}); }, 800); } };
+            // 1.0.369 (L 2026-11-26 "Make sure text size saves on user account"): a REMOVE never reached the account, so picking M
+            // (= no key) or Reset left the old S/L in settings/prefs and the next load put it back. A removed pref is now stored as ''.
+            const _rm = Storage.prototype.removeItem;
+            Storage.prototype.removeItem = function (k) { _rm.call(this, k);
+                if (this === window.localStorage && PREF_KEYS.includes(k) && DC.base && DC.prefsReady) {
+                    prefDirty[prefKey(k)] = ''; clearTimeout(prefT);
                     prefT = setTimeout(() => { const d = prefDirty; prefDirty = {}; update(ref(database, `${DC.base}/settings/prefs`), d).catch(() => {}); }, 800); } };
         } catch (_) {}
         async function syncPrefs() {
@@ -7173,6 +7180,22 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                   for (const w of qn(text).match(/[A-Za-z][A-Za-z']*/g) || []) { const l = w.toLowerCase(); if (w === l) lows.add(l); else if (!caps.has(l)) caps.set(l, w); }
                   out = out.replace(/[A-Za-z][A-Za-z'’]*/g, w => { const l = qn(w).toLowerCase(); return (w === w.toLowerCase() && caps.has(l) && !lows.has(l)) ? caps.get(l).replace(/'/g, w.includes('’') ? '’' : "'") : w; }); }
                 if (norm(out) === norm(text)) return { why: 'no change (case only)' };
+                // LIGHT MODE (1.0.370, L 2026-11-26 "Lighten up the enhance rewrites they seem to be somewhat buggy sometimes"). The
+                // 11-26 enhanceLog: "The box pi" -> "The box is pi" (added a word), "aso" -> "ASAP" and "How me" -> "How's" (guessed),
+                // "`_trash`" -> "_trash_" (broke code), "Gemini-to-Unreal" -> "Gemini to Unreal" (ate hyphens), "And this" -> "and this".
+                // A rewrite is now a spelling pass only: same words in the same order, each one equal or a near-miss typo fix
+                // (edit distance <= 2), never lower-cased, and code / path / symbol characters untouched. Anything else = keep his text.
+                if (/[`\\]|:\/\/|[A-Za-z]:[\\/]/.test(text)) return { why: 'light: code or path, kept yours' };
+                { const W = s => qn(s).match(/[A-Za-z0-9][A-Za-z0-9']*/g) || [];
+                  const tw = W(text), ow = W(out);
+                  if (tw.length !== ow.length) return { why: 'light: added or dropped a word, kept yours' };
+                  for (let i = 0; i < tw.length; i++) { const a = tw[i], b = ow[i], al = a.toLowerCase(), bl = b.toLowerCase();
+                      const ax = al.replace(/'/g, ''), bx = bl.replace(/'/g, ''), maxd = ax.length <= 4 ? 1 : 2;   // short words: one letter off at most ("aso" -> "ASAP" is a guess, not a fix)
+                      const swap = ax.length === bx.length && [...ax].sort().join('') === [...bx].sort().join('');   // "teh" -> "the"
+                      if (al !== bl && (a.length < 3 || (ax !== bx && lev(ax, bx) > maxd && !swap))) return { why: 'light: changed a word (' + a + ' -> ' + b + '), kept yours' };
+                      if (a[0] !== a[0].toLowerCase() && b[0] === b[0].toLowerCase()) return { why: 'light: lower-cased ' + a + ', kept yours' }; }
+                  const sym = s => (s.match(/[-_/#*()\[\]{}<>=+~|@&%$^]/g) || []).join('');
+                  if (sym(qn(out)) !== sym(qn(text))) return { why: 'light: changed symbols, kept yours' }; }
                 return { out };
             }
             if (hooks) window.__dcAcceptGuards = acceptGuards;   // test hook
