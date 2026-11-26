@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="version" content="1.0.72">
+    <meta name="version" content="1.0.74">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Control Hub</title>
     <link rel="stylesheet" href="assets/css/master.css">
@@ -680,6 +680,10 @@
                 .sy-line { white-space: pre-wrap; word-break: break-all; font-size: 0.76rem; line-height: 1.4; padding: 8px 10px; margin: 6px 0 0; border: 1px solid var(--border); border-radius: 8px; background: rgba(127,127,127,.08); user-select: all; }
                 .sy-qr { margin: 10px 0 6px; } .sy-qr svg { display: block; width: 180px; height: 180px; background: #fff; padding: 6px; border-radius: 8px; }
                 .sy-grp { color: var(--muted); font-size: 0.68rem; }
+                /* 1.0.73 (L 11-26 "machines tab: offline red, online green"): live dot from the Pi ping (console/systems/live) */
+                .cl-chip.sy-up { border-color: #22c55e; } .cl-chip.sy-down { border-color: #ef4444; }
+                .sy-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; background: var(--muted); }
+                .sy-up .sy-dot { background: #22c55e; } .sy-down .sy-dot { background: #ef4444; }
                 .sy-arm.armed { border-color: #e05555; color: #e05555; font-weight: 600; }
                 html.hub-guest .owner-only { display: none !important; }
             </style>
@@ -694,7 +698,7 @@
                 // svc-systems (owner login) or a kdaemon whose capabilities list the 'systems' tool. No agent = no card, even with stale machines.
                 const SY_OWNER_UID = '7cIh8rrhVNOjjj5CBDgb3IlqzEh2';   // same value as HUB_OWNER_UID below (separate module)
                 let sysAgent = false;
-                let base = null, jobsBase = null, myUid = '', member = false, metaHost = '', hubName = 'se', list = {}, hosts = {}, uptime = {}, catalog = {}, peers = {}, powerCaps = {}, powerState = {}, cur = localStorage.getItem('sy-host') || 'se';
+                let base = null, jobsBase = null, myUid = '', member = false, metaHost = '', hubName = 'se', list = {}, hosts = {}, uptime = {}, catalog = {}, peers = {}, powerCaps = {}, powerState = {}, live = {}, cur = localStorage.getItem('sy-host') || 'se';
                 // 1.0.51 FPI identify: type names + small type icons (same drawings as the FPI's own Connected page). Hoisted (no TDZ).
                 var FPI_TN = { camera: 'Camera', nvr: 'NVR / DVR', switch: 'Switch', ap: 'Access point', encoder: 'Encoder', audio: 'Amp / audio', controller: 'Controller', other: 'Other' };
                 function fpiIcon(t) {
@@ -720,7 +724,8 @@
                     document.querySelectorAll('.sy-hubname').forEach(e => { e.textContent = hubName; });
                     const ids = Object.keys(list).sort((a, b) => (list[a].order || 9) - (list[b].order || 9) || a.localeCompare(b));
                     if (ids.length && !list[cur]) cur = ids[0];
-                    $('#sy-hosts').innerHTML = ids.map(id => `<button class="cl-chip${id === cur ? ' on' : ''}" data-h="${esc(id)}" title="${esc(list[id].note || '')}">${esc(list[id].label || id)}${list[id].group ? ` <span class="sy-grp">· ${esc(list[id].group)}</span>` : ''}</button>`).join('') || '<span style="font-size:0.8rem;color:var(--muted)">Sign in to see machines.</span>';
+                    const upOf = id => { const l = live[id]; if (l && Date.now() - (l.at || 0) < 600000) return !!l.up; const u = uptime[id]; return u && u.now ? !!u.now.up : null; };   // 1.0.73: Pi live ping (10 min fresh), else svc-systems uptime
+                    $('#sy-hosts').innerHTML = ids.map(id => { const up = upOf(id); return `<button class="cl-chip${id === cur ? ' on' : ''}${up === true ? ' sy-up' : up === false ? ' sy-down' : ''}" data-h="${esc(id)}" title="${up === true ? 'Online' : up === false ? 'Offline' : 'Status unknown'}${list[id].note ? ' - ' + esc(list[id].note) : ''}"><i class="sy-dot"></i>${esc(list[id].label || id)}${list[id].group ? ` <span class="sy-grp">· ${esc(list[id].group)}</span>` : ''}</button>`; }).join('') || '<span style="font-size:0.8rem;color:var(--muted)">Sign in to see machines.</span>';
                     const h = hosts[cur] || {}, r = h.run || {};
                     let o = '';
                     if (r.state === 'running') o += `<div class="cl-sum">⏳ ${r.mode === 'scan' ? 'Scanning' : 'Pulling'} ${esc(cur)}… (scan ~20 s)</div>`;
@@ -1184,6 +1189,7 @@
                     onValue(ref(database, `${base}/peers`), s => { peers = s.val() || {}; paint(); });
                     onValue(ref(database, `${base}/powerCaps`), s => { powerCaps = s.val() || {}; paint(); });
                     onValue(ref(database, `${base}/power`), s => { powerState = s.val() || {}; paint(); });
+                    onValue(ref(database, `${base}/live`), s => { live = s.val() || {}; paint(); });   // 1.0.73 Pi droplet-power live_loop
                     onValue(ref(database, `${base}/add`), s => { const a = s.val(); if (a && Date.now() - a.at < 600000) $('#sy-addmsg').textContent = (a.state === 'done' ? '✅ ' : a.state === 'paired' ? '⏳ ' : '⚠ ') + a.msg; });
                 });
             </script>
