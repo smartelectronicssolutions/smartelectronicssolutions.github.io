@@ -28,6 +28,17 @@ const HIP = { cock: 0.045, cockX: 0.012,
     luaX: 0, luaY: -0.1, luaZ: -0.95, llaX: 0, llaY: -1.1, llaZ: -1.2, lhX: 0, lhY: 0, lhZ: 0.3, lFing: 0.5,
     ruaX: 0.45, ruaY: 0, ruaOut: 0.25, rlaBend: 1.2, rlaTwist: -0.9, rhX: 0, rhZ: 0.25 };
 
+// v6 NATURAL POSE (LIVE 2026-11-25, L "make the pose more natural" + "Put v6 live with the hand-on-hip pose"): contrapposto - weight on her left leg (hip up on
+// that side, hand resting on it), right leg free (knee soft, foot turned out, knee drifts in), legs counter-rolled so the
+// feet stay planted, shoulders down and level against the hips, a small head tilt, the hanging arm close to the body with
+// a soft elbow and the palm toward the thigh. HIP6.hip=false = both arms relaxed down (no hand on the hip).
+const HIP6 = { hip: true, cock: 0.07, cockX: 0.028,
+    luaX: 0, luaY: 0.296, luaZ: -0.673, llaX: 0, llaY: -1.312, llaZ: -1.382, lhX: 0.4, lhY: 0.3, lhZ: 0.6, lFing: 0.35,
+    ruaZ: 1.40, ruaX: 0.06, rEl: 0.30, rhZ: -0.08, rhY: -0.15,
+    laZ: 1.40, laX: 0.08, lEl: 0.30,
+    fThX: -0.13, fThY: -0.22, fThZ: -0.01, fKnee: 0.36, fFootX: -0.15, sKnee: 0.02,
+    shDown: 0.06, headTilt: 0.05 };
+
 function textVisemes(word) {   // crude letters -> A/I/U/E/O/X for the text-timed mouth
     const out = [];
     for (const ch of String(word || '').toLowerCase()) {
@@ -78,7 +89,7 @@ class Avatar3D {
         VRMUtils.rotateVRM0(vrm);
         vrm.scene.traverse(n => { n.frustumCulled = false; });
         this.scene.add(vrm.scene);
-        for (const n of ['hips', 'spine', 'chest', 'upperChest', 'neck', 'head', 'leftUpperArm', 'rightUpperArm', 'leftLowerArm', 'rightLowerArm', 'leftHand', 'rightHand', 'leftShoulder', 'rightShoulder'])
+        for (const n of ['hips', 'spine', 'chest', 'upperChest', 'neck', 'head', 'leftUpperArm', 'rightUpperArm', 'leftLowerArm', 'rightLowerArm', 'leftHand', 'rightHand', 'leftShoulder', 'rightShoulder', 'leftUpperLeg', 'rightUpperLeg', 'leftLowerLeg', 'rightLowerLeg', 'leftFoot', 'rightFoot'])
             this.B[n] = vrm.humanoid.getNormalizedBoneNode(n);
         this.F = {};   // finger bones (each optional - a model without them just skips the curl)
         for (const side of ['left', 'right']) for (const f of ['Thumb', 'Index', 'Middle', 'Ring', 'Little'])
@@ -141,33 +152,50 @@ class Avatar3D {
         if (B.upperChest) { B.upperChest.rotation.x = -0.012 * breath; B.upperChest.rotation.z = -0.004 * sway; }
         // HIP + GESTURES (2026-11-21, L "hand-on-hip idle with talking gestures"): left hand rests on the hip (weight cocked onto that
         // side), right arm hangs relaxed and gestures while she talks (this.G from _gest: raise + palm-open + beats).
-        const P = HIP;
+        const P = Object.assign({}, HIP6, globalThis.__P6 || {});
         const sw = 0.05 * lag, fw = 0.06 + 0.025 * Math.sin(t * TAU / 5.1 + 0.8) * k;
         if (B.hips) { B.hips.rotation.z += P.cock; B.hips.position.x += P.cockX; }
-        if (B.spine) B.spine.rotation.z += -P.cock * 0.7;
-        if (B.chest) B.chest.rotation.z += -P.cock * 0.35;
-        if (B.leftUpperArm) B.leftUpperArm.rotation.set(P.luaX + 0.01 * breath, P.luaY + 0.01 * lag, P.luaZ + breath * 0.015);
-        if (B.leftLowerArm) B.leftLowerArm.rotation.set(P.llaX, P.llaY, P.llaZ);
-        if (B.leftHand) B.leftHand.rotation.set(P.lhX, P.lhY, P.lhZ);
+        if (B.spine) B.spine.rotation.z += -P.cock * 0.75;
+        if (B.chest) B.chest.rotation.z += -P.cock * 0.45;
+        // legs: undo the hips roll so both feet stay down, then the free (right) leg relaxes
+        const hz = B.hips ? B.hips.rotation.z : 0;
+        if (B.leftUpperLeg) B.leftUpperLeg.rotation.set(0, 0.04, -hz);
+        if (B.leftLowerLeg) B.leftLowerLeg.rotation.set(P.sKnee, 0, 0);
+        if (B.leftFoot) B.leftFoot.rotation.set(-P.sKnee * 0.5, 0, 0);
+        const fk = P.fKnee * (1 + 0.08 * sway * 0.5);
+        if (B.rightUpperLeg) B.rightUpperLeg.rotation.set(P.fThX * (fk / P.fKnee || 1), P.fThY, -hz + P.fThZ);
+        if (B.rightLowerLeg) B.rightLowerLeg.rotation.set(fk, 0, 0);
+        if (B.rightFoot) B.rightFoot.rotation.set(P.fFootX - (fk - P.fKnee) * 0.5, 0, 0);
         const G = this.G || { w: 0, raise: 0, open: 0, beat: 0, out: 0, fwd: 0 }, gw = G.w;
-        const el = 0.30 + 0.03 * Math.sin(t * TAU / 6.2) * k;
+        if (P.hip) {
+            if (B.leftUpperArm) B.leftUpperArm.rotation.set(P.luaX + 0.01 * breath, P.luaY + 0.01 * lag, P.luaZ + breath * 0.015);
+            if (B.leftLowerArm) B.leftLowerArm.rotation.set(P.llaX, P.llaY, P.llaZ);
+            if (B.leftHand) B.leftHand.rotation.set(P.lhX, P.lhY, P.lhZ);
+        } else {   // both arms relaxed: mirror of the right arm's rest, no gestures on this side
+            const elL = P.lEl + 0.03 * Math.sin(t * TAU / 6.6 + 2) * k;
+            if (B.leftUpperArm) B.leftUpperArm.rotation.set(P.laX + 0.01 * breath + 0.012 * lag, 0, -(P.laZ - breath * 0.02 - sw));
+            if (B.leftLowerArm) B.leftLowerArm.rotation.set(0, -elL, 0);
+            if (B.leftHand) B.leftHand.rotation.set(0, 0.25, -P.rhZ);
+        }
+        const el = P.rEl + 0.03 * Math.sin(t * TAU / 6.2) * k;
         if (B.rightUpperArm) B.rightUpperArm.rotation.set(
-            fw + 0.01 * breath - 0.012 * lag + gw * (P.ruaX * G.fwd),
-            gw * P.ruaY,
-            1.27 - breath * 0.02 - sw - gw * (P.ruaOut * G.out + 0.05 * G.beat));
+            P.ruaX + 0.01 * breath - 0.012 * lag + gw * (HIP.ruaX * G.fwd),
+            gw * HIP.ruaY,
+            P.ruaZ - breath * 0.02 - sw - gw * (HIP.ruaOut * G.out + 0.05 * G.beat + (P.ruaZ - 1.27)));
         if (B.rightLowerArm) B.rightLowerArm.rotation.set(
-            gw * P.rlaTwist * G.open,
-            el + 0.02 * Math.sin(t * TAU / 6.9 + 1) * k + gw * (P.rlaBend * G.raise + 0.16 * G.beat),
+            gw * HIP.rlaTwist * G.open,
+            el + 0.02 * Math.sin(t * TAU / 6.9 + 1) * k + gw * (HIP.rlaBend * G.raise + 0.16 * G.beat),
             0);
-        if (B.rightHand) B.rightHand.rotation.set(gw * P.rhX * G.open, -0.12 * (1 - gw), 0.2 - 0.03 * lag - gw * (P.rhZ * G.open - 0.12 * G.beat));
-        if (B.leftShoulder) B.leftShoulder.rotation.z = 0.035 * breath;
-        if (B.rightShoulder) B.rightShoulder.rotation.z = -0.035 * breath;
+        if (B.rightHand) B.rightHand.rotation.set(gw * HIP.rhX * G.open, P.rhY * (1 - gw), P.rhZ * (1 - gw) - 0.03 * lag - gw * (HIP.rhZ * G.open - 0.12 * G.beat - 0.2));
+        if (B.leftShoulder) B.leftShoulder.rotation.z = -P.shDown + 0.035 * breath;
+        if (B.rightShoulder) B.rightShoulder.rotation.z = P.shDown - 0.035 * breath;
+        this.P6 = P;
         // fingers: soft curl, more toward the little finger, each segment a bit more; thumb rests in toward the palm
         const F = this.F || {}, cv = 1 + 0.06 * Math.sin(t * TAU / 4.7) * k;
         for (const side of ['left', 'right']) {
             const s = side === 'left' ? -1 : 1;
             // left = on the hip: fingers flatter, together; right = opens toward a flat palm while gesturing
-            const cm = side === 'left' ? P.lFing : 1 - 0.65 * gw * G.open;
+            const cm = side === 'left' ? (P.hip ? P.lFing : 0.85) : 1 - 0.65 * gw * G.open;
             [['Index', 0.18], ['Middle', 0.24], ['Ring', 0.3], ['Little', 0.36]].forEach(([f, a]) => {
                 ['Proximal', 'Intermediate', 'Distal'].forEach((seg, i) => { const b = F[side + f + seg]; if (b) b.rotation.set(0, 0, s * a * cv * cm * (1 + i * 0.25)); });
             });
@@ -224,7 +252,7 @@ class Avatar3D {
         if (B.upperChest) B.upperChest.rotation.y = yr * 0.12;
         const sw = this.sway || 0;   // weight shift from _pose: neck/head tilt back against the hips roll so the eyes stay level-ish
         if (B.neck) B.neck.rotation.set(-pr * 0.4, yr * 0.35, -0.009 * sw);
-        if (B.head) B.head.rotation.set(-pr * 0.6, yr * 0.53, -yr * 0.04 - 0.018 * sw);
+        if (B.head) B.head.rotation.set(-pr * 0.6, yr * 0.53, -yr * 0.04 - 0.018 * sw + ((this.P6 && this.P6.headTilt) || 0));
         if (B.hips) B.hips.rotation.y = yr * 0.05;
 
         const em = vrm.expressionManager; if (!em) return;
