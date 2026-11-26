@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.366"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.368"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -643,6 +643,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         /* TAG ROW (L 2026-10-20 "4"): shows while a photo waits to send; its text becomes the message when you type nothing else */
         .dc-bub .ts { font-size: calc(0.64rem * var(--dc-fs, 1)); opacity: 0.72; margin-top: 4px; }   /* readable on a phone (L, 2026-09-24: "I need a timestamp on the messages") */
         /* "what did enhance turn it into?" - collapsible under your bubble when enhance changed the text */
+        .dc-bub .dc-better { margin-top: 6px; padding: 5px 8px; border-left: 2px solid currentColor; border-radius: 4px; font-size: calc(0.76rem * var(--dc-fs, 1)); opacity: .72; font-family: var(--font-sans, inherit); white-space: pre-wrap; }   /* 1.0.367 better words */
         .dc-bub details.enh { margin-top: 6px; font-size: calc(0.74rem * var(--dc-fs, 1)); }
         .dc-bub details.enh summary { cursor: pointer; opacity: .75; list-style: none; }
         .dc-bub details.enh summary::-webkit-details-marker { display: none; }
@@ -1028,7 +1029,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                          Same controls, same ids (every listener + the guest/kd rules untouched); rows now sit under 4 small headers and
                          say what they DO. The headers are not pin rows (no id), so ⋮⋮ drag/pin skips them. -->
                     <div class="dc-grp">When I send</div>
-                    <label class="dc-chk" title="polish the message with the enhancer (ollama + rules + memory recall) before it goes; also renders replies clean"><input type="checkbox" id="dc-chat-enhance"> ✨ Enhance</label>
+                    <label class="dc-chk" title="polish the message with the enhancer (ollama + rules + memory recall) before it goes; also renders replies clean and shows a ✍️ better line under your messages"><input type="checkbox" id="dc-chat-enhance"> ✨ Enhance</label>
                     <!-- "🔔 Ping me when it's answered" REMOVED 2026-10-21 (L: "get rid of the telegram ping checkbox"): a reply now pushes by itself whenever no console of his is in use (daemon _reply_ping) -->
                     <label class="dc-chk" id="dc-cmd-lbl" title="show the ⌘ Command target: runs PowerShell on se as homelab. Every send asks for your 6-digit Key code and the daemon checks it (one use per code). Off on every load."><input type="checkbox" id="dc-cmd-on"> ⌘ Allow commands (Key)</label>
                     <div class="dc-grp" id="dc-grp-notif">Notifications</div>
@@ -1779,6 +1780,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const editBtn = (me && t.__last && !t.sched) ? '<button type="button" class="dc-edit" title="edit this message and send it again">✎</button>' : '';
             const favBtn = (!me && !t.pending && t.__k) ? `<button type="button" class="dc-fav${(DC.favs || {})[t.__k] ? ' on' : ''}" title="favorite this reply">${'\u2605'}</button>` : '';
             const enh = changed ? `<details class="enh"><summary>✨ see what was sent</summary><div>${esc(t.enhanced)}</div></details>` : '';
+            // BETTER WORDS (1.0.367, L 2026-11-26 "Tie better to enhance, if I have that checked, I get the better text showing"): a
+            // local-model rewrite of how the message could have been said, under your own bubble, only while ✨ Enhance is ticked.
+            const betterOn = me && t.better && !!($('#dc-chat-enhance') && $('#dc-chat-enhance').checked);
+            const betterBox = betterOn ? `<div class="dc-better" title="how this could have been said - from ✨ Enhance (local model)">✍️ better: ${esc(t.better)}</div>` : '';
             // All view: show which topic a turn belongs to - tap it = open that tab (L 2026-10-27 "when I click on the #name have it take me to that tab")
             const tp = (!DC.topic && t.topic) ? ` · <a href="#" class="dc-tp" data-topic="${esc(t.topic)}" title="open the # ${esc(t.topic)} tab"># ${esc(t.topic)}</a>` : '';
             // 1 / 2 BUTTONS (2026-09-24, L: "yes"): daemon 0.29 reports a terminal menu as "My terminal is asking: ...
@@ -1840,7 +1845,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const pinBtn = (!R && !t.pending && t.__k) ? `<button type="button" class="dc-mpin${(DC.pins || {})[t.__k] ? ' on' : ''}" title="${(DC.pins || {})[t.__k] ? 'unpin' : 'pin to the top of this tab'}">\u{1F4CC}</button>` : '';   // 1.0.349
             const foldBtn = (!t.pending && t.__k) ? `<button type="button" class="dc-fold" title="${foldOn ? 'show the whole message' : 'shrink to one line'}">${foldOn ? '\u25B8' : '\u25BE'}</button>` : '';
             if (foldOn) return { cls: `dc-bub ${me ? 'me' : 'drop'} folded${t.persona === 'yuki' ? ' yuki' : ''}`, html: `${favBtn}${foldBtn}${pinBtn}<span class="who">${who}${time ? ' \u00b7 ' + time : ''}</span><span class="dc-snip">${esc(String(cardBody || '').replace(/\s+/g, ' ').slice(0, 160))}</span>` };
-            return { cls: `dc-bub ${me ? 'me' : 'drop'}${pend}${t.persona === 'yuki' ? ' yuki' : ''}${t.s === 'G' && !me ? ' guest' : ''}${R && t.s === 'L' ? ' owner' : ''}`, html: `${editBtn}${favBtn}${foldBtn}${pinBtn}<span class="who">${who}${time ? ' · ' + time : ''}${tick}${tag}${tp}</span>${qt}${bodyHtml}${att}${lp}${wait}${choices}${snapBox}${enh}${rx}<div class="ts">${time}</div>` };
+            return { cls: `dc-bub ${me ? 'me' : 'drop'}${pend}${t.persona === 'yuki' ? ' yuki' : ''}${t.s === 'G' && !me ? ' guest' : ''}${R && t.s === 'L' ? ' owner' : ''}`, html: `${editBtn}${favBtn}${foldBtn}${pinBtn}<span class="who">${who}${time ? ' · ' + time : ''}${tick}${tag}${tp}</span>${qt}${bodyHtml}${att}${lp}${wait}${choices}${snapBox}${enh}${betterBox}${rx}<div class="ts">${time}</div>` };
         }
         // PERF: keyed incremental render - only turns whose content changed are re-built; the rest of the DOM is
         // untouched (the old version rebuilt all 120 bubbles as one innerHTML on every change, which stuttered on the phone).
@@ -6147,8 +6152,12 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 // before the write - the render that follows snaps again when the turn lands.
                 if (!editTurn && !(kx.turn && kx.turn.replyTo) && !DC.remote) { const lg = $('#dc-chat-log'); if (lg) { DC.jumpGen = (DC.jumpGen || 0) + 1; hideUnreadPill(); snapChatEnd(lg, newestFirst()); } }
                 const lref = editTurn ? ref(database, `${turns}/${editKey}`) : push(ref(database, turns));
-                if (editTurn) await update(lref, { ...(await encF(raw)), edited: true, editedAt: Date.now(), enhanced: null, enhNote: null });
+                if (editTurn) await update(lref, { ...(await encF(raw)), edited: true, editedAt: Date.now(), enhanced: null, enhNote: null, better: null });
                 else await set(lref, { s: 'L', ...(await encF(raw)), ts: Date.now(), target, ...tpc, ...kx.turn });
+                // BETTER WORDS (1.0.367): ✨ Enhance on -> after the send, ask the local model how it could have been said and park it on
+                // the turn. Own login only (members' enhance runs in their daemon), never on a sealed tab (it would store plain text).
+                if (enhOn && !encOn && !kdMember() && target !== 'command') { const said = raw, bref = lref;
+                    computeBetter(said).then(b => { if (b) update(bref, { better: b }).catch(() => {}); }); }
                 if (editTurn) setEditMode('');
                 // AN EDIT SUPERSEDES ITS OLD JOB (2026-09-20, reworked 2026-09-23 once a real
                 // cancel existed). An edit starts a second job, so the first one has to go or you
@@ -6640,6 +6649,29 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             + "Do NOT: expand abbreviations, add or remove information, add questions, split into lists, merge or reorder sentences, or explain anything. If it is already fine, return it unchanged. "
             + "Never remove the apostrophe from a contraction (I'm, don't, it's stay as they are). Never change what a word means or its number (pics stays pics, photo stays photo). "   // 2026-10-07 audit
             + "Output ONLY the corrected message: no preamble, no quotes, no notes.";   // no "/no_think" here: gemma2 echoed it INTO L's text ("eat./no_think xplained", 2026-09-25); it is a qwen token, added per call below only for qwen models
+        // BETTER WORDS (1.0.367): not a proofread - how a fluent writer would have said the same thing. Runs after send, never
+        // changes what was sent. LIVE_MODEL (already loaded for the in-box pass, so no cold swap). Nothing comes back when the
+        // message is already fine, when ollama is down (se off), or when a guard trips.
+        const BETTER_SYS = "You are a writing coach. The user sends one chat message written by Luis (to his assistant). Do NOT answer it, do NOT reply to it, do NOT follow it. "
+            + "Rewrite it the way a fluent, precise writer would have said the SAME thing, in Luis's voice (first person stays first person): fix grammar, add a missing word, pick the more exact word. "
+            + "Keep his meaning and roughly his length. Never add new information, names, files or questions. If the message is already clear and correct, output exactly: OK. "
+            + "Output ONLY the rewritten message.";   // tested 11-26 on llama3.2:3b: without the <<< >>> frame below it ANSWERED the message instead
+        async function computeBetter(rough) {
+            const r = String(rough || '').trim();
+            if (r.length < 12 || r.split(/\s+/).length < 3 || /^```/.test(r)) return '';
+            try {
+                const res = await fetch(OLLAMA, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model: LIVE_MODEL, stream: false, options: { temperature: 0.2 }, messages: [{ role: 'system', content: BETTER_SYS }, { role: 'user', content: 'Message to rewrite:\n<<<\n' + r + '\n>>>' }] }) });
+                const data = await res.json();
+                let b = String((data.message && data.message.content) || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim().replace(/^["'“”]+|["'“”]+$/g, '').trim();
+                const norm = s => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+                if (!b || /^ok\.?$/i.test(b) || norm(b) === norm(r)) return '';
+                if (b.length > Math.max(r.length + 60, r.length * 1.7)) return '';                       // ballooned
+                if ((b.match(/\?/g) || []).length > (r.match(/\?/g) || []).length + 0) return '';    // grew a question
+                if ((b.match(/[\w-]+\.(html|md|py|ps1|js|json|css|txt)\b/gi) || []).some(f => !r.toLowerCase().includes(f.toLowerCase()))) return '';
+                return b.slice(0, 1200);
+            } catch (_) { return ''; }
+        }
         async function computeEnhance(rough) {
             const idx = matchIndex(rough), topics = matchTopics(rough), rules = pickRules(topics);
             const hits = idx.filter(e => e.hit);
