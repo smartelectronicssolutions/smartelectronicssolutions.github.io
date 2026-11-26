@@ -5,6 +5,7 @@
 //   av.useAnalyser(actx, analyser, audioEl)   lip-sync from the TTS <audio> analyser
 //   av.pushWord(word, dur) / av.endWords()    text-timed mouth when there is no analyser audio (device voice)
 //   av.setExpression(name, amt) / av.setHead(h | null) / av.blinkNow()
+//   av.lip2                                   true when the lip-sync v2 preview is on (?lip=new / ?lip=old)
 //   av.alphaAt(px, py, r)                     max alpha 0-255 of rendered pixels around canvas px (hit-testing)
 //   av.getView() / av.setView({yaw, pitch, pan})   camera orbit (radians) + up/down pan (fraction of her height); 0,0,0 = straight on
 // The page owns the canvas size (canvas.width/height); this follows it every frame.
@@ -48,6 +49,34 @@ function textVisemes(word) {   // crude letters -> A/I/U/E/O/X for the text-time
     return out.length ? out : ['A'];
 }
 
+// LIP-SYNC v2 PREVIEW (2026-11-26, L "build the lip-sync fix as a preview I can compare"). OFF by default.
+// Turn on: open the page with ?lip=new (sticks in localStorage). Back to the live mouth: ?lip=old.
+const LIP2 = (() => {
+    try {
+        const q = new URLSearchParams(location.search).get('lip');
+        if (q === 'new') localStorage.setItem('avatar3d.lip', 'new');
+        if (q === 'old') localStorage.removeItem('avatar3d.lip');
+        return localStorage.getItem('avatar3d.lip') === 'new';
+    } catch (e) { return false; }
+})();
+// per-viseme mouth size (anime mouths read better small; A widest, U smallest) + overall cap
+const VIS_AMP = { A: 1.0, O: 0.85, E: 0.65, I: 0.55, U: 0.6, X: 0 };
+const LIP2_CAP = 0.72;
+function textVisemes2(word) {   // every letter is a beat: vowels open, m/b/p close, other consonants half-close on the last vowel
+    const out = []; let last = 'A';
+    for (const ch of String(word || '').toLowerCase()) {
+        let v = null;
+        if (ch === 'a') v = 'A'; else if (ch === 'i' || ch === 'y') v = 'I'; else if (ch === 'u' || ch === 'w') v = 'U';
+        else if (ch === 'e') v = 'E'; else if (ch === 'o') v = 'O';
+        if (v) { out.push({ v, a: VIS_AMP[v] }); last = v; }
+        else if ('mbp'.includes(ch)) out.push({ v: 'X', a: 0 });
+        else if (/[a-z]/.test(ch)) out.push({ v: last, a: VIS_AMP[last] * 0.3 });
+    }
+    if (!out.length) out.push({ v: 'A', a: 0.6 });
+    out.push({ v: 'X', a: 0 });   // close between words
+    return out;
+}
+
 async function fetchBuf(url, onProgress) {
     const r = await fetch(url); if (!r.ok) throw new Error('VRM HTTP ' + r.status);
     const total = +r.headers.get('content-length') || 0;
@@ -65,6 +94,7 @@ class Avatar3D {
         this.running = false; this.t = 0; this.B = {};
         this.exprTarget = {}; this.expr = {}; this.manual = null;
         this.I = { next: 1.5, ty: 0, tp: 0, y: 0, p: 0, yaw: 0, pitch: 0, blinkNext: 2, blinkPh: -1, blinkDouble: false, force: false };
+        this.lip2 = LIP2;
         this.visW = { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 }; this.amp = 0; this.tts = null; this.fbuf = null;
         const LA = window.Live2DAvatar;   // reuse the 2.5D engine's audio classifier (read-only) when it is on the page
         this.lip = LA && LA.LipSync ? new LA.LipSync() : null; this.features = LA && LA.features;
@@ -274,18 +304,29 @@ class Avatar3D {
             this.analyser.getFloatFrequencyData(this.fbuf);
             if (this.lip && this.features) {
                 const r = this.lip.update(this.features(this.fbuf, this.actx.sampleRate, this.analyser.fftSize), dt);
-                vis = r.vis; ampT = clamp(0.35 + r.open * 0.8, 0, 1); if (!r.open) ampT = 0;
+                vis = r.vis;
+                if (LIP2) ampT = r.open > 0.04 ? clamp(Math.pow(r.open, 0.85) * (VIS_AMP[vis] || 0.7) * 1.15, 0, 1) : 0;
+                else { ampT = clamp(0.35 + r.open * 0.8, 0, 1); if (!r.open) ampT = 0; }
             } else {   // no classifier: loudness only -> 'aa'
                 let m = -Infinity; for (let i = 2; i < 60 && i < this.fbuf.length; i++) m = Math.max(m, this.fbuf[i]);
                 ampT = clamp((m + 75) / 40, 0, 1); vis = ampT > 0.1 ? 'A' : 'X';
+                if (LIP2) { ampT = ampT > 0.1 ? Math.pow(ampT, 1.2) * 0.85 : 0; if (ampT > 0.55) vis = 'A'; else if (ampT > 0.1) vis = 'O'; }
             }
         } else if (this.tts) {
             const q = this.tts; q.clock += dt;
             const i = Math.floor(q.clock / q.step);
-            if (i < q.queue.length) { vis = q.queue[i]; ampT = vis === 'X' ? 0 : 0.8; } else this.tts = null;
+            if (i < q.queue.length) {
+                const b = q.queue[i];
+                if (LIP2) { vis = b.v; ampT = b.a; } else { vis = b; ampT = vis === 'X' ? 0 : 0.8; }
+            } else this.tts = null;
         }
-        this.amp = ease(this.amp, ampT, dt, 0.045);
-        for (const k in this.visW) { this.visW[k] = ease(this.visW[k], VIS[vis] === k ? 1 : 0, dt, 0.055); if (this.has.has(k)) em.setValue(k, this.visW[k] * this.amp * 0.9); }
+        if (LIP2) {   // fast open, slower close (like real lips); smaller overall
+            this.amp = ease(this.amp, ampT, dt, ampT > this.amp ? 0.035 : 0.075);
+            for (const k in this.visW) { this.visW[k] = ease(this.visW[k], VIS[vis] === k ? 1 : 0, dt, 0.07); if (this.has.has(k)) em.setValue(k, this.visW[k] * this.amp * LIP2_CAP); }
+        } else {
+            this.amp = ease(this.amp, ampT, dt, 0.045);
+            for (const k in this.visW) { this.visW[k] = ease(this.visW[k], VIS[vis] === k ? 1 : 0, dt, 0.055); if (this.has.has(k)) em.setValue(k, this.visW[k] * this.amp * 0.9); }
+        }
     }
 
     draw() { this._fit(); this.renderer.render(this.scene, this.camera); }
@@ -295,7 +336,7 @@ class Avatar3D {
     setHead(h) { this.manual = h ? { yaw: clamp(h.yaw || 0, -1, 1), pitch: clamp(h.pitch || 0, -1, 1) } : null; }
     blinkNow() { this.I.force = true; }
     useAnalyser(actx, analyser, el) { this.actx = actx; this.analyser = analyser; this.audioEl = el; this.fbuf = null; }
-    pushWord(word, dur) { const q = textVisemes(word); this.tts = { queue: q, step: (dur || 0.3) / Math.max(q.length, 1), clock: 0 }; }
+    pushWord(word, dur) { const q = LIP2 ? textVisemes2(word) : textVisemes(word); this.tts = { queue: q, step: (dur || 0.3) / Math.max(q.length, 1), clock: 0 }; }
     endWords() { this.tts = null; }
     alphaAt(px, py, r) {   // render + read in the same task (no preserveDrawingBuffer needed)
         if (!this.renderer || !this.vrm) return 0;
