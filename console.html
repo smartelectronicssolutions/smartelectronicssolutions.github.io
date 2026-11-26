@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.375"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.376"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1891,6 +1891,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // PER-TAB UNSENT DRAFTS + STALE CARD GUARD + TAB LINKS (2026-11-26, Fable+Carbon review):
         // Drafts live in DC.drafts (memory) and mirror to localStorage (24h TTL) ONLY after settings/tabEnc loads and NEVER for 🔒 encrypted tabs.
         const DRAFT_TTL_MS = 24 * 60 * 60 * 1000;
+        // ONE SHARED DRAFT (L 11-26: "keep whatever I type in it across tabs, no need to remember what's in each tab's input" - type it,
+        // swipe to the right tab, send). Every tab maps to this one key; the per-tab callers stay as they are. Still never on disk while an
+        // encrypted tab is open (memory only), and the ⭐ tab keeps its own empty box.
+        const DRAFT_ONE = '__all__';
         const tabEncRaw = n => !!(n && DC.tabEnc && DC.tabEnc[topicKey(n)]);
         function draftStoreKey() { return DC.uid ? 'dc_drafts_' + DC.uid : ''; }
         function draftReadDisk() {
@@ -1907,6 +1911,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         }
         function draftSyncDisk() {
             const sk = draftStoreKey(); if (!sk || !DC.tabEncReady || DC.remote || DC.guest) return;
+            if (tabEncRaw(DC.topic || '')) { try { localStorage.removeItem(sk); } catch (_) {} return; }   // shared draft: nothing on disk while a 🔒 tab is open
             try {
                 const prev = draftReadDisk(), now = Date.now(), out = {};
                 for (const [k, v] of Object.entries(DC.drafts || {})) {
@@ -1936,7 +1941,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         function draftSet(tpc, val) {
             if (DC.remote || tpc === FAV_TAB || tpc === undefined || tpc === null) return;
             DC.drafts = DC.drafts || {};
-            const k = String(tpc || '');
+            const k = DRAFT_ONE;
             const s = String(val || '').slice(0, 4096);
             if (s) DC.drafts[k] = s; else delete DC.drafts[k];
             draftSyncDisk();
@@ -1944,9 +1949,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         function draftGet(tpc) {
             if (DC.remote || tpc === FAV_TAB || tpc === undefined || tpc === null) return '';
             DC.drafts = DC.drafts || {};
-            const k = String(tpc || '');
+            const k = DRAFT_ONE;
             if (Object.prototype.hasOwnProperty.call(DC.drafts, k)) return DC.drafts[k] || '';
-            if (DC.tabEncReady && !tabEncRaw(k)) {
+            if (DC.tabEncReady && !tabEncRaw(DC.topic || '')) {
                 const disk = draftReadDisk();
                 if (disk[k] && disk[k].t) { DC.drafts[k] = String(disk[k].t).slice(0, 4096); return DC.drafts[k]; }
             }
@@ -2393,8 +2398,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     const p = {}; for (const k of Object.keys(ss)) if (k.startsWith(tkey + '__') || k.startsWith('codex_' + tkey + '__') || k === 'cascade__' + tkey || k === 'codex_cascade__' + tkey) p[k] = null;
                     if (Object.keys(p).length) await update(ref(database, `${DC.base}/settings/tabSession`), p);
                 } catch (e) { console.warn('tab model/thread cleanup failed', e); }
-                draftSet(name, '');
-                setTopic('');
+                setTopic('');   // shared draft (L 11-26): deleting a tab keeps what is typed in the box
                 if (status) status.textContent = tk.length
                     ? `# ${name} removed · ${tk.length} message${tk.length === 1 ? '' : 's'} kept, now untagged in All`
                       + (inflight ? ` · ${inflight} reply still on its way redirected` : '')
