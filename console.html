@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.355"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.356"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -5232,8 +5232,12 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         }
         window.__dcLocalSystem = (uid, brain) => { const o = DC.uid; DC.uid = uid; return localSystem(brain).finally(() => { DC.uid = o; }); };   // test hook
         async function localReply(prompt, tpc, turns) {
-            let brain = 'local';
+            let brain = 'local', ctx2 = false, acts = null;
             if (DC.uid) { try { const b = (await get(ref(database, `${DC.uid}/chat/bot/brain`))).val(); if (BOT_BRAIN_NAMES[b]) brain = b; } catch (_) {} }
+            // 1.0.356 YUKI REBUILD (L 2026-11-25): while {uid}/chat/bot/ctx === 2 the owner's page sends only the conversation and
+            // the server builds her prompt (persona + who Luis is + lorebook + tools). Rollback = clear that one value. If the
+            // server says no (ok:false), this same turn is re-asked the old way, so a reply always lands.
+            if (DC.uid && !DC.guest) { try { ctx2 = (await get(ref(database, `${DC.uid}/chat/bot/ctx`))).val() === 2; } catch (_) {} }
             const brainLabel = brain === 'local' ? 'home server' : (BOT_BRAIN_NAMES[brain] || brain);
             const pendRef = push(ref(database, turns));
             await set(pendRef, { s: 'D', who: DC.botWho || 'Bot', text: `…thinking (${brainLabel})`, ts: Date.now(), pending: true, local: true, brainAI: 'local', ...tpc });   // her name on the bubble when she has one
@@ -5244,14 +5248,18 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (hist.length && hist[hist.length - 1].role === 'user') hist.pop();   // the turn we just wrote - re-added below as the prompt
             let reply = '';
             try {
-                const sysPrompt = await localSystem(brain);
                 const hdrs = { 'Content-Type': 'application/json' };
                 if (__auth.currentUser) { try { hdrs.Authorization = 'Bearer ' + await __auth.currentUser.getIdToken(); } catch (_) {} }
-                const ctl = new AbortController(); const tmr = setTimeout(() => ctl.abort(), 180000);
-                const res = await fetch(BOT_CHAT_URL, { method: 'POST', headers: hdrs, signal: ctl.signal,
-                    body: JSON.stringify({ model: MODEL, brain, stream: false, messages: [{ role: 'system', content: sysPrompt }, ...hist, { role: 'user', content: prompt }] }) });
-                clearTimeout(tmr);
-                const data = await res.json();
+                const askBot = async viaCtx2 => {
+                    const msgs = viaCtx2 ? [...hist, { role: 'user', content: prompt }] : [{ role: 'system', content: await localSystem(brain) }, ...hist, { role: 'user', content: prompt }];
+                    const ctl = new AbortController(); const tmr = setTimeout(() => ctl.abort(), 180000);
+                    try { const res = await fetch(BOT_CHAT_URL, { method: 'POST', headers: hdrs, signal: ctl.signal,
+                        body: JSON.stringify({ model: MODEL, brain, stream: false, ...(viaCtx2 ? { ctx: 2 } : {}), messages: msgs }) });
+                        return await res.json(); } finally { clearTimeout(tmr); }
+                };
+                let data = await askBot(ctx2);
+                if (ctx2 && data && data.ok === false) { console.info('[bot-ctx2] server said no, asking the old way:', data.error); data = await askBot(false); }
+                else if (ctx2) { if (data.mood) (window.__dcMood = window.__dcMood || {})[pendRef.key] = String(data.mood); acts = data.actions || null; }
                 if (data.brainNote) console.info('[bot-brain]', data.brainNote);
                 reply = String((data.message && data.message.content) || data.error || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim() || '(empty reply)';
                 // [MEMORY:key=value] tags -> {uid}/chat/bot/memory (Yuki's convention, kept); never shown in the bubble
@@ -5261,6 +5269,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             let encR; try { encR = await encFields(topic, reply); } catch (_) { encR = { text: '🔒 reply withheld - it could not be encrypted on this device', enc: null, encKey: null }; }   // 🔒 trial 11-19
             await update(pendRef, { ...encR, pending: null, ts: Date.now() });
             $('#dc-chat-status').textContent = '';
+            // 1.0.356: what she really started on the server this turn (her change_outfit / generate_picture tools)
+            try { if (acts && acts.outfit) { cmpNote('changing outfit…', false, 0); cmpPollOutfit(); } } catch (_) {}
+            try { if (acts && acts.picture && acts.picture.scene && window.__dcCmpPic) window.__dcCmpPic.run('img', String(acts.picture.scene), tpc, turns, { quiet: true, thing: acts.picture.of_you === false }).catch(() => {}); } catch (_) {}
         }
         // ---- COMPANION EXTRA (2026-11-21, L: "retire the online chat, take all those capabilities and bring them into the console
         // app, as an extra - off by default for anyone else but on for me" + "it would work with whichever bot the logged in user
@@ -5473,9 +5484,12 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 try { speechSynthesis.speak(u); } catch (_) { end(false); }
             });
         }
-        async function cmpSay(text) {
+        // 1.0.356: the mood she tagged herself ([MOOD:x], returned by the server under ctx 2) -> the rig's own expressions; no tag = the old guess
+        const CMP_MOOD_MAP = { happy: ['happy', 0.9], warm: ['happy', 0.65], flirty: ['happy', 0.8], excited: ['surprised', 0.85], surprised: ['surprised', 1],
+            embarrassed: ['surprised', 0.55], thinking: ['thinking', 0.85], competitive: ['thinking', 0.6], sleepy: ['neutral', 1], sad: ['thinking', 0.5], neutral: ['neutral', 1] };
+        async function cmpSay(text, mood) {
             cmpStopSpeaking();
-            const gen = CMP.gen, clean = cmpSpeakable(text), m = cmpMood(text);
+            const gen = CMP.gen, clean = cmpSpeakable(text), m = CMP_MOOD_MAP[mood] || cmpMood(text);
             if (CMP.av) CMP.av.setExpression(m[0], m[1]);
             if (!clean || CMP.cfg.voiceOn === false) return;
             cmpEnsureAudio();
@@ -5498,7 +5512,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 CMP.seen.add(k);
                 if ((t.topic || '') !== topic || Date.now() - (t.ts || 0) > 5 * 60 * 1000) continue;
                 const v = encShow(t); if (!v || v.encLocked || !v.text) continue;
-                cmpSay(v.text);
+                cmpSay(v.text, (window.__dcMood || {})[k]);
             }
         };
         // ---- Front mode: pinch / move / wheel / double-tap reset (+ 3D camera), saved per avatar per device (onlinechat's keys) ----
@@ -5714,6 +5728,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // what this message is, for the send path: 'img' | 'anim' | null. Counts plain messages so "more" stops meaning a picture after 3 of them.
         function cmpPicAsk(raw) {
             if (!CMP.flag || !DC.uid || DC.remote || DC.guest || cmpTarget() !== 'local' || !raw || raw.startsWith('/')) return null;
+            if (CMP.cfg.ctx === 2 && (CMP_FIT_RE.test(raw) || /\[attached (?:photo|image) "/.test(raw))) return null;   // 1.0.356: "wear the outfit in this photo" is hers to answer, not a picture ask
             if (CMP_ANIM_RE.test(raw)) return 'anim';
             if (CMP_IMG_RE.test(raw) || (CMP_PIC.last !== null && CMP_MORE_RE.test(raw))) return 'img';
             if (CMP_PIC.last !== null && ++CMP_PIC.miss >= 3) { CMP_PIC.last = null; CMP_PIC.miss = 0; }
@@ -5733,11 +5748,11 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             return { name, type, size: blob.size, url };
         }
         const cmpPick = a => a[Math.floor(Math.random() * a.length)];
-        async function cmpPicRun(kind, raw, tpc, turns) {
+        async function cmpPicRun(kind, raw, tpc, turns, opt) {   // opt (1.0.356): { quiet, thing } when she started the picture herself - no canned line after her own reply
             const more = kind === 'img' && CMP_PIC.last !== null && CMP_MORE_RE.test(raw) && !CMP_IMG_RE.test(raw), req = more ? CMP_PIC.last : raw;
             const count = kind === 'img' ? cmpPicCount(raw) : 1;
             if (kind === 'img') { CMP_PIC.last = req; CMP_PIC.miss = 0; }
-            const say = kind === 'anim' ? cmpPick(['Animating now - give me a few minutes...', 'Okay, rendering a clip for you...', "Hold on, the camera's rolling...", 'Animating - this might take a bit...'])
+            const say = opt && opt.quiet ? '🎨' : kind === 'anim' ? cmpPick(['Animating now - give me a few minutes...', 'Okay, rendering a clip for you...', "Hold on, the camera's rolling...", 'Animating - this might take a bit...'])
                 : count > 1 ? cmpPick([`${count} of them? Okay, give me a sec...`, `${count}? Alright, here I go.`, `${count} pictures coming up...`, `Okay! ${count} pics, drawing now.`])
                 : cmpPick(['Alright, just a moment...', "Okay, I'll try my best.", 'Sure, here I go.', 'Okay, here you go.', 'Right now? Okay...']);
             const pendRef = push(ref(database, turns)), k = pendRef.key, run = CMP_PIC.runs[k] = { cancel: false, ctl: null }, att = [];
@@ -5746,7 +5761,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const stEl = $('#dc-chat-status'), stTxt = kind === 'anim' ? '🎬 animating…' : '🎨 drawing…'; if (stEl) stEl.textContent = stTxt;   // replaces the send path's "sending…"
             let fail = '';
             try {
-                const c = await cmpPicCfg(), thing = kind === 'img' && cmpPicThing(req);
+                const c = await cmpPicCfg(), thing = kind === 'img' && (opt && typeof opt.thing === 'boolean' ? opt.thing : cmpPicThing(req));
                 const prompt = thing ? `(masterpiece:1.4), (best quality:1.4), ${cmpPicScene(req)}, (no humans:1.5), detailed, anime style` : `${c.char}, ${cmpPicScene(req)}`;
                 if (thing) c.neg = `${c.neg}, 1girl, 1boy, girl, boy, woman, man, person, people, human, face, portrait`;   // the thing alone
                 if (kind === 'anim') {
@@ -5827,6 +5842,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         function cmpFitAsk(raw) {
             if (!CMP.flag || !DC.uid || DC.remote || DC.guest || cmpTarget() !== 'local' || !raw || raw.startsWith('/')) return null;
             if (!CMP.key || !(cmpDef(CMP.key) || {}).storage) return null;   // only an account-hosted 2.5D rig has outfits
+            if (CMP.cfg.ctx === 2) return null;   // 1.0.356: under ctx 2 every outfit ask goes to her - she answers in her own voice and changes with her change_outfit tool (any costume, no word list)
             const t = raw.trim();
             if (CMP.fitAsk && Date.now() - CMP.fitAsk < 120000) { CMP.fitAsk = 0; if (t.length <= 120 && !CMP_IMG_RE.test(t)) return t.replace(/[.!?~]+$/, ''); }
             CMP.fitAsk = 0;
@@ -5870,7 +5886,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 if (unCfg) { unCfg(); unCfg = null; }
                 if (CMP.flag) {
                     await cmpListAcct();
-                    const keys = ['avatarOn', 'voiceOn', 'avatarStyle', 'avatar', 'avatar3d'];
+                    const keys = ['avatarOn', 'voiceOn', 'avatarStyle', 'avatar', 'avatar3d', 'ctx'];   // ctx (1.0.356): 2 = server-built Yuki
                     const offs = keys.map(k => onValue(ref(database, `${DC.uid}/chat/bot/${k}`), v => { CMP.cfg[k] = v.val(); cmpFillPanel(); cmpSync(); }, () => {}));
                     unCfg = () => offs.forEach(f => { try { f(); } catch (_) {} });
                 } else CMP.cfg = {};
