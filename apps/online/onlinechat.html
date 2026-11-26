@@ -4,7 +4,7 @@
 <head>
   <script>(function(){try{if(localStorage.getItem("ss-theme")==="light")document.documentElement.classList.add("light");var c=localStorage.getItem("oc-colors");if(c==="burgundy"||c==="gray")document.documentElement.classList.add("c-"+c)}catch(e){}})();</script>  <!-- saved light/dark + colour set (1.6.0) before first paint (2026-10-01) -->
     <meta charset="UTF-8">
-    <meta name="version" content="1.6.11">
+    <meta name="version" content="1.6.13">
     <title>Live Chat</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <!-- 1.6.x PWA (like the console): Safari share -> Add to Home Screen opens full screen -->
@@ -1038,6 +1038,24 @@
         const JOURNAL_KEYWORDS = /journal|article|post|wrote|diary|note|entry|blog|writ(e|ing|ten)|published|what did i (write|post|say)|when did i|topic|thought|reflection|read my|log/i;
         const IMAGE_REQUEST = /\b(draw|sketch|paint|generate|make|create|picture|image|photo|selfie|pic|show)\b.{0,60}\b(you\w*)\b|\bclose[- ]?up\b|\bclose[- ]?shot\b|\bnear[- ]?shot\b|\bhead[- ]?shot\b|\bbust[- ]?shot\b|\bhalf[- ]?body\b|\b(draw|generate|create|make|sketch)\b.{0,40}\b(naked|nude|explicit|sexy|lewd)\b|\b(send|give|show)\b.{0,25}\b(pic|photo|image|picture|selfie|drawing|sketch)\b/i;
         const BODY_REQUEST = /\b(your)\s+(butt|ass|body|face|boobs?|breast|chest|back|legs?|tits?|pussy|cock|dick|naked|nude|curves?|figure|shape|head|hair|eyes?|belly|stomach)\b|\b(show|send|see|want|give me|let me see)\b.{0,30}\b(butt|ass|boobs?|breast|tits?|pussy|cock|dick|chest|naked|nude|belly|thighs?|legs?|body)\b|\b(full\s*body|nude|naked|nsfw)\b|\b(you)\b.{0,35}\b(bathing\s*suit|bikini|swimsuit|lingerie|underwear|outfit|costume|uniform|dressed|wearing)\b|\b(bathing\s*suit|bikini|swimsuit|outfit|costume)\b.{0,30}\b(you)\b/i;
+        // OUTFIT BY CHAT (1.6.12, L 2026-11-25: "so I can ask her to change her clothes"): an account-hosted avatar can be
+        // asked in the AI chat - "change your clothes", "put on a red dress", "wear jeans and a hoodie". Static match, no LLM;
+        // the clothing words go to the same outfit service the Persona Save uses (requestOutfit). "change your clothes" with
+        // nothing named -> the bot asks what, and the next message (within 2 min) is the outfit.
+        const OUTFIT_REQUEST = /^\s*(?:\w+,\s*)?(?:(?:hey|ok|okay|please|can you|could you|would you|will you|go|now|and)[\s,!]+)*(change\s+(?:your\s+)?(?:clothes|outfit|clothing)|change\s+(?:in)?to|switch\s+(?:your\s+)?(?:clothes|outfit)|swap\s+(?:your\s+)?(?:clothes|outfit)|get\s+(?:changed|dressed)|dress\s+(?:up\s+)?(?:in|as)|new\s+outfit|put\s+on|wear|try\s+on)\b(.*)$/i;
+        const OUTFIT_WORDS = /\b(dress|gown|shirt|t-?shirt|tee|top|blouse|hoodie|sweater|cardigan|jacket|coat|blazer|vest|tank|skirt|jeans|pants|trousers|shorts|leggings|tights|suit|uniform|kimono|yukata|bikini|swimsuit|robe|pajamas|pyjamas|onesie|overalls|apron|armor|armour|costume|outfit|clothes|lingerie|scarf|boots|sneakers|heels|hat|cap|gloves|socks|maid|nurse|witch|school\s*girl|cheerleader)\b/i;
+        let outfitAsk = 0;
+        function outfitWanted(q) {
+            if (!currentUser || !(avDef(VS.avatarKey) || {}).storage) return null;   // account-hosted avatars only
+            const t = String(q || '').trim();
+            if (outfitAsk && Date.now() - outfitAsk < 120000) { outfitAsk = 0; if (t.length <= 120 && !IMAGE_REQUEST.test(t)) return { what: t.replace(/[.!?~]+$/, '') }; }
+            outfitAsk = 0;
+            const m = t.match(OUTFIT_REQUEST); if (!m) return null;
+            const what = m[2].replace(/^[\s,:-]*(?:(?:to|into|in|as|on|please|now)\b[\s,]*)*/i, '').replace(/[\s,]*(?:please|for me|now)?[\s.!?~]*$/i, '').trim();
+            const explicit = !/^(put\s+on|wear|try\s+on)$/i.test(m[1].replace(/\s+/g, ' '));
+            if (!explicit && !OUTFIT_WORDS.test(what)) return null;   // "put on some music" is not an outfit
+            return { what };
+        }
         const MORE_REQUEST = /^\s*(more|another\s*(one)?|again|one more|do it again|send more|sure|ok|okay|yes|yeah|yep|go ahead|do it)\s*[!~.]*\s*$/i;
 
         // Parse "send 3 images" / "5 pictures" / "give me 2 pics" — capped at 5
@@ -1723,6 +1741,24 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             if (chatHistory.length > 12) chatHistory = chatHistory.slice(-12);
 
             try {
+                // Bypass LLM for outfit changes (see OUTFIT_REQUEST)
+                const fit = outfitWanted(question);
+                if (fit) {
+                    if (!fit.what) {
+                        outfitAsk = Date.now();
+                        const reply = 'Sure! What should I change into?';
+                        chatHistory.push({ role: 'assistant', content: reply }); sendMessage(BOT_NAME, reply, 'happy');
+                        return;
+                    }
+                    const msg = await requestOutfit('wearing ' + fit.what);
+                    const ok = !msg || /^changing/.test(msg);
+                    const reply = ok
+                        ? ['Okay, getting changed - give me a minute...', 'Be right back, changing...', 'Ooh, okay! One minute...'][Math.floor(Math.random() * 3)]
+                        : 'I can\'t change right now (' + msg + ').';
+                    chatHistory.push({ role: 'assistant', content: reply }); sendMessage(BOT_NAME, reply, ok ? 'happy' : 'thinking');
+                    return;
+                }
+
                 // Bypass LLM for video requests — long-running, async
                 if (isAnimateReq) {
                     const presets = [

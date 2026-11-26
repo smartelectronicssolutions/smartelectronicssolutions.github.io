@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.352"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.355"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -1514,7 +1514,22 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             //     (visibility / pageshow / focus) re-reads the latest turns once and redraws, so a stale or frozen view heals itself.
             const scheduleChatRender = () => { if (DC.renderPend) return; DC.renderPend = setTimeout(() => { DC.renderPend = null; requestAnimationFrame(() => { if (!DC.remote) renderChat(DC.ownTurns || {}); }); }, 120); };
             DC.scheduleChatRender = scheduleChatRender;
-            onValue(query(ref(database, `${DC.base}/chat/turns`), limitToLast(120)), s => { DC.ownTurns = s.val() || {}; if (!DC.remote) scheduleChatRender(); });
+            // 1.0.354 PINS STAY (L 2026-11-25: "If a message is pinned keep it alive in the chat like a favorited"): a 📌 turn older than
+            // the last 120 is fetched by key once and drawn in its tab like any other (the daemon's archive no longer clears pinned turns).
+            DC.pinTurns = DC.pinTurns || {};
+            const dcWithPins = obj => {
+                const want = Object.keys(DC.pins || {}).filter(k => !obj[k]);
+                for (const k of want) {
+                    if (DC.pinTurns[k]) { obj[k] = DC.pinTurns[k]; continue; }
+                    if (DC.pinTurns[k] === null || (DC.pinFetch || {})[k]) continue;   // gone, or already asked
+                    (DC.pinFetch = DC.pinFetch || {})[k] = 1;
+                    get(ref(database, `${DC.base}/chat/turns/${k}`)).then(s => { DC.pinTurns[k] = s.val() || null; delete DC.pinFetch[k];
+                        if (DC.pinTurns[k] && DC.ownTurns && !DC.ownTurns[k]) { DC.ownTurns = { ...DC.ownTurns, [k]: DC.pinTurns[k] }; scheduleChatRender(); } }).catch(() => { delete DC.pinFetch[k]; });
+                }
+                return obj;
+            };
+            DC.withPins = dcWithPins;
+            onValue(query(ref(database, `${DC.base}/chat/turns`), limitToLast(120)), s => { DC.ownTurns = dcWithPins(s.val() || {}); if (!DC.remote) scheduleChatRender(); });
             if (!DC.wakeWired) {
                 DC.wakeWired = true;
                 const chatWake = () => {
@@ -1522,7 +1537,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                     if (Date.now() - (DC.lastWake || 0) < 1500) return;   // visibility + focus + pageshow fire together: one re-read
                     DC.lastWake = Date.now();
                     get(query(ref(database, `${DC.base}/chat/turns`), limitToLast(120)))
-                        .then(s => { DC.ownTurns = s.val() || {}; scheduleChatRender(); }).catch(() => scheduleChatRender());
+                        .then(s => { DC.ownTurns = dcWithPins(s.val() || {}); scheduleChatRender(); }).catch(() => scheduleChatRender());
                 };
                 document.addEventListener('visibilitychange', chatWake);
                 window.addEventListener('pageshow', chatWake);
@@ -1534,7 +1549,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             onValue(ref(database, `${DC.base}/settings/tabEnc`), s => { DC.tabEnc = s.val() || {}; renderTopics(); }, dcWarn('settings/tabEnc'));   // 🔒 encrypted tabs (trial 11-19)
             onValue(ref(database, `${DC.base}/chat/topics`), s => { DC.topicList = s.val() || {}; renderTopics(); });
             onValue(ref(database, `${DC.base}/chat/favorites`), s => { DC.favs = s.val() || {}; renderChat(DC.chatTurns || {}); });
-            onValue(ref(database, `${DC.base}/chat/pins`), s => { DC.pins = s.val() || {}; renderChat(DC.chatTurns || {}); }, dcWarn('chat/pins'));   // 1.0.349 📌 pins: shared by every device
+            onValue(ref(database, `${DC.base}/chat/pins`), s => { DC.pins = s.val() || {}; if (DC.ownTurns && DC.withPins) DC.ownTurns = DC.withPins({ ...DC.ownTurns }); renderChat(DC.chatTurns || {}); }, dcWarn('chat/pins'));   // 1.0.349 📌 pins: shared by every device
             onValue(ref(database, `${DC.base}/seen/topics`), s => { const v = s.val() || {}; const norm = o => JSON.stringify(Object.keys(o || {}).sort().map(k => [k, o[k] && o[k].t, o[k] && +o[k].ts, o[k] && o[k].k ? Object.keys(o[k].k).sort().join(',') : ''])); const same = norm(v) === norm(DC.seenCloud) && DC.seenLoaded; DC.seenLoaded = true; DC.seenCloud = v; if (!same && !DC.remote) renderChat(DC.ownTurns || DC.chatTurns || {}); },
                 e => { DC.seenLoaded = true; dcWarn('seen/topics')(e); if (!DC.remote) renderChat(DC.ownTurns || DC.chatTurns || {}); });   // read on another device -> clear here. 2026-11-10 (L: 'the top bubble shakes'): our OWN seen write echoes back here - markSeen already set DC.seenCloud, so an identical echo no longer re-draws (and re-lands) the whole chat
             onValue(query(ref(database, `${DC.uid}/todo/todos`), limitToLast(80)), s => renderIdeas(s.val() || {}));
@@ -5647,7 +5662,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 let s = {}; try { const tok = await (await cmpFb()).auth.currentUser?.getIdToken(); s = await (await fetch('https://api.luissolutions.us/avatar-outfit/status', { headers: { 'X-Firebase-Token': tok } })).json(); } catch (_) { cmpPollOutfit(); return; }
                 if (s.state === 'generating' || s.state === 'extracting') { cmpNote('changing outfit…', false, 0); cmpPollOutfit(); return; }
                 if (s.state === 'done') { cmpNote('new outfit: ' + (s.outfit || ''), false, 8000); if (CMP.key && (cmpDef(CMP.key) || {}).storage) cmpLoad(CMP.key); }
-                else if (s.state === 'failed') cmpNote('outfit change failed - outfit unchanged', true, 10000); else cmpNote('');
+                else if (s.state === 'failed') cmpNote('outfit change failed - outfit unchanged', true, 10000);
+                else if (s.state === 'unchanged') cmpNote('outfit: ' + (s.note || 'no change'), false, 6000); else cmpNote('');
             }, 4000);
         }
         // ---- PICTURES (1.0.289, L 11-21: "the send pic have that work in here" / "can the image gen be brought over in the same way") ----
@@ -5799,6 +5815,38 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             }
         }
         window.__dcCmpPic = { ask: cmpPicAsk, run: cmpPicRun, cancel: cmpPicCancel, scene: cmpPicScene, count: cmpPicCount };
+        // ---- OUTFIT BY CHAT (1.0.353, L 2026-11-25: "so I can ask her to change her clothes") ----
+        // Same extra, same target, account-hosted avatar only: "put on a red dress", "wear jeans and a hoodie", "change into a
+        // kimono" never goes to the chat model - the page POSTs the clothing words to the same outfit service the Chat Bot Save
+        // uses and the bot's bubble says it's changing; the avatar reloads itself when the service is done (cmpPollOutfit).
+        // "change your clothes" with nothing named -> the bot asks what, and the next message (within 2 min) is the outfit.
+        // put on / wear / try on only count with a clothing word after them ("put on some music" is chat).
+        const CMP_FIT_RE = /^\s*(?:\w+,\s*)?(?:(?:hey|ok|okay|please|can you|could you|would you|will you|go|now|and)[\s,!]+)*(change\s+(?:your\s+)?(?:clothes|outfit|clothing)|change\s+(?:in)?to|switch\s+(?:your\s+)?(?:clothes|outfit)|swap\s+(?:your\s+)?(?:clothes|outfit)|get\s+(?:changed|dressed)|dress\s+(?:up\s+)?(?:in|as)|new\s+outfit|put\s+on|wear|try\s+on)\b(.*)$/i;
+        const CMP_FIT_WORDS = /\b(dress|gown|shirt|t-?shirt|tee|top|blouse|hoodie|sweater|cardigan|jacket|coat|blazer|vest|tank|skirt|jeans|pants|trousers|shorts|leggings|tights|suit|uniform|kimono|yukata|bikini|swimsuit|robe|pajamas|pyjamas|onesie|overalls|apron|armor|armour|costume|outfit|clothes|lingerie|scarf|boots|sneakers|heels|hat|cap|gloves|socks|maid|nurse|witch|school\s*girl|cheerleader)\b/i;
+        CMP.fitAsk = 0;
+        function cmpFitAsk(raw) {
+            if (!CMP.flag || !DC.uid || DC.remote || DC.guest || cmpTarget() !== 'local' || !raw || raw.startsWith('/')) return null;
+            if (!CMP.key || !(cmpDef(CMP.key) || {}).storage) return null;   // only an account-hosted 2.5D rig has outfits
+            const t = raw.trim();
+            if (CMP.fitAsk && Date.now() - CMP.fitAsk < 120000) { CMP.fitAsk = 0; if (t.length <= 120 && !CMP_IMG_RE.test(t)) return t.replace(/[.!?~]+$/, ''); }
+            CMP.fitAsk = 0;
+            const m = t.match(CMP_FIT_RE); if (!m) return null;
+            const what = m[2].replace(/^[\s,:-]*(?:(?:to|into|in|as|on|please|now)\b[\s,]*)*/i, '').replace(/[\s,]*(?:please|for me|now)?[\s.!?~]*$/i, '').trim();
+            if (/^(put\s+on|wear|try\s+on)$/i.test(m[1].replace(/\s+/g, ' ')) && !CMP_FIT_WORDS.test(what)) return null;
+            return what;   // '' = asked to change, nothing named
+        }
+        async function cmpFitRun(what, tpc, turns) {
+            const post = text => set(push(ref(database, turns)), { s: 'D', who: DC.botWho || 'Bot', text, ts: Date.now(), local: true, brainAI: 'local', ...tpc });
+            if (!what) { CMP.fitAsk = Date.now(); return post('Sure! What should I change into?'); }
+            let code = 0;
+            try { const tok = await (await cmpFb()).auth.currentUser?.getIdToken();
+                const r = await fetch('https://api.luissolutions.us/avatar-outfit', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Firebase-Token': tok }, body: JSON.stringify({ text: 'wearing ' + what }) });
+                code = r.status; } catch (_) {}
+            if (code === 202) { cmpNote('changing outfit.', false, 0); cmpPollOutfit(); return post(cmpPick(['Okay, getting changed - give me a minute...', 'Be right back, changing...', 'Ooh, okay! One minute...'])); }
+            const why = code === 409 ? 'already changing, try in a minute' : code === 403 ? "the outfit service doesn't serve this account" : code ? 'outfit service answered ' + code : 'outfit service unreachable';
+            return post("I can't change right now (" + why + ').');
+        }
+        window.__dcCmpOutfit = { ask: cmpFitAsk, run: cmpFitRun };
         // picture settings: the same chat/bot nodes onlinechat's Persona writes (sdModel, charPrompt, negPrompt)
         async function cmpFillPic() {
             const box = $('#dc-bot-pic'); if (!box) return;
@@ -6111,6 +6159,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 // one Yuki: L's own login + se up -> the same Yuki runs on se with her tools (job target 'yuki'); else the page answers
                 // COMPANION EXTRA pictures (1.0.289): a picture / animate ask to the account's own bot is drawn by the page (never sent to a
                 // chat model or a daemon) - same on both 🦙 paths. Off unless the extra is on; not for an edit or an encrypted tab.
+                if (target === 'local' && !editTurn && !encOn && window.__dcCmpOutfit) { let fit = null; try { fit = window.__dcCmpOutfit.ask(raw); } catch (_) {}   // 1.0.353 outfit by chat
+                    if (fit !== null) { DC._lastSendOk = true; window.__dcCmpOutfit.run(fit, tpc, turns).catch(() => {}); send.disabled = false; ta.focus(); return; } }
                 if (target === 'local' && !editTurn && !encOn && window.__dcCmpPic) { let kind = null; try { kind = window.__dcCmpPic.ask(raw); } catch (_) {}
                     if (kind) { DC._lastSendOk = true; window.__dcCmpPic.run(kind, raw, tpc, turns).catch(() => {}); send.disabled = false; ta.focus(); return; } }
                 const jobTarget = target === 'local' && yukiSe() ? 'yuki' : target;
