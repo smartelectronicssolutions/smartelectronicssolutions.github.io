@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.371"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.372"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -3075,20 +3075,48 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             onValue(query(ref(database, 'public/messages'), limitToLast(80)), s => { siteMsgs = s.val() || {}; paintSite(); });
         }
 
-        // DAEMON UPDATE (2026-10-10). The latest portable daemon lives in Storage (public/kdaemon/, readable without a
-        // login, so a mind in another house can fetch it). Bump these three lines + upload the file for each release.
-        const KDAEMON_LATEST = { version: '0.2.44', size: 387536,
-            sha256: '77321b1d3889dad71bcb8671fa2dc80dfebb685f6b7eb1c6f79b2f8847bd37c8',
-            url: 'https://firebasestorage.googleapis.com/v0/b/persinfo-df93f.appspot.com/o/assistant-console%2Fkdaemon-0.2.44.py?alt=media&token=33fbb7b0-1336-425b-8479-224fc40decb7',
+        // DAEMON UPDATE (2026-10-10; 2026-11-26: live sync from share/release/kdaemon + assistantRelease fallback so this never goes stale).
+        let KDAEMON_LATEST = { version: '0.2.78', size: 688836,
+            sha256: '73fb922f6ab8ab8c77f6bb13d698dc7da3ea000ebf1d7dfdeb409d6cf84d91dc',
+            url: 'https://firebasestorage.googleapis.com/v0/b/persinfo-df93f.appspot.com/o/assistant-console%2Fkdaemon-0.2.78.py?alt=media&token=ffd0f5e2-4492-4033-a7c2-657ed0fbd6e2',
             // 0.2.25+ refreshes the program-owned guides from this manifest (a daemon already on 0.2.25+ does it in the same update job)
-            guides: 'https://firebasestorage.googleapis.com/v0/b/persinfo-df93f.appspot.com/o/assistant-console%2Fguides-0.2.44%2Fmanifest.json?alt=media&token=1d8d8dc9-092f-4b57-9739-145af3b892ab',
-            guidesSha256: '3c35b710a6763b69c39e50f9fb43c43b2a54f847628ef766060b8cef92de46df',
-            notes: '0.2.44: everything since 0.2.35 in one update - Fresh start button (waits for background agents), tabs keep their last exchange, tokens on the wait line, check the campfire, routine command/permission keys (off unless set); 0.2.32: deleting a message that is still being answered now really stops the work, and the daemon can no longer be blocked from starting by a port Windows has reserved; 0.2.31: an update that fails to restart now shows the error and retries by itself (also fixes folders with a space in the name); 0.2.30: a Claude model per tab (Opus / Sonnet / Haiku / Fable, own conversation each); 0.2.29: fresh start at 200K + 10 min idle (handoff note first)' };
+            guides: 'https://firebasestorage.googleapis.com/v0/b/persinfo-df93f.appspot.com/o/assistant-console%2Fguides-0.2.78%2Fmanifest.json?alt=media&token=98a6bcc7-6de0-426a-97b4-357948c15706',
+            guidesSha256: 'fbeb7afdda4addb6a6bf352544bc4f99032a15f33b26096a5b69d895141d244b',
+            notes: '0.2.78: pinned messages kept across auto-archive, console activity log + 7/30-day usage rollups (encrypted-tab redacted), command-engine live step line + silence watchdog, updated console guides.' };
         const _vnum = v => String(v || '').split('.').map(n => parseInt(n, 10) || 0);
         const _volder = (a, b) => { const x = _vnum(a), y = _vnum(b); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) < (y[i] || 0); } return false; };
+        let _kdLatestSynced = false;
+        function _applyKdRelease(v) {
+            if (!v || typeof v !== 'object') return false;
+            const ver = String(v.version || '').trim(), url = String(v.kdaemonUrl || v.url || '').trim(), rsha = String(v.sha256 || '').trim().toLowerCase();
+            const pfx = 'https://firebasestorage.googleapis.com/v0/b/persinfo-df93f.appspot.com/o/assistant-console%2F';
+            if (!/^\d+\.\d+\.\d+$/.test(ver) || !/^[0-9a-f]{64}$/.test(rsha) || !url.startsWith(pfx)) return false;
+            if (_volder(ver, KDAEMON_LATEST.version)) return true;
+            const gUrl = String(v.guidesUrl || v.guides || '').trim(), gSha = String(v.guidesSha256 || '').trim().toLowerCase();
+            const gOk = gUrl.startsWith(pfx) && /^[0-9a-f]{64}$/.test(gSha);
+            const changed = ver !== KDAEMON_LATEST.version || rsha !== KDAEMON_LATEST.sha256;
+            KDAEMON_LATEST = {
+                version: ver, size: +v.size || KDAEMON_LATEST.size, sha256: rsha, url,
+                guides: gOk ? gUrl : KDAEMON_LATEST.guides, guidesSha256: gOk ? gSha : KDAEMON_LATEST.guidesSha256,
+                notes: String(v.notes || KDAEMON_LATEST.notes),
+            };
+            if (changed && DC.lastMeta) paintKdUpdate(DC.lastMeta);
+            return true;
+        }
+        function _syncKdLatest() {
+            if (_kdLatestSynced) return; _kdLatestSynced = true;
+            import('./assets/js/firebase-init.js?v=20261011b').then(fm => {
+                fm.onValue(fm.ref(database, 'share/release/kdaemon'), s => {
+                    if (!_applyKdRelease(s.val())) fm.get(fm.ref(database, 'assistantRelease')).then(s2 => _applyKdRelease(s2.val())).catch(() => {});
+                }, () => {
+                    fm.get(fm.ref(database, 'assistantRelease')).then(s2 => _applyKdRelease(s2.val())).catch(() => {});
+                });
+            }).catch(() => {});
+        }
         function paintKdUpdate(m) {
             const box = document.getElementById('dc-kd-update'); if (!box) return;
             if (!m || m.daemonKind !== 'kdaemon') { box.hidden = true; paintKdName(null); return; }
+            _syncKdLatest();
             paintKdName(m);
             const cur = ((String(m.version || '').match(/kdaemon\s+([\d.]+)/) || [])[1]) || '?';
             const old = cur === '?' || _volder(cur, KDAEMON_LATEST.version);
