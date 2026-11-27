@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.385"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.386"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -2123,13 +2123,13 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // existing name MERGES - deliberately, because that is the only way to undo a fork.
         // TAB EDIT POPUP (2026-10-31, L: "the pencil ... a model select in that popup"): name + model for this tab.
         // The value goes on every job from the tab; the daemon's _tabmodel_job answers it. Empty = the main session.
-        const TAB_MODELS = [['', 'Default (🧠 Model in the gear)'], ['claude:claude-opus-5-5', 'Claude Opus 5.5'], ['claude:claude-sonnet-5-5', 'Claude Sonnet 5.5'],
-            ['claude:claude-haiku-5-5', 'Claude Haiku 5.5'], ['claude:claude-fable-5-2', 'Claude Fable 5.2'],
-            ['codex:default', 'Codex (ChatGPT login)'], ['grok:grok-4', 'Grok (xAI API key)'],   // daemon 0.76 (2026-11-15)
-            ['copilot:auto', 'Copilot (GitHub login)'],   // daemon 0.85 (2026-11-18): GitHub's quota, chat only
-            ['local:qwen3:14b', 'Local: qwen3:14b'],
-            ['local:qwen3.8:27b', 'Local: qwen3.8:27b'], ['local:gemma4:26b', 'Local: gemma4:26b'], ['local:gemma2:9b', 'Local: gemma2:9b'], ['local:dolphin3:latest', 'Local: dolphin3'],
-            ['colibri:glm-5.2', 'Colibri: GLM-5.2 (local, very slow)']];   // daemon 0.80 (2026-11-15): one run at a time, an answer can take hours
+        const TAB_MODELS = [['', 'Default (Main brain)'], ['claude:claude-opus-5-5', 'Claude Opus'], ['claude:claude-sonnet-5-5', 'Claude Sonnet'],
+            ['claude:claude-haiku-5-5', 'Claude Haiku'], ['claude:claude-fable-5-2', 'Claude Fable'],
+            ['codex:default', 'Codex'], ['grok:grok-4', 'Grok'],   // daemon 0.76 (2026-11-15)
+            ['copilot:auto', 'Copilot'],   // daemon 0.85 (2026-11-18): GitHub's quota, chat only
+            ['local:qwen3:14b', 'Local ? qwen3:14b'],
+            ['local:qwen3.8:27b', 'Local ? qwen3.8:27b'], ['local:gemma4:26b', 'Local ? gemma4:26b'], ['local:gemma2:9b', 'Local ? gemma2:9b'], ['local:dolphin3:latest', 'Local ? dolphin3'],
+            ['colibri:glm-5.2', 'Colibri (GLM-5.2)']];   // daemon 0.80 (2026-11-15): one run at a time, an answer can take hours
         const tabModelOf = n => (DC.tabModels || {})[topicKey(n)] || '';
         // 1.0.292 BOT TAB (L 2026-11-21: "add yuki to just a tab ... show the avatar same as if main was selected, except just in that tab"):
         // a tab whose model pick is BOT_TAB belongs to the account's own bot (companion extra). While that tab is open the EFFECTIVE
@@ -2159,8 +2159,17 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const tem = ((DC.lastMeta || {}).tabEngineModels || {})[k], mdl = String(v || '').slice(k.length + 1);
             return Array.isArray(tms) && tms.includes(k) && Array.isArray(tem) && tem.includes(mdl); };
         // kdaemon 0.2.55: the picker list = the fixed list + every model the daemon's meta.tabEngineModels offers that the list lacks
+        const prettyTabModel = (k, m) => {
+            if (k === 'gemini') {
+                const gm = String(m).match(/^gemini-[\d.]+-([a-z]+)(?:-([a-z]+))?$/i);
+                if (gm) { const fam = gm[1][0].toUpperCase() + gm[1].slice(1), tr = (gm[2] || '').toLowerCase();
+                    const tag = tr === 'xhigh' ? ' (XHigh)' : tr === 'medium' ? ' (Med)' : tr === 'low' ? ' (Low)' : '';
+                    return 'Gemini ' + fam + tag; }
+                return 'Gemini ' + String(m).replace(/^gemini-/i, '').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()); }
+            if (k === 'local') return 'Local ? ' + m;
+            return k.charAt(0).toUpperCase() + k.slice(1) + ' ? ' + m; };
         const tabModelList = () => { if (!DC.kdaemon) return TAB_MODELS; const tem = (DC.lastMeta || {}).tabEngineModels || {}, have = new Set(TAB_MODELS.map(x => x[0])), extra = [];
-            for (const [k, ms] of Object.entries(tem)) if (Array.isArray(ms)) for (const m of ms) { const v = k + ':' + m; if (!have.has(v)) extra.push([v, (k === 'local' ? 'Local' : k.charAt(0).toUpperCase() + k.slice(1)) + ': ' + m]); }
+            for (const [k, ms] of Object.entries(tem)) if (Array.isArray(ms)) for (const m of ms) { const v = k + ':' + m; if (!have.has(v)) extra.push([v, prettyTabModel(k, m)]); }
             return TAB_MODELS.concat(extra); };
         // 1.0.256 (L 2026-11-19 "when they click it shows login instructions"): an engine the admin GRANTED (meta.grants.engines) on a
         // 0.2.33+ daemon is listed even when its CLI is not on that PC yet - as "(set up first)"; picking it shows the install + sign-in
