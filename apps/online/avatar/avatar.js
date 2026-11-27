@@ -105,9 +105,11 @@
 
     constructor(canvas, opts) {
       this.canvas = canvas; this.base = opts.base || './'; this.opts = opts;
-      const gl = canvas.getContext('webgl', { premultipliedAlpha: true, alpha: true, antialias: true, preserveDrawingBuffer: !!opts.preserve });
+      const glOpts = { premultipliedAlpha: true, alpha: true, antialias: true, preserveDrawingBuffer: !!opts.preserve };
+      const gl2 = canvas.getContext('webgl2', glOpts);
+      const gl = gl2 || canvas.getContext('webgl', glOpts);
       if (!gl) throw new Error('WebGL not available');
-      this.gl = gl;
+      this.gl = gl; this.isGL2 = !!gl2;
       this.rand = rng(opts.seed || 61);
       this.t = 0; this.running = false; this.manual = null; this.lip = new LipSync();
       this.expr = { name: 'neutral', target: {}, w: 0, cur: {} };
@@ -214,8 +216,15 @@
       const gl = this.gl;
       const tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      const pow2 = n => n > 0 && (n & (n - 1)) === 0;
+      if (this.isGL2 || (pow2(img.naturalWidth || img.width) && pow2(img.naturalHeight || img.height))) {
+        gl.generateMipmap(gl.TEXTURE_2D);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      } else {
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      }
       const fine = p.name === 'mouth_inner' ? 3 : /mouth|eye|brow/.test(p.name) ? 8 : /face|front_hair|glasses/.test(p.name) ? 16 : 32;
       const cols = clamp(Math.ceil(p.w / fine), 2, 64), rows = clamp(Math.ceil(p.h / fine), 2, 80);
       const n = (cols + 1) * (rows + 1);
