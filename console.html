@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.386"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.387"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -295,7 +295,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         .dc-nav button { width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--dc-purple); background: var(--dc-panel); color: var(--dc-purple); font-size: calc(1.05rem * var(--dc-fs, 1)); line-height: 1; cursor: pointer; box-shadow: 0 4px 14px var(--dc-shadow); display: none; align-items: center; justify-content: center; padding: 0; }
         .dc-nav button.show { display: flex; }
         /* 1.0.363 (L 11-26 "move the latest chip ... in between the up and down arrow"): the latest pill is now this middle nav button; the floating pill is never shown */
-        .dc-nav .dc-nav-latest { background: var(--dc-purple); color: var(--dc-panel); font-weight: 700; }
+        .dc-nav .dc-nav-latest { font-weight: 700; } .dc-nav .dc-nav-latest.unr { background: var(--dc-purple); color: var(--dc-panel); }   /* 1.0.385 (L 2026-11-27 'solid if there are unread in tab, not solid if no unread'): outline like the arrows, solid while DC.unseenLeft has lines */
         .dc-latest { display: none !important; }
         .dc-topic-new { position: fixed; left: 50%; top: 96px; transform: translate(-50%, 0); z-index: 2100;   /* fixed to the visual viewport; JS keeps it under the bar when the keyboard is up (2026-09-19) */ width: min(86%, 320px); background: var(--dc-panel); border: 1px solid var(--dc-purple); border-radius: var(--dc-r-lg); padding: 14px; box-shadow: 0 10px 30px var(--dc-shadow); }
         .dc-del { position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%); z-index: 6; width: min(86%, 320px); background: var(--dc-panel); border: 1px solid var(--dc-amber); border-radius: var(--dc-r-lg); padding: 14px; box-shadow: 0 10px 30px var(--dc-shadow); }
@@ -4300,7 +4300,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 if (el !== want) log.insertBefore(el, want);
                 prev = el;
             }
-            if (R || favView) DC.unseenLeft = null;   // no seen tracking here -> no unread pill aim
+            if (R || favView) { DC.unseenLeft = null; latestSolid(); }   // no seen tracking here -> no unread pill aim
             const unseen = (!R && !favView) ? watchSeenChat(log, obj, DC.topic || '') : [];   // SEEN ON SCREEN (2026-11-09)
             // snap to the newest end only when the visible turns or the tab changed - a star toggle, an edit or a
             // reply landing in an existing bubble keeps your scroll position (2026-09-18)
@@ -4398,7 +4398,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // 1.0.363: the same show rule drives the middle nav button (between ⤒ and ⤓); a tap runs the pill's snap
             const nb = document.getElementById('dc-tolatest');
             if (nb) { if (!nb.dataset.w) { nb.dataset.w = '1'; nb.addEventListener('mousedown', e => e.preventDefault()); nb.addEventListener('click', () => { const p = $('.dc-chat .dc-latest'); if (p && p.onclick) p.onclick(); }); }
-                nb.textContent = nf ? '⇈' : '⇊'; nb.classList.toggle('show', away && log.scrollHeight > log.clientHeight + 200);
+                nb.textContent = nf ? '⇈' : '⇊'; latestSolid(); nb.classList.toggle('show', away && log.scrollHeight > log.clientHeight + 200);
                 if (window.__dcToTopCheck) window.__dcToTopCheck(); }
         }
         (function wireLatestPill() {
@@ -4484,7 +4484,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // a tab with 5+ new lines and never pointed at a reply that filled in up-thread. Now, whenever replies in this tab are still
         // unseen and off screen, the pill shows "N unread" with the arrow toward the oldest of them (reading order), and one tap lands
         // there. All unseen on screen (they are being counted) or none left = no pill.
+        function latestSolid() { const nb = document.getElementById('dc-tolatest'); if (nb) nb.classList.toggle('unr', !!(DC.unseenLeft && DC.unseenLeft.size)); }   // 1.0.385: solid = this tab still has unread
         function aimUnreadPill(log, left) {
+            latestSolid();
             if (!log || !log.clientHeight || !left || !left.size) { hideUnreadPill(); return; }
             const nf = newestFirst(), lr = log.getBoundingClientRect();
             let els = Array.from(log.children).filter(el => el.dataset && left.has(el.dataset.k));
@@ -5344,7 +5346,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const left = new Set(items.map(it => it.k));
             watchSeen(log, items, ts => { if (ts) markSeen(cur, ts); const u = unreadTopics(DC.chatTurns || obj); DC._unread = u.unread; DC._unreadN = u.counts; DC._unread[cur] = false; renderTopics(); aimUnreadPill(log, left); },
                 (k, ts) => { left.delete(k); markSeenKey(cur, k, ts); });
-            DC.unseenLeft = left;
+            DC.unseenLeft = left; latestSolid();
             return items;
         }
         // ALL = EVERY TAB (1.0.282, L 2026-11-21: "All counts every tab's unread, and reading anywhere marks it read everywhere"):
@@ -5361,7 +5363,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             watchSeen(log, items, () => { const u = unreadTopics(DC.chatTurns || obj); DC._unread = u.unread; DC._unreadN = u.counts; DC._unread[''] = false; renderTopics(); aimUnreadPill(log, left); },
                 (k, ts) => { left.delete(k); got.add(k); const tp = topicOf[k]; if (tp === undefined) return; markSeenKey(tp, k, ts);
                     let wm = 0; for (const it of per[tp]) { if (!got.has(it.k)) break; wm = it.ts; } if (wm) markSeen(tp, wm); });   // that tab's watermark moves only past its own contiguous seen lines
-            DC.unseenLeft = left;
+            DC.unseenLeft = left; latestSolid();
             return items;
         }
         // LAND ON THE FIRST UNREAD (2026-11-10, L: "open each chat at the first unread and count down as you read"): opening at the
