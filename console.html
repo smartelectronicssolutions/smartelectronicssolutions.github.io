@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.384"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.385"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -2213,10 +2213,14 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             if (!DC.mbStash) { DC.mbLblTxt = txt ? txt.textContent : ''; DC.mbLblTitle = lbl ? lbl.title : '';
                 const f = document.createDocumentFragment(); while (sel.firstChild) f.appendChild(sel.firstChild); DC.mbStash = f; delete sel.dataset.mbsig; }
             const mm = DC.lastMeta || {}, cur = mbCur();
+            if (mm.mainBrainError && mm.mainBrainErrorAt && mm.mainBrainErrorAt > (DC.mbErrSeen || 0) && Date.now() - mm.mainBrainErrorAt < 10 * 60e3) {
+                DC.mbErrSeen = mm.mainBrainErrorAt; const st = document.getElementById('dc-chat-status');
+                if (st) { const msg = '? Main brain switch failed: ' + mm.mainBrainError; st.textContent = msg; setTimeout(() => { if (st.textContent === msg) st.textContent = ''; }, 10000); } }
             let pend = DC.mbPending || null;
-            if (pend && (mm.mainBrain === pend.v || Date.now() - pend.at > 3 * 60e3)) pend = DC.mbPending = null;
+            if (pend && (mm.mainBrain === pend.v || (!pend.live && Date.now() - pend.at > 3 * 60e3))) pend = DC.mbPending = null;
             const sw = String(mm.mainBrainSwitching || '') || (pend ? pend.v : '');
-            const groups = MAIN_BRAINS.map(([g, os]) => [g, os.slice()]), known = new Set(MAIN_BRAINS.flatMap(x => x[1].map(o => o[0])));
+            const gemAvail = Array.isArray((mm.tabEngineModels || {}).gemini) && mm.tabEngineModels.gemini.length ? new Set(mm.tabEngineModels.gemini.map(m => 'gemini:' + m)) : null;
+            const groups = MAIN_BRAINS.map(([g, os]) => [g, (g === 'Gemini' && gemAvail) ? os.filter(o => gemAvail.has(o[0])) : os.slice()]), known = new Set(groups.flatMap(x => x[1].map(o => o[0])));
             for (const v of [cur, sw]) { const k = v.split(':')[0], gi = k === 'claude' ? 0 : k === 'gemini' ? 1 : -1;
                 if (gi >= 0 && v.length > k.length + 1 && !known.has(v)) { known.add(v); groups[gi][1].push([v, v.slice(k.length + 1)]); } }   // e.g. a Gemini id not in the list
             const sig = groups.map(g => g[1].map(o => o[0]).join(',')).join('|');
@@ -7932,14 +7936,16 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // no /model typed, settings/defaultTabModel never touched. The option already in use = no job.
             if (kdAb('mainBrain')) { const mm = DC.lastMeta || {}, st = $('#dc-chat-status'), cur = String(mm.mainBrain || '') || 'claude:opus';
                 const say = t => { if (st) { st.textContent = t; setTimeout(() => { if (st.textContent === t) st.textContent = ''; }, 8000); } };
+                if (!DC.daemonOn) { if (DC.syncModelSel) DC.syncModelSel(); say('? daemon is offline'); return; }
                 if (!v || v === cur || mm.mainBrainSwitching || DC.mbPending || !DC.base) { if (DC.syncModelSel) DC.syncModelSel(); return; }
                 const nm = (ms.selectedOptions[0] && ms.selectedOptions[0].dataset.base) || v;
-                DC.mbPending = { v, at: Date.now() }; if (DC.syncModelSel) DC.syncModelSel();   // "(switching…)" at once
+                DC.mbPending = { v, at: Date.now(), live: true }; if (DC.syncModelSel) DC.syncModelSel();   // "(switching…)" at once
                 const j = push(ref(database, `${DC.base}/jobs`));
                 set(j, { kind: 'main_brain', brain: v, status: 'queued', createdAt: Date.now(), ping: false }).then(() => {
                     if (st) st.textContent = '🧠 switching the main brain to ' + nm + '…';
                     let stop = null, fin = false;
-                    stop = onValue(j, s => { const r = s.val(); if (fin || (r && r.status !== 'done' && r.status !== 'error')) return;
+                    stop = onValue(j, s => { const r = s.val(); if (fin) return;
+                        if (r && (r.status === 'queued' || r.status === 'running')) { if (DC.mbPending) DC.mbPending.at = Date.now(); return; }
                         fin = true; setTimeout(() => stop && stop(), 0);
                         DC.mbPending = null; if (DC.syncModelSel) DC.syncModelSel();
                         const msg = r ? (r.reply || r.error || '') : ''; if (msg) say(msg); });
