@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.378"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.380"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -2178,7 +2178,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             codex: 'Codex (ChatGPT login): its own conversation, tools + files, no browser. If it answers "not signed in": on the PC run codex login.' };
         // 1.0.320 ALL MODELS (Force model removed, L 2026-11-22): a tab's pencil model wins; a tab with none uses the 🧠 Model default
         // (DC.defaultModel = settings/defaultTabModel, saved); '' = the main session. The bot tab never falls through to the default.
-        const jobTabModel = n => { let tm = tabModelOf(n); if (tm === BOT_TAB) return ''; if (!tm) tm = DC.defaultModel || ''; if (!tm) return ''; if (!DC.kdaemon) return tm; return kdKindOk(tm) ? tm : ''; };
+        // 1.0.378 MAIN BRAIN: on a daemon with meta.abilities.mainBrain the saved default is ignored - an unpencilled tab goes to the main brain.
+        const jobTabModel = n => { let tm = tabModelOf(n); if (tm === BOT_TAB) return ''; if (!tm && !kdAb('mainBrain')) tm = DC.defaultModel || ''; if (!tm) return ''; if (!DC.kdaemon) return tm; return kdKindOk(tm) ? tm : ''; };
         // 1.0.322 FAVOURITES (L 2026-11-22 "Trim the model list to 6-8 favourites, with the rest under More"): 🧠 Model and the pencil
         // show these + Default + whatever is currently picked; a "More… (N more)" row swaps in the whole list (🧠 Model: until reload).
         const MODEL_FAVS = new Set(['claude:claude-opus-5-5', 'claude:claude-sonnet-5-5', 'claude:claude-fable-5-2', 'gemini:gemini-4-carbon-high',
@@ -2189,11 +2190,51 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         // fills the "Every tab without its own model" group of 🧠 Model - the same list (and the same kdaemon filter) as the pencil picker
         // 1.0.372 (L 2026-11-26 "Clean the dropdown ... get rid of that just give me the options"): no group headers any more -
         // one flat list. The engine options carry data-g="all" (the main-session rungs data-g="main") so they can still be swapped.
-        DC.fillModelAll = () => { const g = document.getElementById('dc-model'); if (!g) return;
+        DC.fillModelAll = () => { const g = document.getElementById('dc-model'); if (!g || kdAb('mainBrain')) return;   // 1.0.378: main-brain mode owns the box
             const want = favList(tabModelList().filter(x => x[0]).filter(([v]) => !(DC.kdaemon && !kdKindOk(v) && !kdSetupNeeded(v))), DC.defaultModel || '', !!DC.modelMore);
             const sig = want.map(x => x[0] + (kdSetupNeeded(x[0]) ? '!' : '')).join('|'); if (g.dataset.sig === sig) return; g.dataset.sig = sig;
             g.querySelectorAll('option[data-g="all"]').forEach(o => o.remove());
             for (const [v, t] of want) { const setup = kdSetupNeeded(v), o = document.createElement('option'); o.value = v; o.dataset.g = 'all'; o.textContent = t + (setup ? ' (set up first)' : ''); o.disabled = setup; g.appendChild(o); } };
+        // 1.0.378 MAIN BRAIN (L 2026-11-27 "that main dropdown should show just the provider i can assign as mains, claude and gemini and their
+        // models; picking one switches the daemon's main brain; this doesn't change the tab pencil select"): only when the daemon publishes
+        // meta.abilities.mainBrain. Then 🧠 Model becomes 🧠 Main brain with two groups; a pick queues {kind:'main_brain', brain}. The legacy
+        // options are parked (same nodes) in DC.mbStash and put back as they were if the ability goes away. Returns true = box painted.
+        const MAIN_BRAINS = [['Claude', [['claude:opus', 'Opus'], ['claude:sonnet', 'Sonnet'], ['claude:fable', 'Fable']]],
+            ['Gemini', [['gemini:gemini-4-neon-high', 'Neon'], ['gemini:gemini-4-carbon-high', 'Carbon'], ['gemini:gemini-4-argon-high', 'Argon'],
+                ['gemini:gemini-4-hydrogen-high', 'Hydrogen'], ['gemini:gemini-3.8-flash-high', 'Flash']]]];
+        const mbCur = () => String((DC.lastMeta || {}).mainBrain || '') || 'claude:opus';
+        DC.mainBrainSel = () => {
+            const sel = document.getElementById('dc-model'), lbl = document.getElementById('dc-model-lbl'); if (!sel) return false;
+            const txt = lbl && [...lbl.childNodes].find(n => n.nodeType === 3);
+            if (!kdAb('mainBrain')) {
+                if (DC.mbStash) {   // ability gone: legacy box back exactly as it was, then the legacy sync repaints it
+                    while (sel.firstChild) sel.removeChild(sel.firstChild); sel.appendChild(DC.mbStash); DC.mbStash = null;
+                    delete sel.dataset.sig; delete sel.dataset.mbsig; sel.disabled = false; DC.mbPending = null;
+                    if (txt) txt.textContent = DC.mbLblTxt; if (lbl) lbl.title = DC.mbLblTitle; }
+                return false; }
+            if (!DC.mbStash) { DC.mbLblTxt = txt ? txt.textContent : ''; DC.mbLblTitle = lbl ? lbl.title : '';
+                const f = document.createDocumentFragment(); while (sel.firstChild) f.appendChild(sel.firstChild); DC.mbStash = f; delete sel.dataset.mbsig; }
+            const mm = DC.lastMeta || {}, cur = mbCur();
+            let pend = DC.mbPending || null;
+            if (pend && (mm.mainBrain === pend.v || Date.now() - pend.at > 3 * 60e3)) pend = DC.mbPending = null;
+            const sw = String(mm.mainBrainSwitching || '') || (pend ? pend.v : '');
+            const groups = MAIN_BRAINS.map(([g, os]) => [g, os.slice()]), known = new Set(MAIN_BRAINS.flatMap(x => x[1].map(o => o[0])));
+            for (const v of [cur, sw]) { const k = v.split(':')[0], gi = k === 'claude' ? 0 : k === 'gemini' ? 1 : -1;
+                if (gi >= 0 && v.length > k.length + 1 && !known.has(v)) { known.add(v); groups[gi][1].push([v, v.slice(k.length + 1)]); } }   // e.g. a Gemini id not in the list
+            const sig = groups.map(g => g[1].map(o => o[0]).join(',')).join('|');
+            if (sel.dataset.mbsig !== sig || !sel.querySelector('optgroup[data-mb]')) {
+                while (sel.firstChild) sel.removeChild(sel.firstChild);
+                for (const [g, os] of groups) { const og = document.createElement('optgroup'); og.label = g; og.dataset.mb = '1';
+                    for (const [v, t] of os) { const o = document.createElement('option'); o.value = v; o.dataset.base = t; o.textContent = t; og.appendChild(o); }
+                    sel.appendChild(og); }
+                sel.dataset.mbsig = sig; }
+            [...sel.options].forEach(o => { o.textContent = o.dataset.base + (sw ? (o.value === sw ? ' (switching…)' : '') : (o.value === cur ? ' (in use)' : '')); });
+            sel.value = sw || cur; sel.disabled = !!sw; sel.style.opacity = '';
+            if (txt) txt.textContent = '🧠 Main brain';
+            if (lbl) lbl.title = (sw ? 'Switching the main brain to ' + sw + '. ' : 'Main brain now: ' + cur + '. ')
+                + 'Switches which brain answers messages from tabs with no pencil model (Claude or Gemini). A tab with its own pencil model keeps it. '
+                + 'Chrome hands need a Claude-pencilled tab while the main brain is Gemini.';
+            return true; };
         function editTab(oldName) {
             const w = document.createElement('div');
             w.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px';
@@ -6858,6 +6899,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // observation, and the tooltip carries the id and its age so a stale one cannot pose as live.
             DC.syncModelSel = () => {
                 const sel = $('#dc-model'), lbl = $('#dc-model-lbl'); if (!sel) return;
+                if (DC.mainBrainSel && DC.mainBrainSel()) { if (lbl) lbl.hidden = false; return; }   // 1.0.378 main-brain mode (daemon ability) owns the box; else it restores the legacy one
                 const mm = DC.lastMeta || {};
                 // 1.0.218 (L 2026-11-15 "it always says switch to and that's causing confusion"): this control sends /model to a TERMINAL
                 // session - a member's kdaemon has none (claude -p per message), so there it only made dead "/model opus" bubbles
@@ -7888,6 +7930,23 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // put the box back to what Droplet is ACTUALLY in (not blank): the switch has been asked
             // for, not confirmed, and the published value only changes when a reply comes back on it.
             if (!e.isTrusted) return; const v = ms.value;
+            // 1.0.378 MAIN BRAIN: on a daemon with meta.abilities.mainBrain a pick queues {kind:'main_brain', brain} (same job shape as wake) -
+            // no /model typed, settings/defaultTabModel never touched. The option already in use = no job.
+            if (kdAb('mainBrain')) { const mm = DC.lastMeta || {}, st = $('#dc-chat-status'), cur = String(mm.mainBrain || '') || 'claude:opus';
+                const say = t => { if (st) { st.textContent = t; setTimeout(() => { if (st.textContent === t) st.textContent = ''; }, 8000); } };
+                if (!v || v === cur || mm.mainBrainSwitching || DC.mbPending || !DC.base) { if (DC.syncModelSel) DC.syncModelSel(); return; }
+                const nm = (ms.selectedOptions[0] && ms.selectedOptions[0].dataset.base) || v;
+                DC.mbPending = { v, at: Date.now() }; if (DC.syncModelSel) DC.syncModelSel();   // "(switching…)" at once
+                const j = push(ref(database, `${DC.base}/jobs`));
+                set(j, { kind: 'main_brain', brain: v, status: 'queued', createdAt: Date.now(), ping: false }).then(() => {
+                    if (st) st.textContent = '🧠 switching the main brain to ' + nm + '…';
+                    let stop = null, fin = false;
+                    stop = onValue(j, s => { const r = s.val(); if (fin || (r && r.status !== 'done' && r.status !== 'error')) return;
+                        fin = true; setTimeout(() => stop && stop(), 0);
+                        DC.mbPending = null; if (DC.syncModelSel) DC.syncModelSel();
+                        const msg = r ? (r.reply || r.error || '') : ''; if (msg) say(msg); });
+                }).catch(err => { DC.mbPending = null; if (DC.syncModelSel) DC.syncModelSel(); say('could not queue the switch: ' + (err.code || err.message)); });
+                return; }
             if (v === '__more') { DC.modelMore = true; if (DC.syncModelSel) DC.syncModelSel(); const st = $('#dc-chat-status'); if (st) st.textContent = '🧠 all models listed - tap 🧠 Model again'; return; }   // 1.0.322 favourites -> whole list
             // 1.0.320 ALL MODELS: an engine id ("gemini:...", "codex:default", "local:...") = the saved default for every tab with no
             // pencil model - no /model is sent. "Default" (member) or a Claude rung clears it, so those tabs follow the main session again.
