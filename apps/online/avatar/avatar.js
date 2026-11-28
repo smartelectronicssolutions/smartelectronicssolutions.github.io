@@ -456,7 +456,10 @@
       const pz = this._ellZ(piv[0], piv[1]) * 0.6;
       const pv = this._rot(piv[0], piv[1], pz, yawA, pitA), pdx = pv[0] - piv[0], pdy = pv[1] - piv[1];
       const cr = Math.cos(P.roll * 0.35), sr = Math.sin(P.roll * 0.35);
-      const breathLift = -P.breath * 5 * K;
+      const fb = !!(this.rig && this.rig.fullbody);
+      const breathAmp = (fb ? 4 : 5) * K;
+      const breathLift = -P.breath * breathAmp;
+      const bodyBreathScale = (P.breath * breathAmp) / Math.max(this.H - piv[1], 1);
       const mo = P.open * this.rig.mouth.max_open, my = this.mouthY, mcx = this.lineC || 612 * K;
       const MR = this.rig.mouth, tuck = MR.inner_tuck || 3, teeth = MR.teeth || 7, depth = MR.inner_depth || 46;
       const faceDrop = (x, y, ly) => mo * 0.62 * smooth(ly - 4 * K, ly + 46 * K, y) * clamp(1 - Math.pow((x - mcx) / (170 * K), 2), 0, 1);
@@ -485,12 +488,15 @@
         }
         if (p.key === 'body' || p.key === 'neck' || p.limb) {
           const by = this.H, x0 = x, y0 = y;
-          const top = clamp((by - y) / (720 * K), 0, 1.2);
-          y = by - (by - y) * (1 + P.breath * 0.012);
+          // 2026-11-27 neck-stretch fix: scale body vertical breath by (H - head.pivot.y) so shoulders/collarbone
+          // rise by the exact same breathLift as the head (was fixed 0.012*H = 19.4 px vs head's 5 px -> 14 px neck accordion).
+          const top = fb ? clamp((by - y) / Math.max(by - piv[1], 1), 0, 1) : clamp((by - y) / (720 * K), 0, 1.2);
+          y = by - (by - y) * (1 + bodyBreathScale);
           // body twist: shoulders follow the head a little, with a slight horizontal squash toward the turn; weight shift
-          // (P.sx) leans the upper body more than the legs
-          x = bpx + (x - bpx) * (1 + P.breath * 0.006) * (1 - Math.abs(P.bodyYaw) * 0.05 * top) + P.bodyYaw * 40 * K * top + P.sx * 0.6 * top;
-          if (p.key === 'neck') { x += (pdx * 0.25 + P.yaw * 10 * K); y += breathLift * 0.6; }
+          // (P.sx) leans the upper body more than the legs (matched closely to head shift on full-body so neck doesn't shear)
+          const bExp = fb ? 0.003 : 0.006, bYawX = fb ? 14 : 40, bSx = fb ? 1.0 : 0.6;
+          x = bpx + (x - bpx) * (1 + P.breath * bExp) * (1 - Math.abs(P.bodyYaw) * 0.04 * top) + P.bodyYaw * bYawX * K * top + P.sx * bSx * top;
+          if (p.key === 'neck') { x += pdx * 0.25 + P.yaw * (fb ? 4 : 10) * K; }
           // seam hiding: the band just under the head/body cut (where long hair crosses it) blends into the head's motion,
           // so hair stays continuous during turns instead of tearing at the cut line
           if (this.cutX) {
