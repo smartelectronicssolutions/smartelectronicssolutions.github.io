@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="version" content="1.1.0">
+  <meta name="version" content="1.1.1">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Firebase Database Viewer</title>
 
@@ -64,9 +64,6 @@
     .file-list { margin: 6px 0 0; padding-left: 18px; }
     .file-list li { margin: 2px 0; }
 
-    .visit-log { list-style: none; padding: 0; margin: 0; }
-    .visit-log li { border-bottom: 1px solid var(--border); padding: 8px 0; }
-
     @media (max-width: 900px) {
       #db-explorer { flex-direction: column; }
       #treeShell { flex: 1; max-width: none; }
@@ -96,7 +93,6 @@
     <div class="tab-bar" role="tablist" aria-label="Database tools">
       <button class="tab-btn active" data-tab="explorer" role="tab" aria-selected="true">Explorer</button>
       <button class="tab-btn" data-tab="storage" role="tab" aria-selected="false">Storage Mover</button>
-      <button class="tab-btn" data-tab="visits" role="tab" aria-selected="false">Visits</button>
     </div>
 
     <!-- TAB 1: Database Explorer -->
@@ -272,28 +268,6 @@
         </div>
       </section>
     </div>
-
-    <!-- TAB 3: Visit Timeline (lazy-loaded after auth on tab open, paginated) -->
-    <div id="tab-visits" class="tab-pane" role="tabpanel">
-      <section class="panel">
-        <div class="row" style="justify-content: space-between; margin-bottom: 10px">
-          <h2 style="margin: 0">Visit Timeline</h2>
-          <button id="refreshVisitsBtn" class="btn-secondary">↻ Refresh</button>
-        </div>
-        <div class="row" style="margin-bottom: 10px">
-          <input type="text" id="ipFilter" placeholder="Filter by IP, visitor name, or page URL…" style="flex: 1; min-width: 220px; padding: 6px 8px" />
-          <select id="sortOrder" style="padding: 6px 8px">
-            <option value="desc">Newest First</option>
-            <option value="asc">Oldest First</option>
-          </select>
-          <span id="visitSummaryBadge" class="badge">—</span>
-        </div>
-        <div id="visit-timeline" class="muted">Open this tab to load visit logs.</div>
-        <div class="row mt12" id="visitMoreWrap" style="display: none">
-          <button id="visitMoreBtn" class="btn-secondary">Show 200 more</button>
-        </div>
-      </section>
-    </div>
   </main>
 
   <script type="module">
@@ -309,7 +283,6 @@
       "pdfs", "questions", "realestate", "resumes", "sensorLookup", "site", "tasks",
     ];
     const TREE_KEY_PAGE = 200;
-    const VISIT_PAGE_SIZE = 200;
 
     let DATABASE_BASE_PATH = "public";
     let authReady = false;
@@ -384,13 +357,12 @@
     }
 
     // -------------------------------------------------------------------
-    // Tabs (lazy activation for Storage Mover and Visits)
+    // Tabs (lazy activation for Storage Mover)
     // -------------------------------------------------------------------
     let storageLoadedForBase = null;
-    let visitsLoadedUid = undefined;
 
     function switchTab(tabName) {
-      if (!["explorer", "storage", "visits"].includes(tabName)) tabName = "explorer";
+      if (!["explorer", "storage"].includes(tabName)) tabName = "explorer";
       activeTab = tabName;
       document.querySelectorAll(".tab-btn").forEach((btn) => {
         const on = btn.dataset.tab === tabName;
@@ -405,13 +377,6 @@
       if (tabName === "storage" && authReady && storageLoadedForBase !== DATABASE_BASE_PATH) {
         storageLoadedForBase = DATABASE_BASE_PATH;
         populateFolderDropdowns().then(() => refreshPreviews());
-      }
-      if (tabName === "visits" && authReady) {
-        const curUid = auth.currentUser?.uid || null;
-        if (visitsLoadedUid !== curUid) {
-          visitsLoadedUid = curUid;
-          loadVisitTimeline();
-        }
       }
     }
 
@@ -1472,114 +1437,10 @@
     });
 
     // -------------------------------------------------------------------
-    // Visit Timeline (#5, #6 — auth-gated without hardcoded UID, 200-row pages)
-    // -------------------------------------------------------------------
-    const visitContainer = $("visit-timeline"), visitSummaryBadge = $("visitSummaryBadge"),
-      visitMoreWrap = $("visitMoreWrap"), visitMoreBtn = $("visitMoreBtn"),
-      ipFilterEl = $("ipFilter"), sortOrderEl = $("sortOrder"), refreshVisitsBtn = $("refreshVisitsBtn");
-
-    let timelineEntries = [];
-    let timelineIpCount = 0;
-    let visitShownLimit = VISIT_PAGE_SIZE;
-
-    function applyTimelineFilters(resetLimit = false) {
-      if (resetLimit) visitShownLimit = VISIT_PAGE_SIZE;
-      const q = (ipFilterEl.value || "").trim().toLowerCase();
-      const sortOrder = sortOrderEl.value || "desc";
-
-      const filtered = timelineEntries.filter((e) => !q || e.ipLower.includes(q) || e.nameLower.includes(q) || e.urlLower.includes(q));
-      filtered.sort((a, b) => (sortOrder === "asc" ? a.ms - b.ms : b.ms - a.ms));
-
-      if (!filtered.length) {
-        visitSummaryBadge.textContent = `0 / ${timelineEntries.length}`;
-        visitContainer.textContent = "No matching visit entries.";
-        visitMoreWrap.style.display = "none";
-        return;
-      }
-
-      const slice = filtered.slice(0, visitShownLimit);
-      visitSummaryBadge.textContent = `${slice.length} of ${filtered.length} hits (${timelineIpCount} IPs)`;
-
-      visitContainer.innerHTML = "";
-      const ul = document.createElement("ul");
-      ul.className = "visit-log";
-      slice.forEach((entry) => {
-        const li = document.createElement("li");
-        const top = document.createElement("div"); top.className = "row";
-        const ts = document.createElement("strong");
-        ts.textContent = entry.ms ? new Date(entry.ms).toLocaleString() : "Unknown time";
-        const ipEl = document.createElement("span"); ipEl.className = "mono muted"; ipEl.textContent = entry.ip;
-        top.append(ts, ipEl);
-        if (entry.name) {
-          const nb = document.createElement("span"); nb.className = "badge"; nb.textContent = entry.name;
-          top.appendChild(nb);
-        }
-        li.appendChild(top);
-        if (entry.url) {
-          const urlEl = document.createElement("div"); urlEl.className = "small-muted mono"; urlEl.textContent = entry.url;
-          li.appendChild(urlEl);
-        }
-        ul.appendChild(li);
-      });
-      visitContainer.appendChild(ul);
-
-      const rem = filtered.length - slice.length;
-      visitMoreWrap.style.display = rem > 0 ? "flex" : "none";
-      if (rem > 0) visitMoreBtn.textContent = `Show ${Math.min(VISIT_PAGE_SIZE, rem)} more (${rem} remaining)`;
-    }
-
-    async function loadVisitTimeline() {
-      if (!auth.currentUser) {
-        timelineEntries = [];
-        visitSummaryBadge.textContent = "Signed out";
-        visitContainer.textContent = "Sign in to view visit logs.";
-        visitMoreWrap.style.display = "none";
-        return;
-      }
-      visitContainer.textContent = "Loading visit timeline…";
-      try {
-        const snap = await get(ref(database, "public/log/visits"));
-        const data = snap.val() || {};
-        const entries = [];
-        let ips = 0;
-        for (const [sipKey, record] of Object.entries(data)) {
-          if (!record || typeof record !== "object") continue;
-          ips++;
-          const ip = String(record.ip || sipKey.replace(/-/g, "."));
-          const name = String(record.name || "");
-          for (const h of Object.values(record.hits || {})) {
-            if (!h) continue;
-            const url = String(h.url || h.page || "");
-            const ms = h.time ? Date.parse(h.time) || 0 : 0;
-            entries.push({ ip, name, url, ms, ipLower: ip.toLowerCase(), nameLower: name.toLowerCase(), urlLower: url.toLowerCase() });
-          }
-        }
-        timelineEntries = entries;
-        timelineIpCount = ips;
-        applyTimelineFilters(true);
-      } catch (err) {
-        const msg = String(err?.code || err?.message || "");
-        visitMoreWrap.style.display = "none";
-        if (/permission_denied|permission-denied/i.test(msg)) {
-          visitSummaryBadge.textContent = "Admin only";
-          visitContainer.textContent = "Visit logs are restricted by database rules to the site admin account.";
-        } else {
-          visitSummaryBadge.textContent = "Error";
-          visitContainer.textContent = "Failed to load visit timeline: " + (err?.message || err);
-        }
-      }
-    }
-
-    ipFilterEl.addEventListener("input", () => applyTimelineFilters(true));
-    sortOrderEl.addEventListener("change", () => applyTimelineFilters(false));
-    visitMoreBtn.addEventListener("click", () => { visitShownLimit += VISIT_PAGE_SIZE; applyTimelineFilters(false); });
-    refreshVisitsBtn.addEventListener("click", loadVisitTimeline);
-
-    // -------------------------------------------------------------------
     // Auth & initial boot
     // -------------------------------------------------------------------
     const initHash = location.hash.replace(/^#/, "");
-    if (["explorer", "storage", "visits"].includes(initHash)) activeTab = initHash;
+    if (["explorer", "storage"].includes(initHash)) activeTab = initHash;
 
     onAuthStateChanged(auth, async (user) => {
       authReady = true;
@@ -1597,7 +1458,6 @@
         scopeUserChip.textContent = "/public";
         setMoveButtonsState();
         loadRoot("/public");
-        if (activeTab === "visits") loadVisitTimeline();
       }
     });
   </script>
