@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- console.html is the console's ONE home since 2026-10-11 (the hub no longer holds it; ops\console-page\build_console_page.py is RETIRED) - edit THIS file directly. CRLF file. -->
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="version" content="1.0.388"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8"><meta name="version" content="1.0.389"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Droplet Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%92%AC%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
@@ -2246,6 +2246,30 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
                 + 'Switches which brain answers messages from tabs with no pencil model (Claude or Gemini). A tab with its own pencil model keeps it. '
                 + 'Chrome hands need a Claude-pencilled tab while the main brain is Gemini.';
             return true; };
+        // 1.0.389 LOCAL IN 🧠 (L 2026-11-27 "instead of having yuki or local listed [in Brains] ... just have it in the main dropdown"):
+        // the Local chat target (the bot, labelled with its name) is one more row of the 🧠 box - a group "Local" in main-brain mode, a
+        // flat row in the legacy box. It is a PER-DEVICE route (the hidden #dc-chat-target stays the state), not a daemon main brain: it
+        // must answer while the daemon is down. No daemon online = every other row greyed, so Local is the only pick. Runs after every
+        // paint of the box (DC.syncModelSel) and from syncTarget(); it only touches the DOM when something changed (an open picker stays).
+        const LOCAL_PICK = '__local';
+        DC.localOpt = () => {
+            const sel = document.getElementById('dc-model'), tsel = document.getElementById('dc-chat-target'); if (!sel || !tsel) return;
+            const lo = [...tsel.options].find(x => x.value === 'local' && !x.hidden);
+            let o = sel.querySelector('option[data-lo]');
+            const drop = () => { if (!o) return; const g = o.parentNode; o.remove(); if (g && g.tagName === 'OPTGROUP' && g.dataset.lo) g.remove(); o = null; };
+            if (!lo) { drop(); return; }
+            const grouped = !!sel.querySelector('optgroup[data-mb]');
+            if (o && ((o.parentNode.tagName === 'OPTGROUP') !== grouped)) drop();
+            if (!o) { o = document.createElement('option'); o.value = LOCAL_PICK; o.dataset.lo = '1';
+                if (grouped) { const og = document.createElement('optgroup'); og.label = 'Local'; og.dataset.lo = '1'; og.appendChild(o); sel.appendChild(og); } else sel.appendChild(o); }
+            else if ((grouped ? o.parentNode : o) !== sel.lastElementChild) sel.appendChild(grouped ? o.parentNode : o);   // stays the last row
+            const t = (lo.textContent.trim() || 'Bot') + ' (this device)'; o.dataset.base = t; if (o.textContent !== t) o.textContent = t;
+            const off = !DC.daemonOn && (!!DC.guest || !!DC.lastMeta);
+            [...sel.options].forEach(x => { if (x === o) return;
+                if (off) { if (!x.disabled) { x.disabled = true; x.dataset.lod = '1'; } }
+                else if (x.dataset.lod) { x.disabled = false; delete x.dataset.lod; } });
+            if (tsel.value === 'local') { sel.value = LOCAL_PICK; sel.disabled = false; sel.style.opacity = ''; }
+        };
         function editTab(oldName) {
             const w = document.createElement('div');
             w.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px';
@@ -5565,14 +5589,24 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             const tsel = $('#dc-chat-target'); if (!tsel) return;
             const has = v => Array.from(tsel.options).some(o => o.value === v && !o.hidden);
             if (!has(tsel.value)) tsel.value = has('droplet') ? 'droplet' : ((Array.from(tsel.options).find(o => !o.hidden) || {}).value || 'droplet');
-            if (DC.guest && !DC.userPickedTarget && has('local')) {
-                if (!DC.daemonOn && tsel.value === 'droplet') { tsel.value = 'local'; DC.autoLocal = true; }
+            // 1.0.389 (L 2026-11-27 "if theres a no provider situation have it just be local ... it auto switches"): the step down to
+            // Local is for EVERYONE now, not only guests, and a hand pick of Droplet no longer blocks it (Local is the only selectable
+            // row in 🧠 while no daemon answers). An owner waits for the first meta (DC.lastMeta) so a page load does not flip. The way
+            // back is unchanged: by itself when the daemon is online again, unless Local was picked by hand on this page.
+            let autoMsg = '';
+            if (has('local') && (DC.guest || DC.lastMeta)) {
+                if (!DC.daemonOn && tsel.value === 'droplet') { tsel.value = 'local'; DC.autoLocal = true; DC.userPickedTarget = false; autoMsg = 'down'; }
                 // 1.0.276 (L 11-21, Erik's messages stuck on 🦙 Local after Pulsar came back): back to their assistant whenever it is
                 // online and Local was NOT picked by hand on this page - also a Local restored by 🧠 Remember or set by a drawer tap
                 // (before, only a Local this page had switched to itself (autoLocal) ever went back, so a reload while the daemon was
                 // restarting left every later message on Local)
-                else if (DC.daemonOn && tsel.value === 'local') { tsel.value = 'droplet'; DC.autoLocal = false; }
+                else if (DC.daemonOn && tsel.value === 'local' && !DC.userPickedTarget) { tsel.value = 'droplet'; autoMsg = DC.autoLocal ? 'up' : 'q'; DC.autoLocal = false; }
             }
+            if (autoMsg) { try { document.dispatchEvent(new Event('dc-look')); } catch (_) {}   // the name top-left repaints (it only listens to a real change)
+                const st = $('#dc-chat-status'), lo = Array.from(tsel.options).find(o => o.value === 'local');
+                const msg = autoMsg === 'down' ? '🧠 no provider is up - ' + ((lo && lo.textContent.trim()) || 'Local') + ' answers on this device' : autoMsg === 'up' ? '🧠 provider is back - messages go to it again' : '';
+                if (st && msg) { st.textContent = msg; setTimeout(() => { if (st.textContent === msg) st.textContent = ''; }, 8000); } }
+            if (DC.syncModelSel) DC.syncModelSel(); else if (DC.localOpt) DC.localOpt();   // 🧠 box follows the target (Local row selected / providers greyed)
             const onLocal = !!DC.guest && tsel.value === 'local';
             const note = $('#dc-guest-note'); if (note) { note.hidden = true; note.textContent = ''; }   // L 2026-09-27: "I don't need this text present" - note kept in GUEST_LOCAL_NOTE, never shown
             // The mark follows the selected target. Toggled INLINE, not via relabelTargets():
@@ -6910,7 +6944,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // read from the session transcript, not from settings.json, whose default stops being true
             // the moment anyone runs /model. The row says "now: Opus" rather than "set to": it is an
             // observation, and the tooltip carries the id and its age so a stale one cannot pose as live.
-            DC.syncModelSel = () => {
+            DC.syncModelSel = () => { paintModelSel(); if (DC.localOpt) DC.localOpt(); };   // 1.0.389: the Local row rides every paint
+            const paintModelSel = () => {
                 const sel = $('#dc-model'), lbl = $('#dc-model-lbl'); if (!sel) return;
                 if (DC.mainBrainSel && DC.mainBrainSel()) { if (lbl) lbl.hidden = false; return; }   // 1.0.378 main-brain mode (daemon ability) owns the box; else it restores the legacy one
                 const mm = DC.lastMeta || {};
@@ -7943,6 +7978,12 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
             // put the box back to what Droplet is ACTUALLY in (not blank): the switch has been asked
             // for, not confirmed, and the published value only changes when a reply comes back on it.
             if (!e.isTrusted) return; const v = ms.value;
+            // 1.0.389 LOCAL IN 🧠: the Local row = this device's chat target (no daemon job, no /model). Any other row while on Local
+            // goes back to the provider first; picking the row that is already in use does only that.
+            { const tsl = $('#dc-chat-target'), go = (val, hand) => { tsl.value = val; DC.userPickedTarget = hand; DC.autoLocal = false; tsl.dispatchEvent(new Event('change', { bubbles: true })); };
+                if (v === '__local') { if (tsl && tsl.value !== 'local') go('local', true); else if (DC.syncModelSel) DC.syncModelSel(); return; }
+                if (tsl && tsl.value === 'local') { const o = ms.selectedOptions[0], inUse = !!o && / \(in use\)$/.test(o.textContent || '');
+                    go('droplet', false); if (inUse || v === (DC.defaultModel || '')) { if (DC.syncModelSel) DC.syncModelSel(); return; } } }
             // 1.0.378 MAIN BRAIN: on a daemon with meta.abilities.mainBrain a pick queues {kind:'main_brain', brain} (same job shape as wake) -
             // no /model typed, settings/defaultTabModel never touched. The option already in use = no job.
             if (kdAb('mainBrain')) { const mm = DC.lastMeta || {}, st = $('#dc-chat-status'), cur = String(mm.mainBrain || '') || 'claude:opus';
@@ -9383,6 +9424,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         const bk = d.querySelector('.dback'); if (bk) bk.hidden = v === 'list'; }
     window.__dcAside = v => { openDrawer(); asideView(v); };
     function drawerBrains() { const sel = $('#dc-chat-target'), b = $('#dc-brains'); if (!sel || !b) return;
+        // 1.0.389 (L 2026-11-27 "we can free up that spot"): Droplet / Local are picked in the 🧠 box now, so the block is gone
+        // unless another target is on (⌘ Command from ⚙) - then it lists them all as before.
+        { const extra = [...sel.options].some(o => !o.hidden && !o.disabled && o.value !== 'droplet' && o.value !== 'local');
+            const dr0 = $('#dc-drawer'); if (dr0) dr0.classList.toggle('no-brains', !extra); if (!extra) { b.innerHTML = ''; return; } }
         b.innerHTML = [...sel.options].filter(o => !o.hidden && !o.disabled).map(o => `<button type="button" class="dc-peer-row${o.value === sel.value ? ' on' : ''}" data-brain="${esc(o.value)}">${esc(brainIcon(o.value))} ${esc(o.textContent.trim())}</button>`).join('');
         // show ONE brain, swipe/scroll for the rest (L 2026-11-10: "squish the brains window to show only 1 instead of 2"; was 2 since 10-29)
         requestAnimationFrame(() => { const rows = b.children; if (rows.length < 2) { b.style.maxHeight = ''; return; }
@@ -9400,7 +9445,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
         sel.addEventListener('change', paint);
         document.addEventListener('dc-look', paint);   // icon saved in Settings -> top-left follows at once
         const dr = document.createElement('div'); dr.id = 'dc-drawer'; dr.dataset.view = 'list';
-        dr.innerHTML = '<div class="dh"><button type="button" class="dback" title="back to the chat list" hidden>‹</button><b title="triple-tap: browser">Chats</b><span class="sp"></span><button type="button" class="dbot" title="dock this pane at the bottom / back to the side (or drag its bar down / up)">⬓</button><button type="button" class="dx" title="hide this pane">✕</button></div><div class="ph drw-list">Brains</div><div id="dc-brains"></div>';
+        dr.innerHTML = '<div class="dh"><button type="button" class="dback" title="back to the chat list" hidden>‹</button><b title="triple-tap: browser">Chats</b><span class="sp"></span><button type="button" class="dbot" title="dock this pane at the bottom / back to the side (or drag its bar down / up)">⬓</button><button type="button" class="dx" title="hide this pane">✕</button></div><div class="ph drw-list ph-brains">Brains</div><div id="dc-brains"></div>';
         dr.appendChild(home);
         { const web = $('#dc-peer-web'); if (web) dr.appendChild(web); }      // the browser lives in the aside now
         { const sc = $('#dc-sys-col'); if (sc) dr.appendChild(sc); }          // and so does Settings (the System panels)
@@ -9529,6 +9574,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
 #dc-drawer > .ph{font-size:.66rem;text-transform:uppercase;letter-spacing:.12em;opacity:.55;margin:10px 12px 4px}
 #dc-drawer #dc-brains{padding:0 6px;flex:0 0 auto;overflow-y:auto;overscroll-behavior:contain;scroll-snap-type:y mandatory;position:relative}
 #dc-drawer #dc-brains>.dc-peer-row{scroll-snap-align:start}
+#dc-drawer.no-brains #dc-brains,#dc-drawer.no-brains .ph-brains{display:none!important}
 #dc-drawer #dc-peer-home{flex:1 1 auto;overflow:auto;padding:0 6px 8px}
 #dc-drawer .df{border-top:1px solid var(--border,#333);padding:6px}
 #dc-drawer .dc-peer-row.on{box-shadow:inset 3px 0 0 #40e0d0}
