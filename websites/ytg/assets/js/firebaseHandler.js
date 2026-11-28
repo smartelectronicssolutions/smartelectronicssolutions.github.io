@@ -3,7 +3,23 @@
 // pipeline — no passwords stored anywhere. The signed-in marker is the Identity Toolkit idToken + expiry (real session since 2026-11-08).
 
 const AUTH_KEY = "AIzaSyCv2cQGWeXS-w7psrQiZD8dn4R7hStmY1o"; // persinfo-df93f public web key
-const CONTACT_URL = "https://persinfo-df93f-default-rtdb.firebaseio.com/public/contactSubmissions.json";
+const PUBLIC_BASE_URL = "https://persinfo-df93f-default-rtdb.firebaseio.com/public";
+async function postPublicContactWithQuota(entry) {
+    for (let i = 0; i < 3; i++) {
+        const q = await (await fetch(PUBLIC_BASE_URL + "/_dailyQuota.json", { cache: "no-store" })).json();
+        const day = Math.floor(Date.now() / 86400000);
+        const count = (q && q.day === day ? Number(q.count || 0) : 0) + 1;
+        if (count > 50) throw new Error("Daily submission limit reached");
+        const key = "c_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7);
+        const res = await fetch(PUBLIC_BASE_URL + ".json", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ["contactSubmissions/" + key]: entry, _dailyQuota: { day, count } })
+        });
+        if (res.ok) return;
+    }
+    throw new Error("submit failed");
+}
 
 export function initializeFirebase() { /* no-op — nothing to init without the SDK; firebase-init.js (initializeAuth) and index.js still call it */ }
 
@@ -81,13 +97,7 @@ function attachRegisterEventListener() {
 
 // Forwards to the site's contact pipeline (Telegram + email) — no passwords stored anywhere.
 function registerNewUser(name, email, phone) {
-    return fetch(CONTACT_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, phone: phone || "", message: "YTG site registration request", timestamp: Date.now() })
-    }).then(res => {
-        if (!res.ok) throw new Error("submit failed");
-    });
+    return postPublicContactWithQuota({ name, email, phone: phone || "", message: "YTG site registration request", timestamp: Date.now() });
 }
 
 export { registerNewUser };

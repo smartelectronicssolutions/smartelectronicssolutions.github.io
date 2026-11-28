@@ -80,11 +80,22 @@
             };
             // Also push to Firebase -> yuki-chat-bridge forwards it to Telegram (@comppublic_bot) + email.
             // Fire-and-forget so a bridge/DB hiccup never blocks the email path.
-            fetch('https://persinfo-df93f-default-rtdb.firebaseio.com/public/contactSubmissions.json', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ...payload, timestamp: Date.now() })
-            }).catch(() => { });
+            (async () => {
+                const base = 'https://persinfo-df93f-default-rtdb.firebaseio.com/public';
+                for (let i = 0; i < 3; i++) {
+                    const q = await (await fetch(base + '/_dailyQuota.json', { cache: 'no-store' })).json();
+                    const day = Math.floor(Date.now() / 86400000);
+                    const count = (q && q.day === day ? Number(q.count || 0) : 0) + 1;
+                    if (count > 50) return;
+                    const key = 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+                    const r = await fetch(base + '.json', {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ['contactSubmissions/' + key]: { ...payload, timestamp: Date.now() }, _dailyQuota: { day, count } })
+                    });
+                    if (r.ok) return;
+                }
+            })().catch(() => { });
             try {
                 const res = await fetch('https://formsubmit.co/ajax/luis@smartelectronicssolutions.com', {
                     method: 'POST',
