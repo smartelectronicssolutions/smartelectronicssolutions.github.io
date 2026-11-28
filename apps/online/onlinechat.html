@@ -4,7 +4,7 @@
 <head>
   <script>(function(){try{if(localStorage.getItem("ss-theme")==="light")document.documentElement.classList.add("light");var c=localStorage.getItem("oc-colors");if(c==="burgundy"||c==="gray")document.documentElement.classList.add("c-"+c)}catch(e){}})();</script>  <!-- saved light/dark + colour set (1.6.0) before first paint (2026-10-01) -->
     <meta charset="UTF-8">
-    <meta name="version" content="1.6.20">
+    <meta name="version" content="1.6.22">
     <title>Live Chat</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <!-- 1.6.x PWA (like the console): Safari share -> Add to Home Screen opens full screen -->
@@ -1741,23 +1741,10 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             if (chatHistory.length > 12) chatHistory = chatHistory.slice(-12);
 
             try {
-                // Bypass LLM for outfit changes (see OUTFIT_REQUEST)
-                const fit = outfitWanted(question);
-                if (fit) {
-                    if (!fit.what) {
-                        outfitAsk = Date.now();
-                        const reply = 'Sure! What should I change into?';
-                        chatHistory.push({ role: 'assistant', content: reply }); sendMessage(BOT_NAME, reply, 'happy');
-                        return;
-                    }
-                    const msg = await requestOutfit('wearing ' + fit.what);
-                    const ok = !msg || /^changing/.test(msg);
-                    const reply = ok
-                        ? ['Okay, getting changed - give me a minute...', 'Be right back, changing...', 'Ooh, okay! One minute...'][Math.floor(Math.random() * 3)]
-                        : 'I can\'t change right now (' + msg + ').';
-                    chatHistory.push({ role: 'assistant', content: reply }); sendMessage(BOT_NAME, reply, ok ? 'happy' : 'thinking');
-                    return;
-                }
+                // 1.6.20: while {uid}/chat/bot/ctx === 2, send only chatHistory and let svc-brains (yuki_ctx + packs)
+                // build the prompt and run tools (matching console.html); any server refusal/failure falls back cleanly.
+                let ctx2 = false;
+                if (currentUser) { try { ctx2 = (await get(ref(database, `${currentUser.uid}/chat/bot/ctx`))).val() === 2; } catch { } }
 
                 // Bypass LLM for video requests — long-running, async
                 if (isAnimateReq) {
@@ -1775,35 +1762,55 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                     return;
                 }
 
-                // Bypass LLM for image requests — its content filter would refuse
-                if (isImgReq) {
-                    lastImageRequest = effectiveReq;
-                    nonImageCount = 0;
-                    const count = extractImageCount(question);
-                    const singles = [
-                        'Alright, just a moment...',
-                        'Okay, I\'ll try my best.',
-                        'Sure, here I go.',
-                        'Okay, here you go.',
-                        'Right now? Okay...'
-                    ];
-                    const multis = [
-                        `${count} of them? Okay, give me a sec...`,
-                        `${count}? Alright, here I go.`,
-                        `${count} pictures coming up...`,
-                        `Okay! ${count} pics, drawing now.`
-                    ];
-                    const pool = count > 1 ? multis : singles;
-                    const reply = pool[Math.floor(Math.random() * pool.length)];
-                    chatHistory.push({ role: 'assistant', content: reply });
-                    const msgKey = sendMessage(BOT_NAME, reply, 'flirty');
-                    botTyping.textContent = BOT_NAME + (count > 1 ? ` drawing ${count}...` : ' drawing...');
-                    for (let i = 0; i < count; i++) {
-                        botTyping.textContent = count > 1 ? `${BOT_NAME} drawing ${i+1}/${count}...` : BOT_NAME + ' drawing...';
-                        await generateBotImage(effectiveReq, msgKey);
+                // Legacy regex bypasses only when ctx2 is off (under ctx2, Yuki's media pack handles outfit & pictures in character)
+                if (!ctx2) {
+                    const fit = outfitWanted(question);
+                    if (fit) {
+                        if (!fit.what) {
+                            outfitAsk = Date.now();
+                            const reply = 'Sure! What should I change into?';
+                            chatHistory.push({ role: 'assistant', content: reply }); sendMessage(BOT_NAME, reply, 'happy');
+                            return;
+                        }
+                        const msg = await requestOutfit('wearing ' + fit.what);
+                        const ok = !msg || /^changing/.test(msg);
+                        const reply = ok
+                            ? ['Okay, getting changed - give me a minute...', 'Be right back, changing...', 'Ooh, okay! One minute...'][Math.floor(Math.random() * 3)]
+                            : 'I can\'t change right now (' + msg + ').';
+                        chatHistory.push({ role: 'assistant', content: reply }); sendMessage(BOT_NAME, reply, ok ? 'happy' : 'thinking');
+                        return;
                     }
-                    botTyping.textContent = '';
-                    return;
+
+                    // Bypass LLM for image requests — its content filter would refuse
+                    if (isImgReq) {
+                        lastImageRequest = effectiveReq;
+                        nonImageCount = 0;
+                        const count = extractImageCount(question);
+                        const singles = [
+                            'Alright, just a moment...',
+                            'Okay, I\'ll try my best.',
+                            'Sure, here I go.',
+                            'Okay, here you go.',
+                            'Right now? Okay...'
+                        ];
+                        const multis = [
+                            `${count} of them? Okay, give me a sec...`,
+                            `${count}? Alright, here I go.`,
+                            `${count} pictures coming up...`,
+                            `Okay! ${count} pics, drawing now.`
+                        ];
+                        const pool = count > 1 ? multis : singles;
+                        const reply = pool[Math.floor(Math.random() * pool.length)];
+                        chatHistory.push({ role: 'assistant', content: reply });
+                        const msgKey = sendMessage(BOT_NAME, reply, 'flirty');
+                        botTyping.textContent = BOT_NAME + (count > 1 ? ` drawing ${count}...` : ' drawing...');
+                        for (let i = 0; i < count; i++) {
+                            botTyping.textContent = count > 1 ? `${BOT_NAME} drawing ${i+1}/${count}...` : BOT_NAME + ' drawing...';
+                            await generateBotImage(effectiveReq, msgKey);
+                        }
+                        botTyping.textContent = '';
+                        return;
+                    }
                 }
 
                 if (lastImageRequest !== null) {
@@ -1811,33 +1818,33 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                     if (nonImageCount >= 3) { lastImageRequest = null; nonImageCount = 0; }
                 }
 
-                const systemPrompt = await buildContext(question);
-
                 const hdrs = { 'Content-Type': 'application/json' };
                 if (currentUser) { try { hdrs.Authorization = 'Bearer ' + await currentUser.getIdToken(); } catch { } }
-                const res = await fetch(OLLAMA_URL, {
-                    method: 'POST',
-                    headers: hdrs,
-                    body: JSON.stringify({
-                        model: BOT_MODEL,
-                        brain: BOT_BRAIN,   // 1.5.0: the server answers on Local if this brain can't run for this account
-                        stream: false,
-                        messages: [
-                            { role: 'system', content: systemPrompt },
-                            ...chatHistory
-                        ]
-                    })
-                });
-
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const data = await res.json();
+                const sendChat = async viaCtx2 => {
+                    const msgs = viaCtx2 ? chatHistory : [{ role: 'system', content: await buildContext(question) }, ...chatHistory];
+                    const ctl = new AbortController();
+                    const tmr = setTimeout(() => ctl.abort(), 180000);
+                    try {
+                        const res = await fetch(OLLAMA_URL, {
+                            method: 'POST', headers: hdrs, signal: ctl.signal,
+                            body: JSON.stringify({ model: BOT_MODEL, brain: BOT_BRAIN, stream: false, ...(viaCtx2 ? { ctx: 2 } : {}), messages: msgs })
+                        });
+                        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                        return await res.json();
+                    } finally { clearTimeout(tmr); }
+                };
+                let data, acts = null;
+                try { data = await sendChat(ctx2); } catch (e) { if (!ctx2) throw e; data = { ok: false, error: String((e && e.message) || e) }; }
+                if (ctx2 && data && data.ok === false) { console.info('[bot-ctx2] server said no, asking the old way:', data.error); data = await sendChat(false); }
+                else if (ctx2 && data) { acts = data.actions || null; }
                 if (data.brainNote) console.info('[brain]', data.brainNote);
                 const raw = data.message?.content?.trim() || 'U-um... I\'m not sure what to say...';
 
-                // Parse and strip mood tag
+                // Parse and strip mood tag (prefer server mood under ctx2)
+                const srvMood = data.mood && SPRITE_MOODS.includes(String(data.mood).toLowerCase()) ? String(data.mood).toLowerCase() : null;
                 const moodMatch = raw.match(/\[MOOD:(\w+)\]/i);
-                const mood = (moodMatch && SPRITE_MOODS.includes(moodMatch[1].toLowerCase()))
-                    ? moodMatch[1].toLowerCase() : detectMood(raw);
+                const mood = srvMood || ((moodMatch && SPRITE_MOODS.includes(moodMatch[1].toLowerCase()))
+                    ? moodMatch[1].toLowerCase() : detectMood(raw));
                 // Cap how many entries one reply can write, to bound prompt-injection blast radius.
                 let memWrites = 0;
                 for (const [, k, v] of raw.matchAll(/\[MEMORY:([^=\]]+)=([^\]]+)\]/gi)) { if (memWrites++ >= 10) break; saveBotMemory(k, v); }
@@ -1846,9 +1853,15 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                 const reply = cleanReply(raw.replace(/\[MOOD:\w+\]/gi, '').replace(/\[MEMORY:[^\]]+\]/gi, '').replace(/\[TRAIT:[^\]]+\]/gi, ''));
 
                 chatHistory.push({ role: 'assistant', content: reply });
-                sendMessage(BOT_NAME, reply, mood);
+                const msgKey = sendMessage(BOT_NAME, reply, mood);
 
-                if (isPersonalQ) {
+                if (acts && acts.outfit) {
+                    try { outfitNote('changing outfit\u2026'); pollOutfitJob(); } catch { }
+                }
+                if (acts && acts.picture && acts.picture.scene) {
+                    botTyping.textContent = BOT_NAME + ' drawing...';
+                    await generateBotImage(String(acts.picture.scene), msgKey, { thing: acts.picture.of_you === false });
+                } else if (!ctx2 && isPersonalQ) {
                     const moodScenes = {
                         happy: '(portrait:1.5), (face focus:1.4), smiling warmly, close-up',
                         sleepy: '(portrait:1.5), (face focus:1.4), sleepy expression, half-closed eyes, close-up',
@@ -1857,7 +1870,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                         flirty: '(portrait:1.5), (face focus:1.4), flirty, winking, close-up',
                     };
                     refreshBotAvatar(moodScenes[mood] || moodScenes.happy);
-                } else if (isImgReq) {
+                } else if (!ctx2 && isImgReq) {
                     botTyping.textContent = BOT_NAME + ' drawing...';
                     await generateBotImage(question);
                 }
@@ -2084,12 +2097,13 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             return userNegPrompt;
         }
 
-        async function generateBotImage(userRequest, afterKey = null) {
-            const isExplicit = userNsfw && EXPLICIT_REQUEST.test(userRequest);
-            const charPrompt = buildCharPrompt(isExplicit);
+        async function generateBotImage(userRequest, afterKey = null, opts = {}) {
+            const isThing = !!opts.thing;
+            const isExplicit = !isThing && userNsfw && EXPLICIT_REQUEST.test(userRequest);
+            const charPrompt = isThing ? '' : buildCharPrompt(isExplicit);
             const negPrompt  = buildNegPrompt(isExplicit);
             const scene = buildScenePrompt(userRequest);
-            const prompt = `${charPrompt}, ${scene}`;
+            const prompt = isThing ? scene : `${charPrompt}, ${scene}`;
 
             const hq = HQ_REQUEST.test(userRequest);
             try {
@@ -2103,7 +2117,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                             direct: true,
                             user_request: userRequest,
                             char_prompt: charPrompt,
-                            is_thing: false,
+                            is_thing: isThing,
                             is_explicit: isExplicit,
                             hq,
                             steps: hq ? 30 : 15,
